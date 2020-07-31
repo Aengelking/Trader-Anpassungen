@@ -1,0 +1,6 @@
+LOCAL objBanking :=  CreateObject("DataDesign.BACBanking")
+LOCAL objCustomer := objBanking:Customers(0)
+//Alert( Str(objBanking:Customers:Length) )
+Alert(objCustomer:Fields("Contact"))
+//objDialog := objCustomer:NewDialog("")
+//objDialog:BeginDialog(1, "", NIL )

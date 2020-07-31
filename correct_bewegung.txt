@@ -1,0 +1,7 @@
+NetUse("engbew",.F.,0)
+NetUse("engkund",.F.,0)
+ku->(dbSetOrder(( 2 ))
+
+ku->(dbSeek("K",.F.))
+
+Do While ! ku->(Eof()) .AND. ku->Group == "K"

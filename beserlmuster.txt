@@ -1,0 +1,10 @@
+NetUse("engebes","bes",.F.,0)
+
+Do While ! bes->(Eof())
+	If bes->Bestat < 3 .AND. bes->GelQty >= bes->beqty .AND. bes->EkPr == 3 //erledigte Muster
+		bes->(Rec_Lock(0))
+		bes->Bestat := 3
+		bes->(dbUnLock())
+	Endif
+	bes->(dbSkip())
+Enddo

@@ -1,0 +1,5 @@
+netUse("werkauf","wer")
+netUse("werks","we")
+NetUse("artikel","art")
+wer->(dbSeek( 5097 ))
+WAStatus()

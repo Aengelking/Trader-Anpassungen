@@ -1,0 +1,122 @@
+#define LX_CAT_DEBITOR          128
+#define LX_CAT_KREDITOR         256
+#include "y:\hb32\include\inkey.ch"
+
+LOCAL nKonto := 0
+LOCAL lDebitor
+LOCAL getlist := {}
+LOCAL lAbgeschlossen := .F.
+LOCAL nJahr
+
+
+LX_Start()
+
+DO WHILE .T.
+   Head("Offene Posten verrechnen")
+
+   @ 01,00 SAY "Konto" GET nKonto PICTURE "999999"
+   ATail(getlist):postBlock := {||
+      LOCAL nCat := LX_GetAccountCat(nKonto)
+      @ 01,14 CLEAR TO 01,MaxCol()
+      IF  nCat == LX_CAT_DEBITOR .OR. nCat == LX_CAT_KREDITOR
+         @ 01,14 SAY LX_GetAccountName(nKonto)
+         lDebitor := nCat == LX_CAT_DEBITOR
+      ELSE
+         @ 01,14 SAY "Kein Debitor oder Kreditor"
+         RETURN .F.
+      ENDIF
+      RETURN .T.
+   }
+   READ
+   If LastKey() == 27
+      RETURN
+   ENDIF
+
+   IF Tr_Getini(28) == 9 .AND. Tr_MsgBox("Auch abgeschlossene?",,{"Nein","Ja"}) == 2
+      lAbgeschlossen := .T.
+      nJahr := GetBox(Year(Date()),"Jahr","9999",,,,{|nJahr|nJahr>2005.AND.nJahr<=Year(Date())})
+      IF LastKey() == 27
+         LOOP
+      ENDIF
+   ELSE 
+      lAbgeschlossen := .F.
+   ENDIF
+   aOps := LX_GetOffenePosten(nKonto,lDebitor,nJahr,lAbgeschlossen)
+
+   IF Len(aOPs) == 0
+      Tr_MsgBox("Keine Offenenposten vorhanden")
+      LOOP
+   ENDIF
+   
+   @ MaxRow(),00 SAY t(">ENTER< - Aus-/Abwählen | >ALT-V< - Verrechnen")
+
+   aOps := ASort(aOps,,,{|x,y| x:Datum < y:Datum })
+   AEval(aOps,{|x| x["SELECTED"] := .F. })
+   oBrowse := TABrowse():New(02,00,MaxRow()-1,MaxCol())
+   oBrowse:OneColumn := .T.
+   oBrowse:ColorSpec := "N/W,G/B,R/W,R/B"
+   oBrowse:aData := aOps
+   oBrowse:AddKey(K_ESC,{|| .F. })
+   oBrowse:AddKey(K_ENTER,{|| oBrowse:CurrentDataRow():Selected := ! oBrowse:CurrentDataRow():Selected, .T. })
+   oBrowse:AddKey(K_ALT_V,{||
+      LOCAL x
+      LOCAL nTotal := 0,nLastNeg := 0,nLastPos := 0,nCount := 0
+
+      FOR EACH x IN aOps
+         nCount++
+         IF x:Selected
+            nTotal += x:Rest
+            IF x:Rest >= 0
+               nLastPos := nCount
+            ELSE
+               nLastNeg := nCount
+            ENDIF
+         ENDIF
+      NEXT
+      IF nCount > 0
+         IF (nTotal < 0 .AND. nTotal < aOps[nLastNeg]:Rest) .OR. (nTotal >= 0 .AND. nTotal > aOps[nLastPos]:Rest)
+            Tr_MsgBox(t("Restbetrag ("+LTrim(Str(nTotal))+") "+IF(nTotal<0,"kleiner","größer")+" als der letzte Betrag ("+LTrim(Str(IF(nTotal<0,aOps[nLastNeg]:Rest,aOps[nLastPos]:Rest)))+"). Verrechnung kann nicht durchgeführt werden"))
+            RETURN .T.
+         ENDIF
+         IF Tr_MsgBox("Summe: "+LTrim(Str(nTotal)),,{"abbrechen","verrechnen"}) == 2
+            nCount := 0
+            FOR EACH x IN aOps
+               nCount++
+               IF x:Selected
+                  IF (nTotal >= 0 .AND. nCount != nLastPos) .OR. (nTotal < 0 .AND. nCount != nLastNeg)
+                     x:Rest := 0
+                  ELSE
+                     x:Rest := nTotal
+                  ENDIF
+                  LX_SetOffenerPostenRest(x:Nr,x:Rest)
+                  x:Selected := .F.
+               ENDIF
+            NEXT
+            __DispTotal(aOps)
+         ENDIF
+      ENDIF
+      RETURN .T.
+   })
+   IF Tr_Getini(28) == 9
+      oBrowse:AddKey(K_ALT_E,{||
+         LOCAL nValue,nOrig
+         LOCAL x := oBrowse:CurrentDataRow()
+         nValue := GetBox(x:Rest,"Neuer Wert","@E 999,999.99")
+         IF LastKey() != 27
+            x:Rest := nValue
+            LX_SetOffenerPostenRest(x:Nr,x:Rest)
+         ENDIF
+      })
+   ENDIF
+   oBrowse:NewColumn("Datum",{|| DToC(oBrowse:CurrentDataRow():Datum) },{|| IF(oBrowse:CurrentDataRow():Selected,{3,4},{1,2}) } )
+   oBrowse:NewColumn("Buchungstext",{|| Pad(oBrowse:CurrentDataRow():Text,MaxCol()-4-8-12) })
+   oBrowse:NewColumn("Betrag",{|| Str(oBrowse:CurrentDataRow():Rest,12,2) })
+   oBrowse:bAnyFun := {|| __DispTotal(aOps) }
+   oBrowse:EventLoop()
+ENDDO
+
+STATIC FUNCTION __DispTotal(aOps)
+   LOCAL nTotal := 0
+   AEval(aOps,{|x| nTotal += x:Rest })
+   @ MaxRow(),MaxCol()-13 SAY Str(nTotal,12,2)
+RETURN .t.

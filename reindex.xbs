@@ -1,0 +1,52 @@
+*alert("Reindexing Englsre "+curdir()+curdrive())
+StartIE()
+cFile = "englsre"
+USE ("..\"+cFile) ALIAS re VIA "DBFNTX" EXCLUSIVE
+nI=1
+do while ( file(IndexFileName(cFile,nI)) )
+	*oIE:document:write("Opening "+IndexFileName(cFile,nI)+"<br>")
+	dbSetIndex(IndexFileName(cFile,nI))
+	*oIE:document:write(OrdKey(nI))
+	nI++
+enddo
+nI--
+oIE:document:write('Reindexing...<br/>')
+oIE:document:write('<div style="width: 400px; height: 30px; border: 1px solid black;"><div id="pbar" style="width: 1px; height: 30px; background-color: green;"></div></div>')
+oIE:document:write('<script type="text/javascript">function pbar(i){document.getElementById("pbar").style.width = i*4;}</script>')
+REINDEX EVAL IndexProgress() EVERY 10
+oIE:document:write('Finished')
+
+Function IndexProgress()
+   LOCAL nX := RECNO()/LASTREC()*100
+   *oIE:document:write('<script type="text/javascript">pbar('+str(nX)+');</script>'+str(nx)+"<br>")
+Return .T.
+
+Function IndexFileName(cFile,nI)
+return "..\ntx\"+cFile+"."+strzero(nI,3)
+
+Procedure StartIE
+PUBLIC oIE
+   oIE := CreateObject( "InternetExplorer.Application" )
+   oIE:Navigate( "about:blank" )
+
+   oIE:toolbar = .F.
+   oIE:StatusBar = .F.
+   oIE:Menubar = .f.
+   oIE:height = 300
+   oIE:width = 500
+   oIE:Resizable = .F.
+   oIE:visible = .T.
+
+   FOR i := 1 TO 50
+     nReady := oIE:ReadyState
+
+     IF nReady == 4
+        EXIT
+     ENDIF
+
+     WScript:Sleep( 100 )
+   NEXT
+Return NIL
+
+
+

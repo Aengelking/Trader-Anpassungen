@@ -33,7 +33,7 @@ Aadd(aAutoOC,{;
             aData[nX]:Pe := "100"
          NEXT
          //SInkey(0)
-         //Alert(ValToPrg(aData))
+         Alert(ValToPrg(aData))
          RETURN ProcessOCData(aData,Pad("WHTECH",8),hResults["AB"],Val(hResults["PO"]),,{"dd.mm.yyyy"},,.T.,,{|cPart| cPart } )
          //RETURN .T.
       ENDIF

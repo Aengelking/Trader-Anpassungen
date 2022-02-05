@@ -1,0 +1,6 @@
+PROC UPD_ABG_WA_LIEF
+   NetUse("engabg","abg")
+   cFilter := 'buart=="WA" .AND. ! Empty(beleg)'
+   abg->(dbSetFilter({|| abg->(&(cFilter))},cFilter))
+   ? abg->Besnr,abg->Beleg
+   abg->(dbClearFilter())

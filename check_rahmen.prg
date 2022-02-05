@@ -5,7 +5,7 @@ LOCAL aCustomers := {;
    "BESTAND"=>.F.,;
    "EMAILS"=>{;
       {"hans-peter.hollenbach@bachmann.com","Hans-Peter Hollenbach"},;
-      {"Cristina.Tutuianu@bachmann.ro","Cristina Tutuianu"},;
+      {"Cristina.Tutuianu@bachmann.com","Cristina Tutuianu"},;
       {"thimo.hamma@engelking.de","Thimo Hamma","CC"},;
       {"joel.engelking@engelking.de","Joel Engelking","CC"};
    },;

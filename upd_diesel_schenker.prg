@@ -1,38 +1,51 @@
-LOCAL cUrl,oHttp
-LOCAL cDate,aMatches
-LOCAL dDate,nPer
+#include 'y:\hb34\contrib\hbcurl\hbcurl.ch'
 
-//cUrl := "https://www.logistics.dbschenker.de/log-de-de/produkte-services/landverkehre/dieselzuschlag_floating/1978120/dieselzuschlag.html"
-//cUrl := "https://www.logistics.dbschenker.de/log-de-de/produkte-services/landverkehre/nebengebuehren/dieselzuschlag_floating/1978120/dieselzuschlag.html"
-//cUrl := "https://www.dbschenker.de/log-de-de/produkte-services/landverkehre/nebengebuehren/dieselzuschlag_floating/1978120/dieselzuschlag.html"
-cUrl := "https://www.dbschenker.com/de-de/produkte/landverkehre/stueckgut-international/diesel-floating"
-oHttp := TIpClientHttp():new( cUrl )
-oHttp:nConnTimeout := 10000
-IF oHttp:open()
-   cData := oHttp:ReadAll()
+PROCEDURE RUN_UPD_DIESEL_SCHENKER
+   LOCAL cUrl := "https://www.dbschenker.com/de-de/produkte/landverkehre/stueckgut-international/diesel-floating"   
+   LOCAL cData,aMatches
+   LOCAL dDate,nPer,nX
+   LOCAL pCurl := Curl_Easy_Init()
+   LOCAL lUpdated := .F.,cRow,aRows
+
+   //cUrl := "https://www.logistics.dbschenker.de/log-de-de/produkte-services/landverkehre/dieselzuschlag_floating/1978120/dieselzuschlag.html"
+   //cUrl := "https://www.logistics.dbschenker.de/log-de-de/produkte-services/landverkehre/nebengebuehren/dieselzuschlag_floating/1978120/dieselzuschlag.html"
+   //cUrl := "https://www.dbschenker.de/log-de-de/produkte-services/landverkehre/nebengebuehren/dieselzuschlag_floating/1978120/dieselzuschlag.html"
+
+   curl_easy_setopt(pCurl, HB_CURLOPT_SSL_VERIFYPEER,0)
+   curl_easy_setopt(pCurl, HB_CURLOPT_DL_BUFF_SETUP )
+   curl_easy_setopt(pCurl, HB_CURLOPT_URL, cUrl )
+   Curl_Easy_Perform(pCurl)
+   curl_easy_setopt(pCurl, HB_CURLOPT_DL_BUFF_GET, @cData )
+   
+   Curl_Easy_CleanUp(pCurl)  
+   
    aMatches := HB_Regex('<table>(.*)</table',cData)
    IF Len(aMatches) < 2
       _Schenker_Error("Keine Daten erhalten<br>"+cData)
    ELSE
       cData := aMatches[2]
-
-      aMatches := HB_RegexAll("<tr[^<]*<td[^>]*>([^<]*)</td>[\s]*<td[^>]*>[^<]*</td>[\s]*<td[^>]*>[^<]*</td>[\s]*<td[^>]*>([0-9,]*)%</td>[\s]*<td[^>]*>([0-9.]*)</td>",cData)
+      aRows := HB_RegexSplit("<tr>",cData)
       NetUse("diesel_schenker","ds_sch")
-      FOR nX := 1 TO Len(aMatches)
-         dDate := CToD(aMatches[nX,4])
-         nPer  := Val(StrTran(aMatches[nX,3],",","."))
-         IF ! ds_sch->(dbSeek( DToS(dDate) ))
-            ds_sch->(Add_Rec())
-            ds_sch->From := dDate
-            ds_sch->Percent := nPer
-            ds_sch->(dbUnLock())
+      
+      FOR EACH cRow IN aRows
+         aMatches := HB_Regex("([-0-9,]*)%.*([0-9]{2}\.[0-9]{2}\.[0-9]{4})",cRow)
+         IF Len(aMatches) >= 2
+            dDate := CToD(aMatches[2])
+            nPer  := Val(StrTran(aMatches[1],",","."))
+            IF ! ds_sch->(dbSeek( DToS(dDate) ))
+               ds_sch->(Add_Rec())
+               ds_sch->From := dDate
+               ds_sch->Percent := nPer
+               ds_sch->(dbUnLock())
+            ENDIF
+            lUpdated := .T.
          ENDIF
       NEXT
+      IF ! lUpdated
+         _Schenker_Error("Keine Daten eingelesen<br>"+cData)
+      ENDIF
    ENDIF
-ELSE
-   _Schenker_Error("Keine Verbindung")
-ENDIF
-oHttp:close()
+RETURN
 
 STATIC Function _Schenker_Error(cError)
    IF GetConfigValue("BATCHMODE")

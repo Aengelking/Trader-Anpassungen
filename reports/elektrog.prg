@@ -8,6 +8,8 @@ FUNCTION RUN_REPORT_ELEKTROG
    LOCAL nJahr := Year(Date())
    LOCAL getlist := {}
    LOCAL lIT
+   LOCAL lNoWeight := .F.
+   LOCAL nTotIT := 0,nTot := 0
 
    IF nMonat == 0
       nJahr--
@@ -66,9 +68,25 @@ FUNCTION RUN_REPORT_ELEKTROG
             lIT := .F.
          ENDIF
          Aadd(aData,{Trim(art->Matchcode),art->Artikelnr,nGewicht,IF(!lIT,nGewicht,0),IF(lIt,nGewicht,0),IF(art->Gewicht==0,"Kein Gewicht vorhanden ("+LTrim(Transform(nMenge,Me(art->Me)))+art->Me+")","")})
+         IF lIT
+            nTotIT += nGewicht
+         ELSE
+            nTot += nGewicht
+         ENDIF
+         IF art->Gewicht==0
+            lNoWeight := .T.
+         ENDIF
       ENDIF
    NEXT
 
    SaveAsCSVInterface(aData)
+
+   IF lNoWeight
+      Tr_MsgBox("Artikel ohne Gewicht vorhanden! Bitte prÅfen.")
+   ELSE
+      @ 03,00 SAY "KleingerÑte (5.1)  "+Str(nTot,8,2)+"kg"
+      @ 04,00 SAY "KleingerÑte IT (6) "+Str(nTotIT,8,2)+"kg"
+      Sinkey(0)
+   ENDIF
 
 RETURN NIL

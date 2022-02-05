@@ -2,18 +2,50 @@
 #include 'hbclass.ch'
 
 FUNCTION RUN_FREPPLE_CURL
-   //LOCAL pCurl := Curl_Easy_Init()
-   LOCAL cBaseUrl := "https://engelking.frepple.com/scenario2/execute/"
-   LOCAL cUser := "API"
-   LOCAL cPW   := "zDiHTeiN54HyrPE"
    LOCAL cCmd,cDir,aFiles,nX,nProc,cLine,cData,nBytes,nStdOut
+   LOCAL aBucket,aBuckets := {}
+   LOCAL oFrepple
+   LOCAL aOldBuckets ,aOldBucket        
 
-   //LOCAL cScenario := "scenario2"  
-
-   LOCAL oFrepple := FreppleApi():New(cBaseUrl,cUser,cPW)
+   oFrepple := GetFreppleApi()  
 
    Head("Update frePPLe")
-   
+
+   //? "Deleting calendar buckets "
+   ? "Downloading existing calendar buckets "
+   aOldBuckets := oFrepple:getCalendarBuckets()
+   IF Len(aOldBuckets) > 0
+      aBucket := {}
+      FOR nX := 1 TO Len(aOldBuckets[1])         
+         Aadd(aBucket,HGetKeyAT(aOldbUckets[1],nX))
+      NEXT
+      Aadd(aBuckets,aBucket)
+      FOR EACH aOldBucket IN aOldBuckets
+         IF ":" $  aOldBucket["calendar"]
+            //@ Row(),27 SAY aOldBucket["id"]
+            //oFrepple:deleteCalendarBucket(aOldBucket["id"])
+         ELSE
+            //@ Row(),27 SAY "Save"+Str(aOldBucket["id"])
+            //? ""
+            aBucket := {}
+            FOR nX := 1 TO Len(aOldBucket)
+               IF HGetKeyAT(aOldbUcket,nX) $ {"startdate","enddate"} .AND. ValType(HGetValueAt(aOldBucket,nX)) == "C"
+                  //? ValType(HGetValueAt(aOldBucket,nX)),HGetValueAt(aOldBucket,nX)
+                  Aadd(aBucket,StrTran(HGetValueAt(aOldBucket,nX),"T"," "))
+               ELSEIF ValType(HGetValueAt(aOldBucket,nX)) == "L"
+                  Aadd(aBucket,IF(HGetValueAt(aOldBucket,nX),"true","false"))
+               ELSE
+                  Aadd(aBucket,HGetValueAt(aOldBucket,nX))   
+               ENDIF
+               
+            NEXT
+            Aadd(aBuckets,aBucket)
+         ENDIF      
+      NEXT
+   ENDIF
+   ?? "DONE"
+   SaveAsCSV(Path("export\frepple\calendar buckets.csv"),aBuckets,.T.,.T.)
+
    ? "Clear existing data. "
    IF ! oFrepple:waitEndOfTask(oFrepple:Empty(),Row(),Col())
       Alert("failed")
@@ -31,14 +63,16 @@ FUNCTION RUN_FREPPLE_CURL
 
    ? "Upload files"
    //this is easier over the cmd line
-   cCmd := "C:\Curl\bin\curl -u "+cUser+":"+cPW+" -X POST -k"
+   cCmd := "C:\Curl\bin\curl -u "+oFrepple:cUser+":"+oFrepple:cPW+" -X POST -k"
    cDir := "x:\export\frepple\"
-   aFiles := {"item.csv","supplier.csv","buffer.csv","customer.csv","sales order.csv","item supplier.csv","purchase order.csv","manufacturing order.csv","operation material.csv","operation.csv","item distribution.csv","operation resource.csv"}
+   aFiles := {"item.csv","supplier.csv","buffer.csv","customer.csv","sales order.csv","item supplier.csv",;
+               "purchase order.csv","manufacturing order.csv","operation material.csv","operation.csv","item distribution.csv",;
+               "operation resource.csv","resource.csv","calendar.csv","calendar buckets.csv","calendar bucket.csv","resource detail.csv"}
 
    FOR nX := 1 TO Len(aFiles)
       cCmd += ' -F "'+aFiles[nX]+"=@"+cDir+aFiles[nX]+'"'
    NEXT
-   cCmd += " "+cBaseUrl+" "+'"https://engelking.frepple.com/scenario2/execute/uploadtofolder/0/"'
+   cCmd += ' "'+oFrepple:cBaseUrl+'/execute/uploadtofolder/0/"'
    cData := ""
    nProc := HB_OpenProcess(cCmd,,@nStdOut,,.T.)
    DO WHILE HB_ProcessValue(nProc,.F.) == -1
@@ -46,8 +80,7 @@ FUNCTION RUN_FREPPLE_CURL
       nBytes := Fread( nStdOUT, @cLine, Len(cLine) )
       cData += SubStr(cLine,1,nBytes)
    ENDDO
-   ? cData 
-   gtSetClipboard(cCmd)
+   ? " ",StrTran(StrTran(StrTran(cData,"<strong>",""),"</strong>",""),"<br>",Chr(13)+Chr(10)+"  ")
    
    ? "Importing data. "
    IF ! oFrepple:waitEndOfTask(oFrepple:ImportFromFolder(),Row(),Col())  
@@ -61,14 +94,32 @@ FUNCTION RUN_FREPPLE_CURL
       RETURN NIL
    ENDIF
 
-   ? "Executing plan a second time (until the bug with the manufacturing orders is solved). "
+   /*? "Executing plan a second time (until the bug with the manufacturing orders is solved). "
    IF ! oFrepple:waitEndOfTask(oFrepple:RunPlan(),Row(),Col())
       Alert("failed")
       RETURN NIL
-   ENDIF
-   //oFrepple:taskStatus(544)
-   //curl_mime_addpart()
+   ENDIF*/
 
+   /*? "Exporting results "
+   IF ! oFrepple:waitEndOfTask(oFrepple:ExportToFolder(),Row(),Col())
+      Alert("failed")
+      RETURN NIL
+   ENDIF*/
+
+   ? "Downloading file"
+   cDir := "x:\import\frepple\"
+   aFiles := {"manufacturingorder.csv"}
+   FOR nX := 1 TO Len(aFiles)
+      ? Space(5),aFiles[nX]
+      cData := oFrepple:DownloadFromFolder(aFiles[nX])
+      //Alert(cData)
+      IF ! MemoWrit(cDir+aFiles[nX],cData)
+         ?? " failed"
+      ELSE
+         ?? " OK"
+      ENDIF
+   NEXT
+   
    Alert("done")
 
    //curl_easy_setopt(pCurl, HB_CURLOPT_POSTFIELDS, BuildPostMessage({"symbol"=>Trim(IF(!Empty(cArtLief),cArtLief,cMatch)),"brutto"=>"","similars"=>{20523,188368,81144,92165,92145} }))
@@ -77,32 +128,58 @@ FUNCTION RUN_FREPPLE_CURL
 
 RETURN NIL
 
+FUNCTION GetFreppleApi()
+   LOCAL cBaseUrl := "https://engelking.frepple.com/"
+   LOCAL cUser := "API"
+   LOCAL cPW   := "zDiHTeiN54HyrPE"
+   LOCAL cScenario := GetValue("FREPPLE_SCENARIO","scenario2","Scenarion to upload to")
+   LOCAL oFrepple := FreppleApi():New(cBaseUrl,cUser,cPW,cScenario)
+
+   oFrepple:nTimeout := GetValue("FREPPLE_UPLOAD_TIMEOUT",240,"Cancel task after x seconds")
+RETURN oFrepple
+
    CLASS FreppleApi
       METHOD New
+         
       METHOD runPlan
       METHOD Empty
       METHOD DeleteUploads
       METHOD UploadToFolder
       METHOD taskStatus
       METHOD ImportFromFolder
+      METHOD ExportToFolder
+      METHOD DownloadFromFolder
       METHOD waitEndOfTask
+         //methods based on the REST API
+      METHOD getCalendarBuckets
+      METHOD deleteCalendarBucket
+      METHOD getManufacturingOrders
+      METHOD patchManufacturingOrder
 
-      DATA nTimeout INIT 60 //Timeout in seconds
+      DATA nTimeout INIT 240 //Timeout in seconds
       
 
-      HIDDEN:
+      //HIDDEN:
       DATA pCurl
       DATA cBaseUrl
+      DATA cScenario INIT ""
+      DATA cScenarioUrl INIT ""
       DATA cUser
       DATA cPW
 
       METHOD Execute
    ENDCLASS
 
-   METHOD New(cBaseUrl,cUser,cPW)
+   METHOD New(cBaseUrl,cUser,cPW,cScenario)
       ::cBaseUrl := cBaseUrl
       ::cUser := cUser
       ::cPW := cPW
+      ::cScenario := cScenario
+      IF Upper(::cScenario) != "DEFAULT" .OR. Empty(::cScenario)
+         ::cScenarioUrl := ::cScenario+"/"
+      ELSE
+         ::cScenarioUrl := ""
+      ENDIF
 
       /*::pCurl := Curl_Easy_Init()
 
@@ -114,10 +191,10 @@ RETURN NIL
    RETURN self
 
    METHOD RunPlan
-   RETURN ::Execute("api/runplan/?constraint=13&plantype=1&env=supply")["taskid"]
+   RETURN ::Execute(::cScenarioUrl+"/execute/api/runplan/?constraint=13&plantype=1&env=supply")["taskid"]
 
    METHOD Empty()
-      LOCAL cUrl := "api/empty/?models="
+      LOCAL cUrl := ::cScenarioUrl+"/execute/api/empty/?models="
       LOCAL aModels := {}
       
       Aadd(aModels,"input.demand") //Sales - Sales orders
@@ -134,20 +211,28 @@ RETURN NIL
       Aadd(aModels,"input.suboperation") //Manufacturing - Suboperation
       Aadd(aModels,"input.operation") //Manufacturing - Operations
       Aadd(aModels,"input.buffer") //Inventory - Buffers
+      Aadd(aModels,"input.calendarbucket")
       
 
       AEval(aModels,{|x,n| cUrl += IF(n>1,",","")+x })
 
+      
    RETURN ::Execute(cUrl)["taskid"]
 
    METHOD DeleteUploads
-   RETURN ::Execute("deletefromfolder/0/AllFiles/","DELETE",,.F.) == "OK"
+   RETURN ::Execute("execute/deletefromfolder/0/AllFiles/","DELETE",,.F.) == "OK"
 
    METHOD UploadToFolder(hFiles)
-   RETURN ::Execute("uploadtofolder/0/",,hFiles,.F.)         
+   RETURN ::Execute("execute/uploadtofolder/0/",,hFiles,.F.)         
 
    METHOD ImportFromFolder
-   RETURN ::Execute("api/importfromfolder/")["taskid"]
+   RETURN ::Execute(::cScenarioUrl+"/execute/api/importfromfolder/")["taskid"]
+
+   METHOD ExportToFolder
+   RETURN ::Execute(::cScenarioUrl+"/execute/api/exporttofolder/")["taskid"]
+
+   METHOD DownloadFromFolder(cFile)
+   RETURN ::Execute("execute/downloadfromfolder/1/"+cFile+"/","GET",,.F.)
 
    METHOD waitEndOfTask(nTaskid,nRow,nCol)
       LOCAL cStatus
@@ -165,24 +250,42 @@ RETURN NIL
          ELSEIF cStatus == "Failed" .OR. cStatus == "Canceled"
             RETURN .F.
          ENDIF
-         HB_IdleSleep(5)
+         //HB_IdleSleep(5)
+         Inkey(5,128)
       NEXT
+      //Timeout reached, we attempt to cancel the task
+      //::cancelTask(nTaskid)
 
    RETURN .F.
 
+   
+
    METHOD taskStatus(nTaskId)
-      LOCAL cUrl := "api/status/?id="+LTrim(Str(nTaskid))
+      LOCAL cUrl := ::cScenarioUrl+"/execute/api/status/?id="+LTrim(Str(nTaskid))
       LOCAL cStatus := ::Execute(cUrl)[LTrim(Str(nTaskId))]["status"]
       
    RETURN cStatus
 
+   METHOD getCalendarBuckets()
+   RETURN HB_JSonDecode(::Execute(::cScenarioUrl+"api/input/calendarbucket/","GET",,.F.))
+
+   METHOD deleteCalendarBucket(nId)
+   RETURN ::Execute(::cScenarioUrl+"api/input/calendarbucket/"+LTrim(Str(nId))+"/","DELETE",,.F.)
+
+   METHOD getManufacturingOrders()
+   RETURN HB_JSonDecode(::Execute(::cScenarioUrl+"api/input/manufacturingorder/","GET",,.F.))
+
+   METHOD patchManufacturingOrder(cId,hData)
+   //RETURN HB_JSonDecode(::Execute(::cScenarioUrl+"api/input/manufacturingorder/"+cId+"/","PATCH",hData,.F.))
+RETURN ::Execute(::cScenarioUrl+"api/input/manufacturingorder/"+cId+"/","PATCH",hData,.F.)
 
 
-   METHOD Execute(cUrl,cMethod,hFiles,lJson)
+   METHOD Execute(cUrl,cMethod,hData,lJson)
       LOCAL cData
       LOCAL aReturn
-      LOCAL cFileData
+      LOCAL cPostData
       LOCAL oErr
+      
 
       Default(@cMethod,"POST")
       Default(@lJson,.T.)
@@ -192,25 +295,44 @@ RETURN NIL
       curl_easy_setopt(::pCurl, HB_CURLOPT_SSL_VERIFYPEER,0)
       curl_easy_setopt(::pCurl, HB_CURLOPT_USERNAME, ::cUser )
       curl_easy_setopt(::pCurl, HB_CURLOPT_PASSWORD, ::cPW )
-      IF cMethod == "POST"
+      IF cMethod == "POST" 
          curl_easy_setopt(::pCurl, HB_CURLOPT_POST, 1)
-      ELSEIF cMethod == "DELETE"
-         curl_easy_setopt(::pCurl, HB_CURLOPT_CUSTOMREQUEST, "DELETE")
+      ELSEIF cMethod != "GET"
+         curl_easy_setopt(::pCurl, HB_CURLOPT_CUSTOMREQUEST, cMethod)  
+         curl_easy_setopt(::pCurl, HB_CURLOPT_HTTPHEADER, {"Content-Type: application/json"})       
       ENDIF
       curl_easy_setopt(::pCurl, HB_CURLOPT_DL_BUFF_SETUP )
       curl_easy_setopt(::pCurl, HB_CURLOPT_URL, ::cBaseUrl+cUrl )
 
-      IF ValType(hFiles) == "H"
+      /*IF ValType(hFiles) == "H"
          //curl_easy_setopt(::pCurl, HB_CURLOPT_HTTPHEADER, {'Content-Type: multipart/form-data;boundary="boundary"'})
          FOR EACH cFileData IN hFiles
             
          NEXT
+      ENDIF*/
+      IF ! Empty(hData)
+         cPostData := HB_JsonEncode(hData)                       
+         curl_easy_setopt(::pCurl, HB_CURLOPT_POSTFIELDS, cPostData)         
       ENDIF
       
-      
+          
       //nErr := 
-      Curl_Easy_Perform(::pCurl)
-      curl_easy_setopt( ::pCurl, HB_CURLOPT_DL_BUFF_GET, @cData )
+      //Curl_Easy_Perform(::pCurl)
+      /*IF ! Empty(cPostData) .AND. cMethod != "POST"
+         curl_easy_setopt( ::pCurl, HB_CURLOPT_CONNECT_ONLY, .T. )
+         Curl_Easy_Perform(::pCurl)
+         
+         Str(curl_easy_send(::pCurl,cPostData,@nSent))
+         IF nSent < Len(cPostData)
+            Alert("ERROR Sending data")
+         ENDIF
+         curl_easy_recv(::pCurl,@cData)
+         //Alert(cError)
+      ELSE*/
+         Curl_Easy_Perform(::pCurl)
+         curl_easy_setopt( ::pCurl, HB_CURLOPT_DL_BUFF_GET, @cData )
+      //ENDIF
+      
       
       /*
       Alert(::cBaseUrl+cUrl)
@@ -231,6 +353,18 @@ RETURN NIL
          oErr:SubSystem   := "frePPLe-API"
          oErr:Description := "Error executing command."
          oErr:Args        := {cUrl,cData}
-         Throw(oErr)         
+         Throw(oErr)   
+      ELSEIF ! HHasKey(aReturn,"taskid") .AND. HHasKey(aReturn,"message")
+         oErr := ErrorNew()
+         oErr:SubSystem   := "frePPLe-API"
+         oErr:Description := aReturn["message"]
+         oErr:Args        := {cUrl,cData}
+         Throw(oErr)
       ENDIF
    RETURN aReturn
+
+   FUNCTION Frep_StoT(cDate)
+      IF Empty(cDate)
+         RETURN STOT("")
+      ENDIF
+   RETURN StoT(StrTran(StrTran(StrTran(StrTran(cDate,"-",""),":","")," ",""),"T",""))

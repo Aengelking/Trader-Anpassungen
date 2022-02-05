@@ -1,6 +1,13 @@
+
+#include 'y:\hb34\contrib\hbcurl\hbcurl.ch'
+
+PROC RUN_CONRAD_IMPORT
 LOCAL cUrl,nCount,lSuccess
 LOCAL aData,oHttp
 LOCAL cArtLief,cMatch
+LOCAL cData
+LOCAL pCurl := Curl_Easy_Init()
+LOCAL aHeader := {"accept: application/json, text/plain"}
 
 NetUse("artlief","ali",.F.,0)
 NetUse("artikel","art",.F.,0)
@@ -13,9 +20,11 @@ hParts := {=>}
    DO WHILE .T.
       ? "Seite: "+Ltrim(Str(nNo))
       //cUrl := "https://www.conrad.biz/de/Search.html?search="+aBrands[nX]+"&searchType=REGULAR&page="+LTrim(Str(nNo))
-      cUrl := "https://www.conrad.biz/de.search.json"
+      cUrl := "https://api.conrad.de/search/1/v3/facetSearch/de/de/b2b?&optimizegaexp=GAX1.2.AfbtF5n9RlGhRmxr-_Tz1Q.18913.1!l20bl1roSjmxe6gJngdrNw.18913.1!wzUc_3pTQLq8YwTLlwow4w.18900.0"
+      //cUrl := "https://www.conrad.biz/search/1/v3/facetSearch/de/de/b2b?"
+      //cUrl += "apikey=eB6SoveLt6wWbRQuIeYtZnBAL6lUo38b"
 
-      aData := {=>}
+      /*aData := {=>}
       aData["query"] := ""
       aData["disabledFeatures"] := {"cut_results","category_ids"}
       aData["from"] := (nNo-1)*200
@@ -31,18 +40,28 @@ hParts := {=>}
       oHttp := TIpClientHttp():new( cUrl )
       oHttp:nConnTimeout := 10000
       oHttp:hFields["Content-Type"] := "application/json;charset=UTF-8"
-      oHttp:hFields["Accept"] := "application/json;charset=UTF-8"
-//      oHttp:hFields["Cookie"] := "optimizelyEndUserId=oeu1487684964278r0.70601101010659; sessionid=e0dd9142-6e6c-48af-9e40-fe3496679053; AMCVS_5ADE1335537E10800A490D4D%40AdobeOrg=1; s_ce074=A; _hjIncludedInSample=1; s_ce074b=A; login-token=login%3aSCHLUESSEL_ENTFERNT%3acrx.default; ccp_dscs=eyJkZWxpdmVyeVR5cGUiOiJiYXNpcy5kZWxpdmVyeSIsIlBBWU1FTlRfUEFVU0VfVkFMVUUiOiIifQ==; test=testcookie; ccp_lscs=eyJwc3VpZCI6Ijg1ZWFiZTYyMTk2YjAzMDA5ZGJmNGQxZGM4MTg2YjBmIiwidHJhY2tpbmdJZCI6IjY4NDc2MzJmLWQwMGEtNGNjYi1iNjA3LTI1ZGNlYmIxMzdmZCIsImxhc3Qtc2Vlbi1wcm9kdWN0cyI6WyI3MDA0NDMiLCI3NDA0MzEiLCIxMzg0ODA4IiwiNzQwNTM4IiwiNzQwNjA0Il19; s_lastvisit=1491602802004; AMCV_5ADE1335537E10800A490D4D%40AdobeOrg=2096510701%7CMCIDTS%7C17264%7CMCMID%7C38891254143895566491593302685218797466%7CMCAAMLH-1492173182%7C6%7CMCAAMB-1492207608%7CNRX38WO0n5BH8Th-nqAG_A%7CMCOPTOUT-1491610008s%7CNONE%7CMCAID%7C2A116F438530CA3E-6000030720023677%7CMCSYNCSOP%7C411-17271%7CvVersion%7C2.0.0; s_sq=%5B%5BB%5D%5D; s_nr=1491603565870-Repeat; s_cc=true; s_ppvl=Suchergebnisse%2C100%2C100%2C960%2C1920%2C560%2C1920%2C1080%2C1%2CP; s_ud=6d663fa8544daa56acce2b9e17b5ddb9; s_ts=20170407221923; _ga=GA1.2.1611678660.1486132049; AlteonP=AP/gZNPzGqxX0y0GlxemKQ$$; ccp_scs=9ozy39uodwFv2bnYsI4OvHIZ_0sFQL_T2JZSRAbEkbckjOFWLTIr76gnNkjoQufESQFNFP9twYY4HZvoYS5UScYAJSUcKhdkbigZzW_C96KTF-UKze19DliuiNXaV7YIv_uZmoC3OzgIjkOqgI0MG7jfISyB7eU55rnl9cpsxHb7hsPcnqjjRmaeJ9sd2cGDwmj9Tqg3NxzLx-T3RCtIaTtOD4GfAVtDkLUTSLzWuQ5IKJpPvQx0nZz3LFB8y3d2BwWc_pAofYHZia6ecPGVTLURSGljop3UeZGFGw5FOvJi0uBEyXkhTi6cDYUjBPAX; s_ppv=Suchergebnisse%2C15%2C8%2C978%2C1920%2C560%2C1920%2C1080%2C1%2CP; ccp_sscs=eyJwYWdlQWN0aW9uSWQiOiJhYmMyOTlhMC1hZWU3LTRhZmUtOWQwNC1iZDcwMWE3YjFmYjYifQ==; optimizelySegments=%7B%228215093343%22%3A%22direct%22%2C%228216658729%22%3A%22false%22%2C%228222542708%22%3A%22none%22%2C%228222493885%22%3A%22gc%22%7D; optimizelyBuckets=%7B%228286265034%22%3A%228286920801%22%2C%228293033310%22%3A%228292042628%22%7D; optimizelyPendingLogEvents=%5B%5D"
-      //? HB_JsonEncode(aData)
+      oHttp:hFields["Accept"] := "application/json;charset=UTF-8"*/
+      
 
-      If oHttp:open()
+      curl_easy_setopt(pCurl, HB_CURLOPT_HTTPHEADER, aHeader )
+      curl_easy_setopt(pCurl, HB_CURLOPT_SSL_VERIFYPEER,0)
+      curl_easy_setopt(pCurl, HB_CURLOPT_DL_BUFF_SETUP )
+      curl_easy_setopt(pCurl, HB_CURLOPT_URL, cUrl )
+      Curl_Easy_Perform(pCurl)
+      curl_easy_setopt(pCurl, HB_CURLOPT_DL_BUFF_GET, @cData )
+      
+      Curl_Easy_CleanUp(pCurl)
+      nResponse := curl_easy_getinfo(pCurl,HB_CURLINFO_RESPONSE_CODE)
+
+
+      /*If oHttp:open()
          oHttp:Post(HB_JsonEncode(aData))
-         cData := oHttp:ReadAll()
+         cData := oHttp:ReadAll()*/
 
          IF cData == NIL
           LOOP
          ENDIF
-//       ? cData
+       ? cData
 //         gtSetClipboard(cData)
          HB_JSonDecode(cData,@aData)
          //gtSetClipboard(ValToPrg(aData))
@@ -58,9 +77,9 @@ hParts := {=>}
             hParts[aProd["productId"]] := ""
          })
 
-      ELSE
+      /*ELSE
          ? "Open failed"
-      ENDIF
+      ENDIF*/
       IF Inkey() == 27
          EXIT
       ENDIF

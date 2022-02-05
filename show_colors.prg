@@ -12,4 +12,4 @@
             nCol += 8
          ENDIF
       NEXT
-		Inkey(0)
+		SInkey(0)

@@ -30,11 +30,7 @@ PROC RUN_CHECK_FACTORING
    NEXT
    ASort(aRenr)
 
-   //SetColor("N/W*")
-   
-   //CLS
-   //SetPos(0,0)
-   //? Pad("Rechnung",6),Pad("Kunde",8),Pad("R.Datum",8),Pad("Factorer",12),Pad("Annahme",8)
+
    aList := {{"Rechnung","Kunde","R.Datum","Factorer","Annahme"}}
    nX := 1
    FOR EACH nNr IN aReNr

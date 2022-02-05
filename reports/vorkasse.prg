@@ -37,6 +37,7 @@ ENDDO
 @ 04,00 SAY "Vorkasse         : "+Transform(nPrePay,"@E 9,999,999.99")+" inkl. MwSt"
 @ 05,00 SAY "Factoring        : "+Transform(nFactoring,"@E 9,999,999.99")+" inkl. MwSt"
 @ 06,00 SAY "Gesamt Barumsatz : "+Transform(nPrePay+nFactoring,"@E 9,999,999.99")+" inkl. MwSt"
+@ 07,00 SAY "Ohne Barumsatz   : "+Transform(nTotal-nPrePay-nFactoring,"@E 9,999,999.99")+" inkl. MwSt"
 SInkey(0,128)
 
 RETURN

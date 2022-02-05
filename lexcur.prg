@@ -132,7 +132,7 @@ PROC RUN_LEXCUR
          }
 
       //? Pad("Datum",8),Pad("Saldo",10),Pad("Eingang",9),Pad("WD Eingang",8),Pad("WD Saldo",8),"Faktor"
-MemoEdit(ValToPrg(aKontoBookings))
+//MemoEdit(ValToPrg(aKontoBookings))
       FOR EACH hBooking IN aKontoBookings
          IF hBooking["DATUM"] != dSaldoDate //date has changed  
             
@@ -205,6 +205,7 @@ MemoEdit(ValToPrg(aKontoBookings))
       oPdf:AtSay("Betrag",,80)
       oPdf:AtSAy("Saldo",,110)
       oPdf:AtSAy("Faktor",,150)
+      oPdf:AtSAy("Kurs",,165)
       nSaldo := 0
 
       bBackground := {||
@@ -213,7 +214,7 @@ MemoEdit(ValToPrg(aKontoBookings))
             nCol := oPdf:M2X( oPdf:PDFLEFT ) + ;
             oPdf:ReportCol * 100.00 / oPdf:REPORTWIDTH * ;
             ( oPdf:PAGEX - oPdf:M2X( oPdf:PDFLEFT ) * 2 - 9.0 ) / 100.00
-            oPdf:Box( oPdf:PAGEY - nRow - oPdf:FONTSIZE + 2.0 , nCol, oPdf:PAGEY  - nRow + 2.0,500,,100, "D",HB_HexToStr("FFBDBDBD"))
+            oPdf:Box( oPdf:PAGEY - nRow - oPdf:FONTSIZE + 2.0 , nCol, oPdf:PAGEY  - nRow + 2.0,600,,100, "D",HB_HexToStr("FFBDBDBD"))
          //nCol + oPdf:M2X( oPdf:Len( 100 )) + 1
          ENDIF
          RETURN .T.
@@ -245,6 +246,7 @@ MemoEdit(ValToPrg(aKontoBookings))
                oPdf:AtSAy(IF(aNewDiff[nY]["SOLL"]==nDiffKto,"S","H"),,100)
                IF HHasKey(aNewDiff[nY],"RATE")
                   oPdf:RJust(Str(aNewDiff[nY]["RATE"],7,4),,160)
+                  oPdf:RJust(Str(1+aNewDiff[nY]["RATE"],7,4),,175)
                ENDIF
 
                //? Dtoc(aNewDiff[nY]["DATUM"]),Pad(aNewDiff[nY]["TEXT"],30),Str(aNewDiff[nY]["DIFF"],9,2),IF(aNewDiff[nY]["SOLL"]==nDiffKto,"S","H")

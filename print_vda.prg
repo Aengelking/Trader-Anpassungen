@@ -1,3 +1,4 @@
+//RUN_PRINT_VDA(61655,.T.)
 FUNCTION RUN_PRINT_VDA(nRechnr,lRech)
    LOCAL cScreen,hArt,cKunde,cAblade,nPackCount
    LOCAL oTabs,nP,oGet,cI
@@ -181,7 +182,7 @@ If ! pkart->(dbSeek( Str(ups->Nr) ,.T.))
 			Do While nX <= Len(aArt[nP])
 				hArt2[aArt[nP][nX]["matchcode"]] -= aArt[nP][nX]["menge"]
 				nX++
-			Enddo
+			Enddo   
 			nP++
 		Enddo
 		lAdd := .T.

@@ -23,7 +23,7 @@ If lKLT .AND. ValType(nNr) == "N" .AND. nNr%2 == 0
 	nT := 69 //place every second small sticker at bottom of page
 Else
 	oPdf:NewPage()
-	//if we ewant A5
+	//if we want A5
 	//oPdf:PageX := 8.27*72
 	//oPdf:PageY := 5.83*72
 Endif
@@ -90,14 +90,14 @@ oPdf:AtSay(Pad(cAblade,5),If(lKLT,nT+12,20),If(lKLT,60,101),"M")
 
 oPdf:AtSay(If(lMisch,"MISCHSENDUNG",aku->ArtLief),If(lKLT,nT+27,62),7,"M")
 If ! lMisch
-	@ If(lKLT,nT+27,62),7 BARCODE TEXT aku->ArtLief
+	@ If(lKLT,nT+27,62),7 BARCODE TEXT "P"+aku->ArtLief
 	oPdf:AtSay(LTrim(Transform(nQty,Me(art->Me))),If(lKLT,nT+39,91),7,"M")
-	@ If(lKLT,nT+39,91),7 BARCODE TEXT Str(nQty)
+	@ If(lKLT,nT+39,91),7 BARCODE TEXT "Q"+LTrim(Transform(nQty,Me(art->Me)))
 Endif
 
 oPdf:SetFont("HELVETICA",1,If(lKLT,5*2.54,7*2.54))
 oPdf:AtSAy(LTrim(Str(nBelegNr)),If(lKLT,nT+12,34),If(lKLT,125,7),"M")
-@ If(lKLT,nT+12,34),If(lKLT,125,7) BARCODE TEXT Str(nBelegNr)
+@ If(lKLT,nT+12,34),If(lKLT,125,7) BARCODE TEXT "N"+Str(nBelegNr)
 
 If ! lKLT
 	oPdf:AtSAy("Engelking, 78609 Tuningen",33,101,"M")
@@ -110,10 +110,10 @@ If ! lMisch
    oPdf:AtSay(HB_OEMToAnsi(art->Artikel),If(lKLT,nT+39,87),If(lKLT,108,101),"M")
 
    oPdf:AtSay(HB_OEMToAnsi(art->Matchcode),If(lKLT,nT+47,98),If(lKLT,108,101),"M")
-   @ If(lKLT,nT+47,98),If(lKLT,108,101) BARCODE TEXT art->Matchcode
+   @ If(lKLT,nT+47,98),If(lKLT,108,101) BARCODE TEXT "30S"+art->Matchcode
 Endif
 
 oPdf:AtSay(cPackNum2,If(lKLT,nT+67,134),7,"M")
-@ If(lKLT,nT+63,128),40 BARCODE TEXT StrTran(cPackNum2," ","")
+@ If(lKLT,nT+63,128),40 BARCODE TEXT IF(lMisch,"G","S")+StrTran(cPackNum2," ","")
 
 ?

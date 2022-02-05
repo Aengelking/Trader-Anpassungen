@@ -1,7 +1,6 @@
 PARAMETERS nArtnr,cArtlief
 	    cSearch := "Liefermenge"
        RETURN -1
-		//oHttp := TIpClientHttp():new( "http:/"+"/de.farnell.com/bulgin/dp/"+Trim(alil->artlief) )
 		//cUrl := "http:/"+"/www.ettinger.de/War_Main.cfm?ODT_ARTNUM="+StrTran(Trim(alil->artlief),".","")+"&ODT_BESMENGE=1000000"
 		cUrl := "http://ettinger.de/de/product/"+cArtLief
 

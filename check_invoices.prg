@@ -1,32 +1,38 @@
 PROCEDURE Check_Invoices
 
-LOCAL cLiefma,hDelNotes := {=>},nCount,hMissing := {=>},hDels,hDel
-LOCAL aExclude := {"CONNECTS","HECK"} //{"BULGIN","CONNECTS","HOPA","HECK","WETEC","EUROCIRC","FARNELL","GUDECO","RS","RGR","RATIOFOR","TECHNO"}
-LOCAL cKey,nPosnr,nBesnr,nRec,dLastDel,nQty,nX,cBeleg,cMiskey,nMenge,oPrinter,oPdf
-LOCAL aErl := {}
-NetUse("engabg","abg")
-NetUse("artikel","art")
-NetUse("engbes","bes")
-NetUse("rechpos","rpos")
-NetUse("engrech","rech")
-NetUse("me","me")
-NetUse("engkund","ku")
-NetUse("reb","reb")
-NetUse("rebnotes","rebn")
+   /** SETTINGS **/
+   LOCAL aExclude := {"CONNECTS","HECK"} //{"BULGIN","CONNECTS","HOPA","HECK","WETEC","EUROCIRC","FARNELL","GUDECO","RS","RGR","RATIOFOR","TECHNO"}
+   LOCAL aSammel := {"RS","BSLASER","ONPOW","SIGNAL"}
+   LOCAL dLastDelMin //:= AddWorkingDays(Date(),-5,GetConfigValue("state"),.F.) //StoD("20201231")
+   LOCAL nDaysBeforePayment := 5
+   /****/   
+
+   LOCAL cLiefma,hDelNotes := {=>},hMissing := {=>},hDels,hDel
+   LOCAL cKey,nPosnr,nBesnr,nRec,dLastDel,nQty,nX,cBeleg,cMiskey,nMenge,oPrinter,oPdf
+   LOCAL aErl := {}
+   LOCAL aSkonto
+   
+   LOCAL cText 
+
+   NetUse("engabg","abg")
+   NetUse("artikel","art")
+   NetUse("engbes","bes")
+   NetUse("rechpos","rpos")
+   NetUse("engrech","rech")
+   NetUse("me","me")
+   NetUse("engkund","ku")
+   NetUse("reb","reb")
+   NetUse("rebnotes","rebn")
+   NetUse("skontob","skb")
 
 CLS
 
 //COLLECT DELIVERY NOTES
-nCount := 0
 abg->(dbSetOrder(4))
 abg->(dbGoTop())
 
 DO WHILE ! abg->(EOF())
    cLiefma := abg->Liefma
-
-   //IF ! abg->(dbSeek( cLiefma+"L"+"20140101" , .T. ))  //AB 2014
-      //? cLiefma,"Keine Bewegungen gefunden"
-   //ENDIF
 
    DO WHILE ! abg->(Eof()) .AND. abg->Liefma == cLiefma
    	IF Trim(abg->BuArt) == "WE" .AND. ! Empty(abg->Liefma) //StoD("20100101")
@@ -40,8 +46,7 @@ DO WHILE ! abg->(EOF())
 		      hDelNotes[cKey][abg->Beleg] := {"liefma"=>abg->Liefma,"beleg"=>abg->Beleg,"date"=>abg->Datum,"matchcode"=>abg->Matchcode,"menge"=>abg->Menge,"besnr"=>abg->Besnr,"pos"=>abg->bespos}
 		   ELSE
    		   hDelNotes[cKey][abg->Beleg]["menge"] += abg->Menge
-   		ENDIF
-   		nCount++
+   		ENDIF   		
    	ENDIF
    	abg->(dbSkip())
    ENDDO
@@ -83,11 +88,19 @@ DO WHILE ! abg->(EOF())
                   dLastDel := hDel["date"]
                ENDIF
             NEXT
-            IF (! Trim(cLiefma) $ "RS|BSLASER|ONPOW" .OR. Month(dLastDel) < Month(Date())) .AND. dLastDel < Date()-5 //ignore positions where there has been a delivery in the last 5 days, and by RS only if it is from the last month (Sammelrechnung)
+
+            ku->(dbSeek( bes->Liefma+"L" ))
+
+            IF skb->(IsPrepay( ku->Skonto ))
+               dLastDelMin := Date()-15
+            ELSE
+               aSkonto := skb->(GetSkonto(ku->Skonto,dLastDel))
+               dLastDelMin := Date()-IF(aSkonto[1,2]==0.AND.Len(aSkonto)>1,aSkonto[2,2],aSkonto[1,2])+nDaysBeforePayment
+            ENDIF
+
+            
+            IF (! Trim(cLiefma) $ aSammel .OR. Month(dLastDel) < Month(Date())) .AND. dLastDel < dLastDelMin //ignore positions where there has been a delivery in the last 5 days, and by RS only if it is from the last month (Sammelrechnung)
                //FOR EACH hDel IN hDelNotes[cKey]
-               IF Trim(cLiefma) == "SCOLMORE"
-                  //Alert(Str(Month(dLastDel))+";"+Str(Month(Date())))
-               ENDIF
                nQty := bes->ZoQty
                FOR nX := Len(hDelNotes[cKey]) TO 1 STEP -1
                   hDel := HGetValueAt(hDelNotes[cKey],nX)
@@ -149,6 +162,7 @@ ENDDO
          oPdf:AtSay(aErl[nX])
       NEXT
   ENDIF
+  cLiefma := ""
   FOR nX := 1 TO 2
      oPdf:NewPage()
      oPdf:AtSay(IF(nX==1,"Fehlende Gutschriften","Nicht gebuchte Rechnungen"))
@@ -163,12 +177,27 @@ ENDDO
               ENDIF
               oPdf:AtSay( hDels[1]["liefma"]+" "+Pad(hDels[1]["beleg"],15),,,"R" )
               FOR EACH hDel IN hDels //nX := 1 TO Len(hDel)
-                  IF (nX == 1 .AND. hDel["menge"] < 0) .OR. (nX == 2 .AND. hDel["menge"] > 0)
+                  IF (nX == 1 .AND. hDel["menge"] < 0) .OR. (nX == 2 .AND. hDel["menge"] > 0)                     
                     art->(dbSeek( hDel["matchcode"] ))
                     IF hDel:__eNumIndex() > 1
                      oPdf:NewLine()
                     ENDIF
                     oPdf:AtSay( IF(hDel:__eNumIndex() > 1,Space(8+1+15),"")+Str(hDel["besnr"],6)+" "+DToC(hDel["date"])+" "+Pad(Transform(hDel["menge"],Me(art->me)),12)+" "+hDel["matchcode"]+IF(nX==1,hDel["AB"],""),,,"R" )
+
+                    IF nX == 2
+                        IF cLiefma != hDel["liefma"]
+                              IF ! Empty(cLiefma) .AND. ! Empty(cText)
+                                 SendMail({{"amos.engelking@engelking.de","Amos"}},"Rechnungen fehlen von "+cLiefma,cText)
+                              ENDIF
+                              cText := ""
+                              cLiefma := hDel["liefma"]
+                        ENDIF
+                        IF ! Empty(cText)
+                              cText += Chr(13)+Chr(10)
+                        ENDIF
+                        cText += Str(hDel["besnr"],6)+" "+DToC(hDel["date"])+" "+Pad(Transform(hDel["menge"],Me(art->me)),12)+" "+hDel["matchcode"]+IF(nX==1,hDel["AB"],"")
+                     ENDIF
+
                   ENDIF
               NEXT
             ENDIF

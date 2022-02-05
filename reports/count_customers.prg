@@ -8,7 +8,8 @@ NetUse("engauf","auf")
 NetUse("manufact","manu")
 NetUse("artikel","art")
 
-auf->(dbSetOrder( 10 )) // Str(Dterm,4)+Kundma
+//auf->(dbSetOrder( 10 )) // Str(Dterm,4)+Kundma
+auf->(dbSetOrder( 4 ))
 art->(dbSetOrder( 1 ))
 @ 02,00 SAY "GESAMT"
 manu->(dbGoTop())
@@ -18,14 +19,17 @@ DO WHILE ! manu->(EOF())
    manu->(dbSkip())
 ENDDO
 
-FOR nY := 0 TO 4
+FOR nY := 0 TO 14
    aCust := {}
    hManu := {=>}
-   cYear := Right(Str(Year(Date())-nY,4),2)
-   nStKW := Val(cYear+"01")
-   nEnKW := Val(cYear+"99")
-   auf->(dbSeek( Str(nStKw,4) ))
-   DO WHILE auf->DTerm >= nStKW .AND. auf->DTerm <= nEnKW .AND. ! auf->(EOF())
+   cYear := Str(Year(Date())-nY,4)
+   /*nStKW := Val(cYear+"01")
+   nEnKW := Val(cYear+"99")*/
+   dStart := StoD(cYear+"0101")
+   dEnd := StoD(cYear+"1231")
+   //auf->(dbSeek( Str(nStKw,4) ))
+   auf->(dbSeek( DtoS(dStart), .T. ))
+   DO WHILE auf->Besda <= dEnd .AND. ! auf->(EOF()) //auf->DTerm >= nStKW .AND. auf->DTerm <= nEnKW .AND. ! auf->(EOF())
       art->(dbSeek( auf->Matchcode ))
 
       IF auf->Kundma != cKundMa

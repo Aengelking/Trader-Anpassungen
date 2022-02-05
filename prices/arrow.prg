@@ -19,6 +19,7 @@ FUNCTION RUN_PRICES_ARROW(nArtnr,cArtlief)
    ENDIF
 
    cUrl := "https://www.arrow.de/products/"+Trim(art->Matchcode)+"/"+cManu
+RETURN NIL 
 
    /*pCurl := Curl_Easy_Init()
    curl_easy_setopt(pCurl, HB_CURLOPT_BUFFERSIZE, 102400)
@@ -70,6 +71,10 @@ FUNCTION RUN_PRICES_ARROW(nArtnr,cArtlief)
          RETURN {1=>99999}
       ENDIF
 
+      IF lDbg
+         CLS
+      ENDIF
+
       cData := SubStr(cData,AT('class="BuyingOptions-priceTiers d-none d-sm-block ng-star-inserted">',cData))
       cData := SubStr(cData,1,AT("</ol",cData)-1)
 
@@ -77,17 +82,35 @@ FUNCTION RUN_PRICES_ARROW(nArtnr,cArtlief)
 
       DO WHILE (nNext := AT("</li",cData)) != 0
          cSub := SubStr(cData,1,nNext-1)
-
-         aRegex := HB_Regex(">([0-9]*)\+",cData)
-         IF Len(aRegex) > 2
+         IF lDbg
+            ? cSub            
+            gtSetClipboard(cSub)
+         ENDIF
+         
+         aRegex := HB_Regex(">([0-9]*)\+",cSub)
+         IF lDbg
+            ? ValToPrg(aRegex)
+         ENDIF
+         IF Len(aRegex) >= 2
             cQty := aRegex[2] //SubStr(cSub,1,AT("+:",cSub)-1)
-            aRegex := HB_Regex(">([0-9,]*)\s€",cData)
+            IF lDbg
+               ? cQTy
+            ENDIF
+            aRegex := HB_Regex(">([0-9,]*)\s€",cSub)
             cPr := aRegex[2] //SubStr(cSub,AT("&euro;",cSub)+6)
+            IF lDbg
+               ? cPr
+            ENDIF
 
             hPrices[Val(StrTran(cQty,",",""))] := Val(StrTran(cPr,",","."))
          ENDIF
          cData := SubStr(cData,nNext+4)
+         IF lDbg
+            Sinkey(0)
+         ENDIF
       ENDDO
+
+     
       
       IF Len(hPrices) == 0
          //SendMail({{"amos.engelking@engelking.de","Amos"}},"Abruf Preise Arrow "+Trim(art->Matchcode),"Geht nicht!")

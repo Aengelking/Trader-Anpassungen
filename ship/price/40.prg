@@ -1,7 +1,8 @@
-PARAMETERS mPreis,GEWICHT,hPakData
+FUNCTION RUN_SHIP_PRICE_40( mPreis,GEWICHT,hPakData )
 
 LOCAL nNewWeight := GEWICHT
 LOCAL nZuschlag := 6.8   //In Prozent 2019=6,8%
+LOCAL nKub,nKG
 
 
 IF hPakData["TYPE"] == "EP"

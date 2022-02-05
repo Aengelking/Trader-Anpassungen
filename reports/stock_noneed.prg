@@ -25,7 +25,7 @@ abg->(dbSetOrder( 3 ))
 
 Head(t("Bestände ohne Bedarf"))
 
-@ 01,00 SAY "Hersteller"
+@ 01,00 SAY "Hersteller (Fertigartikel)"
 aManu := GetManufacturerArray()
 HB_AIns(aManu[2],1,"Alle",.T.)
 
@@ -77,7 +77,7 @@ Do While ! art->(Eof())
    //If art->Bestand > nMinQty
       hReqInq := GetProductRequirementAndIncoming(art->Artikelnr)
       IF hReqInq["income"]-hReqInq["requirement"]+art->Bestand > hReqInq["avgrequirement"]*12
-         nPreis := art->avPreis
+         nPreis := art->avPreis/art->Pe
          If nPreis*art->Bestand > nMinVal
          
             abg->(dbSetFilter({|| Trim(abg->BuArt) $ cZugTypes },'Trim(BuArt) $ "'+cZugTypes+'"'))

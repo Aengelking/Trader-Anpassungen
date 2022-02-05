@@ -18,8 +18,8 @@ nCurWeek := Val(CalWeek(Date()))
 hCustomerCredit := {=>}
 
 Head("Auftragsstruktur")
-cScreen := SaveScreen()
-PWait()
+
+TxtBox("Bitte warten...")
 
 auf->(dbGoTop())
 
@@ -73,7 +73,7 @@ Do While ! auf->(Eof())
 	Enddo
 Enddo
 
-RestScreen(,,,,cScreen)
+TxtClear()
 @ 02,00 SAY "Insgesamt offen        "+Transform(nTotal,cPic)
 @ 03,00 SAY "  Vorauskasse          "+Transform(nPrepay,cPic)
 @ 04,00 SAY "  dieses Jahr f„llig   "+Transform(nThisYear,cPic)

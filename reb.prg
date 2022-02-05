@@ -26,28 +26,30 @@ LOCAL cFor,bSetFilter,lShowNotes := .F.
 MEMVAR c_five
 
 /*** SETTINGS ***/
-LOCAL lCanApprove := Tr_Getini(28) $ {9,57}
-LOCAL hApprKto    := {51=>{70887,74186,70062,70302,70141,70814,70911,70866,70995,76056},34=>{76126,76168,76019}}
+LOCAL lCanApprove := Tr_Getini(28) $ GetValue("REB_APPROVER",{9,57},"Genehmiger (Benutzernummer)")
+LOCAL hApprKto    := /*GetValue("REB_APRACC",*/ {51=>{70887,74186,70062,70302,70141,70814,70911,70866,70995,76056,76236,76254,76239},34=>{76126,76168,76019,74245,76218,74930,76157}} /*,"Konten fr Genehmiger")*/ //Value Editing programm needs working on
 LOCAL hPeople := {9=>"Amos",34=>"Sigrid",50=>"Daniela",57=>"Daniel",51=>"Celina"}
 LOCAL nPersOnApprove := 34 //automatically assign to this person on approval
 LOCAL aAdmin      := {9}
-LOCAL lIsAdmin    := AScan(aAdmin,Tr_Getini(28)) != 0
+LOCAL nTolPaydate := 2 //deduct from due date to compensate for Postal time etc.
 /***************/
+LOCAL lIsAdmin    := AScan(aAdmin,Tr_Getini(28)) != 0
 
-IF Date() <= StoD("20170906") .AND. Tr_Getini(28) == 45
+IF Date() <= StoD("20200830") .AND. Tr_Getini(28) == 34 //Urlaub Daniel 
    lCanApprove := .T.
-   hPeople[45] := "Joel"
+   //hPeople[45] := "Joel"
 ENDIF
-   
+
+IF ! Tr_Getini(28) $ hPeople
+   RETURN
+ENDIF
 
 NetUse("reb","reb")
 NetUse("rebprot","rebp")
 NetUse("rebnotes","rebn")
 NetUSe("engkund","ku")
+NetUSe("skontob","skb")
 
-IF ! Tr_Getini(28) $ hPeople
-   RETURN
-ENDIF
 
 LX_Start()
 
@@ -175,7 +177,7 @@ oBrowse:NewColumn("Lieferant/Konto",{||
 },,8,"@S35",Space(50),{|x| Upper(Trim(x)) })
 
 IF Tr_Getini(28) == 9
-   oBrowse:NewColumn("Benutzer",{|| Str(reb->Person,2) })
+   oBrowse:NewColumn("BN",{|| Str(reb->Person,2) })
 ENDIF
 
 oBrowse:NewColumn(,{||
@@ -184,6 +186,30 @@ oBrowse:NewColumn(,{||
    ENDIF
    RETURN " "
 })
+oBrowse:NewColumn("Termin",{||
+   LOCAL dDate,aSkonto
+   IF reb->Status < 8 .AND. reb->Liefnr != 0
+      rebp->(dbSetOrder( 1 ))
+      rebp->(dbSeek( Str(reb->ID,9), .T. ))
+      IF ! IsPrePay(ku->Skonto)
+         aSkonto := skb->(GetSkonto(ku->Skonto,StoD(rebp->DateTime)))
+         dDate := AddWorkingDays(StoD(rebp->DateTime)+IF(aSkonto[1,2]==0.AND.Len(aSkonto)>1,aSkonto[2,2],aSkonto[1,2]),nTolPaydate*-1,GetConfigValue("STATE"),.T.)
+      ELSE
+         dDate := StoD(rebp->DateTime)+13 //nach 15 Tagen kommt die Meldung, dass die Rechnung fehlt
+      ENDIF
+      RETURN DtoC(dDate)
+      
+   ENDIF
+   RETURN Space(8)
+})
+
+oBrowse:NewColumn("Kontonr.",{||
+   IF reb->Liefnr == 0
+      RETURN Str(reb->Konto,6)
+   ENDIF
+   RETURN Space(6)   
+},,7,"999999",0,{|nKonto| Str(nKonto,6) })
+
 
 oBrowse:bAnyFun := {||
    LOCAL nX,aBookings,nR := 0
@@ -463,7 +489,7 @@ oBrowse:AddKey(K_ENTER,{||
          cScreen := SaveScreen()
          SetColor(c_five)
          @ nTop,35 CLEAR TO nTop+7,55
-         Tr_Box(nTop,35,nTop+7,55,2)
+         Tr_Box(nTop,35,nTop+7,55,.T.)
          @ nTop+1,37 SAY t("Person auswählen")
          @ nTop+2,35 SAY Chr(199)+Replicate(Chr(196),19)+Chr(182)
          oRec := reb->(Record():New())

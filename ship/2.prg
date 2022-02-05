@@ -2,6 +2,13 @@ FUNCTION RUN_SHIP_UPS(aWeights,lRech,nNr,nRechNr, aPakData, cService, lBillCusto
 
 LOCAL lWA := .F.
 LOCAL oExtra
+LOCAL TAB,NL,nF,cFile,cFileBase,nX,cEnd,oXml,oNode,oIter,lIter,oSubNode
+LOCAL aNummer,oCost,aEnv,cStatus,nB,nWeight,nShipment,lEU
+LOCAL cCustAccount,lMultiShip,aRegex,lAtlas,cMRN,nBox,lAusland
+LOCAL hContacts,hContact,nContact
+
+MEMVAR del_ad
+
 
 IF ValType(aPakData) == "C" //backwards compatability
    lBillCustomer := cService
@@ -22,15 +29,13 @@ cFileBase := "\\EK-SERVER4\UPS\Import\"+If(lRech,"R","E")+LTrim(Str(If(lRech,nRe
 
 aEnv := SaveEnv()
 
-nContact := 0
-nTotal := 0
-lAusland := .F.
-lEU := .F.
+
+
+
 lAtlas := .F.
 aNummer := {}
 del_ad := 0
 cMRN := ""
-nBox := 0
 nShipment := 1
 lMultiShip := .F.
 
@@ -38,7 +43,7 @@ If lRech
 	re->(dbSetOrder(4))
 	re->(dbSeek( Str(nRechnr,6) ))
 
-	nTotal := re->PosWt
+	//nTotal := re->PosWt
 	lAusland := re->TaxCode == 0
 	lEU := re->TaxCode == 3
 	lAtlas := lAusland .AND. re->poswt >= 1000
@@ -47,7 +52,8 @@ If lRech
 	NetUse("engauf","auf",.F.,0)
 	auf->(dbSetOrder( 1 ))
 	auf->(dbSeek( Str(re->abnr,6) ))
-	nContact := auf->Person
+   nContact := auf->Person
+   IF Tr_GetIni(28) == 9; Alert("Auftragskontakt "+Str(auf->Person)); ENDIF
 
 	If del_ad != 0
 		nContact := 0
@@ -90,6 +96,9 @@ ENDIF
 
 IF lAusland .AND. Empty(Trim(hContact["name"]))
    Tr_MsgBox("Bitte Kontaktdaten hinterlegen. "+ku->Kunde+" "+ku->Group+" "+Str(nContact))
+   IF Tr_GetIni(28) == 9
+      Alert(ValToPrg(hContacts))
+   ENDIF
    RETURN .F.
 ENDIF
 
@@ -159,11 +168,11 @@ ENDIF
 //Datei erstellen
 cFile := cFileBase
 
-nSucc := -1
+//nSucc := -1
 nX := 0
 IF nRechnr != 37892
 
-Do While (nSucc := FErase(cFile+".xxx")-FErase(cFile+".out")) < 0 .OR. File(cFile+".xxx") .OR. File(cFile+".out")
+Do While FErase(cFile+".xxx")-FErase(cFile+".out") < 0 .OR. File(cFile+".xxx") .OR. File(cFile+".out")
 	cFile := cFileBase+"_"+LTrim(Str(nX))
    nX++
 Enddo
@@ -239,7 +248,10 @@ Do While nShipment <= If(lMultiShip,Len(aWeights),1)
 	Endif
 	FWrite(nF,TAB+TAB+TAB+'<ResidentialIndicator>0</ResidentialIndicator>'+NL)
 	FWrite(nF,TAB+TAB+'</ShipTo>'+NL)
-	FWrite(nF,TAB+TAB+'<ShipmentInformation>'+NL)
+   FWrite(nF,TAB+TAB+'<ShipmentInformation>'+NL)   
+   IF ku->CountryIso == "DE" .AND. ! lBillCustomer
+      FWrite(nF,TAB+TAB+TAB+'<CarbonNeutral>1</CarbonNeutral>'+NL)
+   ENDIF
 	FWrite(nF,TAB+TAB+TAB+'<ServiceType>'+cService+'</ServiceType>'+NL) //ST=Standard, SV=Express Saver, ES=Express
 	FWrite(nF,TAB+TAB+TAB+'<PackageType>CP</PackageType>'+NL) //CP=Paket
 	FWrite(nF,TAB+TAB+TAB+'<NumberOfPackages>'+If(lMultiShip,"1",LTrim(Str(Len(aWeights))))+'</NumberOfPackages>'+NL)
@@ -323,7 +335,7 @@ If LastKey() == 27
 Endif
 TxtBox("Verarbeitung wird abgeschlossen...")
 SecondsSleep(5)
-Do While (nF := Fopen(cFile+".out",2)) <= 0  //wait until file is unlocked
+Do While Fopen(cFile+".out",2) <= 0  //wait until file is unlocked
 Enddo
 TxtClear()
      // FileSize(cFile+".xxx") >= FileSize(cFile+".out") .AND.

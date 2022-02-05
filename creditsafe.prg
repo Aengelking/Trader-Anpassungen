@@ -170,7 +170,7 @@ FUNCTION CS_DownloadAndSavePdfReport(oXML,nReason,nKuNummer)
                   FWrite(nFH,cPdf)
                   FClose(nFH)
 
-                  cNewFile :=Hook("add_archive_file",{"KA",nKuNummer,cFileName},"")
+                  cNewFile :=AddFileToArchive("KA",nKuNummer,cFileName,.F.)
                   IF Empty(cNewFile)
                      mcCSLastError := "Error archiving report"
                      IF ! GetConfigValue("batchmode")
@@ -327,3 +327,53 @@ Function CS_Error(oXML)
       ENDDO
    ENDIF
 RETURN lError
+
+FUNCTION EditCSNumber()   
+   LOCAL cCSNr := Space(10),oSoap
+   LOCAL cCSPre := "DE001/",cPic := "DE"+Replicate("9",8)
+   LOCAL oReport
+
+   IF Trim(ku->CompForm) $ {"GMBH","AG","EK","KG","KGaA","OHG","SE","UG"}
+      cCSPre += "0/"
+   ELSE
+      cCSPre += "1/"
+   ENDIF
+   
+
+   NetUse("creditsafe","cs")
+   IF cs->(dbSeek( Str(ku->Nummer,6) )) .AND. ! Empty(cs->ID)
+      cCSNr := Right(cs->Id,10)
+   ENDIF
+   DO WHILE .T.      
+      cCSNr := GetBox(cCSNr,"Creditsafe Nr.",cPic,,,,{|x|! Empty(x) .OR. Tr_MsgBox("Nummer l”schen?",,{"Nein","Ja"}) == 2 })
+      IF LastKey() == 27 .OR. (cs->(dbSeek( Str(ku->Nummer,6) )) .AND. cs->ID == cCsNr)  //ESC pressed or no change
+         RETURN NIL
+      ENDIF
+      IF ! Empty(cCSnr)
+         TxtBox("Auskunft wird geladen")
+         oSOAP := CreditSafe()
+         oReport := CS_GetCompanyReport(oSoap,cCsPRE+cCSNr,3)
+         IF oReport == NIL
+            Tr_MsgBox("Fehler beim laden...")
+         ELSE
+            IF cs->(dbSeek( Str(ku->Nummer,6) ))
+               cs->(Rec_Lock())
+            ELSE
+               cs->(Add_Rec())
+               cs->Kunde := ku->Nummer
+            ENDIF
+            cs->Id := cCSPre+cCSNR
+            cs->(dbUnlock())
+            CS_SaveReport(ku->Nummer,oReport)
+            TxtClear()
+            EXIT
+         ENDIF
+         TxtClear()              
+      ELSEIF cs->(dbSeek( Str(ku->Nummer,6) ))
+         cs->(Rec_Lock())
+         cs->Id := ""
+         cs->(dbUnlock())
+      ENDIF      
+   ENDDO   
+      
+RETURN NIL 

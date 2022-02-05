@@ -4,6 +4,9 @@ FUNCTION RUN_SEND_POS()
    LOCAL cPW,cFile,cDir
    LOCAL cLang,cText
    LOCAL lBatch
+   
+   
+
    IF nMonth > 1
       nMonth := nMonth-1
    ELSE
@@ -17,10 +20,12 @@ FUNCTION RUN_SEND_POS()
    lBatch := GetConfigValue("BATCHMODE")
    SetConfigValue("BATCHMODE",.T.)
    aData := Bericht_Pos(2,nYear,nMonth,3,1,"EN") 
+   
+
    SetConfigValue("BATCHMODE",lBatch)
    cPW := MemoRead(cDir+"pw.txt")
    SaveToOO(cFile,aData,cPW,"XLS") //we use XLS as the Password does not work with XSLX
-   
+
    cLang := HB_LangSelect("EN")
    cText := "Dear Steve,<p>Please find the current POS data attached.</p>Best Regards<br />Amos"
 

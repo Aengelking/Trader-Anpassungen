@@ -1,7 +1,7 @@
 FUNCTION RUN_testScrap()
       LOCAL nTotQty  := 0      
       LOCAL nTotBad  := 0
-      LOCAL nArtnr := 19735
+      LOCAL nArtnr := 16830
       NetUse("werkauf","wer")
 CLS
       wer->(dbSetOrder( 2 )) // Str(artno)

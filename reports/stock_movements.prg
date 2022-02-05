@@ -2,11 +2,13 @@ PROC RUN_BERICHT_STOCK_MOVEMENTS
    LOCAL hArtikel
    LOCAL dStart,dEnd
    LOCAL aTypes := {"Inventur","Inv. ohne Z/A","Eingang/Abgang"}
-   LOCAL cTypes,nType := 1,nOut := 1
+   LOCAL nType := 1,nOut := 1
    LOCAL getlist := {}
    LOCAL aData,cFile
    LOCAL nX,cBuArt,oPdf,nTotal,cMatch,nQty,oArt
    LOCAL nPreis
+
+   MEMVAR cTypes
 
    Head(t("Bestandsveränderungen"))
 NetUse("engabg","abg",.F.,0)

@@ -133,7 +133,7 @@ ENDIF
 ali->(dbSetOrder( 1 ))
 
 Select("re")
-SET FILTER TO re->reposnr != 0 .AND. re->AoQty != 0 .AND. ! re->Folge
+SET FILTER TO re->reposnr != 0 .AND. re->AoQty*re->Preis > 0 .AND. ! re->Folge
 //SET RELATION TO re->Matchcode INTO art
 
 TxtBox("Daten werden gesammelt    ")
@@ -256,18 +256,24 @@ IF nData == 0 .OR. nData == 1
       //?? "Matchcode;"
       Aadd(aData[1],"Matchcode")
    ELSE
-      Aadd(aData[1],"Kunde")
+      IF cLang == "DE"
+         Aadd(aData[1],"Kunde")
+         Aadd(aData[1],"Nummer")
+      ELSE
+         Aadd(aData[1],"Company")
+         Aadd(aData[1],"No")
+      ENDIF
+      
    ENDIF
    IF cLang == "DE"
       //?? "Kunde;Nummer;Land;Branche;Artikel"      
-      Aadd(aData[1],"Nummer")
+      
       Aadd(aData[1],"Land")
       Aadd(aData[1],"Branche")
       Aadd(aData[1],"Artikel")
    ELSE
-      //?? "Company;No;Country;Sector;Part"
-      Aadd(aData[1],"Company")
-      Aadd(aData[1],"No")
+      //?? "Company;No;Country;Sector;Part"      
+      
       Aadd(aData[1],"Country")
       Aadd(aData[1],"Sector")
       Aadd(aData[1],"Part")
@@ -383,11 +389,12 @@ IF nData == 0 .OR. nData == 1
          ELSEIF nArt == 1
             IF (Trim(ku->CompForm)  $ "GBR EINZE EK PRIVA" .OR. oExtra:Nda)
                Aadd(Atail(aData),"NDA ENGELKING")
+               Aadd(Atail(aData),0)
             ELSE
                Aadd(Atail(aData),Trim(Trim(ku->Name1)+" "+ku->Name2))
+               Aadd(Atail(aData),ku->Nummer)
             ENDIF
-         ENDIF   
-         Aadd(Atail(aData),ku->Nummer)
+         ENDIF            
          Aadd(Atail(aData),(cCountry))
          Aadd(Atail(aData),Trim(cMarket))
          Aadd(Atail(aData),Trim(cMatch))

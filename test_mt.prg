@@ -16,7 +16,7 @@ FUNCTION TestThread()
    @ 00,00 SAY "Test" GET cTest
    READ
 
-   DO WHILE Seconds() < nTime+10 //run for a minute
-         ? Seconds()
-   ENDDO
+   /*DO WHILE Seconds() < nTime+10 //run for a minute
+       ? Seconds()
+   ENDDO*/
 RETURN

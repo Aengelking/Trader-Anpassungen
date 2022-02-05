@@ -581,7 +581,7 @@ LOCAL aEnv := SaveEnv()
       ELSEIF we->Partart == nArtParent //avoid endless loop
          RETURN NIL
       ELSEIF we->Pos == -1 //Lohn
-         IF wer->Besnr != 0 .AND. bes->(dbSeek( Str(wer->besnr,6)+Str(1,3)))
+         IF wer->Besnr != 0 .AND. bes->(dbSeek( Str(wer->besnr,6)+Str(IF(wer->BesPos==0,1,wer->BesPos),3)))
             nPreis := bes->ekpr / Max(bes->pe,1) * If(bes->bestat==3.AND.bes->rate!=0,bes->rate,Currate(bes->Money,"E",dDate)) * ( 100 - bes->rabatt )/ 100
             ? art->Matchcode,nQty,nPreis
             nTot += nPreis*nQty

@@ -47,8 +47,8 @@ ELSEIF cTo == "OCTOPART"
    aEmail := {}
    cData += "manufacturer,mpn,sku,distributor-url,quantity" //,price-break-1,price-usd-1,price-eur-1,price-break-2,price-usd-2,price-eur-2,description,datasheet-url,image-url,attributes,category,moq,order-multiple,on-order-quantity,on-order-eta,packaging,factory-lead-days,factory-pack-quantity,datecode"
 ELSE //netcomponents
-   hManu     := {1=>"ELEK",10=>"ELEK",2=>"EDAC",3=>"ITWS","5"=>""}
-   aExcludeRegex := {"^KS.*","^ARS.*","^ATS.*","^PX09[1-3]0.*"}
+   hManu     := {1=>"ELEK",10=>"ELEK",2=>"EDAC",3=>"ITW","5"=>""}
+   aExcludeRegex := {"^KS(?!14696\/59-[0-9]*$).*$","^ARS.*","^ATS.*","^PX09[1-3]0.*"}   
    aEmail    := {{"datamaster@netcomponents.com","Netcomponents"}}
 //   aEmail    := {{"amos.engelking@engelking.de","Netcomponents"}}
    cFileName := "stocklist.txt"
@@ -96,6 +96,7 @@ Do While ! art->(Eof())
             Endif
          ENDIF
 
+
          IF art->Manufactur == 1 /*.AND. cTo != "ELEKTRON"*/ .AND. lsto->(dbSeek( Pad("WALDOM",8)+Str(art->Artikelnr,6) ))
             nStock += lsto->Stock
          ENDIF
@@ -129,11 +130,14 @@ Do While ! art->(Eof())
 
             aList := {cMatch}
 
-            cMatch := art->Matchcode
+            cMatch := StrTran(art->Matchcode,"KS14696/","")
+
             IF AT("/BULK",cMatch) != 0
                cMatch := Pad(StrTran(cMatch,"/BULK",""),35)
                Aadd(aList,cMatch)
             ENDIF
+
+         
 
             aMatch := HB_Regex("(PX041[0-1]\/([0-9]{2})[PS]\/)([0-9]{4})",cMatch)
             aTypes := {"3035","3540","4045","4550","5055","5560","6065","6570"}
@@ -163,7 +167,7 @@ Enddo
 
 //add the waldom stock of parts we do not have on the system
 IF HHasKey(hManu,1)
-   wald->(dbSetFilter({|| wald->Stock != 0 },"stock != 0"))
+   wald->(dbSetFilter({|| wald->Stock != 0 .AND. Trim(wald->prc) $ {'BUL','ARC'} },"stock != 0 .AND. Trim(prc) $ {'BUL','ARC'}"))
    wald->(dbGoTop())
    DO WHILE ! wald->(EOF())
       cKey := wald->Part+StrZero(1,3)
@@ -205,7 +209,11 @@ FWrite(nF,cData)
 FClose(nF)
 
 IF Len(aEmail) > 0
-   SendMail(aEmail,"Stocklist","Please find our current stocklist attached",{cFile})
+   IF Len(aKeys) < 1800 .AND. ! cTo $ {"ELEKTRON","ITW","OCTOPART"} //monitor netcomponents upload we had one file which was too small
+      SendMail({{"amos.engelking@engelking.de","Amos"}},"Stocklist TOO SMALL","Please find our current stocklist attached",{cFile})
+   ELSE
+      SendMail(aEmail,"Stocklist","Please find our current stocklist attached",{cFile})
+   ENDIF
 ENDIF
 
 //datamaster@netcomponents.com.

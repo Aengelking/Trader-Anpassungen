@@ -23,7 +23,7 @@ Default(@lForce,.F.)
 /*IF Tr_Getini(28) == 9
    aCompet := {"Farnell"}
 ELSE*/
-   aCompet := {"RS","Farnell","Conrad","Reichelt","Schukat",HB_AnsiToOem("BÜRKLIN"),"ARROW"} //"Mouser" does not work
+   aCompet := {"RS","Schukat",HB_AnsiToOem("BÜRKLIN"),"ARROW"} //Farnell //"Conrad", "Reichelt","Mouser" does not work
 //ENDIF
 
 IF lDisp

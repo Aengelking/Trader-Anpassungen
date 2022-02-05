@@ -1,5 +1,5 @@
 PROCEDURE BackupDB
-LOCAL aDir := Directory(Trim(Tr_Getini(1))+"\*.dbf")
+LOCAL aDir := Directory(Path(,"DB")+"\*.dbf")
 LOCAL cBackDir := "Y:\Backup\Trader\"
 LOCAL nRow := 0
 LOCAL cLog := ""
@@ -14,6 +14,17 @@ LOCAL lExclude := .F.,cDriver
 LOCAL oErr
 LOCAL aFiles := {}
 LOCAL aEndings := {"DBF","FPT","CDX"},cEnd,cFileName
+LOCAL cServer := GetConfigValue("LETO_SERVER")
+
+IF ! Empty(cServer)
+   IF Empty(Path(,"DB"))
+      cLog := "Backup only works locally"
+      lError := .T.
+      aDir := {}
+   ELSE
+      SetConfigValue("LETO_SERVER","") //deactivate LETO
+   ENDIF
+ENDIF
 
 Head("Database Backup")
 //this prog is used to backup the dbf files to a directory (even if they are in use), LETO opens files exclusively
@@ -21,7 +32,7 @@ Head("Database Backup")
 dbCloseAll()
 
 FOR nX := 1 TO Len(aDir)
-   dFileDate := FileDate(Trim(Tr_Getini(1))+"\"+aDir[nX,1])
+   dFileDate := FileDate(Path(,"DB")+aDir[nX,1])
    dBackupDate := FileDate(cBackDir+aDir[nX,1])
    FOR EACH cRegex IN aExclude
       lExclude := HB_RegexMatch(cRegex,aDir[nX,1])
@@ -40,7 +51,7 @@ FOR nX := 1 TO Len(aDir)
       
    ENDIF
           
-   IF ! lExclude .AND.  dBackupDate < dFileDate .OR. (dBackupDate == dFileDate .AND. FileTime(cBackDir+aDir[nX,1]) < FileTime(Trim(Tr_Getini(1))+"\"+aDir[nX,1]) ) //.OR. FileSize(cBackDir+aDir[nX,1]) != FileSize(Trim(Tr_Getini(1))+"\"+aDir[nX,1])
+   IF ! lExclude .AND.  dBackupDate < dFileDate .OR. (dBackupDate == dFileDate .AND. FileTime(cBackDir+aDir[nX,1]) < FileTime(Path(,"DB")+aDir[nX,1]) ) //.OR. FileSize(cBackDir+aDir[nX,1]) != FileSize(Trim(Tr_Getini(1))+"\"+aDir[nX,1])
       IF nRow >= MaxRow()
          Scroll(01,00,MaxRow(),MaxCol(),1)
          nRow := MaxRow()
@@ -62,24 +73,32 @@ FOR nX := 1 TO Len(aDir)
             backup->(dbCloseArea())
          ENDIF
          cDriver := "DBFCDX"
-         IF File(Trim(Tr_Getini(1))+"\ntx\"+cFile+".dbt")
+         IF File(Path(,"DB")+cFile+".dbt")
             cDriver := "DBFNTX"
          ENDIF
 
-         NetUse(cFile,"backup")
+         NetUse(cFile,"backup",,,cDriver)
 
          COPY TO (cBackDir+aDir[nX,1]) VIA cDriver
          cLog += " success"//, Driver:"+cDriver
          ErrorBlock(bErrorBlock)
       RECOVER USING oErr
-      ErrorBlock(bErrorBlock)
+         ErrorBlock(bErrorBlock)
          lError := .T.
          ?? " !! ERROR !!",oErr:description
          cLog += " **** ERROR: "+oErr:description //n+" Driver: "+cDriver
+         
          IF ( !Empty(oErr:osCode) )
             ?? " (DOS Error " + LTRIM(Str(oErr:osCode)) + ") "
             cLog += " (DOS Error " + LTRIM(Str(oErr:osCode)) + ") "
          ENDIF
+         cLog += " "+ Path(,"DB")+cFile  
+         IF File(Path(,"DB")+cFile+".dbt")
+            cLog += " DBT Found"
+         ENDIF
+   
+         //lCdx := (nFileCount == 0 .OR. File(cIdxDir+FILE+".cdx")) .AND. ! File(Path(,"DB")+file+".dbt")
+
 
       END
 
@@ -93,4 +112,7 @@ NEXT
 
 HB_ZipFile(cBackDir+"trader_"+Left(TtoS(DateTime()),14)+".zip",aFiles,4,,.T.,.F.,.F.)
 
-SendMail({{"amos.engelking@engelking.de","Amos"}},"DB Backup "+IF(lError,"FAILED","success"),"Files skipped: "+LTrim(Str(nSkipped))+Chr(13)+Chr(10)+cLog)
+cLog := "Files skipped: "+LTrim(Str(nSkipped))+Chr(13)+Chr(10)+cLog
+//cLog := "Directory: "+GetConfigValue("PATHS_DB")+Chr(13)+Chr(10)+cLog
+
+SendMail({{"amos.engelking@engelking.de","Amos"}},"DB Backup "+IF(lError,"FAILED","success"),cLog)

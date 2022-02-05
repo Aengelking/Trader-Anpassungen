@@ -10,7 +10,7 @@ LOCAL nX,nY,nSt
 MEMVAR cFilter
 PRIVATE cFilter
 
-//IF Tr_Getini(28) == 9   //testing heidelberger
+IF Tr_Getini(28) == 9   //testing heidelberger   
    /*RUN_CollectAndProcess_LE({;
          "KUNDE"=>15958,;
          "PRODFREIGABE"=>3,;  //Anzahl Monate Produktionsfreigabe
@@ -24,41 +24,46 @@ PRIVATE cFilter
       hHead := {=>}
       aData := {}
       hHead["FRAME"] := Pad("99356571",20) 
-      hHead["LASTWE"] := 54871
-      dDate := StoD("20200123")  
+      hHead["LASTWE"] := 57490
+      dDate := StoD("20201001")  
       hHead["MATDATE"] := AddMonth(dDate,hSettings["MATFREIGABE"])
       hHead["PRODDATE"] := AddMonth(dDate,hSettings["PRODFREIGABE"])
-      hHead["ORDER"] := Pad(Str(5701235980,10),20)
-      Aadd(aData,{"QTY"=>400,"DATE"=>SToD("20200114")})
-      Aadd(aData,{"QTY"=>200,"DATE"=>SToD("20200121")})
-      Aadd(aData,{"QTY"=>400,"DATE"=>SToD("20200128")})
-      Aadd(aData,{"QTY"=>400,"DATE"=>SToD("20200204")})
-      Aadd(aData,{"QTY"=>400,"DATE"=>SToD("20200211")})      
-      Aadd(aData,{"QTY"=>600,"DATE"=>SToD("20200218")})   
-      Aadd(aData,{"QTY"=>600,"DATE"=>SToD("20200225")})      
-      Aadd(aData,{"QTY"=>600,"DATE"=>SToD("20200303")})
-      Aadd(aData,{"QTY"=>800,"DATE"=>SToD("20200310")})      
-      Aadd(aData,{"QTY"=>600,"DATE"=>SToD("20200317")})
-      Aadd(aData,{"QTY"=>400,"DATE"=>SToD("20200320")})
-      Aadd(aData,{"QTY"=>400,"DATE"=>SToD("20200406")})
-      Aadd(aData,{"QTY"=>400,"DATE"=>SToD("20200414")})
-      Aadd(aData,{"QTY"=>400,"DATE"=>SToD("20200421")})
-      Aadd(aData,{"QTY"=>200,"DATE"=>SToD("20200423")})
-      Aadd(aData,{"QTY"=>200,"DATE"=>SToD("20200427")})
-      Aadd(aData,{"QTY"=>1200,"DATE"=>SToD("20200501")})
-      Aadd(aData,{"QTY"=>1200,"DATE"=>SToD("20200601")})
-      Aadd(aData,{"QTY"=>1200,"DATE"=>SToD("20200701")})
-      Aadd(aData,{"QTY"=>600,"DATE"=>SToD("20200801")})
+      hHead["ORDER"] := Pad(Str(5701235980,10),20)      
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20201006")})
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20201007")})
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20201013")})
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20201016")})      
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20201023")})   
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20201030")})      
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20201111")})      
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20201118")})
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20201125")})      
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20201202")})
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20201209")})
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20210108")})
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20210109")})
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20210112")})
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20210119")})
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20210126")})
 
-      Aadd(aData,{"QTY"=>1600,"DATE"=>SToD("20200901")})
-      Aadd(aData,{"QTY"=>1200,"DATE"=>SToD("20201001")})
-      Aadd(aData,{"QTY"=>1200,"DATE"=>SToD("20201101")})
-      Aadd(aData,{"QTY"=>800,"DATE"=>SToD("20201201")})
+      Aadd(aData,{"QTY"=>4000,"DATE"=>SToD("20210201")})
+      Aadd(aData,{"QTY"=>4000,"DATE"=>SToD("20210301")})
+      Aadd(aData,{"QTY"=>5000,"DATE"=>SToD("20210401")})
+      Aadd(aData,{"QTY"=>5000,"DATE"=>SToD("20210501")})
+      Aadd(aData,{"QTY"=>3000,"DATE"=>SToD("20210601")})
+      Aadd(aData,{"QTY"=>3000,"DATE"=>SToD("20210701")})
+      Aadd(aData,{"QTY"=>1000,"DATE"=>SToD("20210801")})
+      Aadd(aData,{"QTY"=>4000,"DATE"=>SToD("20210901")})
+      Aadd(aData,{"QTY"=>2000,"DATE"=>SToD("20211001")})
+      Aadd(aData,{"QTY"=>3000,"DATE"=>SToD("20211101")})
+      Aadd(aData,{"QTY"=>3000,"DATE"=>SToD("20211201")})
+
 
 
    
       ProcessSalesOrder(hSettings["KUNDE"],hHead,aData)
-ENDIF*/
+      RETURN*/
+ENDIF
 
 Aadd(aAutoBeleg,{;
    "EMAIL"=>"@veratron.com$",;
@@ -193,6 +198,8 @@ FUNCTION ProcessSalesOrder(nKunde,hResults,aData,oAuftrag)
          ENDIF
       NEXT
       nX= 0
+      
+      CLS
 
       //auf->(dbClearFilter()) //we need to check all old positions if they have been shipped but not received by customer yet, therefor we remove the filter
       IF hResults["LASTWE"] == 0  //if lastwe is not set we just delete all "old" matching pos which have already been shipped
@@ -206,7 +213,7 @@ FUNCTION ProcessSalesOrder(nKunde,hResults,aData,oAuftrag)
          })
       ELSE
          re->(dbSetOrder( 10 ))   
-         
+         ? "Suche letzte Lieferung...."
          cFilter2 := "RePosnr != 0 .AND. Rechnr > "+LTrim(Str(hResults["LASTWE"]))+" .AND. artikelnr == "+LTrim(str(art->Artikelnr))
          re->(dbSetFilter({|| re->(&(cFilter2)) },cFilter2))
          re->(dbSeek( Str(oAuftrag:AbNr,6) ))
@@ -214,6 +221,7 @@ FUNCTION ProcessSalesOrder(nKunde,hResults,aData,oAuftrag)
             nNotWeQty += re->AoQty
             re->(dbSkip())
          ENDDO
+         ?? "Menge ohne WE ",Transform(nNotWeQty,cMe)
          re->(dbClearFilter())
          DO WHILE nNotWeQty > 0
             IF aData[1]["QTY"] > nNotWeQty
@@ -223,22 +231,31 @@ FUNCTION ProcessSalesOrder(nKunde,hResults,aData,oAuftrag)
                nNotWeQty -= aData[1]["QTY"]
                HB_ADel(aData,1,.T.)
             ENDIF
-         ENDDO
+         ENDDO         
       ENDIF
 
+      
+      ? "Setze alles auf erledigt..."
       //alle Positionen auf erledigt setzten, damit die neuen Liefertermin richtig gesetzt werden
       oAuftrag:Positions:Each({|oPos|
-            IF ! oPos:IsRahmen
-               oPos:BeStat := 3
-               oPos:Save()           
-            ENDIF            
-            RETURN NIL
-         })
+         IF ! oPos:IsRahmen 
+            //oContract:ContrQty -= oPos:VkQty
+            IF oPos:GelQty != 0  //diese Position wird zuknftig nicht mehr verwendet. Daher reduzieren wir die Rahmenmenge
+               oPos:ContractPosition:ContrQty -= oPos:VkQty-oPos:GelQty
+               oPos:VkQty := oPos:GelQty
+            ENDIF
+               
+            oPos:BeStat := 3
+            oPos:Auftrag:Save(.T.)                       
+         ENDIF            
+         RETURN NIL
+      })
+      //?? " Tastendruck"; Sinkey(0)
 
-         IF Tr_Getini(28) == 9
-            //Alert("All open positions have been reset")
-         ENDIF
-         CLS
+      IF Tr_Getini(28) == 9
+         //Alert("All open positions have been reset")
+      ENDIF
+         
 
       auf->(dbSetFilter({|| auf->(&(cFilter)) },cFilter)) //Filter wieder aktivieren
       auf->(dbSetORder( 1 ))
@@ -252,10 +269,11 @@ FUNCTION ProcessSalesOrder(nKunde,hResults,aData,oAuftrag)
          oPos := oAuftrag:Positions:GetRecord(auf->Itmnr)
          oContract := oPos:ContractPosition
          IF nX > Len(aData) .OR. aData[nX]["DATE"] > hResults["MATDATE"] .OR. aData[nX]["DATE"] < oAuftrag:Besda
-            IF oPos:BeStat < 3 .OR. oPos:VkQty != 0
-               ? t("Lösche "),Transform(auf->VkQty,cMe),art->me,auf->WDatum
+            IF /*oPos:BeStat < 3 .OR.*/ oPos:VkQty != 0
+               ? t("Lösche "),Transform(oPos:VkQty,cMe),art->me,auf->WDatum                            
+               oContract:ContrQty -= oPos:VkQty
+               oPos:BeStat := 3               
                oPos:VkQty := 0
-               oPos:BeStat := 3
                oPos:Save()
             ELSE
                ? t("Belasse "),Transform(auf->VkQty,cMe),art->me,auf->WDatum
@@ -267,6 +285,7 @@ FUNCTION ProcessSalesOrder(nKunde,hResults,aData,oAuftrag)
             ENDIF
          ELSE
             ? "Setze ",Transform(aData[nX]["QTY"],cME),art->Me,aData[nX]["DATE"],"bisher: ",auf->WDatum
+            oContract:ContrQty += aData[nX]["QTY"]-oPos:VkQty
 
             oPos:Aufnr    := hResults["ORDER"] 
             oPos:VkQty := aData[nX]["QTY"]
@@ -287,14 +306,15 @@ FUNCTION ProcessSalesOrder(nKunde,hResults,aData,oAuftrag)
             oPos:Save()            
          ENDIF
          //IF ! oPos:lErledigt
-            oContract:ContrQty -= oContract:VkQty-nOpenQty
-            oContract:VkQty := nOpenQty
+            //oContract:ContrQty -= oContract:VkQty-nOpenQty
+            //oContract:VkQty := nOpenQty
          //ENDIF
-         oContract:WTerm := Max(oPos:DTerm,oContract:Wterm)
+         oContract:WTerm := Max(Max(oPos:Wterm,oPos:DTerm),oContract:Wterm)
          oContract:Save()
 
          auf->(dbSetFilter({|| auf->(&(cFilter)) },cFilter)) //now we reset the filter
          auf->(dbSkip())
+         //?? " Tastendruck";Sinkey(0)
       ENDDO
       auf->(dbClearFilter())
 
@@ -318,9 +338,11 @@ FUNCTION ProcessSalesOrder(nKunde,hResults,aData,oAuftrag)
          nX++
          IF aData[nX]["DATE"] <= hResults["MATDATE"] .AND. aData[nX]["DATE"] >= oAuftrag:Besda
             ? "Neu ",Transform(aData[nX]["QTY"],cME),art->Me,aData[nX]["DATE"]
-            /*oPos := oAuftrag:Positions:NewRecord()
+            oPos := oAuftrag:Positions:NewRecord()
             oPos:Matchcode := oContract:Matchcode
             oPos:ContrPos := nContract
+
+            oContract:ContrQty += aData[nX]["QTY"]
 
             oPos:VkQty     := aData[nX]["QTY"]
             oPos:VkPr      := oContract:VkPr
@@ -339,15 +361,16 @@ FUNCTION ProcessSalesOrder(nKunde,hResults,aData,oAuftrag)
 
             oPos:Save()
 
-            oContract:ContrQty += oContract:VkQty+nOpenQty
-            oContract:VkQty := nOpenQty
-            oContract:WTerm := Max(oPos:DTerm,oContract:Wterm)
+            //oContract:ContrQty += oContract:VkQty+nOpenQty
+            //oContract:VkQty := nOpenQty
+            oContract:WTerm := Max(Max(oPos:Wterm,oPos:DTerm),oContract:Wterm)
             oContract:Save()
 
             //set lastchange - this will cause the order to be rechecked
             oAuftrag:LastChange := TtoS(DateTime())
-            oAuftrag:Save()*/
-         ENDIF
+            oAuftrag:Save()
+            //?? " Tastendruck..."; Sinkey(0)
+         ENDIF         
       ENDDO
 
       IF ! Hook("has_archive_file",{"AUF",oAuftrag:AbNr,cFileName,FileDate(cFileName),FileTime(cFileName)}) //attach the file if the file has not already been attached
@@ -376,6 +399,9 @@ FUNCTION RUN_CollectAndProcess_LE(hSettings)
    LOCAL nNr := 0
    //LOCAL nAbruf := 0
    LOCAL oAuftrag   
+   LOCAL cFile,aDir
+   LOCAL cPath := Path("import\auftrag\")
+   LOCAL aSaved
   
    LOCAL dDate := CToD("")
 
@@ -386,6 +412,23 @@ FUNCTION RUN_CollectAndProcess_LE(hSettings)
 
    hHead["FRAME"] := Space(20)    
    hHead["LASTWE"] := 0
+
+   IF Tr_Getini(28) == 9 .AND. Tr_MsgBox("Letzter Stand einlesen?",,{"Ja","Nein"}) == 1
+      aDir := Directory(cPath+StrZero(hSettings["KUNDE"],6)+"*.db")
+      IF Len(aDir) >= 1
+         cFile := Atail(aDir)[1]     
+      
+         aSaved := HB_DeSerialize(MemoRead(cPath+cFile))
+         Alert(ValToPrg(aSaved))
+         hHead := aSaved[1]
+         aData := aSaved[2]
+         IF Len(aSaved) >= 3
+            dDate := aSaved[3]
+         ENDIF
+         nNr := VaL(hHead["ORDER"])
+      ENDIF
+   ENDIF
+
 
    @ 01,00 SAY "Datum                " GET dDate VALID dDate <= Date()
    @ 02,00 SAY "Rahmenbestellung     " GET hHead["FRAME"] PICTURE "99999999" VALID ! Empty(hHead["FRAME"])
@@ -402,14 +445,17 @@ FUNCTION RUN_CollectAndProcess_LE(hSettings)
 
 
    DO WHILE LastKey() != 27
-      Aadd(aData,{"QTY"=>0,"DATE"=>CToD("")})
+      IF nR-nSt+1 > Len(aData)
+         Aadd(aData,{"QTY"=>0,"DATE"=>CToD("")})
+      ENDIF
       @ nR,00 SAY "Datum" GET aData[nR-nSt+1]["DATE"]
       @ nR,15 SAY "Menge" GET aData[nR-nSt+1]["QTY"]
       ReadModal(getlist,(nR-nSt)*2+nSt-1)   
-      nR++
-      IF Empty(ATail(aData)["DATE"])
+      
+      IF Empty(aData[nR-nSt+1]["DATE"])
          EXIT
       ENDIF
+      nR++
    ENDDO
 
    IF LastKey() == 27 .AND. (Len(aData) > 1 .OR. ! Empty(aData[1]["DATE"])) .AND. Tr_MsgBox("Verarbeiten?",,{"Ja","Nein"}) != 1
@@ -419,6 +465,8 @@ FUNCTION RUN_CollectAndProcess_LE(hSettings)
    hHead["MATDATE"] := AddMonth(dDate,hSettings["MATFREIGABE"])
    hHead["PRODDATE"] := AddMonth(dDate,hSettings["PRODFREIGABE"])
    hHead["ORDER"] := Pad(Str(nNr,10),20)
+
+   MemoWrit(cPath+StrZero(hSettings["KUNDE"],6)+"_"+TtoS(DateTime())+".db",HB_Serialize({hHead,aData,dDate}))
    
    ProcessSalesOrder(hSettings["KUNDE"],hHead,aData,@oAuftrag)
 

@@ -6,7 +6,7 @@ LOCAL hPrices := {=>}
 LOCAL cUrl
 LOCAL cData
 LOCAL aRegex
-LOCAL lD := .F. //Tr_Getini(28) == 9
+LOCAL lD := Tr_Getini(28) == 9
 LOCAL pCurl,nErr
 LOCAL nMwSt
 
@@ -14,7 +14,8 @@ LOCAL nMwSt
    HB_SYMBOL_UNUSED(nArtnr)
    HB_SYMBOL_UNUSED(cMatch)
 
-   cUrl := "https://www.reichelt.de/index.html?ACTION=3&ARTICLE="+cArtLief 
+   //cUrl := "https://www.reichelt.de/index.html?ACTION=3&ARTICLE="+cArtLief 
+   cUrl := "https://www.reichelt.de/steckverbinder-stecker-6-polig-px0410-06p-4550-p"+cArtLief+".html?r=1"
 
    pCurl := Curl_Easy_Init()
    curl_easy_setopt(pCurl, HB_CURLOPT_BUFFERSIZE, 102400)
@@ -33,6 +34,7 @@ LOCAL nMwSt
       Alert( "Curl: "+Str(nErr) )
       Alert( "HTTP Response: "+Str(curl_easy_getinfo(pCurl,HB_CURLINFO_RESPONSE_CODE)) )
       Alert(cData)
+      gtSetClipboard(cData)
    ENDIF
    Curl_Easy_CleanUp(pCurl)   
 

@@ -59,11 +59,14 @@ DO WHILE ! re->(Eof()) .AND. re->RechDat <= Date() //-1
             ELSE
                SetPrinterMethodType(4) //letter
             ENDIF
+
+            //IF ku->Re_Via == "EMAI" //temp only send emails
    
    			engrepr("",0,re->Rechnr,.F.,ku->Re,0)  //original
    			SetPrinterMethodType(0)
       		TxtClear()
    
+            //ENDIF
 
       		IF post->(dbSeek( "RE"+Str(re->Rechnr,6) )) //sent successfully
                cList += Str(re->Rechnr,6)+" "+DToC(re->Rechdat)+Chr(13)+Chr(10)

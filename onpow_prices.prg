@@ -1,4 +1,4 @@
-PARAMETERS lNewAli
+PROC RUN_ONPOW_PRICES(lNewAli)
 //#define TEST
 //#define DEBUG
 LOCAL cMainPath := "Y:\Dokumente und Einstellungen\All Users\Dokumente\Onpow\Preise\dbf\"
@@ -11,6 +11,10 @@ LOCAL aDir,cFile
 LOCAL dStart := StoD(""),dDate
 LOCAL hRabatte := {1=>0,5000=>5}
 LOCAL cSearch,lSingle,lSingleDual
+LOCAL nX,aCompare,nLedPins
+
+MEMVAR cFilter
+PUBLIC cFilter
 
 Default(@lNewAli,.F.)
 
@@ -274,7 +278,7 @@ FOR EACH hSeries IN aSeries
    IF ! File(cFile+".dbf")
       ? "No File",cFile+".dbf"
    ELSE
-      Net_Use(cFile,"oppl",.F.,0)
+      Net_Use(cFile,"oppl",.F.,0,"DBFNTX")
       oppl->(dbGoTop())
 
 

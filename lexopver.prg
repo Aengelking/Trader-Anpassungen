@@ -2,11 +2,15 @@
 #define LX_CAT_KREDITOR         256
 #include "y:\hb32\include\inkey.ch"
 
+PROC RUN_LEXOPVER
+
 LOCAL nKonto := 0
 LOCAL lDebitor
 LOCAL getlist := {}
-LOCAL lAbgeschlossen := .F.
+LOCAL oBrowse
+LOCAL lAbgeschlossen
 LOCAL nJahr
+LOCAL aOptions,aMsg
 
 
 LX_Start()
@@ -48,19 +52,20 @@ DO WHILE .T.
       LOOP
    ENDIF
    
-   @ MaxRow(),00 SAY t(">ENTER< - Aus-/Abwählen | >ALT-V< - Verrechnen")
+   @ MaxRow(),00 SAY t(">ENTER< - Aus-/Abwählen | >STRG-ENTER< Verteilpositionen w„hlen | >ALT-V< - Verrechnen")
 
    aOps := ASort(aOps,,,{|x,y| x:Datum < y:Datum })
-   AEval(aOps,{|x| x["SELECTED"] := .F. })
+   AEval(aOps,{|x| x["SELECTED"] := .F.,x["SELECTED2"] := .F. })
    oBrowse := TABrowse():New(02,00,MaxRow()-1,MaxCol())
    oBrowse:OneColumn := .T.
-   oBrowse:ColorSpec := "N/W,G/B,R/W,R/B"
+   oBrowse:ColorSpec := "N/W,G/B,R/W,R/B,GR+/W,GR+/B"
    oBrowse:aData := aOps
    oBrowse:AddKey(K_ESC,{|| .F. })
-   oBrowse:AddKey(K_ENTER,{|| oBrowse:CurrentDataRow():Selected := ! oBrowse:CurrentDataRow():Selected, .T. })
+   oBrowse:AddKey(K_ENTER,{|| oBrowse:CurrentDataRow():Selected2 := .F., oBrowse:CurrentDataRow():Selected := ! oBrowse:CurrentDataRow():Selected, .T. })
+   oBrowse:AddKey(K_CTRL_ENTER,{|| oBrowse:CurrentDataRow():Selected := .F., oBrowse:CurrentDataRow():Selected2 := ! oBrowse:CurrentDataRow():Selected2, .T. })
    oBrowse:AddKey(K_ALT_V,{||
       LOCAL x
-      LOCAL nTotal := 0,nLastNeg := 0,nLastPos := 0,nCount := 0
+      LOCAL nTotal := 0,nDistribute := 0,nLastNeg := 0,nLastPos := 0,nCount := 0      
 
       FOR EACH x IN aOps
          nCount++
@@ -71,27 +76,47 @@ DO WHILE .T.
             ELSE
                nLastNeg := nCount
             ENDIF
+         ELSEIF x:Selected2
+            nDistribute += x:Rest
          ENDIF
       NEXT
       IF nCount > 0
-         IF (nTotal < 0 .AND. nTotal < aOps[nLastNeg]:Rest) .OR. (nTotal >= 0 .AND. nTotal > aOps[nLastPos]:Rest)
+         IF nDistribute == 0 .AND. ((nTotal < 0 .AND. nTotal < aOps[nLastNeg]:Rest) .OR. (nTotal >= 0 .AND. nTotal > aOps[nLastPos]:Rest))
             Tr_MsgBox(t("Restbetrag ("+LTrim(Str(nTotal))+") "+IF(nTotal<0,"kleiner","größer")+" als der letzte Betrag ("+LTrim(Str(IF(nTotal<0,aOps[nLastNeg]:Rest,aOps[nLastPos]:Rest)))+"). Verrechnung kann nicht durchgeführt werden"))
             RETURN .T.
+         ENDIF         
+         aOptions := {"abbrechen"}
+         aMsg := {"Summe: "+LTrim(Str(nTotal))}
+         IF nDistribute != 0 .AND. nDistribute != nTotal
+            Aadd(aOptions,"prozentual verrechnen")
+            Aadd(aMsg,"Zu verrechnen: "+LTrim(Str(nDistribute)))
+            Aadd(aMsg,"Neue Summe: "+LTrim(Str(nDistribute+nTotal)))
+         ELSE
+            Aadd(aOptions,"verrechnen")
          ENDIF
-         IF Tr_MsgBox("Summe: "+LTrim(Str(nTotal)),,{"abbrechen","verrechnen"}) == 2
+         IF Tr_MsgBox(aMsg,,aOptions) == 2
             nCount := 0
             FOR EACH x IN aOps
                nCount++
-               IF x:Selected
-                  IF (nTotal >= 0 .AND. nCount != nLastPos) .OR. (nTotal < 0 .AND. nCount != nLastNeg)
-                     x:Rest := 0
+               IF x:Selected .OR. x:Selected2
+                  IF nDistribute == 0
+                     IF (nTotal >= 0 .AND. nCount != nLastPos) .OR. (nTotal < 0 .AND. nCount != nLastNeg)
+                        x:Rest := 0
+                     ELSE
+                        x:Rest := nTotal
+                     ENDIF
                   ELSE
-                     x:Rest := nTotal
+                     IF x:Selected2 
+                        x:Rest := 0
+                     ELSE
+                        x:Rest := x:Rest+nDistribute*x:Rest/nTotal
+                     ENDIF
                   ENDIF
                   LX_SetOffenerPostenRest(x:Nr,x:Rest)
                   x:Selected := .F.
+                  x:Selected2 := .F.
                ENDIF
-            NEXT
+            NEXT            
             __DispTotal(aOps)
          ENDIF
       ENDIF
@@ -108,7 +133,7 @@ DO WHILE .T.
          ENDIF
       })
    ENDIF
-   oBrowse:NewColumn("Datum",{|| DToC(oBrowse:CurrentDataRow():Datum) },{|| IF(oBrowse:CurrentDataRow():Selected,{3,4},{1,2}) } )
+   oBrowse:NewColumn("Datum",{|| DToC(oBrowse:CurrentDataRow():Datum) },{|| IF(oBrowse:CurrentDataRow():Selected2,{5,6},IF(oBrowse:CurrentDataRow():Selected,{3,4},{1,2})) } )
    oBrowse:NewColumn("Buchungstext",{|| Pad(oBrowse:CurrentDataRow():Text,MaxCol()-4-8-12) })
    oBrowse:NewColumn("Betrag",{|| Str(oBrowse:CurrentDataRow():Rest,12,2) })
    oBrowse:bAnyFun := {|| __DispTotal(aOps) }

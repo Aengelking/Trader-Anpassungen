@@ -61,7 +61,7 @@ DO WHILE ! rech->(Eof()) .AND. Year(rech->Rechdat) >= nYear //nI <= len(aSup)
 	  ENDIF
 
       art->(dbSeek(Str(rpos->artikelnr,6)))
-      IF art->Manufactur == aManu[1][nManu] .AND. ! fol->(dbSeek( Str(art->artikelnr,6) ))
+      IF art->Manufactur == aManu[1][nManu] .AND.  ! fol->(dbSeek( Str(art->artikelnr,6) ))
          cMatch := Trim(art->Matchcode)
          IF ali->(dbSeek(cManu+Str(rpos->artikelnr,6))) .AND. ! Empty(ali->Artlief)
             cMatch := Trim(ali->Artlief)

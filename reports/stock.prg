@@ -1,5 +1,10 @@
+PROC RUN_REPORT_STOCK
 LOCAL nManu
 LOCAL cFilter := "bestand > 0"
+LOCAL hStock,nTotal,hReqInq,nBestand,oArt
+LOCAL nPrice,dDate,nX
+LOCAL nOver,n3Y,n5Y
+LOCAL oPDF,dD,nP,nTot,aProds
 //LOCAL nArtRec
 Head(HB_AnsiToOem("Bestandsanalyse"))
 
@@ -7,10 +12,13 @@ NetUse("artikel","art",.F.,0)
 NetUse("engabg","abg",.F.,0)
 NetUSe("manufact","manu",.F.,0)
 NetUse("me","me",.F.,0)
+NetUSe("folgeart","fol")
 
 
 
 abg->(dbSetOrder( 3 ))
+
+fol->(dbSetOrder( 2 ))
 
 art->(dbSetFilter( {|| art->(&(cFilter)) },cFilter))
 art->(dbGoTop())
@@ -20,8 +28,6 @@ art->(dbGoTop())
 hStock := {=>}
 nTotal := 0
 Do While ! art->(Eof()) 
-   //nArtRec := art->(Recno())
-	//If art->Bestand > 0
 	   IF art->manufactur == 8 .AND. Trim(art->Type) == "RHB"
          nManu := -1
 	   ELSEIF art->manufactur == 8 .AND. Trim(art->Type) == "VERP"
@@ -32,32 +38,44 @@ Do While ! art->(Eof())
 		If ! HHasKey(hStock,nManu)
 			hStock[nManu] := {"total"=>0,"over"=>0,"3years"=>0,"5years"=>0,"products"=>{}}
 		Endif
-		hReqInq := GetProductRequirementAndIncoming(art->Artikelnr)
-		nBestand := Min(art->Bestand,art->Bestand-hReqInq["requirement"]+hReqInq["income"])
-		If nBestand > 0 //.AND. art->Manufactur == 1
+      hReqInq := GetProductRequirementAndIncoming(art->Artikelnr)
+      nBestand := Min(art->Bestand,art->Bestand-hReqInq["requirement"]+hReqInq["income"])
+      fol->(dbSeek( Str(art->Artikelnr,6) ))
+      DO WHILE fol->FolgeArt == art->Artikelnr .AND. ! fol->(EOF())
+            art->(dbClearFilter())
+            hReqInq := GetProductRequirementAndIncoming(fol->Artikelnr)            
+            art->(dbSetFilter( {|| art->(&(cFilter)) },cFilter))
+            
+            nBestand -= hReqInq["requirement"]*fol->Faktor
+            fol->(dbSkip())
+      ENDDO
+		If nBestand > 0
 		   oArt := Artikel():New(.F.)
          oArt:Load(art->Artikelnr)
 
-			nPrice := oArt:GetAvgBuyPrice(Date())
+         nPrice := oArt:GetAvgBuyPrice(Date())
+         dDate := SToD("")
 			abg->(dbSetFilter( {|| Trim(abg->Buart) $ "WE WA" },'Trim(buart) $ "WE WA"'))
-			abg->(OrdScope(0,{|| art->Matchcode }))
-			abg->(OrdScope(1,{|| art->Matchcode }))
+			abg->(OrdScope(0,art->Matchcode ))
+			abg->(OrdScope(1,art->Matchcode ))
 
 			//abg->(dbSeek( art->Matchcode,.T. ))
 			abg->(dbGoBottom())
-			dDate := SToD("")
+			
 			nX := 1
-			Do While abg->Matchcode == art->Matchcode .AND. ! abg->(Eof())
-			   @ 00,00 SAY nX++
+         //Do While abg->Matchcode == art->Matchcode .AND. ! abg->(Eof())
+         IF ! abg->(Eof())			   
 				dDate := abg->Datum
-            abg->(dbSkip())
-			Enddo
+           // abg->(dbSkip(-1))
+         ENDIF
+			//Enddo
 			abg->(dbClearFilter())
-			abg->(OrdScope(0,{|| .T. }))
-			abg->(OrdScope(1,{|| .T. }))
+			abg->(OrdScope(0,""))
+			abg->(OrdScope(1,""))
 
 			@ MAxRow(),00 SAY art->Matchcode+" "+art->Type
-			//If Trim(art->Matchcode) == "KS21943/3"
+         ?? nPrice
+         //If Trim(art->Matchcode) == "KS21943/3"
 //				? art->Matchcode,nBestand,nBestand*nPrice,dDate
 				/*? "Bestand:",art->Bestand
 				? "Incoming:",hReqInq["income"]

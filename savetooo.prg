@@ -6,11 +6,11 @@ FUNCTION RUN_TestSaveOO()
    
 RETURN NIL
 
-FUNCTION SaveToOO(cFileName,hData,cPW,cType)
+FUNCTION SaveToOO(cFileName,hData,cPW,cType,lShow)
    LOCAL oOO,aProps,oDesk
    LOCAL oDoc,oSheets,oSheet,oCell
    LOCAL nR,nC,aData
-
+ 
    IF ValType(hData) == "A"
       hData := {""=>hData}
    ENDIF
@@ -21,7 +21,10 @@ FUNCTION SaveToOO(cFileName,hData,cPW,cType)
       cType := Upper(cType)
    ENDIF
       
+   Default(@lShow,.F.)
+
    oOO := CreateObject("com.sun.star.ServiceManager")
+   
    oDesk := oOO:createInstance("com.sun.star.frame.Desktop")
    IF oDesk == NIL
       Tr_MsgBox(t("OpenOffice konnte nicht geöffnet werden"))
@@ -79,7 +82,12 @@ FUNCTION SaveToOO(cFileName,hData,cPW,cType)
          Aadd(aProps,OOProperty(oOO,"FilterName",IF(cType=="XLSX","Calc MS Excel 2007 XML","MS Excel 97")))
       ENDIF
       oDoc:storeAsUrl("file:///"+StrTran(cFileName,"\","/"),aProps)      
-      oDoc:close(.F.)
+      IF ! lShow      
+         oDoc:close(.F.)
+      ENDIF
+   ENDIF
+   IF lShow
+      oDoc:currentController:Frame:ContainerWindow:setVisible(.T.)      
    ENDIF
    
 RETURN .T.

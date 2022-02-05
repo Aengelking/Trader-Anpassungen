@@ -3,7 +3,7 @@
 FUNCTION FARNELL(nArtnr,cArtlief)
 
 LOCAL oHttp,hData,hPrices,hPrice
-LOCAL lDbg := .F. //Tr_getini(28) == 9
+LOCAL lDbg := .F. // Tr_getini(28) == 9
 LOCAL nPos 
 LOCAL cUrl := "https://de.farnell.com/x/x/x/dp/"+Trim(cArtlief)
 //LOCAL cUrl := "https://de.farnell.com/"
@@ -18,6 +18,7 @@ LOCAL pCurl
 MEMVAR cPriceError 
 PUBLIC cPriceError := ""
 
+RETURN NIL  //08.10.21 disabled, Farnell is returning access denied
 
    HB_SYMBOL_UNUSED(nArtnr)
 
@@ -124,9 +125,9 @@ PUBLIC cPriceError := ""
          hPrices := {=>}
          
          cData := SubStr(cData,nPos)
-         cData := SubStr(cData,1,AT("</table",cData))
+         //cData := SubStr(cData,1,AT("</table",cData))
          aData := {}
-         DO WHILE (nPos := AT("PriceBreakArray=",cData)) > 0 //find the last one
+         DO WHILE (nPos := AT("PriceBreakArray=",cData)) > 0 //get Price data, contained in a script
             cData := SubStr(cData,nPos+16)   
             IF lDbg 
                Alert(SubStr(cData,1,AT(Chr(13),cData)-1))

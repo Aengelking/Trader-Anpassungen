@@ -10,10 +10,10 @@ PROC RUN_LABELSTAR( cFile,nCount,hFieldMap,cPrinter )
 MEMVAR oLabelstar
 LOCAL nX,cField
 LOCAL cPath,cFileName
-LOCAL cOut := ""
 LOCAL cOutFile,nH
 LOCAL cChar
 LOCAL cAdd
+LOCAL cString
 
 IF ValType(hFieldMap) != "H"
    hFieldMap := {=>}
@@ -21,8 +21,6 @@ ENDIF
 IF ValType(nCount) != "N"
    nCount := 1
 ENDIF
-
-
 
 HB_FNameSplit( cFile, @cPath, @cFileName )
 
@@ -46,6 +44,9 @@ ENDDO
 cOutFile += cAdd+".xml"
 
 nH := FCreate(cOutFile)
+
+//IF Tr_Getini(28) == 9; Alert("File created"); ENDIF
+
 IF nH <= 0
    Tr_MsgBox("Create error")
    RETURN

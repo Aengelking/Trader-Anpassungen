@@ -110,7 +110,7 @@ nSumme := 0
 FOR EACH nSumme IN hOps
 	nKonto := nSumme:__eNumKey()
 	@ 10,13 SAY nKonto
-	IF ! fibu->(dbSeek( Str(nKonto,6) )) //Währungsdifferenzkonten ignorieren, da diese sowieso zum Monatsende abgelichen werden und dadurch auch Differenzen zwischen OP und Kreditorenkten entstehen können
+	//IF ! fibu->(dbSeek( Str(nKonto,6) )) //Währungsdifferenzkonten ignorieren, da diese sowieso zum Monatsende abgelichen werden und dadurch auch Differenzen zwischen OP und Kreditorenkten entstehen können
    	nLXSaldo := LX_GetSaldo(nKonto,dEoY)
    	hSummen := LX_GetSummen(nKonto,StoD("20000101"),dEoY,.T.,.F.) //all bookings in the stapel
    	nLXSaldo += hSummen:Haben-hSummen:Soll
@@ -118,7 +118,7 @@ FOR EACH nSumme IN hOps
    		oPdf:NewLine()
    		oPdf:AtSay(Str(nKonto,6)+" "+Pad(LX_GetAccountName(nKonto),30)+" "+Str(nSumme,10,2)+" "+Str(nLxSaldo,10,2))
    	ENDIF
-   ENDIF
+   //ENDIF
 NEXT
 
 /*oPdf:NewPage()

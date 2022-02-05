@@ -8,6 +8,19 @@ PROC RUN_EDIT_EXTRAFIELDS(cAli,lNr)
       cFile := "rechnung"
       cName := "Rechnung"
       nOrd  := 1
+   ELSEIF Upper(cAli) == "ANG"
+      cFile := "angebot"
+      cName := "Angebot"
+      nOrd  := 1
+   ELSEIF Upper(cAli) == "BES"
+      cFile := "engbes"
+      cName := "Bestellung"
+      nOrd  := 1
+   ELSEIF Upper(cAli) == "KU"
+      cFile := "engkund"
+      cName := "Adressen"
+      nOrd  := 1
+      
    ENDIF
    IF Empty(cFile)
       RETURN

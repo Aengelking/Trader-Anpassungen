@@ -46,8 +46,9 @@ LOCAL bDrawImage
 LOCAL aPaint := {}
 LOCAL nScale := 1
 LOCAL aList,hEntry,cYearPre,aChoice
-LOCAL nPersTrader := IF(Date()<=StoD("20190621"),P_SIGRID,P_DANIELA)  //Person die für Trader Rechnungen verantwortlichist
-LOCAL nPersGenehm := IF(Date()<=StoD("20190621"),P_SIGRID,P_AMOS)   //Person die für Genehmigungen zuständig ist
+LOCAL nPersTrader := IF(Date()<=StoD("20210813"),P_SIGRID,P_DANIELA)  //Person die für Trader Rechnungen verantwortlichist
+LOCAL nPersGenehm := IF(Date()<=StoD("20210813"),P_SIGRID,P_AMOS)   //Person die für Genehmigungen zuständig ist
+LOCAL aGB := {"BULGIN","SCOLMORE","EDAC","ITW"}
 LOCAL hKontoGenehm := {=>} //bestimmte Kreditoren einer Person zuweisen
 LOCAL nImageTop := 0,nImageRight := 0,nImageBottom := 0
 LOCAL nImageTopDiff:= 0,nImageRightDiff := 0
@@ -99,19 +100,32 @@ SetKey(1015,{||
 
 hKontoGenehm[70062] := P_CELINA
 hKontoGenehm[70887] := P_CELINA
+hKontoGenehm[70814] := P_CELINA //Fedex
+hKontoGenehm[70911] := P_CELINA //FET
+hKontoGenehm[70302] := P_CELINA 
+hKontoGenehm[76236] := P_CELINA //Wackler
+hKontoGenehm[76056] := P_CELINA //Dachser
+hKontoGenehm[76254] := P_CELINA //ITC
+hKontoGenehm[76239] := P_CELINA //Sch„flein
+
 hKontoGenehm[76126] := P_SIGRID
-hKontoGenehm[70302] := P_CELINA
-hKontoGenehm[70423] := P_DANIEL
-hKontoGenehm[76167] := P_DANIEL  //Amazon Marketplace
 hKontoGenehm[76168] := P_SIGRID  //Reisekosten Sammelkonto
 hKontoGenehm[76019] := P_SIGRID  //Fundflow
+hKontoGenehm[74245] := P_SIGRID  //Allianz
+hKontoGenehm[76218] := P_SIGRID  //LeasePlan
+hKontoGenehm[74930] := P_SIGRID  //Payrexx
+hKontoGenehm[76157] := P_SIGRID  //Conrad - Webhelp
+
+hKontoGenehm[70423] := P_DANIEL
+hKontoGenehm[76167] := P_DANIEL  //Amazon Marketplace
+
 
 aList := {;
    {"EMAIL"=>"@techno\.it$","MATCH"=>"TECHNO"},;
    {"EMAIL"=>"@scolmore\.com$","MATCH"=>"SCOLMORE","AUTO"=>.T.},;
    {"EMAIL"=>"@bulgin\.com$","MATCH"=>"BULGIN"},;
    {"EMAIL"=>"@elektron-technology\.com$","MATCH"=>"BULGIN","AUTO"=>.T.},;
-   {"EMAIL"=>"@itw.*\.com$","MATCH"=>"ITWAPPLI"},;
+   {"EMAIL"=>"@itw.*\.com$","MATCH"=>"ITW"},;
    {"EMAIL"=>"waldom(?:emea)?\.com$","MATCH"=>"WALDOM","AUTO"=>.T.},;
    {"EMAIL"=>"emons-spedition.de$","KONTO"=>74186},;
    {"EMAIL"=>"schenker-invoice@bt-asp\.de$","KONTO"=>70887},;
@@ -142,6 +156,16 @@ IF ! Empty(cMsgPath)  //email
    oArchive := oAccount:GetArchive(cArchive)
    oMsg := oArchive:GetArchiveEntryById(cMsgPath)
 
+   /*IF "airspeed" $ Lower(oMsg:Fields("SRFrom"):Value)
+      //Need to add conversion to PDF/A
+      //e.g. gs -dPDFA -dBATCH -dNOPAUSE -sProcessColorModel=DeviceRGB -sDEVICE=pdfwrite -sPDFACompatibilityPolicy=1 -sOutputFile=output_filename.pdf input_filename.pdf
+      Tr_MsgBox("Archivierung von AIRSPEED Rechnung verursacht Probleme. Bitte an Amos verteilen")
+      RETURN
+   ELSE*/IF Lower(oMsg:Fields("SRFrom"):Value) == "scanner@engelking.de"
+      cType := "SCAN"
+   ENDIF
+   
+
    dEingang := FileDate(cFileName) //get the date before we change the file name
    
    //Alert(DtoC(dEingang)+";"+cFileName+SubStr(cFileName,50,1))
@@ -159,7 +183,7 @@ IF ! Empty(cMsgPath)  //email
          ENDIF
       ENDIF
    NEXT
-   IF lOneDocOnly .AND. Tr_MsgBox(t("Email enthält nur ein Dokument, soll lediglich dieses archiviert werden?"),,{"Nein","Ja"}) == 2
+   IF lOneDocOnly .AND. (cType == "SCAN" .OR. Tr_MsgBox(t("Email enthält nur ein Dokument, soll lediglich dieses archiviert werden?"),,{"Nein","Ja"}) == 2)
       cTempPath := GetEnv("temp")
       oAtt := oMsg:Attachments:Item(nDocAtt)
       oAtt:CopyOut(cTempPath,oAtt:FileName)
@@ -176,8 +200,9 @@ IF ! Empty(cMsgPath)  //email
          lAuto := HHasKey(hEntry,"AUTO") .AND. hEntry["AUTO"]
       ENDIF
    NEXT
+ENDIF
 
-ELSEIF cType == "SCAN"
+IF cType == "SCAN"
    TxtBox("Barcode wird erkannt")
    cTempPath := getEnv("temp")
    //
@@ -326,7 +351,7 @@ DO WHILE .T.
       RETURN .T.
    }
    Aadd(getlist,oGet)
-   @ 04,00 SAY Pad("Belegjahr",19) GET nYear VALID nYear >= Year(Date())-1 .AND. nYear <= Year(Date()) PICTURE "9999" WHEN cType != "SCAN" .AND. ! lAuto //Belegjahr außer bei Scan's da wird es von der ID entnommen
+   @ 04,00 SAY Pad("Belegjahr",19) GET nYear VALID nYear >= Year(Date())-1 .AND. nYear <= Year(Date()+31) PICTURE "9999" WHEN cType != "SCAN" .AND. ! lAuto //Belegjahr außer bei Scan's da wird es von der ID entnommen
 
    IF cType == "SCAN"
       @ 06,00 SAY "Interne Belegnummer "+Str(nID,9)
@@ -531,7 +556,11 @@ DO WHILE .T.
                      reb->Person := nPersGenehm
                   ENDIF
                ELSE
-                  reb->Person := nPersTrader
+                  IF Trim(cLiefma) $ aGB .AND. nYear <= 2020  //temporatily assign all GB invoices to me so I can make sure the supplier is setup correctly and the Lexware transfer has been changed
+                     reb->Person := 9
+                  ELSE
+                     reb->Person := nPersTrader
+                  ENDIF
                ENDIF
             ENDIF
             nRev := 0
@@ -614,7 +643,7 @@ DO WHILE .T.
          #endif
          lError := .T.
       END
-      IF lError
+      IF lError         
          Tr_MsgBox("Fehler bei der Verarbeitung des Dokuments")
       ENDIF
       EXIT

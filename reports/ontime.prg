@@ -67,7 +67,7 @@ FClose(nH)
 IF nCount > 0
    ? Str(nOnTime/nCount*100,6,2)+"%"+" on time"
 ENDIF
-//Wapi_ShellExecute(,"open",cFile)
+Wapi_ShellExecute(,"open",cFile)
 SInkey(0,128)
 
 

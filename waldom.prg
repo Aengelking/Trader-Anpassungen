@@ -1,10 +1,18 @@
-PROCEDURE RUN_WALDOM
-   LOCAL cUrl := "http://www.waldomemea.com/dailyfeed/Engelking_Feed.xml"
-   LOCAL cLief := Pad("WALDOM",8)
-   LOCAL aArtikel := {},aParts := {},cChr
-   LOCAL cList := ""
-   LOCAL cData,oHttp,oXml,cQty,nArtnr,cPrice,nX,oNode,oChildren,oIter,cMatch
+#include 'y:\hb34\contrib\hbcurl\hbcurl.ch'
 
+PROCEDURE RUN_WALDOM
+   LOCAL cUrl := "https://www.waldomemea.com/dailyFeed/Engelking%20Elektronik%20GmbH_InventoryFeed.csv"
+                  //http://www.waldomemea.com/dailyFeed/Engelking%20Elektronik%20GmbH_InventoryFeed.csv
+   LOCAL cLief := Pad("WALDOM",8)
+   LOCAL cBulgin := Pad("BULGIN",8)
+   LOCAL aArtikel := {},aParts := {}
+   LOCAL cArtlief
+   LOCAL cData,nQty,nArtnr,nX,nR,cMatch
+   LOCAL cTempFile
+   LOCAL hFieldMap := {=>},aData,nResponse,nD
+   LOCAL nP,bBlock
+   LOCAL pCurl := Curl_Easy_Init()
+   
    CLS
 
    NetUse("artikel","art")
@@ -12,76 +20,127 @@ PROCEDURE RUN_WALDOM
    NetUse("buyprice","bpr")
    NetUse("liefstock","lsto")
    NetUse("waldom","wald")
-    
-   //SendMail({{"amos.engelking@engelking.de","AMOS"}},"Waldom started")
+   NetUse("engkund","ku")
 
-   ? "Downloading data"
-   oHttp := TIpClientHttp():new( cUrl )
-   
-   //oHttp:nConnTimeout := 10000
-   IF ! oHttp:open()
-      SendMail({{"amos.engelking@engelking.de","AMOS"}},"No data received from Waldom")
-      ? "NO DATA RETRIEVED"
-      Inkey(5)
+   ku->(dbSetOrder( 8 ))
+   IF ! ku->(dbSeek( Str(29146,6) ))
+      Alert("Waldom not found")
+      RETURN   
+   ENDIF
+   cLief := ku->Kunde
+   IF ! ku->(dbSeek( Str(4835,6) ))
+      Alert("Bulgin not found")
       RETURN
    ENDIF
-   cData := oHttp:ReadAll()
+   cBulgin := ku->Kunde
 
-   //remove junk from stream data (please do not ask why this is in there, I guess it is information for the CIA :-))
-   FOR EACH cChr IN {Chr(0),Chr(255),Chr(254)}
-      cData := StrTran(cData,cChr,"")
-   NEXT
+   //FOR nTry := 1 TO 3 //3 tries
+      ? "Downloading data..."
+      curl_easy_setopt(pCurl, HB_CURLOPT_SSL_VERIFYPEER,0)
+      curl_easy_setopt(pCurl, HB_CURLOPT_DL_BUFF_SETUP )
+      curl_easy_setopt(pCurl, HB_CURLOPT_URL, cUrl )
+      Curl_Easy_Perform(pCurl)
+      curl_easy_setopt(pCurl, HB_CURLOPT_DL_BUFF_GET, @cData )
+      
+      Curl_Easy_CleanUp(pCurl)
+      nResponse := curl_easy_getinfo(pCurl,HB_CURLINFO_RESPONSE_CODE)
 
-   oXml := TXmlDocument():New()
-   oXml:Read(hb_utf8tostr(cData))
+   
+      IF cData == NIL //.OR. nResponse != 200
+         SendMail({{"amos.engelking@engelking.de","Amos"}},"Waldom: No Data received. "+LTrim(Str(nResponse)),cData)
+         RETURN
+      ENDIF
 
-   oIter := TXmlIteratorScan():New(oXml:oRoot)
-   oNode := oIter:Find("row")
+      //?? " complete",Len(cData)
+
+/*      IF Len(aData) > 0
+         EXIT
+      ELSE
+         //Wait before re-trying
+         Inkey(60,128)
+      ENDIF
+   NEXT*/
+   cTempFile := GetEnv("TEMP")+"\waldom_"+TtoS(DateTime())+".csv"
+   MemoWrit(cTempFile,cData)
+
+   aData := FParseEx(cTempFile,",")
+
+   IF Len(aData) == 0       
+      SendMail({{"amos.engelking@engelking.de","Amos"}},"Waldom: NO Data",,{cTempFile})
+      RETURN
+   ENDIF
+
+   ?? "done. ",LTrim(Str(Len(aData)))," records"
+
+   AEval(aData[1],{|cName,nI| hFieldMap[cName] := nI })
 
    ? "Updating stock/prices"
-   nR := Row()
-   DO WHILE oNode != NIL
-      oChildren := TXmlIteratorScan():New(oNode)
-      cMatch := oChildren:Find("PartNumber"):cData
+   nR := Row()   
+   FOR nD := 2 TO Len(aData)
       
-      @ nR,30 SAY cMatch
+      cMatch := aData[nD][hFieldMap["Part Number"]]
+      cArtlief := ""
+      
+     // @ nR,30 SAY Str(nD-1)+"/"+LTrim(Str(Len(aData)-1))+" "+Pad(cMatch,50)+Pad(aData[nD][hFieldMap["In Stock EMEA"]],12)//+"="+Str(Val(aData[nD][hFieldMap["In Stock EMEA"]]))
+      @ Row(),00 SAY Space(MaxCol())
+      @ Row(),00 SAY cMatch
+      IF cMatch == "PXP4011/10P/5560"
+         //SInkey(0)
+      ENDIF
+
+      //,aData[nD][hFieldMap["In Stock USA"]]
+      IF Chr(Inkey()) $ "pP"
+         Sinkey(0)
+      ELSEIF LastKey() == 27
+      RETURN
+      ENDIF 
 
       ali->(dbSetOrder( 3 ))
       art->(dbSetOrder( 1 ))
       IF art->(dbSeek( cMatch ))
+         ?? "Part found"
          nArtnr := art->Artikelnr
          @ nR+1,30 SAY Pad("Match: "+art->Matchcode,50)
-      ELSEIF ali->(dbSeek(Pad("BULGIN",8)+cMatch)) .OR. ali->(dbSeek(Pad("BULGIN",8)+StrTran(cMatch,"/SP","")))
+      ELSEIF ali->(dbSeek(Pad("WALDOM",8)+cMatch)) .OR. ali->(dbSeek(Pad("BULGIN",8)+cMatch)) .OR. ali->(dbSeek(Pad("BULGIN",8)+StrTran(cMatch,"/SP","")))
+         ?? "Artlief"
          @ nR+1,30 SAY Pad("Artlief: "+ali->Matchcode,50)
          cMatch := ali->Matchcode
+         cArtlief := ali->Artlief
          nArtnr := ali->Artikelnr  
-      ELSE
-         IF  AT("/",oChildren:Find("ShipsNow"):cData) == 0
-            Select("wald")
-            wald->(dbGoTop())
-            LOCATE FOR Trim(wald->PART) == Trim(cMatch)
-            IF ! wald->(Found())
-               wald->(Add_Rec(0))
-            ELSE
-               wald->(Rec_Lock(0))
-            ENDIF
-            wald->Part := cMatch
-            wald->Stock := Val(oChildren:Find("ShipsNow"):cData)
-            wald->(dbUnLock())
-            cList += Chr(13)+Chr(10)+cMatch+" "+oChildren:Find("ShipsNow"):cData
-            IF oChildren:Find("ShipsIn7Days"):cData != NIL
-               cList += " "+oChildren:Find("ShipsIn7Days"):cData
-            ENDIF
-            Aadd(aParts,Trim(cMatch))
+      ELSEIF Val(aData[nD][hFieldMap["In Stock EMEA"]])+Val(aData[nD][hFieldMap["In Stock USA"]])+Val(aData[nD][hFieldMap["On Order Quantity"]]) > 0
+         ?? "Stock saved",Val(aData[nD][hFieldMap["In Stock EMEA"]]) //,Val(aData[nD][hFieldMap["In Stock USA"]]),Val(aData[nD][hFieldMap["On Order Quantity"]]) 
+         Select("wald")
+         IF ! wald->(dbSeek(cMatch))
+            wald->(Add_Rec(0))
+         ELSE
+            wald->(Rec_Lock(0))
          ENDIF
-         oNode := oIter:Next()
-         LOOP
-         //RETURN
+         wald->Part := cMatch
+         wald->Stock := Val(aData[nD][hFieldMap["In Stock EMEA"]]) //Val(oChildren:Find("ShipsNow"):cData)
+         wald->StockUs := Val(aData[nD][hFieldMap["In Stock USA"]])
+         wald->OnOrder := Val(aData[nD][hFieldMap["On Order Quantity"]])
+         wald->PRC := aData[nD][hFieldMap["PRC"]]
+         wald->MOQ := Val(aData[nD][hFieldMap["MOQ"]])
+         wald->VPE := Val(aData[nD][hFieldMap["SPQ"]])
+         FOR nP := 1 TO 9
+            IF Len(aData[nD]) >= hFieldMap["Price Break Qty 1"] .AND. Len(aData[nD]) >= hFieldMap["Price Break 1"]
+               bBlock := wald->(FieldBlock("Break"+LTrim(Str(nP))))
+               Eval(bBlock, Val(aData[nD][hFieldMap["Price Break Qty "+LTrim(str(nP))]]) )
+               bBlock := wald->(FieldBlock("Price"+LTrim(Str(nP))))
+               Eval(bBlock, Val(aData[nD][hFieldMap["Price Break "+Ltrim(str(nP))]]) )               
+            ENDIF
+         NEXT
+         wald->(dbUnLock())
+         Aadd(aParts,Trim(cMatch))
+         LOOP      
+      ELSE
+
+         LOOP   
       ENDIF
+
 
       Aadd(aArtikel,nArtnr)
 
-      oChildren:Rewind()
       IF lsto->(dbSeek( cLief+Str(nArtnr,6) ))
          lsto->(Rec_Lock())
       ELSE
@@ -89,59 +148,10 @@ PROCEDURE RUN_WALDOM
          lsto->Liefma    := cLief
          lsto->Artikelnr := nArtnr
       ENDIF
-
-      IF AT("/",oChildren:Find("ShipsNow"):cData) == 0
-         lsto->Stock := Val(oChildren:Find("ShipsNow"):cData)
-      ELSE
-         lsto->Stock := 0
-      ENDIF
+      lsto->Stock := Val(aData[nD][hFieldMap["In Stock EMEA"]])
       lsto->DelTime := 7
-      IF oChildren:Find("ShipsIn7Days"):cData != NIL .AND. AT("/",oChildren:Find("ShipsIn7Days"):cData) == 0
-         lsto->DelQty  := Val(oChildren:Find("ShipsIn7Days"):cData)-1
-      ELSE
-         lsto->DelQty  := 0
-      ENDIF
+      lsto->DelQty  := Val(aData[nD][hFieldMap["In Stock USA"]])
       lsto->(dbUnLock())
-      
-      //lWaldomDelivers := .F.
-      /*IF lsto->Stock > 0
-         hReqInc := GetProductRequirementAndIncoming(nArtnr)
-         IF lsto->Stock > hReqInc["forecast"]*2 //stock for two months
-            //compare pricing
-            hWaldomPrice := GetBuyPrice( Pad("WALDOM",8), nArtnr, hReqInc["forecast"]*2 )
-            hBulginPrice := GetBuyPrice( Pad("BULGIN",8), nArtnr, hReqInc["forecast"]*2 )
-            IF hWaldomPrice["price"]/hWaldomPrice["unit"] < hBulginPrice["price"]/hBulginPrice["unit"]
-               lWaldomDelivers := .T.
-               ali->(dbSetOrder( 1 ))
-               IF ali->(dbSeek( Pad("BULGIN",8)+Str(nArtnr,6) )) .AND. ali->LZ == 0 .AND. art->LZ > 1 //save bulgin delivery time
-                  ali->(Rec_Lock())
-                  ali->LZ := art->LZ
-                  ali->(dbUnLock())
-               ENDIF
-               art->(dbSetOrder( 2 ))
-               IF art->(dbSeek( Str(nArtnr,6) ))
-                  art->(Rec_Lock())
-                  art->LZ := 1
-                  art->(dbUnLock())
-               ENDIF
-            ENDIF
-         ENDIF
-      ENDIF
-      IF ! lWaldomDelivers
-         ali->(dbSetOrder( 1 ))
-         art->(dbSetOrder( 2 ))
-         IF ali->(dbSeek( Pad("BULGIN",8)+Str(nArtnr,6) )) .AND. art->(dbSeek( Str(nArtnr,6) )) .AND. (ali->LZ > art->LZ .OR. ali->LZ <= 1)
-            art->(Rec_Lock())
-            art->LZ :=  IF(ali->LZ==1,0,ali->LZ) //waldom LZ was saved to ali if it is 1
-            art->(dbUnLock())
-         ENDIF
-      ENDIF */
-      
-      /*IF nArtnr == 1779 .AND. ! GetConfigValue("BATCHMODE")
-         ? "We buy from: ",IF(lWaldomDelivers,"WALDOM","BULGIN")
-
-         Inkey(0,128)
-      ENDIF*/
 
       ali->(dbSetOrder( 1 ))
       IF ! ali->(dbSeek( cLief+Str(nArtnr,6) ))
@@ -152,36 +162,50 @@ PROCEDURE RUN_WALDOM
       ELSE
          ali->(Rec_Lock())
       ENDIF
-      oChildren:Rewind()
-      ali->VPE       := Val(oChildren:Find("MOQ"):cData)-1
+      ali->Min       := Val(aData[nD][hFieldMap["MOQ"]])
+      ali->VPE       := Val(aData[nD][hFieldMap["SPQ"]])
+      ali->LZ        := Val(aData[nD][hFieldMap["Lead Time"]]) 
+      IF ! Empty(cArtlief) .AND. ali->Artlief != cArtlief
+         ali->Artlief := cArtlief
+      ENDIF
       ali->(dbUnLock())
+
+      bpr->(dbSetFilter({|| ! Empty(bpr->EndDate) .OR. bpr->EndDate <= Date() },"! Empty(EndDate) .OR. EndDate <= Date()"))
+      IF ! bpr->(dbSeek( cBulgin+Str(nArtnr,6))) //keine Bulgin Preise
+         art->(dbSetOrder( 2 ))
+         IF art->(dbSeek( Str(nArtnr,6) ))
+            art->(Rec_Lock(0))
+            art->LZ := Val(aData[nD][hFieldMap["Lead Time"]]) 
+            art->(dbUnLock())
+         ENDIF
+      ENDIF
+      bpr->(dbClearFilter())
 
       bpr->(dbSeek( cLief+Str(nArtnr,6) ))
 
-      FOR nX := 1 TO 8
-         cQty := oChildren:Find("PriceBreakQty"+Str(nX,1)):cData
-         cPrice := oChildren:Find("PriceBreak"+Str(nX,1)):cData
-         IF Empty(cQty)
-            EXIT
+      FOR nX := 1 TO 9
+         nQTY := Val(aData[nD][hFieldMap["Price Break Qty "+Str(nX,1)]])
+         nPrice := Val(aData[nD][hFieldMap["Price Break "+Str(nX,1)]])
+
+         IF nQty != 0
+            IF bpr->Liefma == cLief .AND. bpr->Artikelnr == nArtnr
+               bpr->(Rec_Lock(0))
+            ELSE
+               bpr->(Add_Rec(0))
+               bpr->Liefma := cLief
+               bpr->Artikelnr := nArtnr
+            ENDIF
+            bpr->Qty       := nQty
+            bpr->Price     := nPrice
+            bpr->Pe        := 1
+            bpr->StartDate := Date()
+            bpr->EndDate   := Date()+7
+            bpr->Type      := "LIST"
+
+            bpr->(dbUnLock())
+
+            bpr->(dbSkip())
          ENDIF
-
-         IF bpr->Liefma == cLief .AND. bpr->Artikelnr == nArtnr
-            bpr->(Rec_Lock())
-         ELSE
-            bpr->(Add_Rec())
-            bpr->Liefma := cLief
-            bpr->Artikelnr := nArtnr
-         ENDIF
-         bpr->Qty       := Val(cQty)-IF(nX>1,1,0)
-         bpr->Price     := Val(cPrice)
-         bpr->Pe        := 1
-         bpr->StartDate := Date()
-         bpr->EndDate   := Date()+7
-         bpr->Type      := "LIST"
-
-         bpr->(dbUnLock())
-
-         bpr->(dbSkip())
 
       NEXT
 
@@ -193,9 +217,11 @@ PROCEDURE RUN_WALDOM
          bpr->(dbSkip())
       ENDDO
 
-      oNode := oIter:Next()
+   NEXT
 
-   ENDDO
+   IF Len(aParts) == 0
+      SendMail({{"amos.engelking@engelking.de","Amos"}},"Waldom download failed",,{cTempfile})
+   ENDIF
    
    //reset the quantities if they have not been listed
    ? "Removing not listed stock"   
@@ -205,6 +231,12 @@ PROCEDURE RUN_WALDOM
          @ Row(),30 SAY wald->Part
          wald->(Rec_Lock(0))
          wald->Stock := 0
+         FOR nP := 1 TO 9 //reset prices            
+            bBlock := wald->(FieldBlock("Break"+LTrim(Str(nP))))
+            Eval(bBlock, 0 )
+            bBlock := wald->(FieldBlock("Price"+LTrim(Str(nP))))
+            Eval(bBlock, 0 )
+         NEXT
          wald->(dbUnLock())
       ENDIF
       wald->(dbSkip())
@@ -222,13 +254,6 @@ PROCEDURE RUN_WALDOM
       lsto->(dbSkip())
    ENDDO
 ? "Finished"
-
-//MemoEdit(cList)
-//Inkey(0,128)
-
-
-FUNCTION type_cb()
-RETURN 0
 
 
 

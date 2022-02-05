@@ -47,6 +47,7 @@ aBuy := GetBuyPrice(ku->Kunde,art->Artikelnr,-1, , , ,dDate)
 IF nEK == 0     
    nEk := aBuy["price"]/aBuy["unit"]*Currate(ku->Money,"E")
 ENDIF
+
 nMOQ := aBuy["qty"]
 IF ValType(nMOQ) == "U" //old bug in GetBuyPrice
    nMoq := 1
@@ -125,11 +126,13 @@ DO WHILE cmpr->Artikelnr == art->Artikelnr
    cmpr->(dbSkip())
 ENDDO
 
+ASort(aPriceTabs,,,{|x,y| x[1] < y[1] .OR. (x[1] == y[1] .AND. x[2] < y[2])})
+
 IF lDbg
    Alert(ValToPrg(aPriceTabs))
 ENDIF
 
-ASort(aPriceTabs,,,{|x,y| x[1] < y[1] .OR. (x[1] == y[1] .AND. x[2] < y[2])})
+
 
 IF Len(aPriceTabs) > 1
    nLast := Round(aPriceTabs[1,2],2)

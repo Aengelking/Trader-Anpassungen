@@ -76,6 +76,9 @@ FUNCTION RUN_GetCostFromOO(nArtnr,nMaxAge)
                Aadd(aPrices["DATA"],{"QTY"=>nQty,"COST"=>nVal})
             ENDIF
          NEXT
+      ELSEIF nQtyRow == 0
+         aPrices["ERROR"] := -3
+         aPrices["ERRORTEXT"] := "NO QUANTITY FIELD FOUND"
       ELSE
          aPrices["ERROR"] := -2
          aPrices["ERRORTEXT"] := "NO COST FIELD FOUND"

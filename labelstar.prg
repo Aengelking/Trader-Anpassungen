@@ -14,7 +14,7 @@ PUBLIC hLabels,oLabelstar
    MBaseRun(Trim(Tr_Getini(1))+"\run\labelstar2",{cFile,nCount,hFieldMap,cPrinter})
    RETURN
 //ENDIF
-
+/*
 IF ValType(hFieldMap) != "H"
    hFieldMap := {=>}
 ENDIF
@@ -122,4 +122,4 @@ FUNCTION LabelStar_DisplayError(oLabelstar)
       ENDIF
       Tr_MsgBox(oLabelstar:LastError:Message,cTitle)
    ENDIF
-RETURN .T.
+RETURN .T.*/

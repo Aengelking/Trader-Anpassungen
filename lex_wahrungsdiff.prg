@@ -1,5 +1,5 @@
 PROCEDURE RUN_LEX_WAEHRUNGSDIFF
-   LOCAL nYear := Year(Date())-1,dDate
+   LOCAL nYear := Year(Date())-1,dDate,dDateNY
    LOCAL nStart_CurUpd := 2014
    LOCAL aKonten := {}
    LOCAL nX
@@ -7,12 +7,19 @@ PROCEDURE RUN_LEX_WAEHRUNGSDIFF
    LOCAL getlist := {}
    LOCAL nErtragKto := 2660
    LOCAL nAufwandKto := 2150 
+   LOCAL aBookings := {{"Belegdatum","Buchungsperiode","Belegnummer","Buchungstext","Sollkonto","Habenkonto","Buchungsbetrag"}}
+   LOCAL aBookings2 := AClone(aBookings)
+   LOCAL cBeleg := Space(15)
+   LOCAL nSoll,nHaben,nValue
+   LOCAL nSoll2,nHaben2,nValue2
+   LOCAL hCur
 
    Head(t("W„hrungsdifferenzen berrechnen"))
 
    NetUse("engrech","rech")
 
-   @ 01,00 SAY "Jahr" GET nYear PICTURE "9999"
+   @ 01,00 SAY "Jahr       " GET nYear PICTURE "9999"
+   @ 02,00 SAY "Belegnummer" GET cBeleg 
    READ 
 
    IF LastKey() == 27
@@ -24,19 +31,23 @@ PROCEDURE RUN_LEX_WAEHRUNGSDIFF
    ELSEIF nYear == 2018
       hCur := {"U"=>Round(1/1.145,4),"P"=>Round(1/0.89453,4)}
    ELSEIF nYear == 2019
-      hCur := {"U"=>Round(1/1.1234,4),"P"=>Round(1/0.8508,4)}
+      hCur := {"U"=>Round(1/1.1228,4),"P"=>Round(1/0.8501,4)}
+   ELSEIF nYear == 2020
+      hCur := {"U"=>Round(1/1.2275,4),"P"=>Round(1/0.89955,4)}
    ELSE
-      Alert("W„hrungskurse in der Datenbank mssen 4 Nachkommastellen haben. Bitte Wechselkurs in der PRG hinterlegen.")
+      Alert("Bitte Wechselkurs in der PRG hinterlegen. Devisenmittelkur z.B. von der Commerzbank")
+      //https://www.commerzbank.de/rates/do.rates
       RETURN
    ENDIF
 
    dDate := Eom(SToD(Str(nYear,4)+StrZero(12,2)+"01"))
-
+   dDateNY := SToD(Str(nYear+1,4)+StrZero(01,2)+"01")
 
    //Devisenkonten (manuelle Liste)
    Aadd(aKonten,{1235,1236,"U","Sparkasse USD"})
    Aadd(aKonten,{1231,1232,"P","Spaskasse GBP"})
    Aadd(aKonten,{1237,1238,"U","Volksbank USD"})
+   Aadd(aKonten,{1222,1223,"P","Volksbank GBP"})
 
    //Alle verwendeten W„hrungsdifferenzkonten (Kreditoren) suchen
    rech->(dbSetOrder( 3 ))
@@ -51,6 +62,7 @@ PROCEDURE RUN_LEX_WAEHRUNGSDIFF
 
    
    CLS
+   ? "Beleg-Nr.: "+cBeleg
    ? "Berechnung W„hrungsdifferenzen nach Par. 256a HGB zum "+DtoC(dDate)
    ? Space(6+1+9+4+1+9+1+9+1+9),"Buchung"
    ? Pad("Konto",6),Pad("Saldo",9+4),Pad("Kurs",9),Pad("WD alt",9),Pad("WD neu",9),Pad("Soll",6),Pad("Haben",6),Pad("Betrag",9)
@@ -65,10 +77,36 @@ PROCEDURE RUN_LEX_WAEHRUNGSDIFF
          ? Str(aKonten[nX,1],6),Str(nKtoSaldo,9,2),Currate(aKonten[nX,3],"X"),Str(hCur[aKonten[nX,3]],9,4),Str(nDifSaldo,9,2),Str(nNewSaldo,9,2),""
          IF Round(nDifSaldo-nNewSaldo,2) == 0
             ?? "---"
+            nValue := 0
          ELSEIF (aKonten[nX,2] >= 70000 .AND. nDifSaldo-nNewSaldo>0) .OR. (aKonten[nX,2] < 70000 .AND. nDifSaldo-nNewSaldo<0)
-            ?? Str(aKonten[nX,2],6),Str(nErtragKto,6),Str((nDifSaldo-nNewSaldo)*IF(aKonten[nX,2] < 70000,-1,1),9,2)            
+            nSoll := aKonten[nX,2]
+            nHaben := nErtragKto
+            nValue := (nDifSaldo-nNewSaldo)*IF(aKonten[nX,2] < 70000,-1,1)
+            nHaben2 := aKonten[nX,1]
+            nSoll2 := aKonten[nX,2]
+            nValue2 := nNewSaldo*IF(aKonten[nX,2] < 70000,-1,1)
          ELSE
-            ?? Str(nAufwandKto,6),Str(aKonten[nX,2],6),Str((nDifSaldo-nNewSaldo)*IF(aKonten[nX,2] < 70000,1,-1),9,2)
+            nSoll := nAufwandKto
+            nHaben := aKonten[nX,2]
+            nValue := (nDifSaldo-nNewSaldo)*IF(aKonten[nX,2] < 70000,1,-1)
+
+            nHaben2 := aKonten[nX,2]
+            nSoll2 := aKonten[nX,1]
+            nValue2 := nNewSaldo*IF(aKonten[nX,2] < 70000,1,-1)
+         ENDIF
+         IF nValue != 0
+            Aadd(aBookings,{dDate,13,Trim(cBeleg),"Anpassung W„hrungsdifferenz Par.256a HGB",nSoll,nHaben,Round(nValue,2)})
+            
+
+            ?? Str(nSoll,6),Str(nHaben,6),Str(nValue,9,2)
+            
+         ENDIF
+         IF nValue2 != 0
+            cText := "Umbuchung W„hrungsdifferenz"
+            Aadd(aBookings,{dDate,13,"",cText,nSoll2,1590,Round(nValue2,2)})
+            Aadd(aBookings2,{dDateNY,1,"",cText,9000,nSoll2,Round(nValue2,2)})
+            Aadd(aBookings,{dDate,13,"",cText,1590,nHaben2,Round(nValue2,2)})
+            Aadd(aBookings2,{dDateNY,1,"",cText,nHaben2,9000,Round(nValue2,2)})
          ENDIF
          /*ku->(dbSetOrder( 1 ))
          ku->(dbSeek( aKonten[nX,4]+"L" ))
@@ -114,7 +152,13 @@ PROCEDURE RUN_LEX_WAEHRUNGSDIFF
             //FWrite(nPH,"*** Währungsdifferenz (nicht berichtigt)"+Str(aKonten[nX,1],6)+": "+DToC(dDate)+" Saldo ("+Str(aKonten[nX,2],6)+") neu: "+Str(nNewSaldo,9,2)+" Differenz: "+Str(nDifSaldo-nNewSaldo,9,2)+" Konto: "+Str(nKtoSaldo,9,2))
          ENDIF*/
       ENDIF
-   NEXT
-      
+   NEXT  
+
+   TxtBox("Buchungen WJ "+Str(nYear,4))
+   SaveASCsvInterface(aBookings)
+   TxtClear()
+   TxtBox("Buchungen WJ "+Str(nYear+1,4))
+   SaveASCsvInterface(aBookings2)
+   TxtClear()
 Sinkey(0)
    

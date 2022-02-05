@@ -1,8 +1,99 @@
+#define GS_EXE '"C:\Program Files\gs\gs9.22\bin\gswin64c.exe"'
+#define WVT_BLOCK_IMAGE                           1
+#include 'y:\hb32\include\hbgtinfo.ch' 
+
 PROCEDURE RUN_DAVID_CONTEXT( cFunction,cMsgPath )
-   LOCAL nAngnr := 0
    LOCAL getlist := {}
+   LOCAL cLiefma,cBeleg
+   LOCAL aFiles := {},nFile := 1
+   LOCAL cFileRegex := "\.pdf$",nAtt,oArchive,oMsg,cArchive,oAccount
+   LOCAL cImageFile,cGSExe,cFileName,nStdOut,bDrawImage
+   LOCAL aPaint := {},oAtt
+   LOCAL cTempPath := GetEnv("temp")+"\"
 
    SWITCH Upper(cFunction)
+      CASE "COC"
+         IF ! Empty(cMsgPath)  //email
+            oAccount := DV_GetMailAccount()
+            cArchive := SubStr(cMsgPath,1,RAT("\",cMsgPath)-1)
+            oArchive := oAccount:GetArchive(cArchive)
+            oMsg := oArchive:GetArchiveEntryById(cMsgPath)
+         
+            FOR nAtt := 0 TO oMsg:Attachments:Count-1
+               IF HB_RegExMatch(cFileRegex,oMsg:Attachments:Item(nAtt):FileName,.F.)
+                  Aadd(aFiles,oMsg:Attachments:Item(nAtt):FileName)      
+                  oAtt := oMsg:Attachments:Item(nAtt)
+                  oAtt:CopyOut(cTempPath,oAtt:FileName)        
+
+                  cFileName := cTempPath+oAtt:FileName
+                  cImageFile := cTempPath+SubStr(cFileName,Rat("\",cFileName)+1)+".jpg"
+                  cGSExe := GS_EXE+' -sDEVICE=jpeg -r300 -q -dBATCH -dNOPAUSE -sOutputFile="'+cImageFile+'" "'+cFileName+'"' //extract first page from PDF as JPEGs
+                  HB_ProcessValue(HB_OpenProcess(cGSExe,,@nStdOut,,.T.),.T.) //run GS and wait until it terminates                  
+                  
+               ENDIF
+            NEXT
+         ELSEIF HB_RegExMatch("\.pdf$",GetConfigValue("attachfile"),.F.)
+            Aadd(aFiles,GetConfigValue("attachfile"))
+         ENDIF
+
+         IF Len(aFiles) == 0
+            Tr_MsgBox("Keine PDF Datei gefunden.")
+            RETURN
+         ENDIF
+            
+
+         NetUse("engkund","ku")
+         cLiefma := Space(8)
+         cBeleg := Space(15)
+         Head("Werksbescheinigung archivieren")         
+         
+         bDrawImage := {||
+            LOCAL nRatio,nWidth
+            LOCAL nImageBottom,nImageRight,nImageTop
+            IF ! Empty(cImageFile)
+               nRatio := (210/HB_GTINFO( HB_GTI_FONTWIDTH))/(297/HB_GTINFO( HB_GTI_FONTSIZE))
+
+               nWidth :=  Int(nRatio*(47-10))  //30
+
+               nImageTop := 10
+               nImageBottom := 47 //*nScale
+               nImageRight := nWidth //*nScale
+
+               Wvt_DrawImage( nImageTop,00,nImageBottom,nImageRight, cImageFile, {00, 00, 00, Mod(nRatio,47-10)*72 } )
+
+            ENDIF
+            RETURN NIL
+         }
+         
+         //SetKey( 1101, bDrawImage)
+         Aadd(aPaint,{ "Image" , bDrawImage , { WVT_BLOCK_IMAGE,  10, 00, 47, (210/HB_GTINFO( HB_GTI_FONTWIDTH))/(297/HB_GTINFO( HB_GTI_FONTSIZE))*(47-10) } })
+         WvtSetPaint(aPaint)
+         
+
+         @ 01,00 SAY "Datei       "
+         @ 01,13,09,70 GET nFile LISTBOX aFiles DROPDOWN STATE {||   
+            IF getlist[1]:Control != NIL
+               cFileName := cTempPath+aFiles[getlist[1]:Control:Buffer]
+               cImageFile := cTempPath+SubStr(cFileName,Rat("\",cFileName)+1)+".jpg"
+               /*cGSExe := GS_EXE+' -sDEVICE=jpeg -r300 -q -dBATCH -dNOPAUSE -sOutputFile="'+cImageFile+'" "'+cFileName+'"' //extract first page from PDF as JPEGs
+               HB_ProcessValue(HB_OpenProcess(cGSExe,,@nStdOut,,.T.),.T.) //run GS and wait until it terminates
+               Alert(cImageFile)*/
+               Eval(bDrawImage)               
+            ENDIF
+            RETURN NIL
+         }
+         Eval(getlist[1]:Control:sBlock)
+         @ 02,00 SAY "Lieferant   " GET cLiefma PICTURE "@!" VALID Empty(cLiefma) .OR. FindAd( cLiefma, "L",01,50 )
+         @ 03,00 SAY "Lieferschein" GET cBeleg VALID ! Empty(cBeleg) PICTURE "@!"
+         READ
+         IF LastKey() == 27
+            RETURN         
+         ENDIF
+         WvtSetPaint({})
+
+         cBeleg := StrZero(ku->Nummer,6)+"-"+StrTran(Alltrim(cBeleg)," ","")
+         AddFileToArchive("COC",cBeleg,cTempPath+aFiles[nFile])
+         EXIT      
       CASE "INVOICE"
          MBaseRun(Trim(tr_getini(1))+"\run\Invoice_beleg",{"CONTEXT",cMsgPath})
          EXIT
@@ -19,36 +110,6 @@ PROCEDURE RUN_DAVID_CONTEXT( cFunction,cMsgPath )
          MBaseRun(Trim(tr_getini(1))+"\run\Auftrag_Beleg",{cMsgPath})
          EXIT
       CASE "ANGEBOT"
-         Head("Angebot in Auftrag wandeln")
-         NetUse("angebot","ang")
-         @ 01,00 SAY "Angebot" GET nAngnr PICTURE "999999" VALID {||
-            LOCAL lRet
-            ang->(dbSetOrder(1))
-            ang->(dbSetFilter({|| ang->Bestat < 3 },"bestat < 3"))
-            lRet := ang->(dbSeek( Str(nAngnr,6) ))            
-            ang->(dbClearFilter())
-            IF lRet
-               @ 01,14 CLEAR
-            ELSE
-               @ 01,14 SAY "Nicht gefunden"
-            ENDIF
-            RETURN lRet
-         }
-         READ
-         IF LastKey() != 27
-            Engauft(,nAngnr)
-            IF Tr_MsgBox(t("Angebot schließen?"),,{"Nein","Ja"}) == 2
-
-               ang->(dbSeek(Str(nAngnr,6)))
-               DO WHILE ang->Angnr == nAngnr .AND. ! ang->(EOF())
-                  IF ang->Bestat < 3
-                     ang->(Rec_Lock())
-                     ang->Bestat := 3
-                     ang->(dbUnLock())
-                     ang->(dbSkip())
-                  ENDIF
-               ENDDO
-            ENDIF
-         ENDIF
+         MBaseRun(Trim(tr_getini(1))+"\run\Angebot_order",{cMsgPath})
          EXIT
    END

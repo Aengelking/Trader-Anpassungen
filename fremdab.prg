@@ -7,6 +7,7 @@ LOCAL cText,nEnd,cInfo
 LOCAL oFremdKunde
 
 hFremdRahmen[28267] := 21832 //"BACHMANR"=>"BACHMANG"
+hFremdRahmen[21832] := 28267 //"BACHMANG"=>"BACHMANR"
 hFremdRahmen[21785] := 17981 //"PHOENIXU"=>"ROSEKRIE"
 hFremdRahmen[33720] := 31937 //"STEINHAR"=>"EGYM"
 //hFremdRahmen[21146] := 31937 //"HEFTER"=>"EGYM"
@@ -14,6 +15,12 @@ hFremdRahmen[35245] := 31937 //"MEYMASCH"=>"EGYM"
 hFremdRahmen[27434] := 27434 //"TRUMPFSA"=>"TRUMPFSA", dadurch kann TRUMPFSA aus eigenen Rahmen abrufen. Bei denen ist das so eingestellt weil die st„ndig die Lieferadresse „ndern
 hFremdRahmen[33991] := 33603 //FREISTRI => STEIERMA
 hFremdRahmen[34270] := 14696 //Technograv => Gessmann
+hFremdRahmen[32795] := 23697 //K™RBERM => Seidenad
+hFremdRahmen[26774] := 23697 //F.EE => Seidenad
+hFremdRahmen[35939] := 23697 //Tripspol => Seidenad
+hFremdRahmen[27538] := 23697 //TRIPS => Seidenad
+hFremdRahmen[36117] := 23697 //KOERBERU => Seidenad
+hFremdRahmen[35780] := 23697 //KOSTWEIN => Seidenad
 
 //IF HHasKey(hFremdRahmen,Trim(oAufPos:Auftrag:Kundma))
 IF HHasKey(hFremdRahmen,oAufPos:Auftrag:Kunde:Nummer)

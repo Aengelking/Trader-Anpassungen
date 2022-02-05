@@ -51,7 +51,7 @@ RETURN {1=>999.99} //funktioniert gerade nicht
       RETURN hPrices
    ENDIF
    IF AT("Ausverkauft",cData) != 0
-      RETURN {1=>999.99}
+      RETURN {} //1=>999.99}
    ENDIF
 
    //HB_ATX("<table[^>]*qtydiscount__table",cData,,@nPos)

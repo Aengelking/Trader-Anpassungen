@@ -14,7 +14,7 @@ FUNCTION AutoBeleg(aAutoOC,cMsgId)
    IF ! Empty(cMsgId)
       cArchive := SubStr(cMsgId,1,RAT("\",cMsgId)-1)
       oArchive := oAccount:GetArchive(cArchive)
-      oMsg := oArchive:GetArchiveEntryById(cMsgId)
+      oMsg := oArchive:GetArchiveEntryById(cMsgId)      
       FOR EACH hAutoOC IN aAutoOC
          IF HB_RegexMatch(hAutoOC["EMAIL"],Lower(oMsg:Fields("SRFrom"):Value)) //HB_RegexMatch("(onpow@vip\.163\.com)|(*.@onpow\.com)$","123") //
             IF HHasKey(hAutoOC,"FILE")

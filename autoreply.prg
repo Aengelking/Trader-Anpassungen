@@ -188,14 +188,14 @@ oReply:Conditions:RemoveAll()
 oFilter := oReply:Conditions:Add()
 oFilter:Object := 1 //date
 oFilter:Comparision := DvItemIsGreater
-oFilter:Value := dFrom-2 //zwei Tage abziehen da gr”áer und nicht gr”áer gleich
+oFilter:Value := dFrom-1 //zwei Tage abziehen da gr”áer und nicht gr”áer gleich
 oFilter:Operator := DvFilterAnd
 
-oFilter := oReply:Conditions:Add()
+/*oFilter := oReply:Conditions:Add()
 oFilter:Object := 2 //time
 oFilter:Comparision := DvItemIsGreater
 oFilter:Value := 17*60*60  //zeit wird in sekunden angegeben
-oFilter:Operator := DvFilterAnd
+oFilter:Operator := DvFilterAnd*/
 
 oFilter := oReply:Conditions:Add()
 oFilter:Object := 1
@@ -214,14 +214,14 @@ oForward:Conditions:RemoveAll()
 oFilter := oForward:Conditions:Add()
 oFilter:Object := 1
 oFilter:Comparision := DvItemIsGreater
-oFilter:Value := dFrom-2
+oFilter:Value := dFrom-1
 oFilter:Operator := DvFilterAnd
 
-oFilter := oForward:Conditions:Add()
+/*oFilter := oForward:Conditions:Add()
 oFilter:Object := 2 //time
 oFilter:Comparision := DvItemIsGreater
 oFilter:Value := 17*60*60  //zeit wird in sekunden angegeben
-oFilter:Operator := DvFilterAnd
+oFilter:Operator := DvFilterAnd*/
 
 oFilter := oForward:Conditions:Add()
 oFilter:Object := 1

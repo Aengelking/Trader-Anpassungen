@@ -3,9 +3,8 @@ LOCAL dMaxDate //:= StoD("19991231") //Date()-365
 LOCAL cFilter
 //LOCAL cCompForms := "PRIVA-EK-EINZE-EU"
 LOCAL hMaxAges := {;
-   "ANGEBOT"=>7,;
-   "ANGEBOT_JUR"=>15,; //Daten der Angebote bei juristischen Personen 15 Jahre aufbewahren
-   "AUFTRAG"=>6,;
+   "ANGEBOT"=>11,;
+   "AUFTRAG"=>11,;
    "RECHNUNG"=>11,;
    "VERSAND"=>11,;
    "ZAHLUNG"=>11,;
@@ -13,12 +12,13 @@ LOCAL hMaxAges := {;
 }
 //LOCAL nNr,nRec
 //LOCAL dDate,oRechnung
-//LOCAL aList
+LOCAL aList
 //LOCAL oAuftrag,lDelete,lClean
 //LOCAL nCount
 LOCAL cKunde,hKunden,oRechnung
 LOCAL hWrong
 LOCAL nRec,aFiles
+LOCAL nNext,nAngnr
 
 IF GetEnv("username") != "Administrator"
    //TR_MsgBox("Needs to run as Administrator to clear archived files")
@@ -61,6 +61,9 @@ engbew
 NetUse("artikel","art")
 NetUse("engkund","ku")
 NetUse("angebot","ang")
+
+/*
+
 NetUse("auftrag","ab")
 NetUse("engauf","auf")
 NetUse("rechnung","reh")
@@ -69,17 +72,19 @@ NetUse("ups","ups")
 NetUse("enras","ras")
 NetUse("skontoa","sk")
 NetUse("engbew","bew")
-NetUse("buyer","buy")
-//Net_use("Y:\Dokumente und Einstellungen\Amos\Eigene Dateien\trader\enras","ras",.F.,0)
+NetUse("buyer","buy")*/
 
 art->(dbSetOrder( 2 ))
 ku->(dbSetOrder( 2 ))
 
+//Net_use("Y:\Dokumente und Einstellungen\Amos\Eigene Dateien\trader\enras","ras",.F.,0)
+
 /*
    ANGEBOTE
 */
+aList := {}
 
-/*cFilter := 'Besda < StoD(Str(Year(Date())-'+LTrim(Str(hMaxAges:Angebot))+',4)+"0101")'
+cFilter := 'Besda < StoD(Str(Year(Date())-'+LTrim(Str(hMaxAges:Angebot))+',4)+"0101")'
 ang->(dbSetFilter({|| ang->(&(cFilter)) },cFilter))
 ang->(dbGoTop())
 DO WHILE ! ang->(EOF()) .AND. LastKey() != 27
@@ -92,17 +97,17 @@ DO WHILE ! ang->(EOF()) .AND. LastKey() != 27
       IF ! ang->Angnr $ aList
             Aadd(aList,ang->Angnr)
       ENDIF
-      ang->(OverwriteAndDelete())
+      //ang->(OverwriteAndDelete())
       ? "DATENSATZ GELOESCHT"
       
       //SINKEY(0)
-   /*ELSEIF Trim(ku->compForm) $ cCompForms .OR. ang->Besda <= StoD(Str(Year(Date())-hMaxAges:Angebot_Jur,4)+"0101") //natï¿½rliche Person oder ï¿½lter als max. fï¿½r jur Personen ->Lï¿½schen
+   ELSEIF  ang->Besda <= StoD(Str(Year(Date())-hMaxAges:Angebot,4)+"0101") //Max. alter erreicht
       ? ang->Angnr,ang->Besda,Trim(Trim(ku->Name1)+" "+ku->Name2),ku->Compform,"Angebot l”schen"
-      aFiles := Hook("get_archive_files",{{"ANG"=>ang->Angnr}})
-      IF Len(aFiles) != 0
-         ? ValToPrg(aFiles)
-      ENDIF*/
- /*  ELSEIF art->(dbSeek( Str(ang->Artikelnr,6) )) .AND. art->Obsolete
+      IF ! ang->Angnr $ aList
+         Aadd(aList,ang->Angnr)
+      ENDIF
+      
+   /*ELSEIF art->(dbSeek( Str(ang->Artikelnr,6) )) .AND. art->Obsolete
       ? ang->Angnr,ang->Besda,Trim(Trim(ku->Name1)+" "+ku->Name2),art->Matchcode,"ABGEKšNDIGT - Pos. gel”scht"
       IF ! ang->Angnr $ aList
             Aadd(aList,ang->Angnr)
@@ -110,10 +115,10 @@ DO WHILE ! ang->(EOF()) .AND. LastKey() != 27
       //ang->(OverwriteAndDelete())
    ELSE //ansonsten nur Kontaktpersonen lÃ¶schen
       ? ang->Angnr,ang->Besda,Trim(Trim(ku->Name1)+" "+ku->Name2),ku->Compform,"Personen löschen"
-      ang->(Rec_Lock())
+      /*ang->(Rec_Lock())
       ang->Person := 0
       ang->Buyer := 0
-      ang->(dbUnLock())
+      ang->(dbUnLock())*/
    ENDIF
    IF Upper(Chr(Inkey())) == "P"
       Sinkey(0)
@@ -123,11 +128,18 @@ DO WHILE ! ang->(EOF()) .AND. LastKey() != 27
 ENDDO
 ang->(dbClearFilter())
 FOR EACH nAngnr IN aList
-   IF ! ang->(dbSeek(Str(nAngnr,6),.T.)) .OR. ang->Angnr != nAngnr
+   //IF ! ang->(dbSeek(Str(nAngnr,6),.T.)) .OR. ang->Angnr != nAngnr
       //delete archived file
-   ENDIF
+      aFiles := Hook("get_archive_files",{{"ANG"=>ang->Angnr}})
+      IF Len(aFiles) != 0
+         ? ValToPrg(aFiles)
+      ENDIF
+   //ENDIF
 
-NEXT*/
+NEXT
+
+Sinkey(0)
+RETURN
 
 /*
 

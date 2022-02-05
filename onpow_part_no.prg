@@ -62,7 +62,7 @@ oOptBase:oTables:Each({|oTable|
    RETURN NIL
 })
 
-IF aParts[1] $ {"90/","05/"}  //cannot create part no for these series
+IF ! aParts[1] $ hReferences["SERIES"] // {"90/","05/"}  //cannot create part no for these series
    RETURN ""
 ENDIF
 

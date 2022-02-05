@@ -1,8 +1,9 @@
-
+PROC RUN_REP_INFO
 //dStart := Date()-365  //one year
 //dStart := Date()-7  //one week
-dStart := Date()-Dow(Date())-If(DoW(Date())>=6,0,7)  //last week
-dEnd := dStart+7
+LOCAL dStart := Date()-Dow(Date())-If(DoW(Date())>=6,0,7)  //last week
+LOCAL dEnd := dStart+7
+LOCAL hReps
 
 NetUse("engkund","ku",.F.,0)
 ku->(dbSetOrder( 2 ))
@@ -20,6 +21,9 @@ NetUse("angebot","ang",.F.,0)
 ang->(dbSetOrder( 7 ))
 
 hReps := {=>}
+
+Select("ku")
+SET FILTER TO ! Empty(ku->Rep)
 
 Do While ! ku->(Eof())
    If ! Empty(ku->Rep)
@@ -56,7 +60,10 @@ Do While ! ku->(Eof())
 
 
       //? Trim(RepGetName(ku->Rep)),ku->Kunde
-      auf->(dbSeek(ku->Kunde))
+      auf->(dbSeek(ku->Kunde+Dtos(dStart),.T.))
+      IF auf->Kundma == ku->Kunde .AND. auf->Besda >= dStart
+         //? "Auftr„ge",ku->Kunde
+      ENDIF
       lF := .T.
       Do While auf->Kundma == ku->Kunde .AND. auf->Besda >= dStart
          If auf->VkPr*auf->VkQty > 0 .AND. auf->Besda <= dEnd
@@ -83,6 +90,7 @@ Do While ! ku->(Eof())
          hReps[ku->Rep][ku->Kunde] += "</table>"
       Endif
     Endif
+    
     nts->(dbSeek( ku->Kunde ))
    lF := .T.
    Do While nts->Matchcode == ku->Kunde .AND. nts->Date >= dStart
@@ -151,3 +159,5 @@ Do While nR <= Len(hReps)
    //SendMail({{"amos.engelking@engelking.de",Trim(cName)}},t("Information über Kunden "+DToC(dStart)+" bis "+DToC(dEnd)),cText,{},.F.,0,.T.)
    nR++
 Enddo
+
+ku->(dbClearFilter())

@@ -33,7 +33,7 @@ Aadd(aAutoOC,{;
             aData[nX]:Pe := "100"
          NEXT
          //SInkey(0)
-         Alert(ValToPrg(aData))
+         //Alert(ValToPrg(aData))
          RETURN ProcessOCData(aData,Pad("WHTECH",8),hResults["AB"],Val(hResults["PO"]),,{"dd.mm.yyyy"},,.T.,,{|cPart| cPart } )
          //RETURN .T.
       ENDIF
@@ -168,7 +168,7 @@ Aadd(aAutoOC,{;
    "BLOCK"=>{|oMsg,cFile|
       HB_SYMBOL_UNUSED(oMsg)
       TxtBox("Daten werden eingelesen...")
-      aData := GetDataFromPDF(cFile,{"-a 389,27,795,570 -p %p-1%"},{"PART"=>"Part\s*number","QTY"=>"Quantity","PRICE"=>"Unit\s*Price","DIS"=>"Sc\.","DATE"=>"Shipping"},{"PO"=>"Your order[^0-9]*([0-9]{4,})","AB"=>"(OCE.*\/[^0-9\.]*[0-9\.]{1,})"},@hResults,"-a 306.80,31.39,388.61,572.84 -r -p 1")
+      aData := GetDataFromPDF(cFile,{"-a 389,27,795,570 -p %p-1%"},{"PART"=>"Part\s*number","QTY"=>"Quantity","PRICE"=>"Unit\s*Price","DIS"=>"Sc\.","DATE"=>"Ready on"},{"PO"=>"Your order[^0-9]*([0-9]{4,})","AB"=>"(OCE.*\/[^0-9\.]*[0-9\.]{1,})"},@hResults,"-a 306.80,31.39,388.61,572.84 -r -p 1")
       TxtClear()
 //      ? ValToPrg(aData)
 //      ? ValToPrg(hResults)

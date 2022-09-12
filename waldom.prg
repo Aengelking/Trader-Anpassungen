@@ -1,5 +1,8 @@
 #include 'y:\hb34\contrib\hbcurl\hbcurl.ch'
 
+#define WALD_STOCK_EMEA "Stock EMEA"
+#define WALD_STOCK_USA "Stock USA"
+
 PROCEDURE RUN_WALDOM
    LOCAL cUrl := "https://www.waldomemea.com/dailyFeed/Engelking%20Elektronik%20GmbH_InventoryFeed.csv"
                   //http://www.waldomemea.com/dailyFeed/Engelking%20Elektronik%20GmbH_InventoryFeed.csv
@@ -74,6 +77,13 @@ PROCEDURE RUN_WALDOM
 
    AEval(aData[1],{|cName,nI| hFieldMap[cName] := nI })
 
+   IF ! HHasKey(hFieldMap,WALD_STOCK_EMEA) .OR. ! HHasKey(hFieldMap,WALD_STOCK_USA)      
+      SendMail({{"amos.engelking@engelking.de","Amos"}},"Waldom: Field missing",ValToPrg(hFieldMap),{cTempFile})
+      RETURN
+   ENDIF
+
+   
+
    ? "Updating stock/prices"
    nR := Row()   
    FOR nD := 2 TO Len(aData)
@@ -107,8 +117,8 @@ PROCEDURE RUN_WALDOM
          cMatch := ali->Matchcode
          cArtlief := ali->Artlief
          nArtnr := ali->Artikelnr  
-      ELSEIF Val(aData[nD][hFieldMap["In Stock EMEA"]])+Val(aData[nD][hFieldMap["In Stock USA"]])+Val(aData[nD][hFieldMap["On Order Quantity"]]) > 0
-         ?? "Stock saved",Val(aData[nD][hFieldMap["In Stock EMEA"]]) //,Val(aData[nD][hFieldMap["In Stock USA"]]),Val(aData[nD][hFieldMap["On Order Quantity"]]) 
+      ELSEIF Val(aData[nD][hFieldMap[WALD_STOCK_EMEA]])+Val(aData[nD][hFieldMap["Stock USA"]])+Val(aData[nD][hFieldMap["On Order Quantity"]]) > 0
+         ?? "Stock saved",Val(aData[nD][hFieldMap[WALD_STOCK_EMEA]]) //,Val(aData[nD][hFieldMap["In Stock USA"]]),Val(aData[nD][hFieldMap["On Order Quantity"]]) 
          Select("wald")
          IF ! wald->(dbSeek(cMatch))
             wald->(Add_Rec(0))
@@ -116,8 +126,8 @@ PROCEDURE RUN_WALDOM
             wald->(Rec_Lock(0))
          ENDIF
          wald->Part := cMatch
-         wald->Stock := Val(aData[nD][hFieldMap["In Stock EMEA"]]) //Val(oChildren:Find("ShipsNow"):cData)
-         wald->StockUs := Val(aData[nD][hFieldMap["In Stock USA"]])
+         wald->Stock := Val(aData[nD][hFieldMap[WALD_STOCK_EMEA]]) //Val(oChildren:Find("ShipsNow"):cData)
+         wald->StockUs := Val(aData[nD][hFieldMap["Stock USA"]])
          wald->OnOrder := Val(aData[nD][hFieldMap["On Order Quantity"]])
          wald->PRC := aData[nD][hFieldMap["PRC"]]
          wald->MOQ := Val(aData[nD][hFieldMap["MOQ"]])
@@ -148,9 +158,9 @@ PROCEDURE RUN_WALDOM
          lsto->Liefma    := cLief
          lsto->Artikelnr := nArtnr
       ENDIF
-      lsto->Stock := Val(aData[nD][hFieldMap["In Stock EMEA"]])
+      lsto->Stock := Val(aData[nD][hFieldMap[WALD_STOCK_EMEA]])
       lsto->DelTime := 7
-      lsto->DelQty  := Val(aData[nD][hFieldMap["In Stock USA"]])
+      lsto->DelQty  := Val(aData[nD][hFieldMap[WALD_STOCK_USA]])
       lsto->(dbUnLock())
 
       ali->(dbSetOrder( 1 ))
@@ -164,7 +174,12 @@ PROCEDURE RUN_WALDOM
       ENDIF
       ali->Min       := Val(aData[nD][hFieldMap["MOQ"]])
       ali->VPE       := Val(aData[nD][hFieldMap["SPQ"]])
-      ali->LZ        := Val(aData[nD][hFieldMap["Lead Time"]]) 
+      IF Val(aData[nD][hFieldMap["Lead Time"]]) > 99         
+         ali->LZ     := 99
+      ELSE
+         ?? Val(aData[nD][hFieldMap["Lead Time"]]) 
+         ali->LZ     := Val(aData[nD][hFieldMap["Lead Time"]]) 
+      ENDIF
       IF ! Empty(cArtlief) .AND. ali->Artlief != cArtlief
          ali->Artlief := cArtlief
       ENDIF
@@ -175,7 +190,11 @@ PROCEDURE RUN_WALDOM
          art->(dbSetOrder( 2 ))
          IF art->(dbSeek( Str(nArtnr,6) ))
             art->(Rec_Lock(0))
-            art->LZ := Val(aData[nD][hFieldMap["Lead Time"]]) 
+            IF Val(aData[nD][hFieldMap["Lead Time"]]) > 99         
+               art->LZ := 99
+            ELSE
+               art->LZ := Val(aData[nD][hFieldMap["Lead Time"]]) 
+            ENDIF
             art->(dbUnLock())
          ENDIF
       ENDIF

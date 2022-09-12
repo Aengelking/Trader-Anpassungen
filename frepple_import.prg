@@ -30,8 +30,10 @@ PROCEDURE RUN_FREPPLE_IMPORT()
    MEMVAR c_four,c_one
 
    //FOR nX := 1 TO 10
-   SetMode(nRowCount,nColCount+1)
-   SetMode(nRowCount,nColCount+20)
+   IF nColCount < 186
+      SetMode(nRowCount,nColCount+1)
+      SetMode(nRowCount,nColCount+20)
+   ENDIF
    //NEXT
 
    Head("Importing from Frepple")
@@ -391,7 +393,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                   
                   nKW := AScan(aKwQty,{|x| x[1] == IF(wer->End>=nWeek,wer->End,0) })
                   IF nKW == 0
-                     Alert("Woche nicht gefunden "+art->Matchcode+" "+Str(wer->End))
+                     Alert("Woche nicht gefunden "+art->Matchcode+" "+Str(wer->End,4)+" FA "+Str(wer->Aufno))
                   ENDIF
                   aKWQty[nKW,5] -= wer->Qty-wer->PlanBad-wer->GelQty
                   
@@ -561,7 +563,9 @@ PROCEDURE RUN_FREPPLE_IMPORT()
    //WAPI_ShellExecute(,"open",cFileName)
 
    //Sinkey(0)
-   SetMode(nRowCount,nColCount)
+   IF nColCount < 186
+      SetMode(nRowCount,nColCount)
+   ENDIF
 RETURN
 
    

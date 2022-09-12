@@ -391,13 +391,13 @@ IF nData == 0 .OR. nData == 1
                Aadd(Atail(aData),"NDA ENGELKING")
                Aadd(Atail(aData),0)
             ELSE
-               Aadd(Atail(aData),Trim(Trim(ku->Name1)+" "+ku->Name2))
+               Aadd(Atail(aData),StrTran(Trim(Trim(ku->Name1)+" "+ku->Name2),'"',""))
                Aadd(Atail(aData),ku->Nummer)
             ENDIF
          ENDIF            
          Aadd(Atail(aData),(cCountry))
-         Aadd(Atail(aData),Trim(cMarket))
-         Aadd(Atail(aData),Trim(cMatch))
+         Aadd(Atail(aData),StrTran(Trim(cMarket),";",""))
+         Aadd(Atail(aData),StrTran(Trim(cMatch),";",""))
          IF aManu[1,nManu] == 0
             //?? ";"+aManu[2,art->Manufactur+1]
             Aadd(Atail(aData),aManu[2,art->Manufactur+1])

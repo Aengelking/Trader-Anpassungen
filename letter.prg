@@ -34,7 +34,7 @@ Do While nType < 2
       	cOpt := ""
          cOpt := '/command "option batch on" "option confirm off"'
       	cOpt += ' "open sftp://amos.engelking@engelking.de:loving16@api.onlinebrief24.de -hostkey=""ssh-rsa 2048 5b:d1:29:17:cb:5e:17:b9:e2:29:4e:1e:aa:c7:d9:b2"""'         //cOpt += ' '
-      	cOpt += ' "put ""'+oPrinter:Data:Filename+'"" ""/upload/api/1000'+If(nType==4,"1","0")+'00000000-'+SubStr(oPrinter:Data:Filename,RAT("\",oPrinter:Data:Filename)+1)+'"" -nopermissions -nopreservetime" "exit"'
+      	cOpt += ' "put ""'+oPrinter:Data:Filename+'"" ""/upload/api/1000'+If(nType==4,"1","0")+'00000000-'+hb_strToUtf8(SubStr(oPrinter:Data:Filename,RAT("\",oPrinter:Data:Filename)+1))+'"" -nopermissions -nopreservetime" "exit"'
 
          lError := .T.
 

@@ -4,7 +4,7 @@ PROCEDURE Phone
    LOCAL cPhoneShort
    LOCAL cFilter
    LOCAL hContact
-   LOCAL lD := Tr_Getini(28) == 9
+   LOCAL lD := .F. // Tr_Getini(28) == 9
 
    IF AT("#",aParam[1]) == 1
       aParam[1] := Substr(aParam[1],2)      
@@ -58,13 +58,23 @@ PROCEDURE Phone
    ENDIF
 
 STATIC FUNCTION _ShowInfo(nContact)
-   SetMode(48,90)
-   CreateMainWindow()      
-   CLS
+   LOCAL cGroup
+
    NetUse("engkund","ku")
    ku->(dbSetOrder(8))
    ku->(dbSeek(str(pbk->Address,6)))
-   MBaseRun(Path("trd_02","MASK"),{pbk->Contact},.F.)
+   IF ku->Group == "K"
+      cGroup := "CUSTOMER"      
+   ELSEIF ku->Group == "L"
+      cGroup := "SUPPLIER"      
+   ELSE
+      cGroup := "OTHER"      
+   ENDIF
+   IF SystemUser():HasPermission("READ","ADR_"+cGroup)
+      CreateMainWindow(48,166)
+
+      MBaseRun(Path("trd_02","MASK"),{pbk->Contact},.F.)
+   ENDIF
 RETURN NIL
 
 STATIC Function _NormNumber(cNumber)

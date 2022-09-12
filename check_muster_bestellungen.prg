@@ -9,13 +9,13 @@ PROCEDURE RUN_CHECK_MUSTER_BESTELLUNGEN
    cFilter := "bestat < 3 .AND. beqty-gelqty > 0 .AND. ekpr == 0 .AND. folgeto == 0 .AND. ! mahnen .AND. lterm < "+CalWeek(Date())
    bes->(dbSetFilter({|| bes->(&(cFilter))},cFilter))
    bes->(dbGoTop())
-   DO WHILE ! bes->(EOF())
-      IF ! HHasKey(hUsers,bes->Buyer)
-         hUsers[bes->Buyer] := {}
-      ENDIF
+   DO WHILE ! bes->(EOF())      
       oArt := Artikel():New()
       oArt:Load(bes->Artikelnr)
       IF oArt:Lagerart
+         IF ! HHasKey(hUsers,bes->Buyer)
+            hUsers[bes->Buyer] := {}
+         ENDIF
          Aadd(hUsers[bes->Buyer],{"BESNR"=>bes->Besnr,"ARTIKEL"=>oArt,"QTY"=>bes->BeQty-bes->Gelqty})
       ENDIF
       bes->(dbSkip())

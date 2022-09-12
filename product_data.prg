@@ -142,7 +142,7 @@ bAddQuote := {|cSku,lArtFound,cProdIdType|
          ENDIF
       NEXT
    
-      IF lArtFound
+      IF lArtFound   
          aAvail := GetKwQty(art->Artikelnr)
          
          nStock := art->Bestand //GetKwStock(art->Artikelnr,AddWeeks(nCurWeek,nArtLZ+1),aAvail) //Verfgbarer Lagerbestand. Wir verwenden die Menge die nach der LZ noch verfgbar w„re

@@ -29,9 +29,6 @@ PROC RUN_LEX_DEBITOR_SALDEN
       nRest  := nSaldo
       hAccSalden := {=>}
       IF nSaldo != 0
-         IF nAccount == 28049
-            AltD()
-         ENDIF
          ? nAccount,nSaldo
          aOPs := LX_GetOffenePosten(nAccount,,nYear)
          AEval(aOPs,{|hData| 
@@ -43,7 +40,8 @@ PROC RUN_LEX_DEBITOR_SALDEN
             RETURN NIL
          })
          IF nAccount == 28049
-            Alert(ValToPrg(aOps))
+//            Alert(ValToPrg(aOps))
+            //EXIT
          ENDIF
          hAccSalden[-1] := nRest
          Aadd(aData,Array(Len(aData[1])))         
@@ -67,6 +65,6 @@ PROC RUN_LEX_DEBITOR_SALDEN
 
    //Alert(ValToPRg(aData))
  
-   SaveAsCSV(Wvt_GetOpenFileName( 0,"" , "CSV Datei", { {"Comma separated file (*.csv)","*.csv"},{"Alle Dateien (*.*)","*.*"} }, , Trim(Tr_getini(1))+"\export\" ),aData)
+   //SaveAsCSV(Wvt_GetOpenFileName( 0,"" , "CSV Datei", { {"Comma separated file (*.csv)","*.csv"},{"Alle Dateien (*.*)","*.*"} }, , Trim(Tr_getini(1))+"\export\" ),aData)
 
 RETURN

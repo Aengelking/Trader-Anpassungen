@@ -3,7 +3,7 @@ PROC RUN_LEXCUR
    LOCAL dDate 
    LOCAL dSaldoDate
    //LOCAL nDiffSaldo
-   LOCAL lStapel := .F.
+   LOCAL lStapel := .T.
    LOCAL hSummen
    LOCAL nSaldo
    LOCAL nDiffRate
@@ -17,6 +17,7 @@ PROC RUN_LEXCUR
    LOCAL oPdf,nMonth := Month(Date()),nYear := Year(Date())
    LOCAL nRow,nCol
    LOCAL bBackground,nL,bUpdateDiff
+   LOCAL hKonten
    
 
    IF ! LX_Start()
@@ -24,11 +25,19 @@ PROC RUN_LEXCUR
       Return 
    ENDIF
 
+   hKonten := {;
+      "GBP - Sparkasse (1231/1232)"=>{1231,1232},;
+      "USD - Sparkasse (1235/1236)"=>{1235,1236},;
+      "GBP - Volksbank (1222/1223)"=>{1222,1223},;
+      "USD - Volksbank (1237/1238)"=>{1237,1238},;
+      "JPY - Volksbank (1226/1227)"=>{1226,1227};
+   } 
+
    DO WHILE .T.
       aNewDiff := {}
       Head(t("Eurodifferenz für Währungskonto berechnent"))
       @ 01,00 SAY t("Währung")
-      @ 01,10,10,40 GET nCur LISTBOX {"GBP - Sparkasse (1231/1232)","USD - Sparkasse (1235/1236)","GBP - Volksbank (1222/1223)","USD - Volksbank (1237/1238)"} DROPDOWN
+      @ 01,10,10,40 GET nCur LISTBOX HGetKeys(hKonten) DROPDOWN
       @ 02,00 SAY "Jahr"
       @ 02,10 GET nYear PICTURE "9999" VALID nYear >= 2010 .AND. nYear <= Year(Date())
       @ 03,00 SAY "Monat"
@@ -47,7 +56,13 @@ PROC RUN_LEXCUR
          EXIT
       ENDIF
       dDate := EoM(StoD(Str(nYear,4)+StrZero(nMonth,2)+"01"))
-      IF nCur == 1
+      IF nCur < 1 .OR. nCur > Len(hKonten) 
+         EXIT
+      ENDIF
+      nKonto := HGetValueAt(hKonten,nCur)[1]
+      nDifFKto := HGetValueAt(hKonten,nCur)[2]
+
+      /*IF nCur == 1
          nKonto := 1231
          nDiffKto := 1232
       ELSEIF nCur == 2
@@ -59,7 +74,10 @@ PROC RUN_LEXCUR
       ELSEIF nCur == 4
          nKonto := 1237
          nDiffKto := 1238
-      ENDIF
+      ELSEIF nCur == 4
+         nKonto := 1237
+         nDiffKto := 1238
+      ENDIF */ 
 
       /*
       IF Month(dDate) == 1
@@ -97,12 +115,9 @@ PROC RUN_LEXCUR
 
       hSummen := LX_getSummen(nKonto,StoD(Str(Year(dDate),4)+"0101"),dDate,lStapel)
       nSaldo := hSummen:Haben-hSummen:Soll
-      IF Tr_MsgBox("Saldo zum "+DToC(dDate)+": "+LTrim(Str(nSaldo)),,{"falsch","richtig"})  != 2
+      IF Tr_MsgBox("Saldo zum "+DToC(dDate)+": "+LTrim(Str(nSaldo*-1)),,{"falsch","richtig"})  != 2
          LOOP
       ENDIF
-      //Alert("Saldo: "+Str(nSaldo)+";"+"Diff"+Str(nDiffSaldo))
-
-
 
       aKontoBookings := LX_GetAllBookings(Year(dDate),nKonto,lStapel)
       aDiffBookings  := LX_GetAllBookings(Year(dDate),nDiffKto,lStapel)
@@ -132,16 +147,16 @@ PROC RUN_LEXCUR
          }
 
       //? Pad("Datum",8),Pad("Saldo",10),Pad("Eingang",9),Pad("WD Eingang",8),Pad("WD Saldo",8),"Faktor"
-//MemoEdit(ValToPrg(aKontoBookings))
+
       FOR EACH hBooking IN aKontoBookings
          IF hBooking["DATUM"] != dSaldoDate //date has changed  
             
             IF ! Empty(dSaldoDate)
                IF nIncome != 0
                   nDiffRate := ((nSaldo*nDiffRate)+nDiffIncome)/(nSaldo+nIncome)
-               ENDIF
+               ENDIF               
                //? dSaldoDate,Str(nSaldo+nSumme+nIncome,10,2),Str(nIncome,9,2),Str(nDiffIncome,8,2),Str((nSaldo+nSumme+nIncome)*nDiffRate,8,2),Str(nDiffRate,8,6)
-            ENDIF
+            ENDIF           
 
             Eval(bUpdateDiff)
 
@@ -151,9 +166,9 @@ PROC RUN_LEXCUR
             nSumme  := 0
             nDiffIncome := 0
             
-            DO WHILE nX <= Len(aDiffBookings) .AND. aDiffBookings[nX]["DATUM"] <= dSaldoDate
+            DO WHILE nX <= Len(aDiffBookings) .AND. aDiffBookings[nX]["DATUM"] <= dSaldoDate  //collect all diff bookings for this date
                
-               IF __IsFinanz(aDiffBookings[nX],nDiffKto)
+               IF __IsFinanz(aDiffBookings[nX],nDiffKto)                  
                   nDiffIncome += aDiffBookings[nX]["NETTO"]*IF(aDiffBookings[nX]["HABEN"]==nDiffKto,-1,1)
                   Aadd(aNewDiff,aDiffBookings[nX])
                   ATail(aNewDiff)["DIFF"] := aDiffBookings[nX]["NETTO"] 
@@ -197,7 +212,7 @@ PROC RUN_LEXCUR
       oPdf:NewPage()
       oPdf:Bold()
       oPdf:SetFont("Helvetica",,14)
-      oPdf:AtSay("Wechselkursdifferenzkonto "+LTrim(Str(nDiffKto))+" "+{"Januar","Februar","M„rz","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"}[nMonth]+" "+Str(nYear,4))
+      oPdf:AtSay(HB_OemToAnsi("Wechselkursdifferenzkonto "+LTrim(Str(nDiffKto))+" "+{"Januar","Februar","M„rz","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"}[nMonth]+" "+Str(nYear,4)))
       oPdf:NewLine(2)
       oPdf:SetFont("Helvetica",,10)
       oPdf:AtSay("Datum")
@@ -239,9 +254,10 @@ PROC RUN_LEXCUR
                nL++
                Eval(bBackground)
                oPdf:AtSay( Dtoc(aNewDiff[nY]["DATUM"]) )
+               Alert(HB_AnsiToOem(Pad(aNewDiff[nY]["TEXT"],30)))
                oPdf:Atsay(HB_OemToAnsi(Pad(aNewDiff[nY]["TEXT"],30)),,20)
                IF HHasKey(aNewDiff[nY],"DIFF")
-                  oPdf:RJust(Str(aNewDiff[nY]["DIFF"],9,2),,95)
+                  oPdf:RJust(Str(aNewDiff[nY]["DIFF"],12,2),,95)
                ENDIF
                oPdf:AtSAy(IF(aNewDiff[nY]["SOLL"]==nDiffKto,"S","H"),,100)
                IF HHasKey(aNewDiff[nY],"RATE")
@@ -269,7 +285,7 @@ PROC RUN_LEXCUR
          cSH := "S"
       ELSEIF hBooking["HABEN"] != nKonto 
          nGegenKonto := hBooking["HABEN"]
-         cSH := "S"
+         cSH := "H"
       ELSE
          RETURN .F.
       ENDIF
@@ -285,4 +301,4 @@ PROC RUN_LEXCUR
    RETURN __IsFinanzKonto(nGegenKonto)
 
    STATIC FUNCTION __IsFinanzKonto(nKonto)
-   RETURN nKonto == 9000 .OR. (nKonto >= 1200 .AND. nKonto <= 1299) .OR. nKonto == 1360 //EB Buchung oder Finanzkonto
+   RETURN nKonto == 9000 .OR. (nKonto >= 1200 .AND. nKonto <= 1299) .OR. nKonto == 1360 .OR. nKonto == 1590 //EB Buchung oder Finanzkonto

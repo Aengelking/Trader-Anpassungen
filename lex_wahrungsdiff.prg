@@ -16,6 +16,8 @@ PROCEDURE RUN_LEX_WAEHRUNGSDIFF
 
    Head(t("W„hrungsdifferenzen berrechnen"))
 
+   LX_Start()
+
    NetUse("engrech","rech")
 
    @ 01,00 SAY "Jahr       " GET nYear PICTURE "9999"
@@ -34,6 +36,9 @@ PROCEDURE RUN_LEX_WAEHRUNGSDIFF
       hCur := {"U"=>Round(1/1.1228,4),"P"=>Round(1/0.8501,4)}
    ELSEIF nYear == 2020
       hCur := {"U"=>Round(1/1.2275,4),"P"=>Round(1/0.89955,4)}
+   ELSEIF nYear == 2021
+      hCur := {"U"=>Round(1/1.1320,4),"P"=>Round(1/0.84000,4),"Y"=>Round(1/130.32,4)}
+   
    ELSE
       Alert("Bitte Wechselkurs in der PRG hinterlegen. Devisenmittelkur z.B. von der Commerzbank")
       //https://www.commerzbank.de/rates/do.rates
@@ -103,10 +108,15 @@ PROCEDURE RUN_LEX_WAEHRUNGSDIFF
          ENDIF
          IF nValue2 != 0
             cText := "Umbuchung W„hrungsdifferenz"
-            Aadd(aBookings,{dDate,13,"",cText,nSoll2,1590,Round(nValue2,2)})
-            Aadd(aBookings2,{dDateNY,1,"",cText,9000,nSoll2,Round(nValue2,2)})
-            Aadd(aBookings,{dDate,13,"",cText,1590,nHaben2,Round(nValue2,2)})
-            Aadd(aBookings2,{dDateNY,1,"",cText,nHaben2,9000,Round(nValue2,2)})
+            IF nSoll2 < 70000 .AND. nHaben2 < 70000 //Finanzkonten k”nnen direkt miteinander verbucht werden.
+               Aadd(aBookings,{dDate,13,"",cText,nSoll2,nHaben2,Round(nValue2,2)})
+               Aadd(aBookings2,{dDateNY,1,"",cText,nHaben2,nSoll2,Round(nValue2,2)})
+            ELSE
+               Aadd(aBookings,{dDate,13,"",cText,nSoll2,1590,Round(nValue2,2)})
+               Aadd(aBookings2,{dDateNY,1,"",cText,1590,nSoll2,Round(nValue2,2)})
+               Aadd(aBookings,{dDate,13,"",cText,1590,nHaben2,Round(nValue2,2)})
+               Aadd(aBookings2,{dDateNY,1,"",cText,nHaben2,1590,Round(nValue2,2)})
+            ENDIF
          ENDIF
          /*ku->(dbSetOrder( 1 ))
          ku->(dbSeek( aKonten[nX,4]+"L" ))

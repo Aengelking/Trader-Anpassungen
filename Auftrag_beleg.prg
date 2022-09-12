@@ -100,7 +100,7 @@ Aadd(aAutoBeleg,{;
 })
 //   "FILE"=>"Lieferplan.*.pdf",;
 Aadd(aAutoBeleg,{;
-   "EMAIL"=>"\+49\s*\(?6222\)?\s*8\s*2\s*9\s*9.*|[^@\s]*@heidelberg.com",;
+   "EMAIL"=>"\+49\s*\(?6222\)?\s*8\s*2\s*9\s*9.*|[^@\s]*@heidelberg.com|0622192699",;
    "BLOCK"=>{|oMsg,cFile|
       HB_SYMBOL_UNUSED(oMsg)
       HB_SYMBOL_UNUSED(cFile)
@@ -291,9 +291,10 @@ FUNCTION ProcessSalesOrder(nKunde,hResults,aData,oAuftrag)
             oPos:VkQty := aData[nX]["QTY"]
             oPos:WDatum := aData[nX]["DATE"]  //wterm is set automatically when wdatum is set
             IF hResults["PRODDATE"] >= aData[nX]["DATE"]
-               oPos:BeStat := 0
+               oPos:BeStat := 0               
             ELSE //falls nicht zur produktion freigegeben pos auf erl setzten
                oPos:BeStat := 3
+               ?? " (nicht freigegeben)"
                nOpenQty += oPos:VkQty
             ENDIF
 
@@ -374,7 +375,9 @@ FUNCTION ProcessSalesOrder(nKunde,hResults,aData,oAuftrag)
       ENDDO
 
       IF ! Hook("has_archive_file",{"AUF",oAuftrag:AbNr,cFileName,FileDate(cFileName),FileTime(cFileName)}) //attach the file if the file has not already been attached
-         AddAttachedFileToArchive("AUF",oAuftrag:AbNr,.T.,.F.)
+         IF Tr_Getini(28) != 9
+            AddAttachedFileToArchive("AUF",oAuftrag:AbNr,.T.,.F.)
+         ENDIF
       ELSE 
          DeleteAttachedFile() //delete attached file so it does not get attached later on
       ENDIF

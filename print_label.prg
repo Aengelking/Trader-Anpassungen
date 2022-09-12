@@ -8,7 +8,7 @@ PROC print_label
          StickPrint("VDA4902")
          StickPrint("PAKET")
       ENDIF
-   ELSEIF Alias()=="ART" .OR. ProcName(8) == "BROWSEARTIKEL"
+   ELSEIF Alias()=="ART" .OR. ProcName(8) == "BROWSEARTIKEL" .OR. ProcName(7) == "BROWSEARTIKEL"
       StickPrint("WARE")
    ENDIF
 RETURN NIL

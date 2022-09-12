@@ -27,7 +27,7 @@ MEMVAR c_five
 
 /*** SETTINGS ***/
 LOCAL lCanApprove := Tr_Getini(28) $ GetValue("REB_APPROVER",{9,57},"Genehmiger (Benutzernummer)")
-LOCAL hApprKto    := /*GetValue("REB_APRACC",*/ {51=>{70887,74186,70062,70302,70141,70814,70911,70866,70995,76056,76236,76254,76239},34=>{76126,76168,76019,74245,76218,74930,76157}} /*,"Konten fr Genehmiger")*/ //Value Editing programm needs working on
+LOCAL hApprKto    := /*GetValue("REB_APRACC",*/ {51=>{70887,74186,70062,70302,70141,70814,70911,70866,70995,76056,76236,76254,76239,76269},34=>{76126,76168,76019,74245,76218,74930,76157}} /*,"Konten fr Genehmiger")*/ //Value Editing programm needs working on
 LOCAL hPeople := {9=>"Amos",34=>"Sigrid",50=>"Daniela",57=>"Daniel",51=>"Celina"}
 LOCAL nPersOnApprove := 34 //automatically assign to this person on approval
 LOCAL aAdmin      := {9}
@@ -56,17 +56,27 @@ LX_Start()
 Head("Rechnungseingangsbuch")
 
 /*ku->(dbSetOrder( 8 ))
+reb->(dbSetOrder( 0 ))
+reb->(dbGoTop())
+SetCursor(0)
+@ 01,10 SAY "/"+LTrim(Str(reb->(LastRec())))
 DO WHILE ! reb->(EOF())
-   reb->(Rec_Lock())
+   @ 01,00 SAY reb->(Recno())   
    IF ! Empty(reb->Liefnr)
       ku->(dbSeek( Str(reb->Liefnr,6) ))
-      reb->Name := Pad(Trim(ku->Name1)+" "+ku->Name2,50)
+      cName := Pad(Trim(ku->Name1)+" "+ku->Name2,50)
    ELSE
-      reb->Name   := Pad(LX_GetAccountName(reb->Konto),50)
+      cName   := Pad(LX_GetAccountName(reb->Konto),50)
    ENDIF
-   reb->(dbUnLock())
+   IF reb->Name != cName
+      reb->(Rec_Lock())
+      reb->Name := cName
+      reb->(dbUnLock())      
+   ENDIF
    reb->(dbSkip())
-ENDDO*/
+ENDDO
+reb->(dbSetOrder( 1 ))
+SetCursor(1)*/
 
 oBooked := HBCheckBox():New(01,00)
 oBooked:Caption := t("&Verbuchte Einträge")
@@ -161,23 +171,23 @@ oBrowse:NewColumn("Beleg",{|| reb->Beleg },,5,"@!",Space(35),{|x| X })
 oBrowse:NewColumn("Lieferant/Konto",{||
    LOCAL cName
    IF reb->Liefnr == 0
-      cName := Pad(LX_GetAccountName(reb->Konto),35)
+      cName := Pad(LX_GetAccountName(reb->Konto),50)
    ELSE
       ku->(dbSetOrder( 8 ))
       ku->(dbSeek( Str(reb->Liefnr,6) ))
-      cName := Pad(Trim(ku->Name1)+" "+ku->Name2,35)
+      cName := Pad(Trim(ku->Name1)+" "+ku->Name2,50)
    ENDIF
    IF reb->Name != cName
-      reb->(Rec_Lock())
+      /*reb->(Rec_Lock())  //this is not a good place to do this as it can change to order and get things mixed up
       reb->Name := cName
-      reb->(dbUnLock())
-      //cName := "FALSCH"
+      reb->(dbUnLock())*/
+      //cName := "FALSCH"      
    ENDIF
    RETURN cName
 },,8,"@S35",Space(50),{|x| Upper(Trim(x)) })
 
 IF Tr_Getini(28) == 9
-   oBrowse:NewColumn("BN",{|| Str(reb->Person,2) })
+   oBrowse:NewColumn("BN",{|| Str(reb->Person,2) })   
 ENDIF
 
 oBrowse:NewColumn(,{||

@@ -1,11 +1,18 @@
 //search for products which can be made from one part
 PROC STOCK_USE
    
-   LOCAL nArtnr := 11925
+   LOCAL nArtnr := 0
+   LOCAL lBuy := .T.
    LOCAL getlist := {}
+
+   NetUse("parts","part",.F.,0)
+   NetUse("artikel","art")
+
+   art->(dbSetOrder(2))
    
    Head("Aufbrauchen von Lagerbest„nden")
-   @ 01,00 SAY "Artikelnr." GET nArtnr
+   @ 01,00 SAY "Artikelnr." GET nArtnr VALID nArtnr != 0 .AND. art->(dbSeek(Str(nArtnr,6)))
+   @ 02,00 SAY "Artikel zukaufen" GET lBuy PICTURE "Y"
    READ
 
    IF LastKey() == 27
@@ -14,24 +21,22 @@ PROC STOCK_USE
 
    //? "Fertigbare Menge:",QtyProducible(nArtNr)
 
-   NetUse("parts","part",.F.,0)
-   NetUse("artikel","art")
 
    part->(dbSetOrder(2))
-   art->(dbSetOrder(2))
+   
 
    part->(dbSeek( Str(nArtNr,6), .T. ))
 
    DO WHILE part->PartArt == nArtnr .AND. ! part->(EOF())
       art->(dbSeek( Str(part->ListArt,6) ))
-      ? art->Matchcode,QtyProducible(part->ListArt) 
+      ? art->Matchcode,QtyProducible(part->ListArt,,lBuy) 
       part->(dbSkip())
    ENDDO
 
    Sinkey(0)
 RETURN 
 
-FUNCTION QtyProducible(nArtnr,nEndStep)   
+FUNCTION QtyProducible(nArtnr,nEndStep,lBuy)   
    Local aEnv := SaveEnv(),nTot,nX,xKey,nTot2 := 0
    
    Default(@nEndStep,99)
@@ -47,13 +52,13 @@ FUNCTION QtyProducible(nArtnr,nEndStep)
       RestEnv(aEnv,.F.)
       RETURN 0
     Endif
-   nTot := _QtyProducable(nArtnr,nEndStep,1,1)
+   nTot := _QtyProducable(nArtnr,nEndStep,1,1,lBuy)
 
  
    RestEnv(aEnv,.F.)
 Return nTot
 
-STATIC Function _QtyProducable(nArtnr,nEndStep,nStep,nFactor)
+STATIC Function _QtyProducable(nArtnr,nEndStep,nStep,nFactor,lBuy)
    LOCAL nProducible,nStock,nRec := part->(Recno())
 
 
@@ -85,7 +90,7 @@ STATIC Function _QtyProducable(nArtnr,nEndStep,nStep,nFactor)
       ELSE //kein Fertigungsartikel oder End-Baustufe erreicht, verfgbarer Lagerbestand verwenden         
          IF part->Qty > 0
             ali->(dbSetOrder( 1 ))
-            IF ali->(dbSeek( Pad("TECHNO",8)+Str(art->Artikelnr,6) )) // == 17127 //Fehlende Deckel, k”nnen bestellt werden
+            IF lBuy .AND. ali->(dbSeek( Pad("TECHNO",8)+Str(art->Artikelnr,6) )) // == 17127 //Fehlende Deckel, k”nnen bestellt werden
                nStock := 999999 
             ELSE               
                nStock := LagGetStock(art->Artikelnr,1)

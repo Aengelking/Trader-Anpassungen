@@ -1,12 +1,13 @@
 #include 'y:\hb34\contrib\hbcurl\hbcurl.ch'
 
 PROCEDURE RUN_UPD_DIESEL_SCHENKER
-   LOCAL cUrl := "https://www.dbschenker.com/de-de/produkte/landverkehre/stueckgut-international/diesel-floating"   
+   LOCAL cUrl := "https://www.dbschenker.com/de-de/produkte/landverkehre/system-freight/diesel-floating"   
    LOCAL cData,aMatches
    LOCAL dDate,nPer,nX
    LOCAL pCurl := Curl_Easy_Init()
    LOCAL lUpdated := .F.,cRow,aRows
-
+   
+   //cUrl := "https://www.dbschenker.com/de-de/produkte/landverkehre/stueckgut-international/diesel-floating"   
    //cUrl := "https://www.logistics.dbschenker.de/log-de-de/produkte-services/landverkehre/dieselzuschlag_floating/1978120/dieselzuschlag.html"
    //cUrl := "https://www.logistics.dbschenker.de/log-de-de/produkte-services/landverkehre/nebengebuehren/dieselzuschlag_floating/1978120/dieselzuschlag.html"
    //cUrl := "https://www.dbschenker.de/log-de-de/produkte-services/landverkehre/nebengebuehren/dieselzuschlag_floating/1978120/dieselzuschlag.html"
@@ -29,10 +30,11 @@ PROCEDURE RUN_UPD_DIESEL_SCHENKER
       
       FOR EACH cRow IN aRows
          aMatches := HB_Regex("([-0-9,]*)%.*([0-9]{2}\.[0-9]{2}\.[0-9]{4})",cRow)
-         IF Len(aMatches) >= 2
-            dDate := CToD(aMatches[2])
-            nPer  := Val(StrTran(aMatches[1],",","."))
-            IF ! ds_sch->(dbSeek( DToS(dDate) ))
+         IF Len(aMatches) >= 2            
+            dDate := CToD(aMatches[3])
+            nPer  := Val(StrTran(aMatches[2],",","."))
+            ? dDate,Str(nPer,6,2)+"%",aMatches[2],aMatches[3]
+            IF ! ds_sch->(dbSeek( DToS(dDate) ))               
                ds_sch->(Add_Rec())
                ds_sch->From := dDate
                ds_sch->Percent := nPer
@@ -44,6 +46,9 @@ PROCEDURE RUN_UPD_DIESEL_SCHENKER
       IF ! lUpdated
          _Schenker_Error("Keine Daten eingelesen<br>"+cData)
       ENDIF
+   ENDIF
+   IF ! GetConfigValue("BATCHMODE")
+      //Sinkey(0)
    ENDIF
 RETURN
 

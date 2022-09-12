@@ -255,9 +255,9 @@ CLASS AgorumCustomAPi FROM RestAPI
    DATA cBaseUrl
    DATA cToken
 
-   DATA cErrorText
-   DATA cErrorType
-   DATA nError
+   DATA cErrorText INIT ""
+   DATA cErrorType INIT ""
+   DATA nError     INIT 0
 ENDCLASS
 
 METHOD New CLASS AgorumCustomAPi
@@ -273,11 +273,18 @@ METHOD SaveAddress(oAddress) CLASS AgorumCustomApi
    LOCAL cResponse,nResponse
    LOCAL hRet
 
+
    ::nError := 0
    ::cErrorText := ""
    ::cErrorType := ""
 
-   hData["ek_"+AC_ADR_TYPE+"_name"] := Trim(Trim(oAddress:Name1)+" "+oAddress:Name2)
+   IF ! oAddress:Group $ {"K","L"}  //we can only save customers and suppliers
+      ::nError := 4
+      ::cErrorText := "Wrong address group "+oAddress:Group
+      RETURN .F.
+   ENDIF
+
+   hData["ek_"+AC_ADR_TYPE+"_name"] := hb_strtoutf8(Trim(Trim(oAddress:Name1)+" "+oAddress:Name2))
    hData["ek_"+AC_ADR_TYPE+"_number"] := LTrim(Str(oAddress:Nummer,6)) //+100000
    hData["ek_matchcode"] := hb_strtoutf8( oAddress:Kunde )
 
@@ -359,9 +366,10 @@ METHOD AddFile(cDocType,nNo,cFile,oObject)
    LOCAL oACD
    LOCAL hMap := {;
       "AB"=>{"collection"=>"ek_customer_order_confirmation","meta_no"=>"ek_order_confirmation_number"},;
-      "BES"=>{"coolection"=>"supplier_order","meta_no"=>"ek_order_number"},;
-      "LS"=>{"coolection"=>"customer_delivery_note","meta_no"=>"ek_delivery_note_number"},;
-      "RE"=>{"coolection"=>"","meta_no"=>"ek_invoice_number"};
+      "BES"=>{"collection"=>"supplier_order","meta_no"=>"ek_order_number"},;
+      "LS"=>{"collection"=>"customer_delivery_note","meta_no"=>"ek_delivery_note_number"},;
+      "RE"=>{"collection"=>"","meta_no"=>"ek_invoice_number"},;
+      "AUF"=>{"collection"=>"","meta_no"=>"ek_order_confirmation_number"};
    }   
 
    /*
@@ -395,10 +403,11 @@ METHOD AddFile(cDocType,nNo,cFile,oObject)
       oACD := acd->(Record():New(.T.))
       oACD:DocType := cDocType
       oACD:No := nNo
-   ELSE  //aktualiserung vom Dokument noch nicht untersttzts
+   ELSE  //aktualiserung vom Dokument noch nicht untersttzt
       oACD := acd->(Record():New(.F.))
       oACD:UpToDate := .F.
       oACD:Save()
+      ::cErrorText := "Document could not be updated"
       RETURN .F.
 //      oACD := acd->(Record():New(.F.))
    ENDIF
@@ -417,7 +426,7 @@ METHOD AddFile(cDocType,nNo,cFile,oObject)
       hMap[cDocType]["meta_no"]=>LTrim(Str(nNo)),;
       "ag_metadata_collection"=>hMap[cDocType]["collection"]}
 
-   //on the onvoice we can save a little bit more information
+   //on the invoice we can save a little bit more information
    IF cDoctype == "RE"
       hData["invoice_vat_rate"] := oObject:MwStRate
       hData["invoice_vat_amount"] := oObject:MwSt
@@ -457,7 +466,11 @@ METHOD AddFile(cDocType,nNo,cFile,oObject)
          oACD:UpToDate := .T.
          oACD:Save()
          RETURN .T. //success
+      ELSE
+         ::cErrorText := "Error uploading file. "+cData
       ENDIF
+   ELSE
+      ::cErrorText := "Reponse "+LTriM(str(nResponse))+" "+cResponse
    ENDIF
 RETURN .F.
 

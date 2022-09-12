@@ -1,0 +1,2 @@
+GetValue("HOLIDAY-AMOS-START",Stod("20220407"))
+GetValue("HOLIDAY-AMOS-END",Stod("20220407"))

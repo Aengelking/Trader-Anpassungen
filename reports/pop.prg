@@ -1,9 +1,9 @@
 #define CRLF Chr(13)+Chr(10)
-
+PROC RUN_REPORT_POP
 LOCAL nManu := 1
 LOCAL nYear := Year(Date())-3
 LOCAL hArt
-LOCAL cMatch
+LOCAL cMatch,cYear
 
 Head("Generate POP Reporting")
 
@@ -48,7 +48,7 @@ nCount := 0
 rech->(dbSeek( Str(nYear,4)+"0101" ,.T. ))
 
 DO WHILE ! rech->(Eof()) .AND. Year(rech->Rechdat) >= nYear //nI <= len(aSup)
-
+   @ 24,00 SAY rech->Rechdat
    //? aSup[ni],pr(4)
    cSup := rech->Liefma
 
@@ -71,6 +71,7 @@ DO WHILE ! rech->(Eof()) .AND. Year(rech->Rechdat) >= nYear //nI <= len(aSup)
       	IF Year(rech->Rechdat) == Year(Date())
       	  cYear += "YTD"
       	ENDIF
+         @ 25,00 SAY cYear
 
          IF rpos->Menge != 0
             IF ! HHasKey(hProducts,cMatch)
@@ -122,7 +123,8 @@ FOR EACH hArt IN hProducts
 	cMatch := hArt:__enumKey()
 	art->(dbSeek(cMatch))
 	? Trim(cMatch)
-   FOR nY := nYear TO Year(Date())+1
+   FOR nY := nYear 
+      TO Year(Date())+1
 		IF nY >= Year(Date())
          cYear := Str(nY-1,4)+"YTD"
 		ELSE

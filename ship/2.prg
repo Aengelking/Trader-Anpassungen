@@ -97,7 +97,7 @@ ENDIF
 IF lAusland .AND. Empty(Trim(hContact["name"]))
    Tr_MsgBox("Bitte Kontaktdaten hinterlegen. "+ku->Kunde+" "+ku->Group+" "+Str(nContact))
    IF Tr_GetIni(28) == 9
-      Alert(ValToPrg(hContacts))
+      //Alert(ValToPrg(hContacts))
    ENDIF
    RETURN .F.
 ENDIF
@@ -117,7 +117,7 @@ If lAtlas
 		//The number consists of 18 alphanumeric characters.
     		//The third and fourth character shows the origin ISO country, which is DE for Germany.
 		cMRN := GetBox(Space(20),"MRN","NNDE"+Replicate("N",14) )
-		Alert("MRN in Ordnung")
+		//Alert("MRN in Ordnung")
 	Enddo
 Endif
 
@@ -228,7 +228,7 @@ Do While nShipment <= If(lMultiShip,Len(aWeights),1)
       FWrite(nF,TAB+TAB+TAB+'<PostalCode>'+aRegex[1]+'</PostalCode>'+NL)
    ELSE
    	FWrite(nF,TAB+TAB+TAB+'<PostalCode>'+ku->PLZ+'</PostalCode>'+NL)
-  	ENDIF
+   ENDIF   
 	FWrite(nF,TAB+TAB+TAB+'<CityOrTown>'+Pad(StrTran(HB_OemToAnsi(Trim(ku->Town)),'/',' '),30)+'</CityOrTown>'+NL)
 	//required for USA?
 	IF ku->CountryIso == "US"
@@ -238,7 +238,15 @@ Do While nShipment <= If(lMultiShip,Len(aWeights),1)
 	      FClose(nF)
 	      RETURN .F.
       ENDIF
- 	   FWrite(nF,TAB+TAB+TAB+'<StateProvinceCounty>'+aRegex[1]+'</StateProvinceCounty>'+NL)
+       FWrite(nF,TAB+TAB+TAB+'<StateProvinceCounty>'+aRegex[1]+'</StateProvinceCounty>'+NL)
+   ELSEIF ku->CountryIso == "CA"
+      aRegex := HB_Regex(",\s*([A-Z]{2})",Upper(ku->Town))
+      IF Len(aRegex) == 0
+         Alert("Bitte Provinz als KÅrzel (2 Buchstaben) mit Komma getrennt bei der Stadt hinterlegen")
+	      FClose(nF)
+         RETURN .F.
+      ENDIF
+      FWrite(nF,TAB+TAB+TAB+'<StateProvinceCounty>'+aRegex[2]+'</StateProvinceCounty>'+NL)
    ENDIF
 	FWrite(nF,TAB+TAB+TAB+'<Telephone>'+Pad(ku->Telefon,15)+'</Telephone>'+NL)
 	FWrite(nF,TAB+TAB+TAB+'<FaxNumber>'+Pad(ku->TeleFax,15)+'</FaxNumber>'+NL)

@@ -14,7 +14,7 @@
 
 #define P_CELINA 51
 #define P_SIGRID 34
-#define P_DANIEL 57
+#define P_DANIEL IF(Date()>=Stod("20220701").AND.Date()<=StoD("20220707"),9,57)
 #define P_DANIELA 50
 #define P_AMOS 9
 
@@ -48,7 +48,7 @@ LOCAL nScale := 1
 LOCAL aList,hEntry,cYearPre,aChoice
 LOCAL nPersTrader := IF(Date()<=StoD("20210813"),P_SIGRID,P_DANIELA)  //Person die für Trader Rechnungen verantwortlichist
 LOCAL nPersGenehm := IF(Date()<=StoD("20210813"),P_SIGRID,P_AMOS)   //Person die für Genehmigungen zuständig ist
-LOCAL aGB := {"BULGIN","SCOLMORE","EDAC","ITW"}
+LOCAL hLiefPerson := {=>}
 LOCAL hKontoGenehm := {=>} //bestimmte Kreditoren einer Person zuweisen
 LOCAL nImageTop := 0,nImageRight := 0,nImageBottom := 0
 LOCAL nImageTopDiff:= 0,nImageRightDiff := 0
@@ -107,6 +107,7 @@ hKontoGenehm[76236] := P_CELINA //Wackler
 hKontoGenehm[76056] := P_CELINA //Dachser
 hKontoGenehm[76254] := P_CELINA //ITC
 hKontoGenehm[76239] := P_CELINA //Sch„flein
+hKontoGenehm[76269] := P_CELINA //HBH Maghreb
 
 hKontoGenehm[76126] := P_SIGRID
 hKontoGenehm[76168] := P_SIGRID  //Reisekosten Sammelkonto
@@ -119,6 +120,7 @@ hKontoGenehm[76157] := P_SIGRID  //Conrad - Webhelp
 hKontoGenehm[70423] := P_DANIEL
 hKontoGenehm[76167] := P_DANIEL  //Amazon Marketplace
 
+hLiefPerson[35279] := P_AMOS //Softcom
 
 aList := {;
    {"EMAIL"=>"@techno\.it$","MATCH"=>"TECHNO"},;
@@ -556,8 +558,8 @@ DO WHILE .T.
                      reb->Person := nPersGenehm
                   ENDIF
                ELSE
-                  IF Trim(cLiefma) $ aGB .AND. nYear <= 2020  //temporatily assign all GB invoices to me so I can make sure the supplier is setup correctly and the Lexware transfer has been changed
-                     reb->Person := 9
+                  IF nLiefnr $ hLiefPerson
+                     reb->Person := hLiefPerson[nLiefnr]
                   ELSE
                      reb->Person := nPersTrader
                   ENDIF

@@ -11,7 +11,7 @@ FUNCTION AutoBeleg(aAutoOC,cMsgId)
    LOCAL cFile
    LOCAL nAtt
 
-   IF ! Empty(cMsgId)
+   IF ! Empty(cMsgId)     
       cArchive := SubStr(cMsgId,1,RAT("\",cMsgId)-1)
       oArchive := oAccount:GetArchive(cArchive)
       oMsg := oArchive:GetArchiveEntryById(cMsgId)      
@@ -62,6 +62,7 @@ FUNCTION ProcessOCData(aData,cSup,cAbNr,nPO,cDate,caDateFormat,cIgnoreParts,lKom
    NetUse("engbes","bes")
    NetUse("artlief","ali")
    NetUse("artikel","art")
+   NetUse("werkauf","wer")
 
    cAbNr := Pad(cAbNr,10)
 
@@ -154,39 +155,53 @@ FUNCTION ProcessOCData(aData,cSup,cAbNr,nPO,cDate,caDateFormat,cIgnoreParts,lKom
             IF  ( Trim(ali->Artlief) == Trim(hRow["PART"]) .OR. Trim(art->Matchcode) == Trim(hRow["PART"]) .OR. Trim(art->Matchcode) == Trim(Eval(bFormatPartno,hRow["PART"])) ) .AND. bes->BeQty == nQty
                lFound := .T.
                IF Empty(bes->Abnr) .OR. Trim(bes->Abnr) == Trim(cPosAbNr)
-                  art->(dbSeek( Str(bes->Artikelnr,6) ))
-                  ? bes->besnr,bes->Posnr,art->Matchcode,PadL(Transform(bes->BeQty,Me(art->Me)),12),art->Me,IF(nKW!=0,NiceWeek(nKW),"--------"),NiceWeek(bes->wTerm),NiceWeek(bes->Lterm)
-                  IF HHasKey(hRow,"PRICE") .AND. nPrice != bes->EkPR/bes->Pe*(1-bes->Rabatt/100)
-                     nR := Row()
-                     nC := Col()
-                     IF ABS(nPrice-bes->EkPR/bes->Pe*(1-bes->Rabatt/100)) <= 0.01 .OR. Tr_MsgBox({"Bestellung "+LTrim(Str(nPo)),"Artikel: "+hRow["PART"],"Menge "+hRow["QTY"],t("Preis Bestätigung: ")+hRow["PRICE"],"Preis Bestellung: "+LTrim(Str(bes->EkPr/bes->Pe))},"Preis weicht ab ",{t("ignorieren"),t("buchen")}) == 2
-                        //preis speichern
+                  IF nKW == 0 .OR. nKW >= bes->Wterm
+                     art->(dbSeek( Str(bes->Artikelnr,6) ))
+                     ? bes->besnr,bes->Posnr,art->Matchcode,PadL(Transform(bes->BeQty,Me(art->Me)),12),art->Me,IF(nKW!=0,NiceWeek(nKW),"--------"),NiceWeek(bes->wTerm),NiceWeek(bes->Lterm)
+                     IF HHasKey(hRow,"PRICE") .AND. nPrice != bes->EkPR/bes->Pe*(1-bes->Rabatt/100)
+                        nR := Row()
+                        nC := Col()
+                        IF ABS(nPrice-bes->EkPR/bes->Pe*(1-bes->Rabatt/100)) <= 0.01 .OR. Tr_MsgBox({"Bestellung "+LTrim(Str(nPo)),"Artikel: "+hRow["PART"],"Menge "+hRow["QTY"],t("Preis Bestätigung: ")+hRow["PRICE"],"Preis Bestellung: "+LTrim(Str(bes->EkPr/bes->Pe))},"Preis weicht ab ",{t("ignorieren"),t("buchen")}) == 2
+                           //preis speichern
+                           #ifndef TEST
+                           bes->(Rec_Lock())
+                           bes->PE := AutoPE(nPrice)
+                           bes->EkPr := nPrice*bes->PE
+                           bes->(dbUnLock())
+                           #endif
+                        ENDIF
+                        SetPos(nR,nC)
+                     ENDIF
+                     nPos := bes->Posnr
+                     //save the delivery week
+                     DO WHILE bes->Besnr == nPO .AND. (bes->Posnr == nPos .OR. bes->Folgeto == nPos)
                         #ifndef TEST
                         bes->(Rec_Lock())
-                        bes->PE := AutoPE(nPrice)
-                        bes->EkPr := nPrice*bes->PE
+                        IF nKW != 0
+                           bes->LTerm := nKW
+                        ENDIF
+                        bes->AbNr  := cPosAbNr
+                        bes->Confirmed := "Y"
                         bes->(dbUnLock())
+
+                        wer->(dbSetOrder(6)) //Besnr
+                        If wer->(dbSeek( Str(bes->Besnr,6)+Str(bes->Posnr,3) )) .AND. Right(Str(wer->End,4),2) != "99"   //Termin auch im Fertigungsauftrag (auáer bei Rahmen) hinterlegen
+                           wer->(Rec_Lock(0))
+                           wer->end := IF(Val(Right(Str(nKW,4),2))<=52,nKW+bes->ShipTime,nKW)
+                           wer->(dbUnlock())
+                        Endif
                         #endif
-                     ENDIF
-                     SetPos(nR,nC)
-                  ENDIF
-                  nPos := bes->Posnr
-                  //save the delivery week
-                  DO WHILE bes->Besnr == nPO .AND. (bes->Posnr == nPos .OR. bes->Folgeto == nPos)
-                     #ifndef TEST
-                     bes->(Rec_Lock())
-                     IF nKW != 0
-                        bes->LTerm := nKW
-                     ENDIF
-                     bes->AbNr  := cPosAbNr
-                     bes->Confirmed := "Y"
-                     bes->(dbUnLock())
+      
+                        Aadd(aPos,Str(bes->Besnr,6)+Str(bes->Posnr,3))
+                        bes->(dbSkip())
+                     ENDDO
+                     bes->(dbSkip(-1))
+                  ELSE
+                     Tr_MsgBox({"Bestellung "+LTrim(Str(nPo)),"Artikel: "+hRow["PART"],"Menge: "+hRow["QTY"],"frher als der Wunschtermin ("+NiceWeek(bes->WTerm)+") best„tig ("+NiceWeek(nKW)+").","Position wurde nicht verbucht"},"Fehler")
+                     #ifdef DEBUG
+                        cError += "CONFIRMED DATE EARLIER THAN REQUESTED "+Chr(13)+Chr(10)
                      #endif
-   
-                     Aadd(aPos,Str(bes->Besnr,6)+Str(bes->Posnr,3))
-                     bes->(dbSkip())
-                  ENDDO
-                  bes->(dbSkip(-1))
+                  ENDIF
                ELSE
                   nR := Row()
                   nC := Col()
@@ -313,6 +328,7 @@ FUNCTION ProcessOCData(aData,cSup,cAbNr,nPO,cDate,caDateFormat,cIgnoreParts,lKom
       cError := Pad("Bes.Nr.",6)+" "+Pad("Artikel",40)+" "+PadL("Menge",12)+" "+Pad("Preis",6)+Space(5)+" "+"Termin"+Chr(13)+Chr(10)+cError
       MemoEdit(cError,11,06,19,86,.F.)
       RestScreen(,,,,cScreen)
+      RETURN .F.
    ENDIF
    //ELSEIF lDone
       ? ""
@@ -508,6 +524,8 @@ FUNCTION GetDataFromPDF(cFile,aArea,hFields,hSearch,hResults,cAreaHead,hCols)
             ENDIF
          ENDDO
       NEXT
+      
+      
       IF nX == Len(aArea) .AND. Empty(hSearch)
          EXIT
       ENDIF
@@ -639,7 +657,9 @@ FUNCTION __CSVToData(cCSV,hFields,hCols)
             NEXT
             IF Len(hCols) != Len(hFields) //not all fields have been found
                IF DEBUG
+                  ? "NOT ALL FOUND"
                   ? ValToPrg(hCols)
+                  Sinkey(0)
                ENDIF
                EXIT
             ENDIF

@@ -12,6 +12,7 @@ hFremdRahmen[21785] := 17981 //"PHOENIXU"=>"ROSEKRIE"
 hFremdRahmen[33720] := 31937 //"STEINHAR"=>"EGYM"
 //hFremdRahmen[21146] := 31937 //"HEFTER"=>"EGYM"
 hFremdRahmen[35245] := 31937 //"MEYMASCH"=>"EGYM"
+hFremdRahmen[14693] := 31937 //"POLYRACK"=>"EGYM"
 hFremdRahmen[27434] := 27434 //"TRUMPFSA"=>"TRUMPFSA", dadurch kann TRUMPFSA aus eigenen Rahmen abrufen. Bei denen ist das so eingestellt weil die st„ndig die Lieferadresse „ndern
 hFremdRahmen[33991] := 33603 //FREISTRI => STEIERMA
 hFremdRahmen[34270] := 14696 //Technograv => Gessmann

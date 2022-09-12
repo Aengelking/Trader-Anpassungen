@@ -20,6 +20,8 @@ nts->(dbSetOrder( 1 ))
 NetUse("angebot","ang",.F.,0)
 ang->(dbSetOrder( 7 ))
 
+NetUse("rep","rep",.F.,0)	
+
 hReps := {=>}
 
 Select("ku")
@@ -147,11 +149,14 @@ Do While nR <= Len(hReps)
    cIntro := "Hallo "+cName
    cIntro += t("<p>nachfolgend die Aktivitäten Deiner Kunden in der Zeit vom "+DToC(dStart)+" bis "+DToC(dEnd)+"<p>")
    cText := cIntro+cText
-   aTo := {}
+   aTo := {}   
    IF nRep != 0
-      Aadd(aTo,{RepGetEmail(nRep),Trim(cName)})   
+      rep->(dbSeek( Str(nRep,2) ))
+      IF rep->Buyer != 0 //Nur interne Vertreter
+         Aadd(aTo,{RepGetEmail(nRep),Trim(cName)})   
+      ENDIF
    ENDIF
-   IF nRep == 0 .OR. RepGetEmail(nRep) != "thimo.hamma@engelking.de"
+   IF nRep == 0 //.OR. RepGetEmail(nRep) != "thimo.hamma@engelking.de"
       Aadd(aTo,{"thimo.hamma@engelking.de","Thimo Hamma",If(Len(aTo)==0,"TO","CC")})
    ENDIF
    Aadd(aTo,{"amos.engelking@engelking.de","Amos Engelking",If(Len(aTo)==0,"TO","CC")})

@@ -11,7 +11,7 @@ LOCAL oBrowse
 LOCAL lAbgeschlossen
 LOCAL nJahr
 LOCAL aOptions,aMsg
-
+LOCAL aOps
 
 LX_Start()
 
@@ -124,13 +124,34 @@ DO WHILE .T.
    })
    IF Tr_Getini(28) == 9
       oBrowse:AddKey(K_ALT_E,{||
-         LOCAL nValue,nOrig
+         LOCAL nValue
          LOCAL x := oBrowse:CurrentDataRow()
          nValue := GetBox(x:Rest,"Neuer Wert","@E 999,999.99")
          IF LastKey() != 27
             x:Rest := nValue
             LX_SetOffenerPostenRest(x:Nr,x:Rest)
          ENDIF
+         RETURN .T.
+      })
+      oBrowse:AddKey(K_SPACE,{||
+         LOCAL aEnv := SaveEnv()
+         LOCAL hZahlung
+         LOCAL cMemo,nRest
+         //MemoEdit( ValToPrg(oBrowse:CurrentDataRow()) )
+         //Alert( ValType(LX_GetOffenerPosten(25778,63426) ) )
+         @ 10,10 CLEAR TO 30,82
+         @ 10,10 TO 30,82                    
+         @ 11,11 SAY Pad("Datum",8)+" "+Pad("Betrag",10)+" "+Pad("Rest",10)+" "+Pad("Buchungstext",30)
+         nRest := oBrowse:CurrentDataRow():Betrag
+         cMemo := DToC(oBrowse:CurrentDataRow():Datum)+" "+Str(oBrowse:CurrentDataRow():Betrag*-1,10,2)+" "+Str(nRest,10,2)+" "+Pad(oBrowse:CurrentDataRow():Text,30)+Chr(13)+Chr(10)
+         FOR EACH hZahlung IN LX_GetOffenerPostenZahlungen(oBrowse:CurrentDataRow():Nr )            
+            nRest -= hZahlung:nBetrag
+            cMemo += DtoC(hZahlung:dDatum)+" "+Str(hZahlung:nBetrag,10,2)+" "+Str(nRest,10,2)+" "+Pad(hZahlung:Text,30)+Chr(13)+Chr(10)
+         NEXT
+         MemoEdit(cMemo,12,11,29,81)
+         
+         RestEnv(aEnv,.T.)
+         RETURN .T.
       })
    ENDIF
    oBrowse:NewColumn("Datum",{|| DToC(oBrowse:CurrentDataRow():Datum) },{|| IF(oBrowse:CurrentDataRow():Selected2,{5,6},IF(oBrowse:CurrentDataRow():Selected,{3,4},{1,2})) } )

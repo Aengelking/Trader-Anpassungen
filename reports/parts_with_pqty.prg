@@ -2,16 +2,17 @@ PROC RUN_REPORTS_PART_WITH_PQTY
    LOCAL aList
    LOCAL cSupplier := Space(8)
    LOCAL getlist := {}
-   LOCAL bAdd,cWork
+   LOCAL bAdd,cWork,lVPE := .F.
 
-   Head("Artikel eines Lieferanten mit VPE's")
+   Head("Artikel eines Lieferanten")
 
    NetUse("artikel","art")
    NetUse("artlief","ali")
    NetUse("engkund","ku")
    NetUse("parts","part")
 
-   @ 01,00 SAY "Lieferant" GET cSupplier VALID FindAd(cSupplier,"L",02,00) PICTURE "@!"
+   @ 01,00 SAY "Lieferant           " GET cSupplier VALID FindAd(cSupplier,"L",01,30) PICTURE "@!"
+   @ 02,00 SAY "Nur Artikel mit VPE?" GET lVPE PICTURE "Y"
    READ
 
    IF LastKey() == 27
@@ -24,7 +25,7 @@ PROC RUN_REPORTS_PART_WITH_PQTY
    aList := {{"Part no.","Your part no.","Work order part","packaging quantity"}}
 
    bAdd := {|cWork| 
-      IF art->VPE != 0
+      IF ! lVPE .OR. art->VPE != 0
          @ 10,00 SAY art->Matchcode+" "+ali->Artlief+" "+Transform(art->Vpe,Me(art->Me))
          IF AScan(aList,{|x| x[1] == Trim(art->Matchcode) }) == 0
             Aadd(aList,{Trim(art->Matchcode),Trim(ali->Artlief),cWork,LTrim(Transform(art->Vpe,Me(art->Me)))})

@@ -11,7 +11,7 @@
 #define SW_CAT_TITLE_FIELD "custom_trader_category_title"
 #define SW_PAGE_SIZE   50
 
-PROC Test_ShopWare
+PROC ShopWare_Update_Partno
    LOCAL oSW := ShopWareAPI():New()
    LOCAL hProdData,hParentData,aIncluded := {}
    LOCAL hParents := {=>}
@@ -27,6 +27,7 @@ PROC Test_ShopWare
    LOCAL getlist := {},nLimit := 100
    LOCAL cPNContains := Pad("CMI15",30),lError
    LOCAL nPage,nDone,nUpdated := 0,cTitle,cCatTitle,hProductOptionsNames,nSt,nEnd
+   LOCAL aOptions,cTemp
    LOCAL hResponse
    LOCAL cErrorLog := ""
    LOCAL cSep
@@ -185,7 +186,7 @@ PROC Test_ShopWare
                         ELSE
                            cPN := SubStr( cPN,oTable:Length+1 ) 
                            IF ! Empty(oKey:Descript)
-   //                           ? Trim(Pad(oTable:funktion("DE")+":",27)+oKey:descript("DE"))                  
+                              //? Trim(Pad(oTable:funktion("DE")+":",27)+oKey:descript("DE"))                  
                            ENDIF      
                         ENDIF
                         nFirsttab++
@@ -235,7 +236,7 @@ PROC Test_ShopWare
             //attempting to build part no
             cPN := Trim(hParent["data"]["attributes"]["productNumber"])
 
-            hProductOptions := {=>}
+            hProductOptions := {=>}            
             hProductOptionsNames := {=>}
 
             //collect all product options from the parent and the product
@@ -243,10 +244,16 @@ PROC Test_ShopWare
                FOR EACH cOptType IN {"options","properties"}               
                   FOR nY := 1 TO Len( hData["relationships"][cOptType]["data"] )                   
                      cID := hData["relationships"][cOptType]["data"][nY]["id"]                   
-                     IF cID == NIL
+                     IF cID == NIL                        
                      ELSEIF cID $ hPropOptions               
-                        hProductOptions[ hPropOptions[cID]["group"] ] := _DeUpper(hPropOptions[cID]["name"])
-                        hProductOptionsNames[ hPropOptions[cID]["group"] ] := hPropOptions[cID]["name"]
+                        IF ! hPropOptions[cID]["group"] $ hProductOptions
+                           hProductOptions[ hPropOptions[cID]["group"] ] := {}
+                           hProductOptionsNames[ hPropOptions[cID]["group"] ] := ""                           
+                        ELSE                           
+                           hProductOptionsNames[ hPropOptions[cID]["group"] ] += "|"
+                        ENDIF
+                        Aadd(hProductOptions[ hPropOptions[cID]["group"] ],_DeUpper(hPropOptions[cID]["name"]))
+                        hProductOptionsNames[ hPropOptions[cID]["group"] ] += hPropOptions[cID]["name"]                        
                      ELSE
                         ? "Fehler: Eigenschaft '"+cID+"' nicht gefunden"
                      ENDIF
@@ -254,12 +261,20 @@ PROC Test_ShopWare
                NEXT
             NEXT
 
+            
+            FOR EACH aOptions IN hProductOptions               
+               ASort(aOptions)       
+               cTemp  := ""        
+               AEval(aOptions,{|cValue,nX| cTemp += IF(nX>1,"|","")+cValue })               
+               hProductOptions[aOptions:__eNumKey()] := cTemp
+            NEXT
+
             lError := .F.
             cTitle := hParent["data"]["attributes"]["name"]
             cCatTitle := hParent["data"]["attributes"]["customFields"][SW_CAT_TITLE_FIELD]
 
-            hParent["base"]:oTables:Each({|oTable|        
-               IF oTable:Table >= nFirsttab   
+            hParent["base"]:oTables:Each({|oTable|                    
+               IF oTable:Table >= hParent["firsttab"]
                   IF ! Empty(oTable:funktion)                    
                      aFunktion := Shopware_Group_Map(Trim(oTable:funktion))
                      cDescription := ""
@@ -273,24 +288,25 @@ PROC Test_ShopWare
                            cSep := SubStr(cFunktion,2)
                         ELSE
                            IF cFunktion $ hPropGroupNames
-                              IF hPropGroupNames[cFunktion] $ hProductOptions //hProdData["data"][nX]["attributes"]["propertyIds"]
+                              IF hPropGroupNames[cFunktion] $ hProductOptions
                                  IF ! Empty(cDescription)
                                     cDescription += cSep
                                  ENDIF
                                  cDescription += hProductOptions[hPropGroupNames[cFunktion]]
                                  //?? " :",cDescription
                               ELSE
-                                 //?? ValToPrg(hProdData["data"][nX]["attributes"]["propertyIds"])
-                                 ? "Fehler: Keine Eigenschaft '"+Trim(oTable:Funktion)+"' auf Artikel '"+Trim(hProdData["data"][nX]["attributes"]["productNumber"])+"' gefunden"
-                                 lError := .T.
+                                 //?? ValToPrg(hProdData["data"][nX]["attributes"])
+                                 //? "Fehler: Keine Eigenschaft '"+Trim(oTable:Funktion)+"' auf Artikel '"+Trim(hProdData["data"][nX]["attributes"]["productNumber"])+"' gefunden"
+                                 //lError := .T.
                               ENDIF                     
                            ENDIF
                         ENDIF
                      NEXT
-                     
-                     IF ! Empty(cDescription)
+                     //?? cDescription
+                     //IF ! Empty(cDescription)
                         oTable:oKeys:Each({|oKey|                         
-                           IF _DeUpper(Trim(oKey:Descript)) $ {cDescription,hProductOptions[hPropGroupNames[aFunktion[1]]]} //also match against the unkombined description of the first one
+                           IF (Empty(cDescription) .AND. Empty(oKey:Descript)) .OR.;
+                              (! Empty(cDescription) .AND. _DeUpper(Trim(oKey:Descript)) $ {cDescription,hProductOptions[hPropGroupNames[aFunktion[1]]]}) //also match against the unkombined description of the first one
                               cPN += Pad(oKey:TabKey,nLength)                           
                               FOR EACH cFunktion IN aFunktion
                                  nSt := AT("%"+cFunktion+"%",_DeUpper(cTitle))
@@ -313,12 +329,12 @@ PROC Test_ShopWare
                         IF ! lFound
                            ? "Fehler: SchlÅssel '"+cDescription+"' nicht in der Tabelle '"+Trim(oTable:funktion)+"'"
                         ENDIF
-                     ELSE
+                     /*ELSE
                         ? "Keine Eigenschaft fÅr Tabelle "+aFunktion[1]
-                        FOR nX := 2 TO Len(aFunktion)
-                           ? " oder "+aFunktion[nX]
+                        FOR nT := 2 TO Len(aFunktion)
+                           ? " oder "+aFunktion[nT]
                         NEXT
-                     ENDIF
+                     ENDIF*/
                      IF ! lFound
                         cPN += Replicate("?",nLength)
                         lError := .T.
@@ -361,6 +377,9 @@ PROC Test_ShopWare
             
             
          ENDIF
+         IF Inkey() == 27
+            RETURN
+         ENDIF
       NEXT
    ENDDO
    ? nDone," DatensÑtze geprÅft"
@@ -388,6 +407,7 @@ RETURN {cName}
 CLASS ShopWareAPI FROM RestAPI
    METHOD Auth
    METHOD Execute
+   METHOD New
 
    DATA cBaseUrl INIT "https://engelking-test.shopware.store/api/"     
 
@@ -399,6 +419,10 @@ CLASS ShopWareAPI FROM RestAPI
    DATA cKeyName INIT "SW_API"
 
 ENDCLASS
+
+METHOD New()
+   ::cBaseUrl := GetValue("SW_URL","https://egl.teufels-werk.de/api/","URL of the Shopware installation")
+RETURN ::Super:New()
 
 METHOD Auth(lRefresh)
    LOCAL hProdData

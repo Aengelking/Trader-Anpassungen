@@ -10,6 +10,10 @@ LOCAL lStream := ValType(cOut) == "C"
 
 LOCAL aEnv := SaveEnv()
 
+IF ! SystemUser():CheckPermission("READ","ADR_CUSTOMER_REPORT")
+   RETURN NIl
+ENDIF
+
 NetUse("angebot","ang",.F.,0)
 ang->(dbSetOrder(2))
 NetUse("engauf","auf",.F.,0)
@@ -24,6 +28,18 @@ NetUse( "engtext2","tx",.F.,0 )
 
 NetUse("muster","mus",.F.,0)
 NetUse("lagerne","lne",.F.,0)
+
+NetUse("viewlog","vlog")
+
+vlog->(Add_Rec(0))
+vlog->Nummer := ku->Nummer
+vlog->Datum  := Date()
+vlog->Time   := Time()
+vlog->TimeStamp  := TtoS(DateTime())
+vlog->Type   := "B"
+vlog->User   := Tr_Getini(28)
+vlog->(dbUnLock())
+
 
 
 nPrinter := Nil

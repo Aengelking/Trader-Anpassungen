@@ -9,7 +9,8 @@
 PROC RUN_SEND_GB
 
 LOCAL cKunde := Space(8)
-LOCAL nJahr := Year(Date())
+LOCAL nMonat := Month(AddMonth(Date(),-1))
+LOCAL nJahr := Year(Date())-IF(nMonat==12,1,0)
 LOCAL dStart,dEnd,cQuartal := "1",nQuartal
 LOCAL getlist := {}
 LOCAL cFilter
@@ -31,11 +32,13 @@ Head(t("Gelangensbest‰tigung Monat versenden"))
 DO WHILE .T.
    
    @ 01,00 SAY "Kunde"
-   @ 01,10 GET cKunde PICTURE "@!" VALID FINDAD(cKunde,"K",01,40)
-   @ 02,00 SAY "Quartal" 
-   @ 02,10,08,13 GET cQuartal LISTBOX {"1","2","3","4"} DROPDOWN
-   @ 03,00 SAY t("Person")
-   @ 03,10 GET nPerson CONTACTLIST
+   @ 01,07 GET cKunde PICTURE "@!" VALID FINDAD(cKunde,"K",01,40)
+   @ 02,00 SAY "Jahr  " GET nJahr PICTURE "9999" VALID nJahr >= 2020 .AND. nJahr <= Year(Date())
+   @ 03,00 SAY "Monat " GET nMonat PICTURE "99" VALID nMonat >= 1 .AND. nMonat <= IF(nJahr==Year(Date()),Month(Date()),12)
+   /*@ 02,00 SAY "Quartal" 
+   @ 02,10,08,13 GET cQuartal LISTBOX {"1","2","3","4"} DROPDOWN*/
+   @ 04,00 SAY t("Person")
+   @ 04,07 GET nPerson CONTACTLIST
 
    READ
    IF LastKey() == 27
@@ -53,8 +56,8 @@ DO WHILE .T.
 
    nQuartal := Val(cQuartal)
 
-   dStart := AddMonth(StoD(Str(nJahr,4)+"0101"),(nQuartal-1)*3)
-   dEnd   := EoM(AddMonth(dStart,2))
+   dStart := StoD(Str(nJahr,4)+StrZero(nMonat,2)+"01") //AddMonth(StoD(Str(nJahr,4)+"0101"),(nQuartal-1)*3)
+   dEnd   := EoM(dStart) //EoM(AddMonth(dStart,2))
 
    re->(dbSetOrder( 1 ))
    
@@ -152,7 +155,7 @@ DO WHILE .T.
    cText += "Amtsgericht Freiburg (HRB 602241)<br>"
    cText += "GeschÑftsfÅhrer: Amos Engelking, Hans-Peter Schwei·"
 
-   OpenMailClient({{hContact["email"],hContact["name"]}},If(cLang=="E","Confirmation of delivery quarter ","GelangensbestÑtigung Quartal ")+Str(nQuartal,1)+"/"+Str(nJahr,4),cText,{})
+   OpenMailClient({{hContact["email"],hContact["name"]}},If(cLang=="E","Confirmation of delivery month ","GelangensbestÑtigung Monat ")+StrZero(nMonat,2)+"-"+Str(nJahr,4),cText,{})
 ENDDO
 
 

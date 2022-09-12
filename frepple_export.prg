@@ -3,7 +3,7 @@
 #define LAG_STOCK_ADDRESS          4
 #define LAG_STOCK_TEMPBLOCK        6
 
-#define ART_NEEDS_QS art->QS ///*.OR. AT(".LP.BS.",art->Matchcode) != 0*/) .OR. ! Empty(art->Zeichnung)
+#define ART_NEEDS_QS art->QS .OR. AScan(aItems,{|x| x[2] == Trim(art->Matchcode)+"_UNCHECKED"}) != 0 ///*.OR. AT(".LP.BS.",art->Matchcode) != 0*/) .OR. ! Empty(art->Zeichnung)
 
 FUNCTION RUN_FREPPLE_EXPORT()
    /* SETTINGS */
@@ -34,7 +34,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
    LOCAL aErrors := {{"Item-ID","Item","Error level","Error code","Description"}}
    LOCAL aOperationResources := {{"Operation","Resource","Quantity","Skill","Search Mode"}}
    LOCAL aPurchaseOrders := {{"Reference","Supplier","Ordering Date",/*"Item-ID",*/"Item","Quantity","Receipt Date","Status","Location"}}
-   LOCAL aManuOrders := {{"Reference","Item","Quantity","Start Date","End Date","Status","Operation","Owner","Resources"}}
+   LOCAL aManuOrders := {{"Reference","Item","Quantity","Start Date","End Date","Status","Operation","Owner"}} //,"Resources"
    LOCAL aResourceDetail := {{"Resource","Reference","Quantity","Start Date","End Date","Status"}}
    LOCAL aSalesOrders := {{"Name","Customer","Item","Quantity","Minimum Shipment","Due","Priority","Location","Status"}}
    LOCAL aResource := {{"Name","Owner","Location","Type","Maximum Calendar"}}
@@ -670,10 +670,10 @@ FUNCTION RUN_FREPPLE_EXPORT()
                   ENDIF
                   dDate := Max(auf->Besda+IF(art->LZ==0,nDefaultLZ,art->LZ),dDate)                  
                   
-                  Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"MIN",Trim(auf->Kundma),auf->Matchcode,Min(auf->Meldstock,auf->VkQty),1,Frep_DtoC(IF(dDate<=Date().AND.auf->Meldstock <=art->Bestand,Date()+1,dDate),"10:00"),20,cDefaultLocation,"open"})                                 
+                  Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"MIN",Trim(auf->Kundma),auf->Matchcode,Min(auf->Meldstock,auf->VkQty),Min(auf->Meldstock,auf->VkQty),Frep_DtoC(IF(dDate<=Date().AND.auf->Meldstock <=art->Bestand,Date()+1,dDate),"10:00"),20,cDefaultLocation,"open"})                                 
 
                   IF auf->VkQty-auf->GelQty > auf->Meldstock //Add an order for the remaining quantiy at the end date of the frame contract
-                     Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"END",Trim(auf->Kundma),auf->Matchcode,auf->VkQty-auf->GelQty-auf->Meldstock,1,Frep_DtoC(CalWd(Max(nDelWeek,auf->Wterm)),"10:00"),20,cDefaultLocation,"open"})
+                     Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"END",Trim(auf->Kundma),auf->Matchcode,auf->VkQty-auf->GelQty-auf->Meldstock,Min(auf->VkQty-auf->GelQty-auf->Meldstock,auf->MeldStock*2),Frep_DtoC(CalWd(Max(nDelWeek,auf->Wterm)),"10:00"),20,cDefaultLocation,"open"})
                   ENDIF
                ENDIF
             ELSE   
@@ -691,7 +691,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
                   auf->(dbGoto(nRec))
                ENDIF
                Aadd(aSalesOrders,{Ltrim((Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)),Trim(auf->Kundma),auf->Matchcode,auf->VkQty-auf->GelQty,auf->VkQty-auf->GelQty,;
-                                 Frep_DtoC(IF(ku->JustinTime,GetJITLiefertag(auf->BDatum,ku->JIT_LZ),CalWD(IF(Right(Str(auf->Dterm,4),2)=="98",Max(nDelWeek,auf->WTerm),auf->Dterm))+4),"15:00"),;
+                                 Frep_DtoC(IF(ku->JustinTime,GetJITLiefertag(auf->BDatum,ku->JIT_LZ),CalWD(IF(Right(Str(auf->Dterm,4),2)${"97","98"},Max(nDelWeek,auf->WTerm),auf->Dterm))+4),"15:00"),;
                                  nPrio,cDefaultLocation,"open"})
             ENDIF
          ENDIF
@@ -815,7 +815,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
             oExtra := ku->(ExtraData():New(ku->Nummer))
             bes->(dbSetOrder( 1 ))
             bes->(dbSeek( Str(wer->Besnr,6)+Str(IF(wer->Bespos==0,1,wer->besPos),3) )) 
-            IF Val(Right(Str(wer->Termin,4),2)) >= 98
+            IF Val(Right(Str(wer->Termin,4),2)) >= 97
                dStart := CalWD(AddWeeks(CWeek(Date()),nDefaultLZ))
             ELSE
                dStart := AddWorkingDays(CalWD(wer->termin)+IF(oExtra:WaDay>0,oExtra:WaDay-2,4),oExtra:ShipTime)

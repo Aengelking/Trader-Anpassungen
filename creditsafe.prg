@@ -69,6 +69,9 @@ FUNCTION CS_GetCompanyReport(oSoap,cID,nReason)
    LOCAL aP := {}
    LOCAL oEntries,oReport
    //LOCAL bErrorBlock
+   NetUse("cslog","cslog")
+
+   
 
    Default(nReason,2)
    
@@ -77,6 +80,26 @@ FUNCTION CS_GetCompanyReport(oSoap,cID,nReason)
       cID := Trim("DE001/0/"+cID)
    ELSE
       cID := cID
+   ENDIF
+
+   IF cslog->(dbSeek( cID ))
+      DO WHILE cslog->Id == cID .AND. ! cslog->(EOF())
+         cslog->(dbSkip())
+      ENDDO
+      cslog->(dbSkip(-1)) //go back to last record for this id
+      IF StoT(cslog->TimeStamp) >= DateTime()-30/24/60  //has we received a report in the last 30min
+         //we could get it from the archive but we do not have the customer no at this point
+         //so we will return NIL
+         cText := ""
+         I := 1
+         DO while ( !Empty(ProcName(i)) )
+            cText += Chr(13)+Chr(10)+"Called from "+Trim(ProcName(i)) + " ("+Trim(ProcFile(i))+" ";
+                     +LTRIM(Str(ProcLine(i))) + ")  "
+           i++
+         endDO
+         SendMail({{"amos.engelking@engelking.de","Amos"}},"Doppelabruf Creditsafe "+cID,cText)
+         RETURN NIL
+      ENDIF
    ENDIF
 
    Aadd(aP,SOAPParameter():New("companyId",cId))
@@ -102,6 +125,11 @@ FUNCTION CS_GetCompanyReport(oSoap,cID,nReason)
          Alert("Error retrieving report")
       ENDIF
    ELSEIF ! CS_Error(oReport)
+      cslog->(Add_Rec(0))
+      cslog->Id := cId
+      cslog->TimeStamp := TtoS(DateTime())
+      cslog->Date := Date()
+      cslog->(dbUnLock())
       RETURN oReport
    ENDIF
 RETURN NIL

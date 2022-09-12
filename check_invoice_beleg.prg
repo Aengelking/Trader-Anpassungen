@@ -59,7 +59,7 @@ oPdf:AtSay(Pad("Fehler",20)+" "+"Belegd. "+" "+"Soll  "+" "+"Haben "+" "+Pad("Ne
 reb->(dbGoTop())
 nLast := reb->ID
 reb->(dbSkip())
-DO WHILE ! reb->(EOF()) .AND. reb->ID <= Val(Right(Str(Year(dUntil),4),2)+Replicate("9",7))
+DO WHILE ! reb->(EOF()) .AND. Left(Str(reb->ID),2) ==  Right(Str(Year(dUntil),4),2) //reb->ID  <= Val(Right(Str(Year(dUntil),4),2)+Replicate("9",7)) 
    IF Left(LTrim(Str(nLast)),3) == Left(LTrim(Str(reb->ID)),3) //if it is not a change of year or type      
       IF reb->ID != nLast+1
         /* oPdf:NewLine()
@@ -114,7 +114,7 @@ FOR EACH nCreditor IN aCreditors
             ENDIF
             aRegex := HB_Regex("#ER([0-9]{9})(?![0-9])",aBooking["TEXT"],.F.)
             IF AT("<STORNO>",Upper(aBooking["TEXT"])) == 1 .OR. aBooking["NETTO"] < 0 .OR. aBooking["STATUS"] == 9  //Status 9 = storniert
-            ELSEIF AT("UMBUCHUNG WŽHRUNGSDIFFERENZ",StrTran(Upper(aBooking["TEXT"]),"„","Ž")) != 0
+            ELSEIF AT("WŽHRUNGSDIFF",StrTran(StrTran(Upper(aBooking["TEXT"]),"„","Ž"),'"',"Ž")) != 0
             ELSEIF Len(aRegex) > 0 //Belegnummer enthalten    
                Aadd(aIDs,aRegex[2])           
                IF (nX := AScan(aStorno,{|x| /*x[1]== aRegex[2]*/ AllTrim(x[1]) == Alltrim(aBooking["TEXT"]) .AND. Abs(x[2]) == Abs(aBooking["NETTO"]) })) != 0                  
@@ -271,7 +271,7 @@ oBrowse:AddKey(K_CTRL_P,{||
       IF aBooking["ERROR"] $ "NSB"
          oPdf:Atsay(DtoC(aBooking["DATUM"])+" "+Str(aBooking["SOLL"],6)+" "+Str(aBooking["HABEN"],6)+" "+Str(aBooking["NETTO"],9,2)+" "+Pad(HB_OemToAnsi(aBooking["TEXT"]),100))         
       ELSE
-         oPdf:AtSay(Str(aBooking["ID"]))
+         //oPdf:AtSay(Str(aBooking["ID"]))
       ENDIF
    NEXT
    CopyPrint()            

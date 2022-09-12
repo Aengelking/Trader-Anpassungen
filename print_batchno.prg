@@ -1,9 +1,12 @@
-FUNCTION RUN_PRINT_BATCHNO(lRech,oPrinter)
+FUNCTION RUN_PRINT_BATCHNO(lRech,oPrinter,cLang)
    LOCAL lMulti := .F.,nCount := 0
    LOCAL lPdf := .T.,cText := ""
    LOCAL cFilter,oExtra
    LOCAL nMarginOld
    #command PRINT(<text>) => IF(!lPdf,cText+=<text>,__PDFPRINT(oPrinter,<text>))
+   IF cLang != "E"
+      cLang := "D"
+   ENDIF
    IF oPrinter == NIL .OR. oPrinter:Type != "PDF" //only works with PDF printers
       lPDF := .F.
    ENDIF
@@ -16,7 +19,11 @@ FUNCTION RUN_PRINT_BATCHNO(lRech,oPrinter)
          lMulti := .T.
       ENDIF
       lagr->(dbSkip(-1))
-      PRINT("Chargennummer"+IF(lMulti,"n","")+": ")
+      IF cLang == "E"
+         PRINT("Chargennummer"+IF(lMulti,"n","")+": ")
+      ELSE
+         PRINT("Batch number"+IF(lMulti,"s","")+": ")
+      ENDIF
       IF lPdf
          oPrinter:Data:ReportCol := 30
          nMarginOld := oPrinter:Data:PDFLeft   

@@ -1,5 +1,5 @@
 #include 'inkey.ch'
-#define MONTHS 5
+#define MONTHS IF(MaxCol() > 160,10,5)
 FUNC RUN_REPORT_FREMDWAEHRUNG(lReturn)
 LOCAL hOpSummen,nSumme
 //LOCAL nBesOpen,nWeOhne
@@ -20,6 +20,9 @@ LOCAL getlist := {},nTop,lDummy
 //LOCAL hCurrencies := {"P"}
 
 Default(@lReturn,.F.)
+
+
+
 
 IF ! lReturn
    Head(t("Fremdwährungsbedarf berechnen"))
@@ -197,7 +200,7 @@ DO WHILE LastKey() != 27
    SetPos(nTop+1,00)
    ?? Pad("Lieferant",8)+" "+Space(3)
    FOR nX := 0 TO MONTHS
-      ?? "",PadL(_MonthName(nX),10)
+      ?? "",PadL(_MonthName(nX),12)
    NEXT
    ?? "",PadL("Danach",10)+Chr(13)+Chr(10)
    cList := ""

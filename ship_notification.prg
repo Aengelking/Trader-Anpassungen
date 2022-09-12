@@ -1,7 +1,7 @@
 
 FUNCTION RUN_SHIP_NOTIFICATION( nRechnr )
 
-LOCAL oExtra,oArtExtra,aTo
+LOCAL oExtra,oArtExtra
 
 LOCAL cEmail,aEnv := SaveEnv()
 LOCAL nCount,cNumbers
@@ -11,12 +11,17 @@ LOCAL aAttach
 LOCAL hContact
 LOCAL hCoc := {=>},aBatches,cBatch
 LOCAL lAttach := .F.
+LOCAL aTo := {}
+LOCAL aAbs := {},aContacts := {}
+LOCAL cAnrede,lHasContact := .F.
+LOCAL nVersandart := 0
 
 NetUse("paknum","pnum")
 NetUse("ups","ups")
 NetUse("englsre","re")
 NetUse("engkund","ku")
 NetUSe("artikel","art")
+NetUse("auftrag","ab")
 
 re->(dbSetOrder( 12 ))
 IF ! re->(dbSeek( Str(nRechnr,6)+Str(0,3) ))  .OR. re->PosWt <= 0
@@ -24,32 +29,61 @@ IF ! re->(dbSeek( Str(nRechnr,6)+Str(0,3) ))  .OR. re->PosWt <= 0
    RETURN NIL
 ENDIF
 
+IF ups->(dbSeek( Str(nRechnr,10) )) 
+   nVersandart :=  ups->Versandart
+ENDIF
+
 ku->(dbSetOrder( 1 ))
 ku->(dbSeek( re->Kunde+"K" ))
 
 oExtra := ku->(ExtraData():New( ku->Nummer ))
 
+cAnrede := ""
 IF oExtra:ShpNtfyTo != 0
    hContact := GetContact(oExtra:ShpNtfyTo)
-ELSE
-   hContact := {"anrede"=>GetContactAnrede(0),"email"=>Trim(ku->Email),"name"=>""}
+   IF ! Empty(hContact["email"])
+      lHasContact := .T.
+      cAnrede := hContact["anrede"]+","
+      Aadd(aTo,{hContact["email"],hContact["name"]})
+   ENDIF  
 ENDIF
 
-cEmail := hContact["anrede"]+","
+cEmail := ""
 cEmail += "<p>"
 IF ku->Language == "D"
-   cEmail += "soeben wurde eine Lieferung f&uuml;r Sie zum Versand angemeldet.</p>"
+   IF nVersandart == 10 //Abholung
+      cEmail += "soeben wurde eine Sendung von Ihrem Dienstleister abgeholt.</p>"
+   ELSE
+      cEmail += "soeben wurde eine Lieferung f&uuml;r Sie zum Versand angemeldet.</p>"
+   ENDIF
    cEmail += "<p>Folgende Produkte/Bestellungen sind darin enthalten:<br />"
    cEmail += '<table border="1"><tr><th align="left">Bestellung</th><th align="left">AB</th><th align="left">Artikel</th><th align="left">Menge</th></tr>'
 ELSE
-   cEmail += "A shipment has been registered with the forwarder.</p>"
-   cEmail += "<p>FIt contains the following products and pruchase orders:<br />"
+   IF nVersandart == 10
+      cEmai += "A shipment has been collected by your forwarder.</p>"
+   ELSE
+      cEmail += "A shipment has been registered with the forwarder.</p>"
+   ENDIF
+   cEmail += "<p>It contains the following products and pruchase orders:<br />"
    cEmail += '<table border="1"><tr><th align="left">PO</th><th align="left">OC</th><th align="left">Part</th><th align="left">Quantity</th></tr>'
 ENDIF
 
 re->(dbSkip())
 DO WHILE re->Rechnr == nRechnr
    IF re->AoQty > 0 .AND. ! re->Folge
+      IF ! lHasContact .AND. ! re->Abnr $ aAbs
+         Aadd(aAbs,re->Abnr)
+         IF ab->(dbSeek( Str(re->Abnr,6) )) .AND. ! ab->Person $ aContacts            
+            Aadd(aContacts,ab->Person)
+            hContact := GetContact(ab->Person)
+            ? hContact["name"]
+            IF Len(aContacts) > 1
+               cAnrede += "<br>"
+            ENDIF
+            cAnrede += hContact["anrede"]+","
+            Aadd(aTo,{hContact["email"],hContact["name"]})
+         ENDIF
+      ENDIF
       oArtExtra := art->(ExtraData():New(re->Artikelnr))
       cEmail += "<tr><td>"+Trim(re->Aufnr)+"</td><td>"+LTrim(Str(re->Abnr))+"</td><td>"+Trim(re->Matchcode)+"</td><td>"+Transform(re->AoQty,Me(re->Me))+" "+Trim(re->Me)+"</td></tr>"      
       IF oArtExtra:CoC
@@ -71,10 +105,19 @@ ENDDO
 
 cEmail += "</table></p>"
 
+IF Len(aTo) == 0
+   cAnrede := GetContactAnrede(0)+","
+   IF ! Empty(ku->Email)
+      Aadd(aTo,{Trim(ku->Email),""})
+   ENDIF
+ENDIF
+
+cEmail := cAnrede+cEmail
+
 re->(dbSeek( Str(nRechnr,6)+Str(0,3) ))
 
 ups->(dbSetOrder( 3 ))
-IF ups->(dbSeek( Str(nRechnr,10) )) .AND. ups->Versandart $ {2,19,34,40,43,46,56,58}
+IF nVersandart $ {2,19,34,40,43,46,56,58}
    pnum->(dbSetOrder( 1 ))
    pnum->(dbSeek( ups->Nr ))
    nCount := 0
@@ -89,17 +132,17 @@ IF ups->(dbSeek( Str(nRechnr,10) )) .AND. ups->Versandart $ {2,19,34,40,43,46,56
       nWeight += pnum->Weight
       pnum->(dbSkip())
    ENDDO
-   IF ku->Langauge == "D"
+   IF ku->Language == "D"
       cEmail += t("<p>Die Sendung besteht aus "+LTrim(Str(nCount))+" Packstück"+IF(nCount>1,"en","")+" mit de"+IF(nCount>1,"n","r")+" folgenden Trackingnummer"+IF(nCount>1,"n","")+": "+cNumbers+"</p>")
       cEmail += t("<p>Das Gesamtgewicht der Sendung beträgt "+LTrim(Str(nWeight))+"kg</p>")
    ELSE
-      cEmail += t("<p>The shipment consists of "+LTrim(Str(nCount))+" packages"+IF(nCount>1,"en","")+" with the following tracking number"+IF(nCount>1,"s","")+": "+cNumbers+"</p>")
+      cEmail += t("<p>The shipment consists of "+LTrim(Str(nCount))+" package"+IF(nCount>1,"s","")+" with the following tracking number"+IF(nCount>1,"s","")+": "+cNumbers+"</p>")
       cEmail += t("<p>The total weight of the shipment is "+LTrim(Str(nWeight))+"kg</p>")
    ENDIF
 ENDIF
 
 IF oExtra:ShpNtfyCst
-   IF ku->Langauge == "D"
+   IF ku->Language == "D"
       cEmail += "<p>Es werden Fracht- und Verpackungskosten von "+Currate(re->Money,"X")+" "+Trim(Str(re->OfQty,8,2))+" in Rechnung gestellt.</p>"
    ELSE
       cEmail += "<p>"+Currate(re->Money,"X")+" "+Trim(Str(re->OfQty,8,2))+" of freight and packaging costs have been charged.</p>"
@@ -110,10 +153,10 @@ aAttach := {}
 aFiles := GetArchiveFiles( {"LS"=>nRechnr} )
 IF Len(aFiles) > 0
    lAttach := .T.
-   IF ku->Langauge == "D"
+   IF ku->Language == "D"
       cEmail += "<p>Im Anhang finden Sie eine Kopie des Lieferscheins"
    ELSE
-      cEmail += "<p>Attached you will find the delivery note"
+      cEmail += "<p>You will find the delivery note attached."
    ENDIF
 
    Aadd(aAttach,ATail(aFiles)[6])
@@ -130,19 +173,19 @@ ENDIF
 
 IF Len(hCoC) > 0
    IF lAttach
-      IF ku->Langauge == "D"
+      IF ku->Language == "D"
          cEmail += " und die dazu "
       ELSE
          cEmail += " and "
       ENDIF
    ELSE    
-      IF ku->Langauge == "D"     
+      IF ku->Language == "D"     
          cEmail += "<p>Im Anhang finden Sie die zu dieser Lieferung "
       ELSE
          cEmail += "<p>Attached you will find "
       ENDIF
    ENDIF
-   IF ku->Langauge == "D"
+   IF ku->Language == "D"
       cEmail += "geh”rige(n) Werksbescheinigung(en)"
    ELSE
       cEmail += " the corresponding Certificate(s) of Conformity"
@@ -164,7 +207,7 @@ IF lAttach
    cEmail += ".</p>"
 ENDIF
 
-IF ku->Langauge == "D"
+IF ku->Language == "D"
    cEmail += "<p>Mit freundlichen Gr&uuml;&szlig;en<br /></p>"
 ELSE
    cEmail += "<p>Best Regards<br /></p>"
@@ -172,15 +215,10 @@ ENDIF
 cEmail += "<p><b>Engelking Elektronik GmbH</b><br />Albstrasse 16<br />78609 Tuningen<br />Deutschland<br />Tel: 07464-9865-0<br />Fax: 07464-9865-71"
 cEmail += "<br />Email: info@engelking.de<br />Amtsgericht Freiburg (HRB 602241)<br />Gesch&auml;ftsf&uuml;hrer: Amos Engelking, Hans-Peter Schwei&szlig;</p>"
 
-//cEmail := "To: "+hContact["email"]+"<br>"+cEmail
-aTo := {}
-IF ! Empty(hContact["email"])
-   Aadd(aTo,{hContact["email"],hContact["name"]})
-   //Aadd(aTo,{"amos.engelking@engelking.de","Amos Engelking"})
-ELSE
-   Aadd(aTo,{"samuel.engelking@engelking.de","Samuel Engelking"})
+IF Len(aTo) == 0
+   Aadd(aTo,{"amos.engelking@engelking.de","Amos Engelking","TO"})
 ENDIF
-Aadd(aTo,{"amos.engelking@engelking.de","Amos Engelking","BCC"})
+//Aadd(aTo,{"amos.engelking@engelking.de","Amos Engelking","BCC"})
 
 SendMail(aTo,IF(ku->Language=="D","Versandbenachrichtigung Lieferschein ","Advance Shipment Notification ")+LTrim(Str(nRechnr)),cEmail,aAttach,.F.,NIL,.T.,"info@engelking.de")
 

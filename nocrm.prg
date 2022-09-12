@@ -200,7 +200,7 @@ FUNCTION noCRM_Interface(lComment)
          hLeadData["status"] := "standby"         
       ENDIF
       IF nStep != 0  //if nStep is 0 we will leave it as it is, or on a new one not set it at all
-         //hLeadData["step"] := nStep //this is the step in the defined pipeline
+         hLeadData["step"] := nStep //this is the step in the defined pipeline
       ENDIF
 
       IF nLeadId == -1 .OR. hLead["amount"] == NIL

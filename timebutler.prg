@@ -7,7 +7,8 @@ PROC Run_TimeButler(oWidget)
    LOCAL aList := {}
    LOCAL hTypes := {=>}
    LOCAL oBrowse
-   LOCAL hAbsenceTypes := {"Vacation"=>"Urlaub","Sickness"=>"Krank","Training school"=>"Berufsschule","Child ill"=>"Kind krank","Home office"=>"Homeoffice","Warehouse"=>"Lager"}
+   LOCAL hAbsenceTypes := {"Vacation"=>"Urlaub","Sickness"=>"Krank","Training school"=>"Berufsschule","Child ill"=>"Kind krank","Child ill w/o payment"=>"Kind krank","Home office"=>"Homeoffice",;
+                           "Warehouse"=>"Lager","Further training"=>"Weiterbildung","Fair"=>"Messe","Business trip"=>"Dienstreise"}
    LOCAL dFrom := Date()      
    LOCAL dTo := dFrom   
    LOCAL cDate,nR
@@ -64,7 +65,7 @@ PROC Run_TimeButler(oWidget)
          
          IF HHasKey(hAbsenceTypes,aList[nR]["Type"])
             oWidget:WriteAt(nR,41, Pad(hAbsenceTypes[aList[nR]["Type"]],20) )
-         ELSE
+         ELSEIF Tr_Getini(28) == 9
             oWidget:WriteAt(nR,41, Pad(aList[nR]["Type"],20) )
          ENDIF
       NEXT

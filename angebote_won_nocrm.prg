@@ -9,6 +9,7 @@ PROC RUN_ANGEBOTE_WON_NOCRM
    LOCAL aPipelines,nStdPipeLine,nPipeLine,nStep
    LOCAL hQuoteOrders,cContent,hLeadData
    LOCAL aExcludeMatchcode := {"@","FREIGHT","PORTO"}
+   LOCAL oUser
    
 
    //Check if connection is working
@@ -70,7 +71,7 @@ PROC RUN_ANGEBOTE_WON_NOCRM
                   hQuotes[ang->Angnr] := {=>}
                ENDIF
                nValue := nQty*auf->VkPr/auf->Pe*(1-auf->Rabatt/100)               
-               IF ! ang->Matchcode $ hQuotes[ang->Angnr] .OR. hQuotes[ang->Angnr][ang->Matchcode]["VALUE"] < nValue
+               IF ! ang->Matchcode $ hQuotes[ang->Angnr] .OR. hQuotes[ang->Angnr][ang->Matchcode]["VALUE"] < nValue                  
                   hQuotes[ang->Angnr][ang->Matchcode] := {"AB"=>auf->Abnr,"PRICE"=>ang->VkPr/ang->Pe*(1-ang->Rabatt/100),"VALUE"=>nValue}
                ENDIF
             ENDIF
@@ -160,23 +161,28 @@ PROC RUN_ANGEBOTE_WON_NOCRM
                ? "STEP NOT FOUND"            
             ENDIF
             
-            hLeadData["amount"] := nValue
+            hLeadData["amount"] := nValue            
 
             oNoCRM:Execute("leads/"+Ltrim(Str(nocrm->Lead)),"PUT",hLeadData)
          ENDIF
 
+         auf->(dbSetOrder( 1 ))
          
          FOR EACH nValue IN hQuoteOrders
             nAB := nValue:__eNumKey()
             //Save order as a comment on an existing lead
             cContent := 'Auftrag Nr. '+LTrim(Str(nAB))+Chr(13)+Chr(10)      
             cContent += "Wert: "+LTrim(Str(nValue,12,2))
+
+            auf->(dbSeek( Str(nAb,6) ))
+            oUser := User():New()
+            oUser:Load(auf->Buyer)
    
-            oNoCrm:Execute("leads/"+LTrim(Str(nocrm->Lead))+"/comments","POST",{"lead_id"=>nocrm->Lead,"content"=>cContent,"activity_id"=>nActivity,"user_id"=>SystemUser():Email})
+            oNoCrm:Execute("leads/"+LTrim(Str(nocrm->Lead))+"/comments","POST",{"lead_id"=>nocrm->Lead,"content"=>cContent,"activity_id"=>nActivity,"user_id"=>oUser:Email})
          NEXT
          
 
-      ENDIF
+      ENDIF      
    NEXT
 
    ang->(dbSetOrder( 1 ))

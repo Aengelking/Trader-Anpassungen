@@ -25,6 +25,7 @@ FUNCTION RUN_SHOW_QS_PARTS
    NetUse("partjobs","pjob")
    NetUse("werkauf","wer")
    NetUse("muster","mus")
+   NetUse("ppf","ppf")
 
    job->(dbSetOrder( 2 ))
    cQSJob := Trim(GetValue("FREPPLE_QS_JOB","QS","Job name for QS tasks"))  //we use the job set in Frepple, as this is used for planning
@@ -68,7 +69,7 @@ FUNCTION RUN_SHOW_QS_PARTS
       
       //? ""
       
-      Aadd(aList,{"MATCH"=>art->Matchcode,"TEXT"=>art->Matchcode+" "+PadL(Transform(nQSQty,Me(art->Me)),12),"STATUS"=>0,"NEXT"=>""})
+      Aadd(aList,{"MATCH"=>art->Matchcode,"TEXT"=>art->Matchcode+" "+PadL(Transform(nQSQty,Me(art->Me)),12),"STATUS"=>0,"NEXT"=>"ÿ"})
       IF pjob->(dbSeek( Str(art->Artikelnr,6)+Str(nQSJob,6) ))                  
          ATail(aList)["TEXT"] += " "+StrZero(Int(pjob->Seconds*nQSQty/60/60),2)+":"+StrZero(Int(Mod(pjob->Seconds*nQSQty/60,60)),2)+":"+StrZero(Mod(pjob->Seconds*nQSQty,60),2)
       ELSE
@@ -87,7 +88,8 @@ FUNCTION RUN_SHOW_QS_PARTS
             ELSEIF aKWQty[nX,1] <= nAfterWeek 
                ATail(aList)["STATUS"] := 1
             ENDIF
-            ATail(aList)["NEXT"] := Pad(IF(aKwQty[nX,1]==0,"versp„tet",IF(aKwQty[nX,1]==-1,"Muster",NiceWeek(aKwQty[nX,1]))),9)+" "+Trim(Transform(aKwQty[nX,2]+aKwQty[nX,4]-nStock,Me(art->Me)))
+            //
+            ATail(aList)["NEXT"] := Pad(IF(aKwQty[nX,1]==0,"versp„tet",IF(aKwQty[nX,1]==-1,"0 Muster",NiceWeek(aKwQty[nX,1]))),9)+" "+Trim(Transform(aKwQty[nX,2]+aKwQty[nX,4]-nStock,Me(art->Me)))
 
             nQSUsed += aKwQty[nX,2]+aKwQty[nX,4]-nStock
             EXIT
@@ -118,8 +120,8 @@ FUNCTION RUN_SHOW_QS_PARTS
       SetColor(c_one)
       //?      
       //? "-------- IM ZULAUF AUS DER FERTIGUNG --------"      
-      Aadd(aList,{"MATCH"=>"","TEXT"=>"","STATUS"=>0,"NEXT"=>""})
-      Aadd(aList,{"MATCH"=>"","TEXT"=>"-------- IM ZULAUF AUS DER FERTIGUNG --------","STATUS"=>0,"NEXT"=>""})
+      Aadd(aList,{"MATCH"=>"","TEXT"=>"","STATUS"=>-1,"NEXT"=>""})
+      Aadd(aList,{"MATCH"=>"","TEXT"=>"-------- IM ZULAUF AUS DER FERTIGUNG --------","STATUS"=>-1,"NEXT"=>""})
       DO WHILE wer->Status == 3 .AND. ! wer->(EOF())
          art->(dbSeek( Str(wer->Artno,6) ))
          nQSQty := 0
@@ -128,7 +130,7 @@ FUNCTION RUN_SHOW_QS_PARTS
             wer->(dbSkip())
          ENDDO
          IF art->QS
-            Aadd(aList,{"MATCH"=>art->Matchcode,"TEXT"=>art->Matchcode+" "+PadL(Transform(nQSQty,Me(art->Me)),12),"STATUS"=>0,"NEXT"=>""})
+            Aadd(aList,{"MATCH"=>art->Matchcode,"TEXT"=>art->Matchcode+" "+PadL(Transform(nQSQty,Me(art->Me)),12),"STATUS"=>-1,"NEXT"=>""})
             //? art->Matchcode,PadL(Transform(nQSQty,Me(art->Me)),12)         
          ENDIF
       ENDDO
@@ -138,7 +140,7 @@ FUNCTION RUN_SHOW_QS_PARTS
 
    TxtClear()
 
-   ASort(aList,,,{|x,y| x["STATUS"] > y["STATUS"] })
+   ASort(aList,,,{|x,y| x["STATUS"] > y["STATUS"] .OR. (x["STATUS"] == y["STATUS"] .AND. x["NEXT"] < y["NEXT"]) })
 
    oBrowse := TABrowse():New(01,00,MaxRow(),67)
 

@@ -1,8 +1,61 @@
-PARAMETERS cState,cKunde,cText,nMaxDaysOver,nMaxRem,aOpenInvoices
+FUNC HOOK_ON_SEND_PAYREMINDER(cState,cKunde,cText,nMaxDaysOver,nMaxRem,aOpenInvoices)
+   LOCAL oExtra,oKunde,cText2,aRecvs := {}
+   LOCAL nPerson := 0,aTo
+   LOCAL cType
 
-IF Trim(cKunde) == HB_AnsiToOem("HÜGLER") .AND. cState == "NOPAY" .AND. nMaxRem >= 1  //Hügler wird nach der ersten Mahnung ans Inkasso übergeben, sind hierüber auch informiert
-   SendMail(GetConfigEmail("SI-NOPAY-SEVERE"),"INKASSO! "+cKunde,cText,,,2,.T.)
-   RETURN .F.  //do not send standard emails
-ENDIF
+   ? cKunde
 
+   oKunde := Adresse():New()
+   oKunde:LoadMatchcode(cKunde,"K")
+   oKunde:gotoRec()
+   oExtra := ku->(ExtraData():New(oKunde:Nummer))
+   IF nMaxDaysOver <= 0
+      cType := "Kontoauszug"
+   ELSE
+      cType := "Mahnung"
+   ENDIF
+   IF oExtra:AutoMahn .AND. nMaxRem < 3 .AND. AddWorkingDays(GetValue("LASTPAY","D"),2,GetConfigValue("STATE"),.T.) >= Date() 
+      IF GetCustomerCredit() >= 0
+         SendMail({{"amos.engelking@engelking.de","Amos"}},cType+" wurde NICHT an "+Trim(cKunde)+" versendet",cText,,,2,.T.)
+      ELSE
+         cText2 := "<b>"+cType+" WURDE VERSENDET</b><br/><br/>"
+         IF nMaxDaysOver > 0
+            cText2 += "Mahnstufe: "+LTrim(Str(nMaxRem+1))+"<br/>"
+         ENDIF
+         cText2 += "Empf„nger: <br/>"
+         
+         NetUse("contacts","conts")
+         conts->(dbSetOrder(2))
+         conts->(dbSeek( Str(oKunde:Nummer,6) ))   
+
+         DO WHILE ! conts->(Eof()) .AND. conts->Address == oKunde:Nummer
+            IF conts->Active .AND. conts->Accounts  .AND. ! Empty(conts->Email)
+               cText2 += Trim(conts->Name)+" ("+Trim(conts->email)+")<br/>"
+               IF nPerson == 0
+                  nPerson := conts->Number
+               ELSE
+                  Aadd(aRecvs,{"TO",Trim(conts->email)})
+               ENDIF
+               
+            ENDIF
+            conts->(dbSkip())
+         ENDDO
+         
+         cText2 += "<br/>"+cText
+
+         IF nPerson != 0
+            //SetConfigValue("BATCHMODE",.F.)
+            SetPrinterMethodType(3)
+            StatDr(cKunde,nPerson,3,AddWorkingDays(GetValue("LASTPAY","D"),-1,GetConfigValue("STATE"),.T.),aRecvs)   
+            
+            //aTo := 
+            //aTo := GetConfigEmail("SI-NOPAY-SEVERE")
+            //Aadd(aTo,GetConfigEmail("SI-NOPAY-SEVERE"))
+            FOR EACH aTo IN {GetConfigEmail("SI-NOPAY"),GetConfigEmail("SI-NOPAY-SEVERE")}            
+               SendMail(aTo,cType+" wurde an "+Trim(cKunde)+" versendet",cText2,,,2,.T.)
+            NEXT
+            RETURN .F.
+         ENDIF
+      ENDIF
+   ENDIF
 RETURN .T.

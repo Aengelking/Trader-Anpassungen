@@ -8,13 +8,84 @@ LOCAL getlist := {}
 LOCAL oExtra
 LOCAL oArtExtra
 LOCAL cBez,cText,nX
+LOCAL oArt,hFreigabe,nMaxQty,lBes,oLief,hReq
+LOCAL oContrPos,cLine,nY,nStart,nF,cOldText,nLen,nPos,nOldValue
+LOCAL lExtern := .F.
+LOCAL bGetFreigabe := { |nLief|
+   hFreigabe := GetFreigabeBesState(nLief)
+   IF hFreigabe:lBes       
+      IF ! lBes .AND. hFreigabe:nMaxQty != 0 //noch nicht durch anderen Lieferanten freiggebn um Menge beschr„nkt
+         nMaxQty += hFreigabe:nMaxQty
+      ELSEIF lBes .AND. nMaxQty != 0 .AND. hFreigabe:nMaxQty == 0 //andere Freigabe aeber Beschr„nkt, diese ist unbeschr„nkt, dann Beschr„nkung aufheben
+         nMaxQty := 0
+      ENDIF            
+      lBes := .T.
+   ENDIF
+}
+
+MEMVAR c_five
 
 NetUse("engkund","ku")
+NetUse("artlief","ali")
+NetUse("parts","part")
+NetUse("ppf","ppf")
+
 oExtra := ku->(ExtraData():New( oAufPos:Auftrag:Kunde:Nummer ))
 oArtExtra := art->(ExtraData():New(oAufpos:Artikelnr))
 
-IF ValType(oAufPos) != "O"  //old version of trader
-   RETURN .T.
+IF oExtra:WerksBesch .AND. ! oArtExtra:CoC 
+   Tr_MsgBox({"Dieser Artikel hat keine Werksbescheinigungen (CoC).","Dieser Kunde m”chte nur Artikel mit CoC."})
+   RETURN .F.
+ENDIF
+
+ali->(dbSetOrder( 4 ))
+IF oAufpos:Artikel:IsManufactured //in this case we need to get the "Lohn" position of the parts list
+   part->(dbSetOrder( 1 ))
+   IF part->(dbSeek( Str(oAufpos:Artikel:Artikelnr,6)+Str(-1,4) )) //found "Lohn" position
+      oArt := Artikel():New()
+      oArt:Load(part->Partart)
+      lExtern := .T.
+   ELSE
+      //IF Tr_getini(28) == 9;Alert("Keine Fremdproduktion");ENDIF      
+   ENDIF
+ELSE
+   oArt := oAufpos:Artikel
+   lExtern := .T.
+ENDIF
+IF lExtern .AND. oArt:LagerArt .AND. ! ali->(dbSeek( Str(oArt:Artikelnr,6) )) 
+   IF oAufPos:lNew .AND. Tr_MsgBox("Kein Lieferant fr diesen Artikel vorhanden",,{"abbrechen","trotzdem einfgen"}) != 2
+      RETURN .F.
+   ENDIF
+ELSEIF ! Empty(oAufPos:Artikel:Zeichnung) //Freigabe prfen
+   hReq := GetProductRequirementAndIncoming(oAufPos:Artikel:Artikelnr)
+   //oArt:GotoRec()
+   lBes := .F.
+   nMaxQty := 0
+   IF ! lExtern
+      Eval(bGetFreigabe,0)
+   ELSE
+      ali->(dbSeek( Str(oArt:Artikelnr,6) )) 
+      DO WHILE ali->Artikelnr == oArt:Artikelnr 
+         oLief := Adresse():New()
+         oLief:LoadMatchcode(ali->Kunde,"L")
+         Eval(bGetFreigabe,oLief:Nummer)
+         
+         ali->(dbSkip())
+      ENDDO
+   ENDIF
+   //Alert(Str(nMaxQty)+";Incoming:"+Str(hReq["income"])+";Requirement:"+Str(hReq["requirement"])+";Qty:"+Str(oAufPos:VkQty-IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)))
+   
+   IF ! lBes .OR. (nMaxQty > 0 .AND. nMaxQty+hReq["income"] < oAufPos:VkQty-IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)+hReq["requirement"])
+      Tr_MsgBox("Freigabe nicht ausreichend, Artikel kann nicht bestellt werden.")
+   ENDIF 
+ELSE
+   //IF Tr_getini(28) == 9;Alert("alles ok")  ;ENDIF
+ENDIF
+
+
+IF oAufpos:Artikel:Manufactur $ oExtra:SperrManu
+   Tr_MsgBox("Dieser Kunde darf keine Produkte von diesem Hersteller kaufen!")
+   RETURN .F.
 ENDIF
 
 IF oExtra:SepAbruf .AND. oAufPos:ContractPosition != NIL
@@ -73,11 +144,12 @@ ENDIF
    (Trim(oAufPos:Auftrag:Kundma)+"|" $ HB_AnsiToOem("LEONI|BIZERBA|") .AND. ! HB_RegexMatch("^[0-9]{3}\/4[0-9]{7}$",Trim(oAufPos:Aufnr))) .OR.;//SAP mit Einkäuferkennung
    (Trim(oAufPos:Auftrag:Kundma)+"|" $ HB_AnsiToOem("KWAUTOMO|") .AND. ! HB_RegexMatch("^[0-9]{6}$",Trim(oAufPos:Aufnr))) //6-Ziffern
   */
-IF ( Trim(oExtra:AufnrForm) == "SAPEK" .AND. ! HB_RegexMatch("^[0-9]{3}\/4[0-9]{7}$",Trim(oAufPos:Aufnr)) ) .OR.;
+IF ( Trim(oExtra:AufnrForm) == "SAPEK" .AND. ! HB_RegexMatch("^[0-9]{3}\/4[0-9]{7,9}$",Trim(oAufPos:Aufnr)) ) .OR.;
    ( Trim(oExtra:AufnrForm) == "SAP" .AND.  ! HB_RegexMatch("^4[0-9]{9}$",Trim(oAufPos:Aufnr)))  .OR.;
    ( Trim(oExtra:AufnrForm) == "6ZIFF" .AND. ! HB_RegexMatch("^[0-9]{6}$",Trim(oAufPos:Aufnr))) .OR.;
    ( Trim(oExtra:AufnrForm) == "2-6-3" .AND. ! HB_RegexMatch("^([A-Z]{2}-)?[0-9]{6}-[A-Z0-9]{3}$",Trim(oAufPos:Aufnr))) .OR.;
-   ( Trim(oExtra:AufnrForm) == "B8ZEK" .AND. ! HB_RegexMatch("^(W[0-9]{7})|(K[0-9]{8})\/[A-Z]{4}$",Trim(oAufPos:Aufnr)))
+   ( Trim(oExtra:AufnrForm) == "B8ZEK" .AND. ! HB_RegexMatch("^(W[0-9]{7})|(K[0-9]{8})\/[A-Z]{4}$",Trim(oAufPos:Aufnr))) .OR.;
+   ( Trim(oExtra:AufnrForm) == "BZ-" .AND. ! HB_RegexMatch("^[A-Z\-0-9]{1,}$",Trim(oAufPos:Aufnr)))
    
       Tr_MsgBox("Auftragsnummer nicht im richtigen Format")
       RETURN .F.
@@ -147,7 +219,7 @@ IF At("TEXT",oAufPos:Artikel:Matchcode) != 1
          IF nX > nStart
             cText += Chr(13)+Chr(10)
          ENDIF
-         nF := HB_HScan(hFields,{|x,y| y:Line == nX })
+         nF := HB_HScan(hFields,{|x,y| HB_SYMBOL_UNUSED(x),y:Line == nX })
          IF nF != 0
             hField := HGetValueAt(hFields,nF)
             cText += hField:Text+": "
@@ -225,14 +297,15 @@ IF At("TEXT",oAufPos:Artikel:Matchcode) != 1
 ENDIF
 
 //Abruf aus fremden Rahmen
+lFremdAb := .F.
 IF oAufPos:ContrPos == 0 //we can only call off from another order if this is not a call off itself
    oContrPos := MBaseRun(Trim(Tr_Getini(1))+"\run\fremdab",{oAufPos,"EDIT"})
    lFremdAB := oContrPos != NIL
    IF ! lFremdAB
-      oContrPos := oAufPos:ContractPosition
+      //oContrPos := oAufPos:ContractPosition
    ENDIF
 ELSE
-   oContrPos := NIL
+   oContrPos := oAufPos:ContractPosition   
 ENDIF
 
 //Losgröße bei bestimmten Kunden prüfen
@@ -261,7 +334,7 @@ IF oContrPos != NIL .AND. oExtra:AufLos //"|"+Trim(oAufPos:Auftrag:Kundma)+"|" $
                MBaseRun(Trim(Tr_Getini(1))+"\run\fremdab",{oAufPos,"DEL"})
             ELSE
                //reset call off
-               nNewQty := oAufPos:VkQty
+               //nNewQty := oAufPos:VkQty
                oAufPos:VkQty := oAufPos:GetField("VkQty",.T.)
                MBaseRun(Trim(Tr_Getini(1))+"\run\fremdab",{oAufPos,"EDIT"})
             ENDIF

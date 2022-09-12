@@ -15,8 +15,6 @@ ELSEIF lKuZeichnung
    cDir += "Kunden\"
 ENDIF
 
-aDir  := Directory(cDir+"*.*")
-
 IF ValType(cZeich) != "C"
    IF lAW
       cZeich := art->Anweisung
@@ -24,7 +22,7 @@ IF ValType(cZeich) != "C"
    ELSE
       cZeich := art->Zeichnung
       cInd   := art->ZeichIndex
-      cZeich := CharRepl("/\?_",cZeich," ")
+      cZeich := CharRepl("/\?_-",cZeich," ")
       cInd := CharRepl("/\?",cInd,"_")
    ENDIF
 ELSEIF ValType(cInd) != "C"
@@ -32,6 +30,8 @@ ELSEIF ValType(cInd) != "C"
 ENDIF
 cZeich := Trim(cZeich)
 cInd   := Trim(cInd)
+
+aDir  := Directory(cDir+"*.*")
 
 FOR nX := 1 TO Len(aDir)
 	nPos := At("_",aDir[nX,1])
@@ -42,7 +42,7 @@ FOR nX := 1 TO Len(aDir)
 	cNr := SubStr(aDir[nX,1],1,nPos-1)
 	DO WHILE (nPos := At("0",cNr)) == 1
 		cNr := SubStr(cNr,nPos+1)
-	ENDDO
+   ENDDO
 
    IF cNr == cZeich+cInd .OR. cNr == cZeich+"-"+cInd
 		cFile := cDir+aDir[nX,1]

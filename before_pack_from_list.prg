@@ -82,15 +82,19 @@ If ! lInUse .OR. (nChoice := Tr_MsgBox("Dieser Vorgang wird bereits bearbeitet",
 			@ MaxRow(),00 CLEAR
 			If ! lAtlas .OR. (lAtlas .AND. ! lInUse)
 			   SET DEVICE TO SCREEN
-				TxtBox("Packzettel")
-				engexpr(nNr)
+            TxtBox("Packzettel")
+            
+            engexpr(nNr)
+            
 				TxtClear()
 			Endif
 
 			If ! lAtlas .OR. (lAtlas .AND. lInUse)
 			   SET DEVICE TO SCREEN
-				TxtBox("Lieferschein")
+            TxtBox("Lieferschein")
+            
             englipr(nNr,Max(1,ku->ls))
+            
 				TxtClear()
 			Endif
 			re->(dbsetorder(4))
@@ -107,12 +111,14 @@ If ! lInUse .OR. (nChoice := Tr_MsgBox("Dieser Vorgang wird bereits bearbeitet",
 			//If (del_ad == 0 .AND. Trim(ku->Re_via) == "BOX" .AND. re->poswt < 1500 ) .OR. lAusland
 			If lAusland
 			   SET DEVICE TO SCREEN
-				TxtBox("Rechnung")
+            TxtBox("Rechnung")
+            
 				If ! lAtlas .OR. (lAtlas .AND. lInUse)
 					engrepr("",0,nNr,.F.,If(lAusland,3,ku->re),0) //print original(s), if foreign then print 3 copies for customs
 				Else
 					engrepr("",0,nNr,.F.,0,1) //print one copy for customs declaration
-				Endif
+            Endif
+            
 				TxtClear()
 			Endif
          IF lAutoPrint
@@ -124,10 +130,11 @@ If ! lInUse .OR. (nChoice := Tr_MsgBox("Dieser Vorgang wird bereits bearbeitet",
 			re->(dbSetOrder( 4 ))
 			re->(dbSeek( Str(nNr,6) ))
 
-			If Empty(re->Termin) .AND. (! lAtlas .OR. (lAtlas .AND. ! lInUse)) //Not on picklist and no customs preperation
-				Do While re->Rechnr == nNr
-					art->(dbSeek( re->Matchcode ))
-					If re->RePosnr > 0 .AND. re->AoQty > 0 .AND. art->Lagerart
+         If Empty(re->Termin) .AND. (! lAtlas .OR. (lAtlas .AND. ! lInUse)) //Not on picklist and no customs preperation
+            TxtBox("Etiketten")
+            Do While re->Rechnr == nNr               
+               art->(dbSeek( re->Matchcode ))               
+               If re->RePosnr > 0 .AND. re->AoQty > 0 .AND. art->Lagerart                  
 					   IF lAutoPrint
    						SetPrinterMethodType(5) //stickers
    					ENDIF
@@ -138,7 +145,8 @@ If ! lInUse .OR. (nChoice := Tr_MsgBox("Dieser Vorgang wird bereits bearbeitet",
 					Endif
 
 					re->(dbSkip())
-				Enddo
+            Enddo
+            TxtClear()
 			Endif
 		Else // nChoice > 2
 			cNewState := aState[nChoice-2]

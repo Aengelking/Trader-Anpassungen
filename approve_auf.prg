@@ -1,23 +1,25 @@
+
 FUNCTION HOOK_APPROVE_AUF(oAuftrag)
 
 LOCAL nAngValidDays := 12*7
 LOCAL aProducts := {},hProd
 LOCAL cSupplier,lPorto := .F.
 LOCAL nLastPrice := 0,dLastDate := StoD("20990101"),oLastPos
-LOCAL lHoliday := Date() >= StoD("20200729") .AND. Date() <= StoD("20200814")
+LOCAL lHoliday :=  Date() >= GetValue("HOLIDAY-AMOS-START") .AND. Date() <= GetValue("HOLIDAY-AMOS-END")
 LOCAL nStdLaufzeit := 18  //Maximale Rahmenlaufzeit
 LOCAL nPreStart := 5 //Monate bis Rahmenbegin
 LOCAL nLaufzeit
 LOCAL oContract
 LOCAL cText1,nLevel,nTotal,oContr,nVk,nArtikelnr,nP,nMargin,nQty,nEK,nX,nGewinn
 LOCAL aDels := {},nCoc := 0,oExtra
-
+LOCAL nWeek
 
 LOCAL hLaufZeit := { ; //Sonderlaufzeiten
    46872=>24,;
    46874=>24,;
    46875=>24,;
-   42989=>99;
+   42989=>99,;
+   50155=>99;
 }
 
 oExtra := ku->(ExtraData():New(oAuftrag:Kunde:Nummer))
@@ -46,7 +48,7 @@ cText1 := ""
 
 nLevel := 3
 nTotal := oAuftrag:Total
-IF nTotal > 100000
+IF nTotal > 100000 .AND. ! auf->Abnr $ {50155}
    IF ! lHoliday
       cText1 += t("Gesamtwert ¸ber 100.000 EUR;")
       nLevel := 1
@@ -55,6 +57,12 @@ IF nTotal > 100000
    cText1 += t("Gesamtwert ¸ber 10.000 EUR;")
    nLevel := 2*/
 ENDIF
+
+/*IF oAuftrag:Kunde:Nummer == .AND. ! lHoliday .AND. nTotal > 500
+   cText1 += t("Gesamtwert ¸ber 500 EUR - Amazon kann alles bis zur Auslieferung kostenfrei stornieren!;")
+   nLevel := 1
+ENDIF*/
+
 
 SetPos(0,0)
 
@@ -91,7 +99,7 @@ oAuftrag:Positions:Each({|oPos|
 
    IF oContract != NIL .AND. oPos:WTerm > oContract:WTerm  //does not work as this does not count as a change of order!
       nLevel := 1
-      cText1 += t(Str(oPos:Itmnr,3)+". "+" Abruf nach Rahmenende;")
+      cText1 += t(Str(oPos:Itmnr,3)+". "+" Abruf nach Rahmenende ("+Str(oPos:Wterm)+" > "+Str(oContract:Wterm)+");")
    ENDIF
    IF Trim(oPos:Artikel:Matchcode) $ {"PORTO","FREIGHT"}
       lPorto := .T.
@@ -102,15 +110,22 @@ oAuftrag:Positions:Each({|oPos|
       nLevel := 1
    ENDIF
    
-   IF Trim(oPos:Artikel:Matchcode) != "CoC" .AND. ! Left(oPos:Artikel:Matchcode,6) $ "13693/ 13694/"  .AND. oContract == NIL .AND. auf->VkQty != auf->GelQty .AND. oPos:Bestat < 7 .AND. oPos:Bestat >= 4 //ignore glands, call off positions, delivered positions, closed positions and already approved positions
+   IF ! Trim(oPos:Artikel:Matchcode) $ {"CoC","PORTO"} .AND. ! Left(oPos:Artikel:Matchcode,6) $ "13693/ 13694/"  .AND. oContract == NIL .AND. auf->VkQty != auf->GelQty .AND. oPos:Bestat < 7 .AND. oPos:Bestat >= 4 //ignore glands, call off positions, delivered positions, closed positions and already approved positions
       //old: cannot ignore approved positions like that, then the user can change anything he likes afterwards
       nVk := oPos:VkPr/oPos:Pe
       nArtikelnr := oPos:Artikel:Artikelnr
       
       IF  oPos:FolgeTo == 0
-         IF (nP := AScan(aProducts,{|x| x:Artikel:Artikelnr == nArtikelnr .AND. x:VkPr == nVk })) == 0          
+         
+         IF Right(Str(oPos:DTerm,4),2) $ {"98","97"}
+            nWeek := AddWeeks(CWeek(Date()),If(oPos:Artikel:lz=0,GetConfigValue("DEFAULTS_SUPPLIER_DELTIME"),oPos:Artikel:LZ))
+         ELSE 
+            nWeek := oPos:DTerm
+         ENDIF
+         IF (nP := AScan(aProducts,{|x| x:Artikel:Artikelnr == nArtikelnr .AND. x:VkPr == nVk })) == 0    
+            //Altd()      
             nMargin := oPos:GetMargin(@cSupplier)
-            Aadd(aProducts,{"ARTIKEL"=>oPos:Artikel,"QTY"=>0,"VKPR"=>oPos:VkPr/oPos:Pe*(1-oPos:Rabatt/100),"MARGIN"=>0,"KW"=>oPos:DTerm,"SUPPLIER"=>cSupplier,"ADD"=>.F.})
+            Aadd(aProducts,{"ARTIKEL"=>oPos:Artikel,"QTY"=>0,"VKPR"=>oPos:VkPr/oPos:Pe*(1-oPos:Rabatt/100),"MARGIN"=>0,"KW"=>nWeek,"SUPPLIER"=>cSupplier,"ADD"=>.F.})
             nP := Len(aProducts)
          ENDIF
          IF oPos:IsRahmen
@@ -123,7 +138,7 @@ oAuftrag:Positions:Each({|oPos|
             ENDIF
             IF CalWd(oPos:WTerm) > AddMonth(oPos:SDatum,nLaufZeit)  //Laufzeit auﬂer bei Sonderfall Conti pr¸fen
                cText1 += Str(oPos:Itmnr,3)+". "+Trim(oPos:Artikel:Matchcode)+t(" Laufzeit ¸ber 18 Monate;")
-               IF lHoliday .AND. CalWd(oPos:WTerm) > AddMonth(oPos:SDatum,nLaufZeit+6) //wenn I am on holiday then Level 2 can approve upto 24 months
+               IF CalWd(oPos:WTerm) > AddMonth(oPos:SDatum,nLaufZeit+6) //Level 2 can approve upto 24 months
                   nLevel := 2
                ENDIF
             ENDIF
@@ -143,14 +158,14 @@ oAuftrag:Positions:Each({|oPos|
             nQty := IF(oPos:Bestat==3,oPos:GelQty,oPos:VkQty)
          ENDIF
          aProducts[nP]:Qty += nQty
-         aProducts[nP]:KW  := Min(aProducts[nP]:KW,oPos:Dterm)
+         aProducts[nP]:KW  := Min(aProducts[nP]:KW,nWeek)
          IF oPos:Bestat > 3
             aProducts[nP]:Add := .T.
          ENDIF
       ENDIF
    ENDIF
 
-   IF oExtra:WerksBesch      
+   /*IF oExtra:WerksBesch      
       IF Trim(oPos:Artikel:Matchcode) == "CoC"
          nCoc++
       ELSEIF oPos:Artikel:Bezug < 5  //wir zÑhlen nur Kaufprodukte
@@ -164,17 +179,17 @@ oAuftrag:Positions:Each({|oPos|
             ENDIF
          ENDIF         
       ENDIF
-   ENDIF
+   ENDIF*/
 
    RETURN NIL
 })
 
-IF oExtra:WerksBesch        
+/*IF oExtra:WerksBesch        
    IF Len(aDels) > nCoc
       cText1 += "Bitte "+LTrim(Str(Len(aDels)-nCoc))+"x CoC hinzufÅgen;"
       nLevel := 1
    ENDIF
-ENDIF
+ENDIF*/
 
 IF oAuftrag:AbNr == 42989 .AND. ValType(oLastPos) == "O"
    IF dLastDate < AddMonth(Date(),-12)
@@ -195,13 +210,27 @@ FOR nX := 1 TO Len(aProducts)
 
    nVk := hProd:VkPr * Currate( oAuftrag:Money, "V" )
    nEk := hProd:Artikel:getBuyPriceForMargin(hProd:Qty,hProd:Add,oAuftrag:Besda,hProd:KW,@cSupplier)
+
+   IF hProd:Artikel:Manufactur $ {12} //Elcom Mindermenge
+      nVK -= 60/hProd:Qty
+   ENDIF
+
+   IF hProd:Artikel:Manufactur $ {12,16} //Elcom oder Signal 
+      IF hProd:Artikel:Gewicht == 0 //no weight, no prices
+         cText1 += t(Trim(hProd:Artikel:Matchcode)+" hat kein Gewicht")+";"
+         nVK := 0
+         hProd:Margin := 0
+      ELSE         
+         nVK -= Hook("get_supplier_ship_cost",{Pad(IF(hProd:Artikel:Manufactur == 16,"SIGNAL","ELCOM"),8),hProd:Artikel:Gewicht/1000*ang->VkQty})/ang->VkQty            
+      ENDIF   
+   ENDIF   
    
    hProd:nEk := nEk
 
    IF nEK == 0
       nGewinn := 0
    ELSE
-      nGewinn := ( hProd:VkPr - nEk )
+      nGewinn := ( nVk - nEk )
    ENDIF
 
    IF nVk != 0
@@ -213,7 +242,7 @@ FOR nX := 1 TO Len(aProducts)
       //cText1 += Trim(hProd:Artikel:Matchcode)+" "+t(" kein EK errechenbar.;")
    ENDIF
    IF Tr_getini(28) == 9
-      ? hProd:Artikel:Matchcode,"EK",nEK
+      ? hProd:Artikel:Matchcode,"EK",nEK,"VK",nVk
    ENDIF
    
    IF Tr_Getini(28) == 9
@@ -247,3 +276,5 @@ IF Len(aProducts) == 0 .AND. Empty(cText1)
 ENDIF
 
 RETURN  Hook("approve_auf_ang",{aProducts,cText1,nLevel,oAuftrag:Kundma,oAuftrag:Besda,oAuftrag:Money,.T.})
+
+#include 'x:\run\getupsimportcost.prg'

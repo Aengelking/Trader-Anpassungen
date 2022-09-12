@@ -35,7 +35,7 @@ IF lRech //Rechnung
 
       IF (Trim(ku->Kunde) == "FP" .AND. nVersandart == 2) .OR. oExtra:PortoAufwa
          lUpdateFreight := .T.
-      ELSEIF ! ku->Portok $ "Nn"
+      ELSEIF ! ku->Portok $ "Nn" .AND. ! nVersandart $ {10,44,46,49,56}
          lPorto := .T.
          IF oExtra:PortoUnter != 0
             nNetto := oRechnung:Brutto
@@ -90,22 +90,26 @@ IF lRech //Rechnung
       ENDIF
    ENDIF
 ELSE
-	NetUse("muster","mus",.F.,0)
+   NetUse("muster","mus",.F.,0)
+   NetUse("mushead","muh")
 	mus->(dbSetOrder( 1 ))
-	If mus->(dbSeek( nNr )) //Musterauftrag vorhanden?
+	If mus->(dbSeek( nNr ))  .AND. muh->(dbSeek( Str(nNr,6) )) //Musterauftrag vorhanden?
 		NetUse("engkund","ku",.F.,0)
 		ku->(dbSetOrder( 1 ))
 		ku->(dbSeek( mus->Kunde+"K" ))
 		//oExtra := ku->(ExtraData():New( ku->Nummer ))
-		/*dDate := Date()+3
+		/*dDate := Date()+3  
 		If Dow(dDate) == 7 //saturday
 			dDate += 2
 		Elseif Dow(dDate) == 1 //sunday
 			dDate += 1
       Endif*/
       #define CRLF Chr(13)+Chr(10)
-		cMessage := "Musterauftrag: "+LTrim(Str(mus->Nummer))+CRLF
-		cMessage += "Kunde: "+ku->Name1+CRLF
+      cMessage := "Musterauftrag: "+LTrim(Str(mus->Nummer))+CRLF      
+      cMessage += "Kunde: "+ku->Name1+CRLF
+      IF ! Empty(muh->Beleg)
+         cMessage += "Referenz: "+Trim(muh->Beleg)+CRLF
+      ENDIF
 		aContact := GetContact(mus->Person)
 		cMessage += "Ansprechpartner: "+aContact["name"]+CRLF
 		cMessage += "Telefon: "+aContact["fullphone"]+CRLF

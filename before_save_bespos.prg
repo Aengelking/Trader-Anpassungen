@@ -13,14 +13,14 @@ NetUse("artikel","art")
 NetUse("liefstock","lsto")
 
 
-IF Trim(art->Matchcode) == "PX0686" .AND. Trim(oBesPos:oBestellung:Liefma) != "RS"
+/*IF Trim(art->Matchcode) == "PX0686" .AND. Trim(oBesPos:oBestellung:Liefma) != "RS"
    TR_MsgBox(t("Diesen Artikel bei RS anfragen/bestellen - ist dort wahrscheinlich g¸nstiger!"))
    RETURN .F.
 ENDIF
 
 IF Trim(art->Matchcode) == "PX0833" .AND. Trim(oBesPos:oBestellung:Liefma) != "REICHELT"
    TR_MsgBox("Diesen Artikel bei Reichelt bestellen - ist am gÅnstigsten.")
-ENDIF
+ENDIF*/
 
 IF Trim(art->Matchcode) $ "PX0910 SA3324 PX0960 SA3325 PX0920 PX0980"
    IF Tr_MsgBox(t("Bitte pr¸fen ob es nicht sinnvoller w‰re PX09/07_SET zu bestellen"),,{"abbrechen",t("trotzdem einf¸gen")}) != 2
@@ -105,6 +105,18 @@ IF oBesPos:oArtikel:Manufactur == 1 .AND. oBesPos:BeQty > 0 .AND. oBesPos:WTerm 
    ENDIF
 ENDIF
 
+IF oBesPos:oArtikel:Manufactur == 11 //Techno
+   nQty := QtyProducible(oBesPos:oArtikel:Artikelnr,,.T.)
+   IF nQty > 0
+      Tr_MsgBox(Transform(nQty,oBesPos:oArtikel:cPicture)+" "+oBesPos:oArtikel:Me+" kînnen gefertigt werden.")
+   ENDIF
+ENDIF
+
+IF Trim(oBesPos:oBestellung:Liefma) $ {"WHTECH","SELT"} .AND. oBesPos:BeQty == 1 .AND. Tr_MsgBox("Wirklich nur 1 StÅck? Kein Erstmuster notwendig?",,{"Nein","Ja"}) != 2
+   RETURN .F.
+ENDIF
+   
+
 /*IF AScan({9,37},TR_Getini(28)) == 0
    aAvail := GetKwQty(oBesPos:oArtikel:Artikelnr)
 
@@ -120,3 +132,5 @@ ENDIF
 ENDIF*/
 
 RETURN .T.
+
+#include 'x:\run\stock_use.prg'

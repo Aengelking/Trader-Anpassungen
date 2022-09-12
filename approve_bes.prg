@@ -13,9 +13,11 @@ LOCAL nPrice
 LOCAL nOver,nThai
 LOCAL nQty
 LOCAL nPosVal,aKW,nMindest,hReqInc,nX
+LOCAL aLowPrice
+LOCAL nCur
 
-IF Date() >= StoD("20200729") .AND. Date() <= StoD("20200814") //Amos holiday
-   Aadd(aLevels[1],37)
+IF  Date() >= GetValue("HOLIDAY-AMOS-START") .AND. Date() <= GetValue("HOLIDAY-AMOS-END") //Amos holiday
+   Aadd(aLevels[1],57)
 ENDIF
 
 IF Trim(bes->Liefma) == "BULGIN" //tempor„r bis wir eine Bestellung ber 4000 GBP zusammmen haben
@@ -40,6 +42,7 @@ DO WHILE bes->Besnr == nBesnr .AND. ! bes->(Eof())  //take all positions back ou
 ENDDO
 
 bes->(dbSeek( Str(nBesnr,6) ))
+
 //IF Tr_Getini(28) == 9;Alert("HERE");ENDIF
 
 DO WHILE bes->Besnr == nBesnr .AND. ! bes->(Eof())
@@ -70,7 +73,7 @@ DO WHILE bes->Besnr == nBesnr .AND. ! bes->(Eof())
          ENDIF
       ENDIF
 
-      IF (oArt:Lagerart .OR. lHasFolge) .AND. bes->FolgeTo == 0 .AND. (bes->BeStat < 3 .OR. bes->bestat >= 5) .AND. bes->BeQty > 0 .AND. (bes->EkPr != 0 .OR. bes->BeQty > 3)
+      IF (oArt:Lagerart .OR. lHasFolge) .AND. bes->FolgeTo == 0 .AND. (bes->BeStat < 3 /*.OR. bes->bestat >= 5*/) .AND. bes->BeQty > 0 .AND. (bes->EkPr != 0 .OR. bes->BeQty > 3)
          nPrice  := IF(bes->ekpr != 0,bes->ekpr-(bes->ekpr*bes->rabatt/100),0)/bes->pe*Currate(bes->Money,"E")
          nPosVal := Round( If(bes->bestat==3,bes->gelqty,bes->beqty)*nPrice ,2)
          nTotal += nPosVal
@@ -78,30 +81,16 @@ DO WHILE bes->Besnr == nBesnr .AND. ! bes->(Eof())
             nTotVerp += nPosVal
          ENDIF
 
-/*         IF oArt:Lagerart
-            nOver := oArt:Bestand+hReqInc["income"]-hReqInc["requirement"]+IF(bes->BeStat >3,bes->BeQty-bes->GelQty,0)
-         ELSE //Artikel mit folgeartikel*/
-            aKW := GetKwQty(oArt:Artikelnr)
-            nOver := ATail(aKW)[6]
-/*            IF bes->Bestat >= 5
-               nQty := bes->BeQty
+         IF bes->BeQty > 1000 .AND. nPosVal >= 200
+            aLowPrice := oArt:GetBuyPrice(bes->Liefma,9999999)
+            IF aLowPrice["qty"]*IF(aLowPrice["qty"]<5000,2,IF(aLowPrice["qty"]<10000,1.5,1.3)) < bes->BeQty .AND. nPrice >= aLowPrice["price"]/aLowPrice["unit"]
+               cText += cBaseText+": kein Einkaufspreis fr "+LTrim(Transform(bes->BeQty,oArt:cPicture))+" "+Trim(oArt:Me)+" vorhanden;"
+               nLevel := 1
+            ENDIF
+         ENDIF
 
-               IF lHasFolge
-                  nRec := bes->(Recno())
-                  bes->(dbSkip())
-                  DO WHILE bes->FolgeTo == nPosnr
-                     nQty := Max(bes->BeQty/bes->FolgeFakto,nQty)
-                     bes->(dbSkip())
-                  ENDDO
-                  bes->(dbGoto(nRec))
-               ENDIF
-
-               Alert(Str(bes->Posnr)+" "+Str(nQty))
-               nOver += nQty
-            ENDIF*/
-
-
-//         ENDIF
+         aKW := GetKwQty(oArt:Artikelnr)
+         nOver := ATail(aKW)[6]
 
          nThai := LagGetStock(oArt:Artikelnr,4,22221)
          nOver -= nThai //remove the stock in Thailand
@@ -159,7 +148,7 @@ IF nTotVerp > 1000
    nLevel := 3
 ENDIF
 IF nTotal > 50000
-   cText += t("Bestellwert über 50.000 EUR;")
+   cText += t("Bestellwert über 50.000 EUR ("+LTrim(Str(nTotal))+");")
    nLevel := 1
 ELSEIF nTotal > 20000
    cText += t("Bestellwert über 20.000 EUR;")

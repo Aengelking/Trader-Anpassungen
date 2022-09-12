@@ -1,6 +1,6 @@
 FUNCTION HOOK_BEFORE_SAVE_AUFTRAG(oAuftrag)
    LOCAL oExtra
-   LOCAL aDels := {},nCoc := 0
+   LOCAL aDels := {}
 
    oExtra := ku->(ExtraData():New(oAuftrag:Kunde:Nummer))
 
@@ -17,6 +17,10 @@ FUNCTION HOOK_BEFORE_SAVE_AUFTRAG(oAuftrag)
    IF oExtra:FixDelad != 0  .AND. oAuftrag:DelAd != oExtra:FixDelad
       Tr_MsgBox(t("Nur Lieferadresse Nr. % erlaubt",LTrim(Str(oExtra:FixDelad))))
       RETURN .F.
+   ENDIF
+
+   IF oAuftrag:lNew .AND. Tr_Getini(28) == 41 .AND. oAuftrag:Kunde:Team != 2
+      SendMail({{"amos.engelking@engelking.de","Amos"}},"Auftrag "+LTrim(Str(auf->Abnr))+" angelegt")
    ENDIF
    
 RETURN .T.

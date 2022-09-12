@@ -1,9 +1,11 @@
+
 FUNCTION HOOK_BEFORE_PACK(nNr,lRech,nVersandart,nPerson)
 
 LOCAL nRec,aParts := {},cKunde,aList
 LOCAL cFilter := "aoqty != 0"
 LOCAL oRechnung,oExtra
 LOCAL dDate,aEMPB,nX,aInv
+LOCAL cText := ""
 
 HB_SYMBOL_UNUSED(nVersandart)
 HB_SYMBOL_UNUSED(nPerson)
@@ -19,11 +21,11 @@ IF lRech
    ku->(dbSeek( re->Kunde+"K" ))
    oExtra := ku->(ExtraData():New( ku->Nummer ))
 
-   IF oExtra:EMPB .OR. oExtra:PrintBegin //Trim(re->Kunde) $  {"SCHNEIDG"}
+   IF /*oExtra:EMPB .OR.*/ oExtra:PrintBegin //Trim(re->Kunde) $  {"SCHNEIDG"}
       cKunde := re->Kunde
       dDate  := re->Rechdat
       aList := {Pad("Matchcode",25)+Chr(179)+Pad("Etikett",20),Replicate(Chr(196),25)+Chr(197)+Replicate(Chr(196),20)}
-      aEMPB := {}
+      //aEMPB := {}
 
       re->(dbSetFilter({|| re->(&(cFilter)) },cFilter))
       re->(dbSkip(1))
@@ -56,15 +58,18 @@ IF lRech
          ENDDO
          IF Len(aInv) != 3
             IF Len(aInv) == 0 //bisher noch keine Lieferung
-               Aadd(aEMPB,art->Matchcode)
+               //Aadd(aEMPB,art->Matchcode)
+               IF ! Empty(cText)
+                  cText += "<br>"
+               ENDIF
+               cText += art->Matchcode
             ENDIF
             Aadd(aList,art->Matchcode+Chr(179)+Pad("Serienanlauf",20))
          ENDIF
       NEXT
-      IF oExtra:EMPB .AND. Len(aEMPB) != 0
-         DO WHILE Tr_MsgBox(aEMPB,"EMPB erforderlich. Bei Amos anfordern!",{"abbrechen","OK"}) != 2
-         ENDDO
-      ENDIF
+      /*IF oExtra:EMPB .AND. Len(aEMPB) != 0
+         SendMail({{"amos.engelking@engelking.de","AMOS"}},"EMPB erstellen fr "+ku->Kunde,"Hallo,<br><br>bitte EMPB fr folgende Artikel an "+Trim(ku->Name1)+" erstellen:<br><br><pre>"+cText+"</pre>")
+      ENDIF*/
       re->(dbClearFilter())
       re->(dbSetOrder( 12 ))
       IF oExtra:PrintBegin .AND. Len(aList) > 2
@@ -75,9 +80,9 @@ IF lRech
    ENDIF
 
    IF oExtra:WerksBesch
-      IF Tr_MsgBox("Werksbescheinigung erforderlich. Vorhanden?",,{"Nein","Ja"}) != 2
+      /*IF Tr_MsgBox("Werksbescheinigung erforderlich. Vorhanden?",,{"Nein","Ja"}) != 2
          RETURN .F.
-      ENDIF
+      ENDIF*/
    ENDIF 
 
    IF oExtra:PrintKuArt // Trim(re->Kunde) $ {"BACHMANG","BACHMANN","BACHMANR","TEST"} //Bei diesen Kunden Etiketten mit Kundenartikelnr
@@ -85,8 +90,11 @@ IF lRech
       NetUse("artikel","art",.F.,0)
       art->(dbSetOrder( 1 ))
 
-
-      DO WHILE re->Rechnr == nNr
+      re->(dbSetOrder( 12 ))
+      re->(dbSeek( Str(nNr,6)+Str(0,3) ))
+      
+   
+      DO WHILE re->Rechnr == nNr         
          art->(dbSeek( re->Matchcode ))
          IF re->RePosnr > 0 .AND. re->AoQty > 0 .AND. art->Lagerart .AND. aku->(dbSeek( re->Kunde+Str(art->Artikelnr,6) ))
             TxtBox({t("Aufkleber für"),art->Matchcode,"","","","","","","","",""})

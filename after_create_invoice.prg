@@ -25,7 +25,7 @@ PROC HOOK_AFTER_CREATE_INVOICE(oRechnung)
       ENDIF
    ENDIF 
       
-   If oRechnung:Brutto > 0 .AND. Tr_MsgBox("Rechnung zum Versand freigeben?",,{"Ja","Nein"}) == 1
+   If oRechnung:Brutto > 0 .AND. (GetConfigValue("BATCHMODE") .OR. Tr_MsgBox("Rechnung zum Versand freigeben?",,{"Ja","Nein"}) == 1)
       ShipInvoice(nRenr)
    ELSEIF oRechnung:Brutto <= 0
       Rechcha(oRechnung:Rechnr)

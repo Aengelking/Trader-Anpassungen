@@ -28,12 +28,26 @@ DO WHILE ang->Angnr == nAngnr
       ENDIF
 
      nVk := ang->VkPr * Currate( ang->Money, "V" ) / ang->Pe
+
+     IF oArtikel:Manufactur $ {12} //Elcom Mindermengenzuschlag
+         nVK -= 60/ang->VkQty
+     ENDIF
+
+      IF oArtikel:Manufactur $ {12,16} //Elcom oder Signal 
+         IF oArtikel:Gewicht == 0 //no weight, no prices
+            cText1 += t(Trim(oArtikel:Matchcode)+" hat kein Gewicht")+";"
+            nVK := 0                     
+         ELSE         
+            nVK -= Hook("get_supplier_ship_cost",{Pad(IF(oArtikel:Manufactur == 16,"SIGNAL","ELCOM"),8),oArtikel:Gewicht/1000*ang->VkQty})/ang->VkQty            
+         ENDIF   
+      ENDIF
+
      IF Tr_Getini(28) == 9
-//      ALTD()
+     // ALTD()
      ENDIF
      IF lDbg
          //Alert(DtoC(ang->Besda))
-     ENDIF
+     ENDIF     
      nEk := oArtikel:GetBuyPriceForMargin(ang->VkQty,.T.,ang->Besda,AddWeeks(CWeek(ang->Besda),ang->Dterm),@cSupplier)
      IF Tr_Getini(28) == 9
         cDbg +=  "Buy price "+Trim(oArtikel:Matchcode)+": "+LTrim(Str(nEK))+" "+cSupplier+";"
@@ -43,7 +57,7 @@ DO WHILE ang->Angnr == nAngnr
      nMargin := IF(nVk!=0,nGewinn/nVk,0)
 
      IF lDbg
-         Alert(oArtikel:Matchcode+";Lieferant: "+cSupplier+";"+"Menge: "+LTrim(Str(ang->VkQty))+";EK: "+LTrim(Str(nEk))+";"+"Gewinn:"+Ltrim(Str(nGewinn))+";Margin:"+LTrim(str(nMargin*100,6,2)))
+         Alert(oArtikel:Matchcode+";Lieferant: "+cSupplier+";"+"Menge: "+LTrim(Str(ang->VkQty))+";EK: "+LTrim(Str(nEk))+";"+"VK:"+LTrim(Str(nVk))+";"+"Gewinn:"+Ltrim(Str(nGewinn))+";Margin:"+LTrim(str(nMargin*100,6,2)))
      ENDIF
 
      Aadd(aProducts,{"ARTIKEL"=>oArtikel,"QTY"=>ang->VkQty,"GELQTY"=>0,"VKPR"=>ang->VkPr/ang->Pe,"MARGIN"=>nMargin,"KW"=>AddWeeks(Val(CalWeek(ang->Besda)),ang->Dterm),"SUPPLIER"=>cSupplier,"NEK"=>nEk})
@@ -53,7 +67,7 @@ ENDDO
 ang->(dbSeek( Str(nAngnr,6) ))
 
 IF ! Empty(cDbg)
-   Alert(cDbg)
+   //Alert(cDbg)
 ENDIF
 
 ku->(dbSetOrder( 1 ))
@@ -73,15 +87,4 @@ lRet := Hook("approve_auf_ang",{aProducts,cText1,nLevel,ang->Kundma,ang->Besda,a
 
 RETURN lRet
 
-STATIC Function AngMargin(oArtikel)
-   LOCAL nVk := ang->VkPr * Currate( ang->Money, "V" ) / ang->Pe
-   LOCAL nEk,nGewinn
-
-   nEk := oArtikel:GetBuyPriceForMargin(ang->VkQty,.T.,ang->Besda)
-
-   nGewinn := ( nVk * ( 100 - ang->Rabatt ) / 100 ) - ( nEk * ( 100 -oArtikel:rabatt ) / 100 )
-   IF Tr_Getini(28) == 9
-      Alert("EK: "+LTrim(Str(nEk))+";"+"Gewinn:"+Ltrim(Str(nGewinn)))
-      //Alert(Trim(oArtikel:Matchcode)+";"+Str(GetKwStock(ang->Artikelnr,AddWeeks(CWeek(ang->Besda),ang->Dterm)))+";EK: "+Ltrim(Str(nEk))+";Margin: "+Str(nGewinn/nVk,5,2))
-   ENDIF
-RETURN IF(nVk!=0,nGewinn/nVk,0)
+#include 'x:\run\getupsimportcost.prg'

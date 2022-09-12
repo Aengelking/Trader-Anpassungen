@@ -30,17 +30,37 @@ IF  oAddress:CountryIso == "DE"
       Return .F.
    ENDIF
    cCompNo := Alltrim(SubStr(oAddress:CompNo,Len(cRegArt)+1))
+   oAddress:CompNo := cRegart+" "+cCompNo
 
-   IF ((GetActive():Changed .AND. oAddress:FieldUpdated("CompNo"))  .OR. oAddress:FieldUpdated("Gericht")) .AND. ! Empty(cRegArt)
+   ku->(dbSetOrder( 9 ))
+
+   Select("ku")
+   
+   ku->(dbSetFilter( {|| ku->group == oAddress:Group },'group == "'+oAddress:Group+'"'))
+   
+   IF ! Empty(oAddress:CompNo) .AND. ku->(dbSeek( oAddress:CountryIso+Str(oAddress:Gericht,4,0)+Upper(oAddress:CompNo) )) .AND. ku->Nummer != oAddress:Nummer
+      Tr_MsgBox("Firma bereits als "+Trim(ku->Kunde)+" angelegt. ")
+      RETURN .F.
+   ENDIF
+   ku->(dbClearFilter())
+
+   IF Tr_getini(28) == 9 .OR. ((GetActive():Changed .AND. oAddress:FieldUpdated("CompNo"))  .OR. oAddress:FieldUpdated("Gericht")) .AND. ! Empty(cRegArt)
       NetUse("creditsafe","cs")
-      IF cs->(dbSeek( Str(oAddress:Nummer,6) ))
-         //IF Tr_Getini(28) == 9; Alert("Deleting CS ID"); ENDIF
-         cs->(Rec_Lock())
-         //cs->(dbDelete())
+      IF cs->(dbSeek( Str(oAddress:Nummer,6) ))         
+         cs->(Rec_Lock())         
          cs->ID := ""
          cs->(dbUnLock())
       ENDIF
 
+      /**
+      Abruf Handelsregister
+
+      UPDATE 07.04.22
+      handelsregister.de hat seine Seite ge„ndert und dies funktioniert nicht mehr.
+
+      **/
+      
+      /*
       ger->(dbSetOrder( 1 ))
       ger->(dbSeek( oAddress:CountryIso+Str(oAddress:Gericht,4) ))
       cGericht := ger->SimpleName
@@ -50,15 +70,16 @@ IF  oAddress:CountryIso == "DE"
          RETURN .T.
       ENDIF
 
+      TxtBox("Handelsregister wird berprft... ")
       hPost := { ;
          "suchTyp"=>"n",;
          "registerArt"=>cRegArt,;
          "registerNummer"=>Trim(cCompNo),;
          "registergericht"=>HGetKeyAt(hGerichte,nGericht),;
          "schlagwoerter"=>"","schlagwortOption"=>"1","ergebnisseProSeite"=>"10","btnSuche"=>"Suchen";
-         }
+         }         
 
-      cUrl := "https://www.handelsregister.de/rp_web/search.do"
+      cUrl := "https://www.handelsregister.de/rp_web/search.do"     
 
       cPost := ""
       FOR EACH item IN hPost
@@ -79,22 +100,22 @@ IF  oAddress:CountryIso == "DE"
       curl_easy_setopt( pCurl, HB_CURLOPT_DL_BUFF_GET, @cContent )
       Curl_Easy_CleanUp(pCurl)
 
-      
+      TxtClear()
 
-      /*oHttp := TipClientHttp():new( cUrl )
-      oHttp:open()
-      oHttp:Post(hPost)
-      cContent := StrTran(StrTran(hb_utf8tostr(oHttp:ReadAll()),"&quot;",'"'),"&amp;","&")*/
       nPos := At("RegPortErg_FirmaKopf",cContent)
       IF nPos == 0         
          Tr_MsgBox("Firma nicht gefunden!")
+         IF Tr_getini(28) == 9
+            gtSetClipboard(cContent)
+         ENDIF
          RETURN .F.
       ENDIF
+      
+      cContent := StrTran(cContent,"&amp;","&")
 
       aMatches := HB_RegExAll("RegPortErg_FirmaKopf[^>]*>([^<]*)",cContent)
       IF StrTran(Upper(aMatches[1,2])," ","") != StrTran(Upper(oAddress:cName)," ","")
          cMsg := 'Abweichender Firmenname "'+Trim(aMatches[1,2])+'"'
-//         MemoEdit(cContent)
          IF Len(Trim(aMatches[1,2])) < 70 
             IF Alert(cMsg,{t("übernehmen"),t("abbrechen")}) == 1
                aTokens := HB_ATokens(Trim(aMatches[1,2])," ")
@@ -111,8 +132,7 @@ IF  oAddress:CountryIso == "DE"
                   RETURN NIL
                })
                oAddress:Name1 := cName1
-               oAddress:Name2 := cName2
-               //aGetList := __GetListActive():aGetList
+               oAddress:Name2 := cName2               
                AEval(aGetList,{|oGet| 
                   IF Upper(oGet:name) $ "OADDRESS:NAME1 OADDRESS:NAME2"
                      oGet:Display()
@@ -121,17 +141,18 @@ IF  oAddress:CountryIso == "DE"
                })
             ENDIF
          ELSE
+            
             RETURN Alert(cMsg,{"abbrechen",t("trotzdem übernehmen")}) == 2
          ENDIF
-      ENDIF
-      //oAddress:SetCargo("COMPNOCHANGED",.T.)
-         //delete existing report
-      /*IF cs->(dbSeek( Str(ku->Nummer,6)))
-         cs->(Rec_Lock())
-         cs->ID := ""
-         cs->(dbUnLock())
-      ENDIF*/
+      ENDIF      
+      */
+
+      /**
+      Suche in Creditsafe falls aus Deutschland
+      **/
+
       IF oAddress:CountryIso == "DE"
+         TxtBox("Kreditauskunft wird gesucht...")
          oSOAP := CreditSafe()
 
          oCtr := SOAPParameter():New("countries")
@@ -145,13 +166,16 @@ IF  oAddress:CountryIso == "DE"
          IF oXML == NIL
             Alert("Fehler bei der Abfrage der Kreditasuksunft")
          ELSEIF ! CS_Error(oXML)
-            oCompany :=  TXmlIteratorScan():New(oXML:oRoot):Find("Companies"):oChild
+            oCompany :=  TXmlIteratorScan():New(oXML:oRoot):Find("Companies"):oChild            
             IF oCompany == NIL
                Alert("Keinen Eintrag bei der Kreditauskunft gefunden")            
                //Alert(oXML:toString())
             ELSEIF oCompany:oNext != NIL //there is a second entry
                Alert("Keinen eindeutigen Eintrag bei der Kreditauskunft gefunden")
             ELSE            
+               IF Tr_Getini(28) == 9
+                  Alert("Company name:"+oCompany:toString())
+               ENDIF
                //oAddress:SetCargo("id",oCompany:GetAttribute("Id"))
                /*IF cs->(dbSeek( Str(oAddress:Nummer,6)))                  
                      cs->(Rec_Lock())
@@ -164,6 +188,7 @@ IF  oAddress:CountryIso == "DE"
             ENDIF
             //oReport := CS_GetCompanyReport(oSoap,oAddress:GetCargo("id"),3)
          ENDIF
+         TxtClear()
       ENDIF
    ENDIF
 ENDIF

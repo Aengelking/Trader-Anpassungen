@@ -2,6 +2,7 @@
 FUNCTION HOOK_ON_AUF_READY( nAbNr,lWish )
    LOCAL cText
    LOCAL oExtra := ku->(ExtraData():New(ku->Nummer))
+   LOCAL oUsr,oAuftrag
 //LOCAL cScr
 
 /*IF ! GetConfigValue("BATCHMODE")
@@ -28,7 +29,13 @@ IF lWish .AND. oExtra:NoWish //diese Kunden mîchten keine direkte Lieferung zum 
    cText += "Bitte genau prÅfen wie dies zu erfolgen hat (Lieferantenportal/TerminÑnderung) oder ob es evtl. vom<br>"
    cText += "Kunden bestÑtigt werden muss."
    
-   SendMail({{"samuel.engelking@engelking.de",""}},"Termin bei AB "+LTrim(Str(nAbNr))+" kann vorgezogen werden.",cText)   
+   oAuftrag := Auftrag():New()
+   oAuftrag:Load(nAbnr)
+
+   oUsr := User():New()
+   oUsr:Load(oAuftrag:Buyer)
+
+   SendMail({{oUsr:Email,oUsr:Buyer}},"Termin bei AB "+LTrim(Str(nAbNr))+" kann vorgezogen werden.",cText)   
    RETURN .F.
 ENDIF
 

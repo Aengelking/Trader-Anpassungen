@@ -1,8 +1,13 @@
-FUNCTION HOOK_GET_FREIGABE_BES_STATE(cState,lFrei,lSonder,nMenge,dBis,nVerbraucht,nArtnr,nSupplier)
+FUNCTION HOOK_GET_FREIGABE_BES_STATE(cState,lFrei,lSonder,nMenge,dBis,nVerbraucht,nAddress,nContact,cPrev,nArtnr,nSupplier)
 
 LOCAL oArt := Artikel():New()
 LOCAL aIncome,nIncome,hRet,cNextLevel,nMaxCost
 LOCAL hPrice,nPrice := 0,nX
+
+HB_SYMBOL_UNUSED(nAddress)
+HB_SYMBOL_UNUSED(nContact)
+HB_SYMBOL_UNUSED(cPrev)
+
 oArt:Load(nArtnr)
 
 nMaxCost := 120
@@ -23,6 +28,9 @@ ENDIF
 
 cNextLevel := cState
 If lFrei .OR. cState == ""
+   IF Tr_GetINi(28) == 9
+      //Alert(ValToprg({cState,lFrei,lSonder,nMenge,dBis,nVerbraucht,nAddress,nContact,cPrev,nArtnr,nSupplier}))
+   ENDIF
 	cNextLevel := GetNextFreigabeLevel(nArtnr,nSupplier,cState)
 Endif
 
@@ -30,13 +38,18 @@ Endif
 
 IF cNextLevel == "MUS" .OR. (nSupplier == 0 .AND. cNextLevel == "KU") //.OR. cNextLevel == "DONE"
 	hRet:lBes        := .T.
-   hRet:nMaxQty     := 1 //restrict everthing to one piece, except the expections below 
+   hRet:nMaxQty     := 3 //restrict everthing to two pieces, except the expections below 
    
-   IF art->Gruppe == "KONK" //Netzkabel
+   IF art->Gruppe == "KONK" ; //Netzkabel
+      .OR. art->Gruppe == "KOSO" .AND. Left(art->Matchcode,3) == "pL/" //Litzen fr die Produktion
       hRet:nMaxQty     := 1000
    ELSEIF Trim(art->Gruppe) == "XX" .AND. Trim(art->Type) == "RHB"
-      hRet:nMaxQty     := 10000
-   ELSEIF Left(art->Gruppe,2)=="KO"
+      hRet:nMaxQty     := 10000   
+   ELSEIF oArt:Manufactur == 6 //Engelking
+      hRet:nMaxQty     := 500
+   ELSEIF oArt:Manufactur == 5 //Engelking China
+      hRet:nMaxQty     := 11   //10 for the customer and one for us
+   ELSE //IF Left(art->Gruppe,2)=="KO"
 
       NetUse("engkund","ku")
       ku->(dbSetOrder( 8 ))
@@ -60,12 +73,8 @@ IF cNextLevel == "MUS" .OR. (nSupplier == 0 .AND. cNextLevel == "KU") //.OR. cNe
          //Alert(Str(nMaxCost/nPrice))
          hRet:nMaxQty := Max(Round( nMaxCost/nPrice, GetMeDecimals( oArt:Me )),2)
       ELSE
-         hRet:nMaxQty := 10 //nMaxCost
+         //hRet:nMaxQty := 10 //nMaxCost
       ENDIF
-   ELSEIF oArt:Manufactur == 6 //Engelking
-      hRet:nMaxQty     := 500
-   ELSEIF oArt:Manufactur == 5 //Engelking China
-      hRet:nMaxQty     := 10   
 	ENDIF
 ELSEIF cState == "DONE"
    
@@ -86,7 +95,7 @@ ELSEIF cState == "DONE"
 			hRet:lBes := dBis >= Date()
 		ENDIF
 		hRet:lBes :=  hRet:lBes .AND. nVerbraucht+nIncome < nMenge
-		hRet:nMaxQty := nMenge-nVerbraucht-nIncome
+		hRet:nMaxQty := (nMenge-nVerbraucht-nIncome)
 	Else
 		hRet:lBes := .T.
 	Endif

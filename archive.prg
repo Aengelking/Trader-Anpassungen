@@ -13,7 +13,7 @@ FUNCTION GetArchiveDir(hType,dDate)
 RETURN cDir
 
 FUNCTION CreateArchiveDir(cDir)
-   LOCAL cBase := GetConfigValue("ARCHIVE_DIR")+"\"
+   //LOCAL cBase := GetConfigValue("ARCHIVE_DIR")+"\"
    LOCAL aDir := HB_Atokens(cDir,"\")
    LOCAL cCreated := "",nX
    FOR nX := 1 TO Len(aDir)
@@ -56,4 +56,10 @@ FUNCTION GetArchiveBaseDir(hType)
 RETURN GetConfigValue("ARCHIVE_DIR")+"\"+hType:Dir+"\"
 
 FUNCTION GetArchivePrefix(hType,nNo)
-RETURN hType:Prefix+StrZero(nNo,IF(HHasKey(hType,"NUMLEN"),hType:NumLen,6)) //standard length is 6, but can be set
+   LOCAL cNo
+   IF ValType(nNo) == "N"
+      cNo := StrZero(nNo,IF(HHasKey(hType,"NUMLEN"),hType:NumLen,6)) //standard length is 6, but can be set
+   ELSE
+      cNo := nNo
+   ENDIF
+RETURN hType:Prefix+cNo

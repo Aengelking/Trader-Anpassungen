@@ -4,6 +4,7 @@ LOCAL nRate,nMulti
 LOCAL nX,nManu
 LOCAL lSubDistiGBP := .F.
 LOCAL nVPE
+LOCAL oArt,nWeight
 
 /*df
    SETTINGS FOR SUB DISTIS
@@ -21,6 +22,7 @@ LOCAL nSubSpecial   := 0.2
 LOCAL aSubSpecial := {"MONACOR"} //{"ALDERS"}
 LOCAL oExtra
 LOCAL cMatch
+LOCAL nEx,nFixRate,aSkonto
 
 NetUse("engkund","ku")
 IF ! Empty(cKundma)
@@ -38,7 +40,20 @@ IF art->Manufactur == 9 .AND. AT("/PB",art->Matchcode) != 0
    ENDIF
 ENDIF
 
-IF nTab == 12 .OR. nTab == 29
+
+IF nTab == 1 .AND. art->Manufactur $ {1,10} //Bulgin, check if we can buy direct
+   NetUSe("manufact","manu")
+   manu->(dbSeek( Str(art->Manufactur,5) ))
+   ku->(dbSetOrder( 8 ))
+   ku->(dbSeek( Str(manu->Address,6) ))
+
+   NetUse( "buyprice", "bpr", .F., 0 )
+   bpr->( dbSetOrder( 1 ) )   // liefma+artikelnr+qty
+   bpr->(dbSetFilter({|| bpr->StartDate <= Date() .AND. (bpr->Enddate >= Date() .OR. Empty( bpr->EndDate )) },"StartDate <= Date() .AND. (Enddate >= Date() .OR. Empty( EndDate ))"))
+   IF ! bpr->( dbSeek( ku->Kunde + Str( art->Artikelnr, 6 ) ) ) //no prices found we hae to buy from Waldom
+      RETURN GetPrices(art->Artikelnr,30,dDate,cKundma)   
+   ENDIF
+ELSEIF nTab == 12 .OR. nTab == 29
    oArt := Artikel():New()
    oArt:Load(nArtnr)
 
@@ -92,11 +107,11 @@ ELSEIF oExtra != NIL .AND. Len(oExtra:SubDisti) > 0 //HHasKey(aSubDistis,Trim(cK
 
          NetUse( "buyprice", "bpr", .F., 0 )
          bpr->( dbSetOrder( 1 ) )   // liefma+artikelnr+qty
-         bpr->(dbSetFilter({|| bpr->StartDate <= Date() .AND. (bpr->Enddate >= Date() .OR. Empty( bpr->EndDate )) },"StartDate <= Date() .AND. (Enddate >= Date() .OR. Empty( EndDate ))"))
+         bpr->(dbSetFilter({|| bpr->StartDate <= dDate .AND. (bpr->Enddate >= dDate .OR. Empty( bpr->EndDate )) },"StartDate <= StoD('"+DtoS(dDate)+"') .AND. (Enddate >= StoD('"+DtoS(dDate)+"') .OR. Empty( EndDate ))"))
          IF bpr->( dbSeek( ku->Kunde + Str( oArt:Artikelnr, 6 ) ) ) // found entry in supplier db
             
             DO WHILE bpr->Liefma == ku->Kunde .AND. bpr->Artikelnr == oArt:Artikelnr               
-               Aadd(aPriceTabs,{bpr->qty, bpr->Price / Max( bpr->Pe, 1 )*nRate*nMulti*oArt:VKPe})
+               Aadd(aPriceTabs,{bpr->qty, bpr->Price*Max( bpr->Pe, 1 )*nRate*nMulti*oArt:VKPe})
                
                bpr->(dbSkip())
             ENDDO
@@ -113,7 +128,7 @@ ELSEIF nTab == 26
    IF ali->(dbSeek( Str( nArtnr, 6)+Pad("TECHNO",8) ))
       nVPE := IF(ali->VPE==0,200,ali->VPE) //wenn keine VPE/MOQ vorhanden, dann von 200 ausgehen (wurde so von Techno best„tigt)
       FOR nX := 1 TO Len(aPriceTabs)
-         IF aPriceTabs[nX,1] < nVPE
+         IF aPriceTabs[nX,1] < nVPE .AND. aPriceTabs[nX,2] != 0
             aPriceTabs[nX,2]  += 25/aPriceTabs[nX,1] //Mindermengenzuschlag hinzurechnen
          ELSEIF ali->VPE != 0
             aPriceTabs[nX,1] := Int(aPriceTabs[nX,1]/nVPE)*nVPE //auf volle VPE „ndern
@@ -164,9 +179,31 @@ IF ! Empty(cKundma)
    ENDIF
 ENDIF
 
+IF art->Manufactur $ {12} //Elcom Mindermengenzuschlag, EK bis 400$, 60$ Zuschlag. Gehen hier von einem Faktor von 2,2 aus  und einem Wechselkurs von 0,9. Daher Rechnen wir das 1000? ein und dann 60?
+   AEval(aPriceTabs,{|aTab| IF(aTab[2]!=0 .AND. aTab[1]*aTab[2]/2.2<1000,aTab[2] := aTab[2]+60/aTab[1],.T.) })
+ENDIF
+
+IF nTab == 11
+   IF art->Gewicht == 0 //no weight, no prices
+      aPriceTabs := {}
+   ELSE
+      nWeight := art->Gewicht/1000      
+      AEval(aPriceTabs,{|aTab| IF(aTab[2]!=0,aTab[2] := aTab[2]+Hook("get_supplier_ship_cost",{Pad("SIGNAL",8),nWeight/1000*aTab[1]})/aTab[1],.T.) })
+   ENDIF   
+ELSEIF art->Manufactur $ {12,16} //Elcom oder Signal, Frachtkosten einrechnen
+   IF art->Gewicht == 0 //no weight, no prices
+      aPriceTabs := {}
+   ELSE
+      nWeight := art->Gewicht/1000      
+      AEval(aPriceTabs,{|aTab| IF(aTab[2]!=0,aTab[2] := aTab[2]+GetUpsImportCost(nWeight*aTab[1])/aTab[1],.T.) })
+   ENDIF   
+ENDIF
+
 IF Tr_GetIni(28) == 9
    //Alert(cKundma)
 ENDIF
 
 
 RETURN aPriceTabs
+
+#include 'x:\run\getupsimportcost.prg'

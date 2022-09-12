@@ -1,5 +1,6 @@
-PARAMETERS nYear
+FUNC Hook_Firmclosed(nYear)
 LOCAL aDays := {}
+LOCAL nX,dDate
 
 //add days between x-mas and new year
 FOR nX := 24 TO 31
@@ -45,7 +46,9 @@ ELSEIF nYear == 2019
 ELSEIF nYear == 2020
    Aadd(aDays,StoD("20200102"))
    Aadd(aDays,StoD("20200103"))   
-
+   
+ELSEIF nYear == 2021
+   Aadd(aDays,StoD("20211223"))   
 ENDIF
 
 RETURN aDays

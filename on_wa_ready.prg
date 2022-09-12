@@ -1,5 +1,6 @@
 FUNCTION HOOK_ON_WA_READY(nWaNr)
-LOCAL cMissing
+   LOCAL cMissing,oExtra
+   
    NetUse("engkund","ku")
 
    IF Right(Str(wer->End,4),2) == "99"
@@ -8,7 +9,12 @@ LOCAL cMissing
    
    IF ! Empty(wer->Liefma)
       ku->(dbSeek( wer->Liefma+"L" ))
+
       oExtra := ku->(ExtraData():New(ku->Nummer))
+
+      IF Date() >= AddWorkingDays(ku->St_Holiday,oExtra:ShipTime*-1) .AND. Date() <= AddWorkingDays(ku->En_Holiday,oExtra:ShipTime*-1) //will arrive in the suppliers holiday
+         RETURN .F. //do nothing
+      ENDIF
 
       IF oExtra:WaDay != 0 .AND. (DoW(Date()) != oExtra:WaDay .OR. Time() > "15:00:00")
          NetUse("lagerne","lne")
@@ -20,6 +26,7 @@ LOCAL cMissing
          ENDIF
          lne->(dbClearFilter())
       ENDIF
+
    ENDIF
 
    IF ! WAStart(nWaNr,,@cMissing)

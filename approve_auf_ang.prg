@@ -2,17 +2,22 @@ STATIC lDbg
 
 FUNCTION Approve_AUF_ANG(aProducts,cText1,nLevel,cKundma,dDate,cMoney,lAuf)
 
+/** SETTINGS **/
 LOCAL aLevels := { {9},{33},{41,54},{45,37,28} }
-LOCAL nMinIncrease := 0.049
-LOCAL nIncreasePerYear := 0.029
-LOCAL lHoliday := Date()  >= StoD("20200729") .AND. Date() <= StoD("20200814")
+LOCAL nMinIncrease := 0.049  //Mindest um diesen Wert in den letzten 12 Monaten angehoben, wenn au·erhalb der Staffel
+LOCAL nIncreasePerYear := 0.029 //Mindestens um diesen Wert pro Jahr angehoben wenn au·erhalb der Staffel
+LOCAL lHoliday := Date() >= GetValue("HOLIDAY-AMOS-START") .AND. Date() <= GetValue("HOLIDAY-AMOS-END")
+/** END */
+
 LOCAL hProd
 LOCAL cPreText,nPrice,lStaffel,lStaffelVor,aPrices,nX,lStock,nLowPrice,dLowDate,dHighDate,nHighPrice
 LOCAL nPr,nBeforePrice,dBeforeDate,aAvail,lRS,lTME,nQty,hPrice,nRec,hPrices,aUsers
 LOCAL nWaldPrice,lWaldom
 LOCAL nGewinn,hEK,aCalcCost
 LOCAL lUnderMOQ,dPreisSeit,nVorschlag,nVorschlagDiff,nTotalDiff := 0,nTotal := 0,lStaffelOnly := Empty(cText1),lStaffelDown
+LOCAL nEdacTotal := 0
 LOCAL cFilter
+LOCAL nVPE,nLastQty
 
 MEMVAR c_five
 
@@ -52,6 +57,7 @@ FOR EACH hProd IN aProducts
       lStaffelOnly := .F.
       lStaffelDown := .F.
    ELSEIF hProd:Qty > 0
+      
 
       aPrices := hProd:Artikel:GetSellPrices(dDate,cKundma)
       FOR nX := 1 To Len(aPrices)
@@ -67,11 +73,17 @@ FOR EACH hProd IN aProducts
             nLevel := 1
       ELSE*/
 
-      nTotal += Round(hProd:VkPr / Currate( cMoney, "V" ),2)*hProd:Qty
+      nValue := Round(hProd:VkPr / Currate( cMoney, "V" ),2)*hProd:Qty
+
+      nTotal += nValue
+
+      IF hProd:Artikel:Manufactur == 2
+         nEdacTotal += nValue
+      ENDIF
        
        @ 20,31 SAY " "+hProd:Artikel:Matchcode+" " COLOR C_FIVE
 
-       DbgPrn(hProd:Artikel:Matchcode+" "+Transform(hProd:Qty,ME(art->Me))) //+" "+Str(aPrices[nPrice,1])+Str(aPrices[nPrice,2]))
+       DbgPrn(Trim(hProd:Artikel:Matchcode)+" Qty: "+Transform(hProd:Qty,ME(art->Me))+" EK: "+Ltrim(Str(hProd:nEk))) //+" "+Str(aPrices[nPrice,1])+Str(aPrices[nPrice,2]))
        IF Len(aPrices) > 0 .AND. nPrice > 0 .AND. Round(hProd:VkPr / Currate( cMoney, "V" ),2) < Round(aPrices[nPrice,2] / hProd:Artikel:VkPe*IF(hProd:Artikel:Manufactur == 9,0.98,0.995),2) //nicht auf Staffelvorlauf mit 0,5% (2% beu Scolmore wg. WÑhrungsdiff.) Abweichung wegen Rundungsdiff. etc.
           //check to see if there has been a price increase in the last 12 months
           nLowPrice := 999999.99
@@ -126,49 +138,49 @@ FOR EACH hProd IN aProducts
                Alert("Preis seit: "+DtoC(dPreisSeit))
             ENDIF
           ENDIF
-          IF (hProd:Artikel:Manufactur != 9 .OR. Trim(cKundma) == "SCHROFFF") .AND. ;  //Nicht Scolmore oder Pentairf
-            ( (nLowPrice > 0 .AND. (nPr+0.01-nLowPrice)/nLowPrice >= nMinIncrease)  .OR. ;  //Erhˆhung zwischen aktuellen und niedrigstem Preis in den letzten 12 Monate grˆﬂer gleich nMinIncrease
-            (nBeforePrice > 0 .AND. (nPr+0.01-nBeforePrice)/nBeforePrice >= Max((dDate-dBeforeDate)/365*nIncreasePerYear,nMinIncrease)) ) ; //Preis zuvor um mindestens nIncreasPerYear pro Jahr oder nMinIncrease angehoben
-            .AND. hProd:VkPr / Currate( cMoney, "V" ) >= nHighPrice
-            //in this case it is ok
-//            Alert("Preis ausreichend angehoben;"+LTrim(Str((nPr-nLowPrice)/nLowPrice))+">=0.1;"+IF(nBeforePrice>0,Ltrim(Str((nPr-nBeforePrice)/nBeforePrice))+">="+Ltrim(Str(Max((dDate-dBeforeDate)/360*0.05,0.1))),"")+";"+DToC(dBeforeDate))
+          IF Len(aPrices) > 0 //Preisstaffel vorhanden
+            IF (hProd:Artikel:Manufactur != 9 .OR. Trim(cKundma) == "SCHROFFF") .AND. ;  //Nicht Scolmore oder Pentairf
+               ( (nLowPrice > 0 .AND. (nPr+0.01-nLowPrice)/nLowPrice >= nMinIncrease)  .OR. ;  //Erhˆhung zwischen aktuellen und niedrigstem Preis in den letzten 12 Monate grˆﬂer gleich nMinIncrease
+               (nBeforePrice > 0 .AND. (nPr+0.01-nBeforePrice)/nBeforePrice >= Max((dDate-dBeforeDate)/365*nIncreasePerYear,nMinIncrease)) ) ; //Preis zuvor um mindestens nIncreasPerYear pro Jahr oder nMinIncrease angehoben
+               .AND. hProd:VkPr / Currate( cMoney, "V" ) >= nHighPrice
+               //in this case it is ok
+            ELSE
+               cText1 += cPreText+" Preis unter Staffelpreis ("+LTrim(Str(hProd:VkPr / Currate( cMoney, "V" ),12,2))+"<"+Ltrim(str(aPrices[nPrice,2]/hProd:Artikel:VkPe,12,2))+");"
+               IF dPreisSeit < Date()
+                  cText1 += Space(10)+"Preis seit: "+DtoC(dPreisSeit)+";"
+                  
+                  IF nLowPrice > 0 
+                     nVorschlag := (1+nMinIncrease)*nLowPrice
+                  ENDIF
+                  IF nBeforePrice > 0
+                     nVorschlag := Min(nVorschlag,nBeforePrice*(1+Max((dDate-dBeforeDate)/365*nIncreasePerYear,nMinIncrease)))
+                  ENDIF
+                  IF Len(aPrices) > 0 .AND. nPrice > 0
+                     nVorschlag := Min(nVorschlag,Round(aPrices[nPrice,2] / hProd:Artikel:VkPe,2))
+                  ENDIF
+                  nVorschlag := Max(nVorschlag,nHighPrice)
+                  nVorschlagDiff := nVorschlag-nPr
+                  nTotalDiff += nVorschlagDiff*hProd:Qty
 
-          ELSE
-             cText1 += cPreText+" Preis unter Staffelpreis ("+LTrim(Str(hProd:VkPr / Currate( cMoney, "V" ),12,2))+"<"+Ltrim(str(aPrices[nPrice,2]/hProd:Artikel:VkPe,12,2))+");"
-             IF dPreisSeit < Date()
-               cText1 += Space(10)+"Preis seit: "+DtoC(dPreisSeit)+";"
+                  cText1 += Space(10)+"Preisvorschlag: "+LTrim(Str(nVorschlag,12,2))+";"
+               ENDIF
                
-               IF nLowPrice > 0 
-                  nVorschlag := (1+nMinIncrease)*nLowPrice
+               IF TR_getIni(28) == 9 .AND. ( (nLowPrice > 0 .AND. (nPr-nLowPrice)/nLowPrice >= nMinIncrease)  .OR. (nBeforePrice > 0 .AND. (nPr-nBeforePrice)/nBeforePrice >= Max((dDate-dBeforeDate)/365*nIncreasePerYear,nMinIncrease)) ) .AND. hProd:VkPr / Currate( cMoney, "V" ) >= nHighPrice
+                  //Alert(hProd:Artikel:Matchcode+";"+Transform(hProd:Qty,Me(hProd:Artikel:Me))+";"+"Zuletzt: "+DToC(dBeforeDate))
                ENDIF
-               IF nBeforePrice > 0
-                  nVorschlag := Min(nVorschlag,nBeforePrice*(1+Max((dDate-dBeforeDate)/365*nIncreasePerYear,nMinIncrease)))
-               ENDIF
-               IF Len(aPrices) > 0 .AND. nPrice > 0
-                  nVorschlag := Min(nVorschlag,Round(aPrices[nPrice,2] / hProd:Artikel:VkPe,2))
-               ENDIF
-               nVorschlag := Max(nVorschlag,nHighPrice)
-               nVorschlagDiff := nVorschlag-nPr
-               nTotalDiff += nVorschlagDiff*hProd:Qty
 
-               cText1 += Space(10)+"Preisvorschlag: "+LTrim(Str(nVorschlag,12,2))+";"
-             ENDIF
-             
-             IF TR_getIni(28) == 9 .AND. ( (nLowPrice > 0 .AND. (nPr-nLowPrice)/nLowPrice >= nMinIncrease)  .OR. (nBeforePrice > 0 .AND. (nPr-nBeforePrice)/nBeforePrice >= Max((dDate-dBeforeDate)/365*nIncreasePerYear,nMinIncrease)) ) .AND. hProd:VkPr / Currate( cMoney, "V" ) >= nHighPrice
-                Alert(hProd:Artikel:Matchcode+";"+Transform(hProd:Qty,Me(hProd:Artikel:Me))+";"+"Zuletzt: "+DToC(dBeforeDate))
-             ENDIF
-
-             IF nPrice > 3 .AND. Round(hProd:VkPr / Currate( cMoney, "V" ),2) >= Round(aPrices[nPrice-1,2] / hProd:Artikel:VkPe,2) 
-               nLevel := 4
-             ELSEIF nLevel > 2
-                nLevel := 2
-             ENDIF
-             IF hProd:Artikel:Manufactur == 9
-               nLevel := IF(lHoliday,2,1)
-               lStaffelDown := .T. //verhindert eine Herabstuftung
-             ENDIF
-          ENDIF
-         lStaffel := .F.
+               IF nPrice > 3 .AND. Round(hProd:VkPr / Currate( cMoney, "V" ),2) >= Round(aPrices[nPrice-1,2] / hProd:Artikel:VkPe,2) 
+                  nLevel := 4
+               ELSEIF nLevel > 2
+                  nLevel := 2
+               ENDIF
+               IF hProd:Artikel:Manufactur == 9
+                  nLevel := IF(lHoliday,2,1)
+                  lStaffelDown := .T. //verhindert eine Herabstuftung
+               ENDIF
+            ENDIF          
+            lStaffel := .F.
+         ENDIF
        ELSEIF Len(aPrices) > 0 .AND. nPrice > 0 .AND. Round(hProd:VkPr / Currate( cMoney, "V" ),2) >= Round(aPrices[nPrice,2] / hProd:Artikel:VkPe,2)  //Staffelvorlauf gew‰hrt, 1cent Abweichung erlaubt
          lStaffelVor := .T.
        ENDIF
@@ -180,9 +192,10 @@ FOR EACH hProd IN aProducts
        IF /*hProd:Artikel:LagerArt .AND.*/ hProd:Artikel:Mindest == 0
           aAvail := GetKwQty(hProd:Artikel:Artikelnr)
                                     //ATail(aAvail)[6]
-          IF GetKwStock(hProd:Artikel:Artikelnr,hProd:KW,aAvail)  >= IF(lAuf .AND. !hProd:Add,0,hProd:Qty)
+          IF /*GetKwStock(hProd:Artikel:Artikelnr,hProd:KW,aAvail)*/ATail(aAvail)[6] >= IF(lAuf .AND. !hProd:Add,0,hProd:Qty)
             IF lAuf .OR. GetKwStock(hProd:Artikel:Artikelnr,hProd:KW+IF(hProd:Artikel:LZ==0,12,hProd:Artikel:LZ),aAvail) >= hProd:Qty
              lStock := .T.
+             //Alert("Here"+Str(ATail(aAvail)[6]))
             ENDIF
           ENDIF
       ELSEIF hProd:Artikel:Mindest != 0
@@ -191,11 +204,13 @@ FOR EACH hProd IN aProducts
                
        IF ! lStock //we do not have enough in stock or on order to fullfill this order
          DbgPrn("NO STOCK")
+         nVPE := 0
           IF manu->(dbSeek( Str(hProd:Artikel:Manufactur,5) )) .AND. manu->Address != 0            
              ku->(dbSetOrder( 8 ))
              ku->(dbSeek( Str(manu->Address,6) ))
              ali->(dbSeek( Str(hProd:Artikel:Artikelnr,6) + ku->Kunde ))
              lUnderMOQ := hProd:Qty < ali->VPE
+             nVPE := ali->VPE
 
              
              bpr->( dbSetOrder( 1 ) ) 
@@ -203,6 +218,7 @@ FOR EACH hProd IN aProducts
              bpr->(dbSetFilter( {|| bpr->(&(cFilter)) },cFilter))  
              IF bpr->( dbSeek( ku->Kunde + Str( hProd:Artikel:Artikelnr, 6 ) ) )               
                lUnderMOQ := hProd:Qty < bpr->Qty
+               nVPE := bpr->Qty
              ENDIF
              bpr->(dbClearFilter())
 
@@ -231,11 +247,12 @@ FOR EACH hProd IN aProducts
                   lRS := .F.
                   lTME := .F.
                   IF hProd:Artikel:Manufactur==11 //Techno artikel unter VPE                     
-                     //Alert("Unter MOQ")
+                     //Alert("Techno unter MOQ. "+LTrim(str(hProd:nEK)))
                      IF hProd:nEK == 0
                         //margin neu berrechnen, falls bisher kein Preis gefunden wurde
                         hEK := hProd:Artikel:getBuyPrice(ku->Kunde,-1,,,,,,dDate)  
-                        hProd:nEk :=  hEK["price"]/hEk["unit"]*Currate(ku->Money,"E",dDate) 
+                        hProd:nEk :=  hEK["price"]/hEk["unit"]*Currate(ku->Money,"E",dDate)
+                        hProd:Supplier := "Techno under MOQ"
                         IF hProd:nEk == 0
                            nGewinn := 0
                         ELSE
@@ -318,8 +335,10 @@ FOR EACH hProd IN aProducts
                            lStaffelDown := .T.
                         ENDIF
                      ENDIF
-                     IF ! lRs //we cannot buy it from RS
-                         cText1 += cPreText+" VPE ("+Ltrim(Str(ali->VPE))+") unterschritten;"
+                     IF ! lRs  //we cannot buy it from RS
+                         IF lUnderMOQ
+                           cText1 += cPreText+" VPE ("+Ltrim(Str(nVPE))+") unterschritten;"
+                         ENDIF
                          lStaffelOnly := .F.
                          lStaffelDown := .T.
                          IF nLevel > 2
@@ -337,17 +356,25 @@ FOR EACH hProd IN aProducts
          //DbgPrn("EK: "+Str(hProd:nEk)+IF(hProd:Artikel:Bezug >= 5,"manufactured","-"))
          IF hProd:nEk == 0 .AND. hProd:Artikel:Lagerart .AND. hProd:Artikel:Bezug >= 5  //Artikel die eine StÅli haben sollten aber kein EK errechnet werden konnte, da versuchen wir eine Calc-StÅli zu finden
             
-            aCalcCost := RUN_GetCostFromOO(hProd:Artikel:Artikelnr)            
+            aCalcCost := RUN_GetCostFromOO(hProd:Artikel:Artikelnr)    
+                
             IF aCalcCost["ERROR"] == 0
+               nLastQty := 0
                DbgPrn("Calc-Cost: "+ValToPrg(aCalcCost["DATA"]))
                FOR nX := 1 TO Len(aCalcCost["DATA"])
-                  IF aCalcCost["DATA",nX,"QTY"] <= hProd:Qty
+                  IF aCalcCost["DATA",nX,"QTY"] <= hProd:Qty .AND. aCalcCost["DATA",nX,"QTY"] >= nLastQty
+                     nLastQty := aCalcCost["DATA",nX,"QTY"]
                      hProd:nEK := aCalcCost["DATA",nX,"COST"]
                      hProd:Supplier := Pad("KALKULATION",8)
                      hProd:Margin :=  (hProd:VkPr / Currate( cMoney, "V" ) - hProd:nEK) /  (hProd:VkPr / Currate( cMoney, "V" ))
                   ENDIF
                NEXT
             ELSE
+               IF aCalcCost["ERROR"] ==  -2
+                  Tr_MsgBox("Keine Gesamtkosten in der Kalkulation gefunden")
+               ELSEIF aCalcCost["ERROR"] ==  -3
+                  Tr_MsgBox("Keine Menge in der Kalkulation gefunden")
+               ENDIF
                DbgPrn(aCalcCost["ERRORTEXT"])
             ENDIF            
          ENDIF
@@ -357,7 +384,7 @@ FOR EACH hProd IN aProducts
 
       IF hProd:nEk == 0 .AND. hProd:Artikel:Lagerart  //this should now be covered by nGewinn == 0
          nLevel := IF(lHoliday,2,1)
-         cText1 += Trim(hProd:Artikel:Matchcode)+" "+t(" kein EK errechenbar.;")
+         cText1 += cPreText+" "+t(" kein EK errechenbar.;")
       ENDIF
 
       IF (;
@@ -367,9 +394,11 @@ FOR EACH hProd IN aProducts
          .AND. Left(hProd:Artikel:Matchcode,4) != "TEXT" //mehr als eine Staffel vorlauf 30% Marge, bei Staffelvorlauf min. 20%
          cText1 += cPreText+" Margin:"+Str(hProd:Margin*100,6,1)+"% zu niedrig"+IF(Tr_getini(28)==9," ("+Trim(hProd:Supplier)+" - "+IF(HB_HHasKey(hProd,"NEK"),LTrim(Str(hProd:nEk)),"")+")","")+";"
          IF hProd:Margin <= 0.2
-            IF lHoliday .AND. nLevel > 2 .AND. hProd:Margin >= 0.12
+            IF Trim(cKundma) $ {"SOFTCOM"} .AND. hProd:Margin >= 0.05 //Beistellware fÅr Produktion
+               nLevel := 4
+            ELSEIF lHoliday .AND. nLevel > 2 //.AND. hProd:Margin >= 0.12
                nLevel := 2
-            ELSEIF nLevel > 1               
+            ELSEIF ! lHoliday .AND. nLevel > 1               
                nLevel := 1
             ENDIF
          ELSE
@@ -387,6 +416,11 @@ FOR EACH hProd IN aProducts
    ENDIF
 NEXT
 
+IF nEdacTotal > 0 .AND. nEdacTotal < 500
+   cText1 += "EDAC Gesamtwert unter 500 EUR"
+   nLevel := 2
+ENDIF
+
 IF lDbg
    DbgPrn("complete")
    Inkey(0,128)   
@@ -397,7 +431,9 @@ IF ! Empty(cText1)
    IF lStaffelOnly .AND. nTotal > 0 .AND. (nTotalDiff/nTotal <= 0.01 .OR. (nTotal <= 50 .AND. nTotalDiff/nTotal <= 0.03)) .AND. nLevel >= 2
       nLevel := 4
    ENDIF
-   //Alert("Level: "+Str(nLevel))
+   IF lDbg
+      Alert("Level: "+Str(nLevel)+";"+cText1)
+   ENDIF
    aUsers := {}
    FOR nX := nLevel TO 1 STEP -1
       AEval(aLevels[nX],{|x| Aadd(aUsers,x) })

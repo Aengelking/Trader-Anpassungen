@@ -24,4 +24,5 @@ FUNCTION HOOK_AFTER_SAVE_AUFTRAG(oAuftrag)
          Tr_MsgBox(Str(nResult,3)+" "+HB_AnsiToOem(getVATIDErrorName(nResult)),"Fehler in der UST-Id.Nr.")
       ENDIF     
    ENDIF
+   
 RETURN NIL

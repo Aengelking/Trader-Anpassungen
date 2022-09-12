@@ -60,13 +60,13 @@ IF oAddress:lNew
          RETURN .T.
       ENDIF
 
-      IF oSoap == NIL
-         oSOAP := CreditSafe()
+      
+      oSOAP := CreditSafe()
 
-         oCtr := SOAPParameter():New("countries")
-         oCtr:CreateChild("CountryCode","DE",,"http://schemas.datacontract.org/2004/07/Creditsafe.GlobalData")
+      oCtr := SOAPParameter():New("countries")
+      oCtr:CreateChild("CountryCode","DE",,"http://schemas.datacontract.org/2004/07/Creditsafe.GlobalData")
 
-      ENDIF
+      
 
       oSearch := SOAPParameter():New("searchCriteria",,,"http://www.creditsafe.com/globaldata/operations")
 
@@ -134,11 +134,11 @@ IF oAddress:lNew
             TxtClear()
             IF oReport != NIL
                oAddress:SetCargo("report",oReport)
-                IF oAddress:HasCargo("report")
+               /*IF oAddress:HasCargo("report")
                   Alert(oAddress:GetCargo("report"))
                ELSE
                   Alert("NO REPORT")
-               ENDIF
+               ENDIF*/
                oBasic := TXMLIteratorScan():New(oReport:oRoot):Find("BasicInformation")
                IF oBasic != NIL
                   cName := TXMLIteratorScan():New(oBasic):Find("BusinessName"):cData
@@ -188,7 +188,7 @@ IF oAddress:lNew
                   IF oLegal != NIL
                      cLegal := oLegal:cData
                      IF Tr_Getini(28) == 9
-                        Alert(cLegal)
+                        //Alert(cLegal)
                      ENDIF
                      IF cLegal == "Private limited company" .OR. cLegal == HB_AnsiToOem("Gesellschaft mit beschränkter Haftung")
                         oAddress:CompForm := "GMBH"
@@ -200,7 +200,8 @@ IF oAddress:lNew
                         oAddress:CompForm := "EK"
                      ELSEIF AT("Limited partnership",cLegal) == 1 ;
                         .OR. cLegal == HB_AnsiToOem("Kommanditgesellschaft");
-                        .OR. cLegal == HB_AnsiToOem("UG (haftungsbeschränkt) & Co. KG")
+                        .OR. cLegal == HB_AnsiToOem("UG (haftungsbeschränkt) & Co. KG");
+                        .OR. cLegal == HB_AnsiToOem("Gesellschaft mit beschränkter Haftung & Co. KG")
                         oAddress:CompForm := "KG"
                      ENDIF
                   ENDIF 
@@ -211,10 +212,13 @@ IF oAddress:lNew
                   ENDIF
 
                   ku->(dbSetOrder( 9 ))
+                  Select("ku")
+                  SET FILTER TO ku->group == oAddress:Group
                   IF ! Empty(oAddress:CompNo) .AND. ku->(dbSeek( oAddress:CountryIso+Str(oAddress:Gericht,4,0)+Upper(oAddress:CompNo) ))
                      Tr_MsgBox("Firma bereits als "+Trim(ku->Kunde)+" angelegt. ")
                      LOOP
                   ENDIF
+                  ku->(dbClearFilter())
 
                ENDIF
 //               gtSetClipboard(oReport:toString(1))
@@ -224,6 +228,16 @@ IF oAddress:lNew
          //ENDIF
       ENDIF
    ENDDO
+ELSE
+   NetUse("viewlog","vlog")
+   vlog->(Add_Rec(0))
+   vlog->Nummer := oAddress:Nummer
+   vlog->Datum  := Date()
+   vlog->Time   := Time()
+   vlog->TimeStamp  := TtoS(DateTime())
+   vlog->Type   := "E"
+   vlog->User   := Tr_Getini(28)
+   vlog->(dbUnLock())
 ENDIF
 
 RestEnv(aEnv,.T.)

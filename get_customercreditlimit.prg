@@ -128,7 +128,12 @@ ENDIF
    hSpecial["HENSOLDT"] := {"DATE"=>StoD("20221030"),"LIMIT"=>7160} //22.08.22 Kunde hatte 30 Tage netto hinterlegt wir hatten 10 Tage ab Monatsende (muss 2016 vereinbart worden sein) //02.03.21 Probleme mit der Email-Adresse fr die Rechnungen / BH Kontkat ist nun auch hinterlegt  
    hSpecial["IHTB"]  :=  {"DATE"=>SToD("20221130"),"LIMIT"=>1999} //29.08.22 Sonderlimit war seit 2020 nicht mehr notwendig, zahlt meistens pnktlich auf automahnung gesetzt //25.06.20 verl„ngert, hatte bersehen de Rechnung zu bezahlen (anscheinend aufgrund von Corona) //20.02.20 Einzelfirma daher keine Auskunft
    hSpecial["ROMBERG"]  :=  {"DATE"=>SToD("20221030"),"LIMIT"=>260} //05.09.22 Rating verschlechtert von 4.1 auf 4.2 zahlte bisher aber mit Skonto/Pktl. 
-   hSpecial["235MEDIA"] := {"DATE"=>StoD("20221030"), "LIMIT"=>300} //10.09.22 Rating weiterihn bei 4.1 in 2021 kein Sonderlimit notwendig zahlt weiterhin mit Skonot //Rating schlecht 4.1, kleiner Betrag und haben in der Vergangenheit (bis Feb. 2019) immer mit Skonto gezahlt
+   hSpecial["235MEDIA"] := {"DATE"=>StoD("20221130"), "LIMIT"=>750} //10.09.22 Rating weiterihn bei 4.1 in 2021 kein Sonderlimit notwendig von 300 erh”ht//Rating schlecht 4.1, kleiner Betrag und haben in der Vergangenheit (bis Feb. 2019) immer mit Skonto gezahlt
+   hSpecial["BBI"] := {"DATE"=>StoD("20221031"), "LIMIT"=>1000} //15.09.22 zahlt Pnktlich von 600 EUR (autom.) erh”ht //11.08.20 sehr schelchtes Rating (4.4), zahlt mit Skonto erh”hiung um 99? auf 599
+   hSpecial["ISAINDUS"] := {"DATE"=>SToD("20221030"),"LIMIT"=>1200}  //27.09.22 Zahlung erfolgte 2021 erst nach Mahnung. Steht schon auf Automahnung. //12.05.20 auf 631 erh”ht //08.05.20 Steht inzwischen auf Factoring. Limit von 500 auf 620 erh”ht //29.03.17 Zahölungsmoral gleich geblieben, braucht weiterhin eine Mahnung //27.09.16 um 200€ erhöht, Zahlungsmoral verschlechtert sich
+   hSpecial["IHTB"] := {"DATE"=>SToD("20221030"),"LIMIT"=>2300}  //27.09.22 Hat letztes Rechnung sofort nach 1. Mahnung bezahlt. Wurde bereits auf Automahn umgestellt.
+   hSpecial["TRANE"] := {"DATE"=>SToD("20221230"),"LIMIT"=>2300}  //28.09.22 Rating liegt bei 1.0 hat nur letzte Rechnung nicht bekommen (falsche Email-Adresse) und dann erst nach erneuter Mahnung bezahlt
+   hSpecial["STEINHAR"] := {"DATE"=>SToD("20221230"),"LIMIT"=>1500}  //03.10.22 Keine Bewertung bei CS (weiá aber nicht warum). Zahlt mit Skonto   
 
    //Auftragslimits fr groáe Kunden, diese gelten wenn der Kunde die volle Deckung bei der Versicherung haben
     
@@ -255,7 +260,7 @@ ENDIF
    //hSpecial["BATTERYD"] := {"DATE"=>StoD("20201030"), "LIMIT"=>150} //06.10.20 Zahlt immer mit Skonto
    //hSpecial["PROVENDO"] := {"DATE"=>StoD("20200630"), "LIMIT"=>562} //25.05.20 auf 562 erh”ht (um weitere 22?) //29.04.20 Rating 4.0 steht auf Factoring, Erh”hung um 40?
    //hSpecial["SCEMTEC"] := {"DATE"=>StoD("20200630"), "LIMIT"=>1600} //07.05.20 Rating 3.2 zahlt aber immer mit Skonto
-   //hSpecial["ISAINDUS"] := {"DATE"=>SToD("20200630"),"LIMIT"=>631}  //12.05.20 auf 631 erh”ht //08.05.20 Steht inzwischen auf Factoring. Limit von 500 auf 620 erh”ht //29.03.17 Zahölungsmoral gleich geblieben, braucht weiterhin eine Mahnung //27.09.16 um 200€ erhöht, Zahlungsmoral verschlechtert sich
+   
    //hSpecial["WEITER"] := {"DATE"=>SToD("20200830"),"LIMIT"=>1363}  //25.06.20 Limit um letzten Abruf einzutragen
    //hSpecial["WIDU"] := {"DATE"=>SToD("20200830"),"LIMIT"=>540}  //25.06.20 Hatte frher schonmal auf Rechnung, k”nnen das schlecht „ndern
    //hSpecial["KSF"] := {"DATE"=>SToD("20200830"),"LIMIT"=>1300}  //29.06.20 War bereits auf Zahlungszziel, hat frher mit Skonto bezahlt. Rating liegt bei 3,1. Test Auskunft von Creditrefrom liegt bei 1,85
@@ -266,7 +271,7 @@ ENDIF
        //hSpecial["EYETI"]    := {"DATE"=>StoD("20201030"), "LIMIT"=>3000} //30.07.20 schlechtes Rating - Factoring
    //hSpecial["SPEEDY"]    := {"DATE"=>StoD("20201031"), "LIMIT"=>1000} //31.07.20 schlechtes Rating - Factoring
    //hSpecial["FEG"]    := {"DATE"=>StoD("20201031"), "LIMIT"=>600} //31.07. schlechtes Rating zahle aber in der Vergangenheit mit Skonto
-   //hSpecial["BBI"] := {"DATE"=>StoD("20201031"), "LIMIT"=>599} //11.08.20 sehr schelchtes Rating (4.4), zahlt mit Skonto erh”hiung um 99? auf 599
+   
    //
    //hSpecial["TECHBEL"] := {"DATE"=>StoD("20201031"), "LIMIT"=>3500} //12.08.20 Zahlt immer ein paar Tage zu sp„t - frher mahnen!
    //hSpecial["TOMLOGIS"] := {"DATE"=>StoD("20201031"), "LIMIT"=>818} //18-08-20 Zahlte direkt nach 1. Mahnung, davor mit Skonto. Schlechtes Rating
@@ -613,13 +618,13 @@ ENDIF
 
 oExtra := ku->(ExtraData():New(nKuNr))
 
-If lWKV .AND. ! (lAuftrag .AND. HHasKey(hSpecial,Trim(cKunde)))
+IF lWKV .AND. lAuftrag .AND. HHasKey(hSpecial,Trim(cKunde)) .AND. hSpecial[Trim(cKunde)]["DATE"] >= Date()
+   nCredLimit := Min(nWKVCL*3,hSpecial[Trim(cKunde)]["LIMIT"])
+ELSEIf lWKV //.AND. ! (lAuftrag .AND. HHasKey(hSpecial,Trim(cKunde)))
    nCredLimit := Min(nCredLimit,nWKVCL)
    IF lDbg		
       ? t("Limit durch die WKV festgelegt:"),Str(nCredLimit)
    ENDIF
-ELSEIf lWKV .AND. lAuftrag .AND. HHasKey(hSpecial,Trim(cKunde))
-   nCredLimit := Min(nWKVCL*3,hSpecial[Trim(cKunde)]["LIMIT"])
 ELSEIF Trim(ku->CompForm) == "KOER" .OR. Trim(ku->CompForm) == "STIFT"
    nCredLimit := Max(1000,nCredLimit)
 ELSEIF lSimpleCountry .AND. ((nTotalPaid >= 4000 .AND. nCredLimit <= 20000) .OR. (nTotalPaid >= 2500  .AND. nCredLimit <= 10000)) //in diesem Fall brauchen wir keine Kreditauskunft. Da reicht die Zahlungserfahrung	
@@ -898,7 +903,7 @@ ENDIF
 nMaxDeckung := Min(nCredLimit,20*nNettoBeitrag/0.7)
 
 IF nMaxDeckung < nCredLimit   
-   IF lAuftrag .AND. HHasKey(hBigCustomer,Trim(cKunde))
+   IF lAuftrag .AND. HHasKey(hBigCustomer,Trim(cKunde)) .AND. hSpecial[Trim(cKunde)]["DATE"] < Date()
       nCredLimit := Min(nCredLimit,hBigCustomer[Trim(cKunde)])
    ELSE
       IF lDbg

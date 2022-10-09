@@ -205,6 +205,7 @@ FOR EACH hProd IN aProducts
        IF ! lStock //we do not have enough in stock or on order to fullfill this order
          DbgPrn("NO STOCK")
          nVPE := 0
+         lUnderMOQ := .T. //if we have no direct manufacturer we are always under MOQ
           IF manu->(dbSeek( Str(hProd:Artikel:Manufactur,5) )) .AND. manu->Address != 0            
              ku->(dbSetOrder( 8 ))
              ku->(dbSeek( Str(manu->Address,6) ))
@@ -221,26 +222,29 @@ FOR EACH hProd IN aProducts
                nVPE := bpr->Qty
              ENDIF
              bpr->(dbClearFilter())
-
+           ENDIF
+           IF art->Lagerart
              ali->(dbSetOrder( 5 ))
-             lWaldom := .F.             
-             IF ali->(dbSeek( Str(hProd:Artikel:Artikelnr,6) + Pad("WALDOM",8) )) .AND. ali->VPE <= hProd:Qty .AND. lsto->(dbSeek( Pad("WALDOM",8)+Str(hProd:Artikel:Artikelnr,6) )) //does waldom have this part and is the qty over waldoms MOQ
-               DbgPrn("Waldom prices found")
-               hPrice := GetBuyPrice( Pad("WALDOM",8), hProd:Artikel:Artikelnr, hProd:Qty )
-               nWaldPrice := hPrice["price"]/hPrice["unit"]
-               lWaldom := .T. //we can buy from waldom
-               IF lsto->Stock >= hProd:Qty .AND. AddWeeks(CWeek(Date()),hProd:Artikel:LZ) > hProd:KW .AND. nWaldPrice > 0 //Waldom hat bestand und die Lieferwoche schreibt eine Zukauf vor oder wir sind unter MOQ                               
-                  DbgPrn("Delivery week: "+NiceWeek(AddWeeks(CWeek(Date()),hProd:Artikel:LZ))+" Quoted:"+NiceWeek(hProd:KW)+" LZ: "+LTrim(Str(hProd:Artikel:LZ)))                  
-                  hProd:nEK := nWaldPrice
-                  hProd:Supplier := Pad("WALDOM",8)
-                  hProd:Margin :=  (hProd:VkPr / Currate( cMoney, "V" ) - hProd:nEK) /  (hProd:VkPr / Currate( cMoney, "V" ))
-                  DbgPrn("Kauf von Woldom, Margin:"+LTrim(Str(hProd:Margin))+", EK: "+Ltrim(str(hProd:nEK)))
+             lWaldom := .F.     
+             IF lUnderMOQ        
+               IF ali->(dbSeek( Str(hProd:Artikel:Artikelnr,6) + Pad("WALDOM",8) )) .AND. lsto->(dbSeek( Pad("WALDOM",8)+Str(hProd:Artikel:Artikelnr,6) )) //does waldom have this part and is the qty over waldoms MOQ
+                  DbgPrn("Waldom prices found")
+                  hPrice := GetBuyPrice( Pad("WALDOM",8), hProd:Artikel:Artikelnr, hProd:Qty )
+                  nWaldPrice := hPrice["price"]/hPrice["unit"]
+                  lWaldom := .T. //we can buy from waldom
+                  IF lsto->Stock >= hProd:Qty .AND. AddWeeks(CWeek(Date()),hProd:Artikel:LZ) > hProd:KW .AND. nWaldPrice > 0 //Waldom hat bestand und die Lieferwoche schreibt eine Zukauf vor oder wir sind unter MOQ                               
+                     DbgPrn("Delivery week: "+NiceWeek(AddWeeks(CWeek(Date()),hProd:Artikel:LZ))+" Quoted:"+NiceWeek(hProd:KW)+" LZ: "+LTrim(Str(hProd:Artikel:LZ)))                  
+                     hProd:nEK := nWaldPrice
+                     hProd:Supplier := Pad("WALDOM",8)
+                     hProd:Margin :=  (hProd:VkPr / Currate( cMoney, "V" ) - hProd:nEK) /  (hProd:VkPr / Currate( cMoney, "V" ))
+                     DbgPrn("Kauf von Woldom, Margin:"+LTrim(Str(hProd:Margin))+", EK: "+Ltrim(str(hProd:nEK)))
+                  ENDIF
+               ELSE
+                  DbgPrn("No Waldom found")
                ENDIF
-             ELSE
-               DbgPrn("No Waldom found")
-             ENDIF
+            ENDIF
 
-             IF (Empty(hProd:Supplier) .OR. hProd:Supplier == ku->Kunde)
+            IF (Empty(hProd:Supplier) .OR. hProd:Supplier == ku->Kunde)
                 ali->(dbSeek( Str(hProd:Artikel:Artikelnr,6) + ku->Kunde ))
                 IF lUnderMOQ .OR. hProd:Qty < ali->VPE //under MOQ of Manufacturer
                   DbgPrn("Under MOQ")
@@ -347,8 +351,9 @@ FOR EACH hProd IN aProducts
                      ENDIF
                   ENDIF
                ENDIF
-             ENDIF
-          ENDIF
+            ENDIF
+         ENDIF
+          //ENDIF
        ENDIF
 
       //IF Tr_Getini(28) == 9

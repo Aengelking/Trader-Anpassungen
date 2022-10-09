@@ -221,7 +221,7 @@ FOR nX := 1 TO Len(aProducts)
          nVK := 0
          hProd:Margin := 0
       ELSE         
-         nVK -= Hook("get_supplier_ship_cost",{Pad(IF(hProd:Artikel:Manufactur == 16,"SIGNAL","ELCOM"),8),hProd:Artikel:Gewicht/1000*ang->VkQty})/ang->VkQty            
+         nVK -= Hook("get_supplier_ship_cost",{Pad(IF(hProd:Artikel:Manufactur == 16,"SIGNAL","ELCOM"),8),hProd:Artikel:Gewicht/1000*hProd:Qty})/hProd:Qty
       ENDIF   
    ENDIF   
    

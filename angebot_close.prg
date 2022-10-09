@@ -2,6 +2,10 @@ LOCAL getlist := {}
 LOCAL nAng := 0
 Head(t("Angebot schließen"))
 
+IF ! SystemUser():CheckPermission("U","SALESQUOTE")
+   RETURN
+ENDIF
+
 NetUse("angebot","ang")
 ang->(dbSetOrder( 1 ))
 

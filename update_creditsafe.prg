@@ -37,7 +37,7 @@ DO WHILE ! cs->(Eof())
          hTurnover := GetCustomerTurnover(ku->kunde)
       ENDIF
       IF ! sk->(IsPrePay(ku->Skonto)) .AND. (nOpenOrders != 0 .OR. hTurnover["12-month"] > 0)
-         Aadd(aList,{SubStr(cs->ID,RAT("/",cs->Id)+1)})
+         Aadd(aList,{SubStr(cs->ID,RAT("/",cs->Id)+1),,,ku->Nummer})
       ELSE
          ?? " nicht aktiv"
          cs->(Rec_Lock())

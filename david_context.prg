@@ -103,6 +103,9 @@ PROCEDURE RUN_DAVID_CONTEXT( cFunction,cMsgPath )
       CASE "BESCHK"
          MBaseRun(Trim(Tr_getini(1))+'\run\BesChk',{cMsgPath})
          EXIT
+      CASE "QUOTE"
+         Quote_edit()
+         EXIT   
       CASE "ENQUIRY"
          Enquiry()
          EXIT

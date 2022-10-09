@@ -32,7 +32,7 @@ PROC ShopWare_Update_Partno
    LOCAL cErrorLog := ""
    LOCAL cSep
    
-   oSW:cBaseUrl := "https://egl.teufels-werk.de/api/" // "https://engelkingtest.shopware.store/api/"
+   //oSW:cBaseUrl := "https://egl.teufels-werk.de/api/" // "https://engelkingtest.shopware.store/api/"
 
    IF ! oSW:Auth()
       Alert("Login failed")
@@ -191,7 +191,7 @@ PROC ShopWare_Update_Partno
                         ENDIF
                         nFirsttab++
                      ELSE
-                        aFunktion := Shopware_Group_Map(Trim(oTable:Funktion))
+                        aFunktion := Shopware_Group_Map(Trim(oTable:Funktion),Trim(oBase:Model))
                         FOR EACH cFunktion IN aFunktion
                            IF ! _DeUpper(cFunktion) $ hPropGroupNames //Check to see if we can find a property group with this name, property groups are unique
                               ? "Fehler: Keine Eigenschaftengruppe fr Tabelle '"+Trim(oTable:Funktion)+"' gefunden"                           
@@ -396,6 +396,7 @@ FUNCTION Shopware_Group_Map(cName)
       "Material"=>{"Geh„usematerial","Geh„usefarbe"},;
       "Kabeldurchmesser [mm]"=>{"Kabeldurchmesser [mm] min.","$-","Kabeldurchmesser [mm] max."};
    }
+   
    IF cName $ hMap
       RETURN hMap[cName]
    ENDIF
@@ -409,7 +410,7 @@ CLASS ShopWareAPI FROM RestAPI
    METHOD Execute
    METHOD New
 
-   DATA cBaseUrl INIT "https://engelking-test.shopware.store/api/"     
+   DATA cBaseUrl //INIT "https://engelking-test.shopware.store/api/"     
 
    //CLASSDATA lUseBasicAuth INIT .T.
 

@@ -179,7 +179,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
 
    bAddJobs := {|aJobs,nWA|
       LOCAL nX //,nSt := 1
-      
+
       job->(dbSetOrder( 2 ))
       res->(dbSetOrder( 2 ))
 
@@ -302,9 +302,17 @@ PROCEDURE RUN_FREPPLE_IMPORT()
       DO WHILE wer->Artno == art->Artikelnr .AND. ! wer->(EOF())
          
          IF wer->Aufno $ hOrders
+            
             oExtra := wer->(ExtraData():New(wer->Aufno))
             IF (wer->Status >= 1 .AND. hOrders[wer->Aufno]:Status == "confirmed") .OR. (wer->Status == 0 .AND. Trim(oExtra:FreppleSta) == hOrders[wer->Aufno]:Status)
                //Aadd(aCSV,{wer->Aufno,"bestehend",hOrders[wer->Aufno]:Id,hOrders[wer->Aufno]:Supplier,Trim(art->Matchcode),wer->Qty-wer->GelQty,Round(hOrders[wer->Aufno]:Qty,GetMeDecimals(art->me)),IF(Empty(wer->Liefma),wer->Startdate,CWeek(wer->Termin)),hOrders[wer->Aufno]:Start,IF(Empty(wer->Liefma),wer->Enddate,CWeek(wer->End)),hOrders[wer->Aufno]:End})
+               /*IF wer->Aufno == 10916
+                  aTExt := {}
+                  Aadd(aText,"Start: "+DtoC(wer->StartDate)+"->"+DtoC(StoD(TtoS(hOrders[wer->Aufno]:Start))))
+                  Aadd(aText,"End: "+DtoC(wer->EndDate)+"->"+DtoC(StoD(TtoS(hOrders[wer->Aufno]:End))) )
+                  Tr_MsgBox(aText)                  
+                  Alert("update")
+               ENDIF*/
 
                //this is an existing order which was exported to frepple, here we just move the dates and tasks
                IF wer->StartDate  != StoD(TtoS(hOrders[wer->Aufno]:Start)) .OR.  wer->EndDate  != StoD(TtoS(hOrders[wer->Aufno]:End)) .OR. wer->PlanBad != hOrders[wer->Aufno]:BadQty;
@@ -341,11 +349,12 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                      oWerk:Save()
       
                     //wer->(dbUnLock())                  
-                  ENDIF
-               ELSEIF nChoice == 3
-                  __KeyBoard(Chr(K_SH_TAB))
-               ELSE
                   
+                  ELSEIF nChoice == 3
+                     __KeyBoard(Chr(K_SH_TAB))
+                  ENDIF
+               ELSE
+
                   Eval(bAddJobs,hOrders[wer->Aufno]:Jobs,wer->Aufno)
                ENDIF
             ELSE

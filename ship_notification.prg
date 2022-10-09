@@ -29,6 +29,7 @@ IF ! re->(dbSeek( Str(nRechnr,6)+Str(0,3) ))  .OR. re->PosWt <= 0
    RETURN NIL
 ENDIF
 
+ups->(dbSetOrder( 3 ))
 IF ups->(dbSeek( Str(nRechnr,10) )) 
    nVersandart :=  ups->Versandart
 ENDIF
@@ -116,7 +117,6 @@ cEmail := cAnrede+cEmail
 
 re->(dbSeek( Str(nRechnr,6)+Str(0,3) ))
 
-ups->(dbSetOrder( 3 ))
 IF nVersandart $ {2,19,34,40,43,46,56,58}
    pnum->(dbSetOrder( 1 ))
    pnum->(dbSeek( ups->Nr ))

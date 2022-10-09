@@ -21,30 +21,39 @@ LOCAL getlist := {}
 LOCAL lMuster := .T.
 LOCAL lAngebot := .T.
 LOCAL lAuftrag := .T.
-LOCAL lTel := .F.
+//LOCAL lTel := .F.
 LOCAL cGroup := Space(4)
 LOCAL hPos,cWeek,cFile,nX,cKunde,nP
 LOCAL hContact,nA
+LOCAL lAllContacts := .F.
+LOCAL lNoGeneral := .F.,aPeople
+LOCAL lNurEmail := .T.
+LOCAL aCSV := {},nCount,cAnrede,cEmail,cName
 
 Head("Ansprechpartner mit Email Adressen exportieren")
 
 @ 01,00 SAY "Auswahlart"
-@ 01,11,10,40 GET nType LISTBOX aTypes DROPDOWN
+@ 01,27,10,50 GET nType LISTBOX aTypes DROPDOWN
 @ 02,00 SAY "Regex"
-@ 02,11 GET cBegin WHEN nType == 1
+@ 02,27 GET cBegin WHEN nType == 1 //VALID HB_IsRegexString(cBegin)
 @ 03,00 SAY "Hersteller"
-@ 03,11,22,40 GET nManu LISTBOX hManu ASSOCIATIVE WHEN nType == 2
+@ 03,27,22,40 GET nManu LISTBOX hManu ASSOCIATIVE WHEN nType == 2
 @ 04,00 SAY "Produktgruppe"
-@ 04,11 GET cGroup PICTURE "@!" WHEN nType == 3
-@ 05,00 SAY t("Telefonnummern exportieren")
-@ 05,27 GET lTel CHECKBOX
+@ 04,27 GET cGroup PICTURE "@!" WHEN nType == 3
+//@ 05,00 SAY t("Telefonnummern exportieren")
+//@ 05,27 GET lTel CHECKBOX
 @ 06,00 SAY "Muster"
-@ 06,11 GET lMuster CHECKBOX
+@ 06,27 GET lMuster CHECKBOX
 @ 07,00 SAY "Angebote"
-@ 07,11 GET lAngebot CHECKBOX
+@ 07,27 GET lAngebot CHECKBOX
 @ 08,00 SAY t("Aufträge")
-@ 08,11 GET lAuftrag CHECKBOX
-
+@ 08,27 GET lAuftrag CHECKBOX
+@ 09,00 SAY "Alle Kontakte"
+@ 09,27 GET lAllContacts CHECKBOX
+@ 10,00 SAY "Allgemeine ausschlieáen"
+@ 10,27 GET lNoGeneral CHECKBOX
+@ 11,00 SAY "Nur mit Email"
+@ 11,27 GET lNurEmail CHECKBOX
 READ
 
 
@@ -73,38 +82,47 @@ NetUse("artikel","art")
 art->(dbSetOrder( 2 ))
 NetUse("angebot","ang")
 NetUse("contacts","conts")
+NetUse("anrede","an")      
 
 cWeek := CalWeek(Date()-365)
 
+SET CURSOR OFF
+
+nCount := 0
 IF lAuftrag
    auf->(dbSetFilter({|| auf->VkPr != 0 },"VkPr != 0"))
    auf->(dbSeek( cWeek ))
    @ 23,00 SAY "Auftrag"
-   Do While ! auf->(EOF()) .AND. auf->DTERM >= Val(cWeek)
+   Do While ! auf->(EOF()) .AND. auf->DTERM >= Val(cWeek) .AND. Left(Str(auf->Dterm,4),2) < "50"
       IF nType >= 2
          art->(dbSeek( Str(auf->Artikelnr,6) ))
       ENDIF
    
    	IF (nType == 1 .AND. HB_RegexMatch(cBegin,auf->Matchcode)) .OR. (nType == 2 .AND. art->Manufactur == nManu) .OR. (nType == 3 .AND. art->Gruppe == cGroup)
    	//IF AScan(aList,Trim(auf->Matchcode)) != 0
-   		@ 23,08 SAY auf->Abnr
-   		__AddEntry(hPos,auf->Kundma,auf->Matchcode,auf->person)
+         nCount++   
+         @ 23,14 SAY Str(auf->Abnr,6)+" ("+LTrim(Str(nCount))+")"
+         __AddEntry(hPos,auf->Kundma,auf->Matchcode,auf->person)
+         
    	Endif
    	auf->(dbSkip())
    Enddo
    auf->(dbClearFilter())
 ENDIF
 
+
 IF lMuster
+   nCount := 0
    @ 24,00 SAY "Musterauftrag"
-   lne->(dbSetFilter({|| lne->Versand .AND. lne->Datum >= Date()-365 .AND. lne->Gruppe == "K"},"Versand .AND. Datum >= Date()-365 .AND. lne->Gruppe == 'K'"))
+   lne->(dbSetFilter({|| lne->Versand .AND. lne->Datum >= Date()-365 .AND. lne->Gruppe == "K"},"Versand .AND. Datum >= Date()-365 .AND. Gruppe == 'K'"))
    lne->(dbGoTop())
    Do While ! lne->(Eof())
       IF nType >= 2
          art->(dbSeek( Str(lne->Artikelnr,6) ))
       ENDIF
    	If /*lne->Versand .AND. lne->Datum >= Date()-365 .AND. lne->Gruppe == "K" .AND.*/ (nType == 1 .AND. HB_RegexMatch(cBegin,lne->Matchcode)) .OR. (nType == 2 .AND. art->Manufactur == nManu) .OR. (nType == 3 .AND. art->Gruppe == cGroup)
-   		@ 24,14 SAY lne->Nummer
+         nCount++
+         @ 24,14 SAY Str(lne->Nummer,6)+" ("+LTrim(Str(nCount))+")"
    		__AddEntry(hPos,lne->Kunde,lne->Matchcode,lne->Person)
    	Endif
    	lne->(dbSkip())
@@ -113,6 +131,7 @@ IF lMuster
 ENDIF
 
 IF lAngebot
+   nCount := 0
    @ 25,00 SAY "Angebote"
    ang->(dbSetFilter({|| ang->Datum >= Date()-365 },"Datum >= Date()-365"))
    ang->(dbGoTop())
@@ -120,8 +139,9 @@ IF lAngebot
       IF nType >= 2
          art->(dbSeek( Str(ang->Artikelnr,6) ))
       ENDIF
-   	IF (nType == 1 .AND. HB_RegexMatch(cBegin,lne->Matchcode)) .OR. (nType == 2 .AND. art->Manufactur == nManu) .OR. (nType == 3 .AND. art->Gruppe == cGroup)
-   		@ 25,10 SAY ang->Angnr
+      IF (nType == 1 .AND. HB_RegexMatch(cBegin,lne->Matchcode)) .OR. (nType == 2 .AND. art->Manufactur == nManu) .OR. (nType == 3 .AND. art->Gruppe == cGroup)
+         nCount++
+   		@ 25,14 SAY Str(ang->Angnr,6)+" ("+LTrim(Str(nCount))+")"
          __AddEntry(hPos,ang->Kundma,ang->Matchcode,ang->Person)
    	Endif
    	ang->(dbSkip())
@@ -130,40 +150,79 @@ IF lAngebot
 ENDIF
 
 cFile := Trim(Tr_Getini(1))+"\export\"+IF(nType==1,Lower(CharRepl("*.\?:()|/\",Trim(cBegin)," __")),IF(nType==2,Trim(hManu[nManu]),Trim(cGroup)))+"_auftraege.csv"
-SET PRINTER TO (cFile)
-SET PRINTER ON
+//SET PRINTER TO (cFile)
+//SET PRINTER ON
+@ 26,00 SAY "Exportiere"
+@ 26,21 SAY "/"+LTrim(Str(Len(hPos)))
 
-?? "Sprache"+Chr(59)+"Anrede"+Chr(59)+"Name"+Chr(59)+"Email"+Chr(59)
-IF lTel
-   ?? "Telefon"+Chr(59)
-ENDIF
-?? "Matchcode"+Chr(59)+"Firma"+Chr(59)+"Straße"+Chr(59)+"PLZ"+Chr(59)+"Stadt"+Chr(59)+"Land"
+Aadd(aCSV,{"Sprache","Anrede","Name","Email"})
+/*IF lTel
+   Aadd(aCSV[1],"Telefon")
+ENDIF*/
+Aadd(aCSV[1],"Matchcode")
+Aadd(aCSV[1],"Firma")
+Aadd(aCSV[1],"Straáe")
+Aadd(aCSV[1],"PLZ")
+Aadd(aCSV[1],"Stadt")
+Aadd(aCSV[1],"Land")
 
 aku->(dbSetOrder( 3 ))
 nX := 1
 Do While nX <= Len(hPos)
-	cKunde := HGetKeyAt(hPos,nX)
+   @ 26,11 SAY Str(nX,10)
+   cKunde := HGetKeyAt(hPos,nX)
 	If ! Trim(cKunde) $ "SELF GEKOA PGPOWER TEST"
 		ku->(dbSeek( cKunde+"K" ))
-		nP := 1
-		Do While nP <= Len(hPos[cKunde]["people"])
-			If hPos[cKunde]["people"][nP] != 0 .OR. Len(hPos[cKunde]["people"]) == 1
-				nA := 1
-				hContact := GetContact(hPos[cKunde]["people"][nP])
-				ASort(hPos[cKunde]["artikel"])
-            ? HB_OemToAnsi(ku->Language+Chr(59)+hContact["anrede"]+Chr(59)+hContact["name"]+Chr(59)+hContact["email"]+Chr(59))
-            IF lTel
-               ?? hContact["fullphone"]+Chr(59)
+      nP := 1
+      IF lAllContacts
+         aPeople := GetAddressContacts(.F.)[2]
+      ELSE
+         aPeople := hPos[cKunde]["people"]
+      ENDIF
+      conts->(dbSetOrder(2))
+      Do While nP <= Len(aPeople)
+         IF aPeople[nP] != 0 .OR. Len(aPeople) == 1
+         
+            IF conts->(dbSeek( Str(ku->Nummer,6)+Str(aPeople[nP],4) )) .AND. conts->Anrede > 0
+               an->(dbGoto(conts->Anrede))
+               cAnrede := Trim(an->Anrede)
+               cName := Trim(conts->Name)
+               cEmail := Trim(conts->email)
+               
+            ELSEIF lNoGeneral
+               nP++
+               LOOP
+            ELSE
+               cAnrede := IF(ku->Language=="D","Sehr geehrte Damen und Herren","Dear Sir or Madam")  
+               cName   := ""          
+               cEmail  := Trim(conts->email)               
             ENDIF
-            ?? HB_OemToAnsi(Trim(ku->Kunde)+Chr(59)+Trim(Trim(ku->Name1)+" "+ku->Name2)+Chr(59)+Trim(ku->Street)+Chr(59)+Trim(ku->Plz)+Chr(59)+Trim(ku->Town)+Chr(59)+Trim(GetCountryname(ku->CountryIso)))
-				Do While nA <= Len(hPos[cKunde]["artikel"])
-					?? Chr(59)+Trim(hPos[cKunde]["artikel"][nA])+Chr(59)
-					IF aku->(dbSeek( cKunde+hPos[cKunde]["artikel"][nA] ))
-					 ?? aku->Artlief
-					ENDIF
-//					?? Chr(59) //+Chr(59)
-					nA++
-				Enddo
+			
+				nA := 1
+            //hContact := GetContact(aPeople[nP])
+            IF ! lNurEmail .OR. ! Empty(cEmail)
+               Aadd(aCSV,{{"D"=>"DE","E"=>"EN"," "=>"DE"}[ku->Language],cAnrede,cName,cEmail})
+               
+               /*IF lTel
+                  AAdd(ATail(aCSV),hContact["fullphone"])
+               ENDIF*/
+               AAdd(ATail(aCSV),Trim(ku->Kunde))
+               AAdd(ATail(aCSV),Trim(Trim(ku->Name1)+" "+ku->Name2))
+               AAdd(ATail(aCSV),Trim(ku->Street))
+               AAdd(ATail(aCSV),Trim(ku->Plz))
+               AAdd(ATail(aCSV),Trim(ku->Town))
+               AAdd(ATail(aCSV),Trim(GetCountryname(ku->CountryIso)))
+               /*
+               ASort(hPos[cKunde]["artikel"])
+               Do While nA <= Len(hPos[cKunde]["artikel"])
+                  ?? Chr(59)+Trim(hPos[cKunde]["artikel"][nA])+Chr(59)
+                  IF aku->(dbSeek( cKunde+hPos[cKunde]["artikel"][nA] ))
+                  ?? aku->Artlief
+                  ENDIF
+   //					?? Chr(59) //+Chr(59)
+                  nA++
+               Enddo*/
+            ENDIF
 			Endif
 			nP++
 		Enddo
@@ -171,10 +230,18 @@ Do While nX <= Len(hPos)
 	nX++
 Enddo
 
-SET PRINTER TO
-SET PRINTER OFF
-
-WAPI_ShellExecute(NIL, "Open", cFile, "", "", 1)
+//SET PRINTER TO
+//SET PRINTER OFF
+DO WHILE (nH := Fopen(cFile,"W")) == 0 .AND. Tr_MsgBox("Datei kann nicht ge”ffnet werden",,{"wiederholen","abbrechen"}) != 2
+ENDDO
+IF nH != 0
+   FClose(nH)
+   @ 27,00 SAY "Speichern..."
+   SaveAsCSV(cFile,aCSV)
+   @ 27,14 SAY "abgeschlossen"
+   WAPI_ShellExecute(NIL, "Open", cFile, "", "", 1)
+ENDIF
+SET CURSOR ON
 
 TR_MsgBox("Export abgeschlossen")
 

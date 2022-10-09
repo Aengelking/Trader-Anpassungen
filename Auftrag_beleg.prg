@@ -11,11 +11,11 @@ MEMVAR cFilter
 PRIVATE cFilter
 
 IF Tr_Getini(28) == 9   //testing heidelberger   
-   /*RUN_CollectAndProcess_LE({;
+   RUN_CollectAndProcess_LE({;
          "KUNDE"=>15958,;
          "PRODFREIGABE"=>3,;  //Anzahl Monate Produktionsfreigabe
          "MATFREIGABE"=>6;  //Anzahl Monate Produktionsfreigabe      
-      }) */
+      }) 
       /*hSettings := {;
          "KUNDE"=>15958,;
          "PRODFREIGABE"=>3,;  //Anzahl Monate Produktionsfreigabe
@@ -422,7 +422,7 @@ FUNCTION RUN_CollectAndProcess_LE(hSettings)
          cFile := Atail(aDir)[1]     
       
          aSaved := HB_DeSerialize(MemoRead(cPath+cFile))
-         Alert(ValToPrg(aSaved))
+         //Alert(ValToPrg(aSaved))
          hHead := aSaved[1]
          aData := aSaved[2]
          IF Len(aSaved) >= 3

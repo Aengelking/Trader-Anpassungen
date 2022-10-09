@@ -31,7 +31,7 @@ LOCAL hApprKto    := /*GetValue("REB_APRACC",*/ {51=>{70887,74186,70062,70302,70
 LOCAL hPeople := {9=>"Amos",34=>"Sigrid",50=>"Daniela",57=>"Daniel",51=>"Celina"}
 LOCAL nPersOnApprove := 34 //automatically assign to this person on approval
 LOCAL aAdmin      := {9}
-LOCAL nTolPaydate := 2 //deduct from due date to compensate for Postal time etc.
+LOCAL nTolPaydate := GetValue("REB_TOLDATE",2,"Toleranz fr Zahldatum") //deduct from due date to compensate for Postal time etc.
 /***************/
 LOCAL lIsAdmin    := AScan(aAdmin,Tr_Getini(28)) != 0
 
@@ -198,9 +198,10 @@ oBrowse:NewColumn(,{||
 })
 oBrowse:NewColumn("Termin",{||
    LOCAL dDate,aSkonto
+   
+   rebp->(dbSetOrder( 1 ))
+   rebp->(dbSeek( Str(reb->ID,9), .T. ))
    IF reb->Status < 8 .AND. reb->Liefnr != 0
-      rebp->(dbSetOrder( 1 ))
-      rebp->(dbSeek( Str(reb->ID,9), .T. ))
       IF ! IsPrePay(ku->Skonto)
          aSkonto := skb->(GetSkonto(ku->Skonto,StoD(rebp->DateTime)))
          dDate := AddWorkingDays(StoD(rebp->DateTime)+IF(aSkonto[1,2]==0.AND.Len(aSkonto)>1,aSkonto[2,2],aSkonto[1,2]),nTolPaydate*-1,GetConfigValue("STATE"),.T.)
@@ -208,9 +209,8 @@ oBrowse:NewColumn("Termin",{||
          dDate := StoD(rebp->DateTime)+13 //nach 15 Tagen kommt die Meldung, dass die Rechnung fehlt
       ENDIF
       RETURN DtoC(dDate)
-      
    ENDIF
-   RETURN Space(8)
+   RETURN DtoC(StoD(rebp->DateTime)+5) //standard ist 5 Tage nach erhalt, das sollte auch fr Skonto reichen
 })
 
 oBrowse:NewColumn("Kontonr.",{||

@@ -20,11 +20,11 @@ PUBLIC cPriceError
 Default(@lDisp,.T.)
 Default(@lForce,.F.)
 
-/*IF Tr_Getini(28) == 9
-   aCompet := {"Farnell"}
-ELSE*/
+IF Tr_Getini(28) == 9
+   aCompet := {"BšRKLIN"}
+ELSE
    aCompet := {"RS","Schukat",HB_AnsiToOem("BÜRKLIN"),"ARROW"} //Farnell //"Conrad", "Reichelt","Mouser" does not work
-//ENDIF
+ENDIF
 
 IF lDisp
    TxtBox("Preise werden aktualisiert...")

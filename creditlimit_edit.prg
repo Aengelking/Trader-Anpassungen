@@ -1,6 +1,6 @@
 #include 'y:\hb32\include\inkey.ch'
-If TR_getini(28) != 9 .AND. TR_getini(28) != 34
-	Tr_MsgBox("Zugang verweigert!")
+IF ! SystemUser():CheckPermission("U","ADR_CUSTOMERTR_CREDITLIMIT") //getini(28) != 9 .AND. TR_getini(28) != 34
+	//Tr_MsgBox("Zugang verweigert!")
 	Return
 Endif
 

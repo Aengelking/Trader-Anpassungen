@@ -120,3 +120,36 @@ RETURN cCol
 FUNCTION OOCell(nCol,nRow)
 RETURN OONumToCol(nCol)+LTrim(Str(nRow))
 
+FUNCTION SaveToOO_Interface(hData,cPW,cType,lShow)
+   LOCAL cFile,nH := 0
+
+   IF ValType(cType) != "C" .OR. ! Upper(cType) $ {"ODS","XLS","XLSX"}
+      cType := "ODS"
+   ELSE
+      cType := Upper(cType)
+   ENDIF
+
+   DO WHILE .T.
+      cFile :=  Wvt_GetSaveFileName( 0,"" , cType+" Datei", { {"Spreadsheet (*."+Lower(cType)+")","*."+Lower(cType)},{"Alle Dateien (*.*)","*.*"} }, , "%home%" )
+      IF Empty(cFile)
+         RETURN NIL
+      ENDIF
+      IF RAT("."+Lower(cType),cFile) != Len(cFile)-3
+         cFile += "."+Lower(cType)
+      ENDIF
+
+      IF File(cFile) .AND. Tr_MsgBox("Datei berschreiben?",,{"Nein","Ja"}) == 2 .AND. (nH := Fopen(cFile,1)) == -1
+         Tr_MsgBox("Fehler beim ™ffnen der Datei")
+      ELSE
+         EXIT         
+      ENDIF
+   ENDDO
+
+   IF nH > 0
+      FClose(nH)
+   ENDIF
+   TxtBox("Daten werden gespeichert ... ")
+   SaveToOO(cFile,hData,cPW,cType,lShow)
+   TxtClear()   
+RETURN .T.
+

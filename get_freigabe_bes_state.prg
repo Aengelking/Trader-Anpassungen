@@ -34,12 +34,14 @@ If lFrei .OR. cState == ""
 	cNextLevel := GetNextFreigabeLevel(nArtnr,nSupplier,cState)
 Endif
 
-//Alert(cState+" -> "+cNextLevel)
+IF Tr_Getini(28) == 9
+   //Alert(cState+" -> "+cNextLevel+IF(lFrei,""," nicht")+" freigegeben")
+ENDIF
 
-IF cNextLevel == "MUS" .OR. (nSupplier == 0 .AND. cNextLevel == "KU") //.OR. cNextLevel == "DONE"
+IF cNextLevel == "MUS" .OR. (nSupplier == 0 .AND. cNextLevel == "KU") .OR. (cState == "KU" .AND. cNextLevel == "KU") //das letzte ist der Fall, wenn der Kunde die Muster ablehnt
 	hRet:lBes        := .T.
-   hRet:nMaxQty     := 3 //restrict everthing to two pieces, except the expections below 
-   
+   hRet:nMaxQty     := 4 //restrict everthing to two pieces, except the expections below 
+
    IF art->Gruppe == "KONK" ; //Netzkabel
       .OR. art->Gruppe == "KOSO" .AND. Left(art->Matchcode,3) == "pL/" //Litzen fÅr die Produktion
       hRet:nMaxQty     := 1000
@@ -76,6 +78,8 @@ IF cNextLevel == "MUS" .OR. (nSupplier == 0 .AND. cNextLevel == "KU") //.OR. cNe
          //hRet:nMaxQty := 10 //nMaxCost
       ENDIF
 	ENDIF
+ELSEIF cNextLevel == "ZNG" .AND. (Left(oArt:Matchcode,2) == "BA" .OR. Trim(oArt:Matchcode) $ {"KS28074/1"})  //Beschaffungsartikel
+   hRet:lBes        := .T.
 ELSEIF cState == "DONE"
    
 	If lSonder

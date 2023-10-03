@@ -1,4 +1,5 @@
-PARAMETERS nWnr
+PROC HOOK_AFTER_START_WERKAUF( nWnr )
+   LOCAL lFremdOnly
 
 wer->(dbSetOrder(1))
 wer->(dbSeek( str(nWnr,6) ))
@@ -30,4 +31,25 @@ IF ! Empty(wer->Liefma)
       ENDIF
       UnLockEntity("LNE",wer->Lagnum)
   ENDIF
+ELSE //interne Fertigung
+   NetUse("werks","we")
+   NetUse("artikel","art")
+   NetUse( "restime", "rst"  )
+   NetUse( "jobs",   "job" )
+
+   art->(dbSetOrder(2))
+   art->(dbSeek( Str(wer->Artno,6) ))
+   IF art->Gruppe == "SWPM"
+      rst->(dbSetOrder( 1 ))
+      rst->(dbSeek( "WA "+Str(wer->Aufno) ))   
+      DO WHILE rst->Type == "WA " .AND. rst->No == nWnr
+         job->(dbSeek( Str(rst->Job,6) ))
+         
+         IF AT("PRFEN",Upper(job->Name)) > 0
+            SendMail({{"samuel.engelking@engelking.de","Samuel"}},"SD-Karte fr FA "+LTrim(Str(nWnr))+" vorbereiten")            
+            EXIT
+         ENDIF
+         rst->(dbSkip())
+      ENDDO
+   ENDIF
 ENDIF

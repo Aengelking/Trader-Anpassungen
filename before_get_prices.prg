@@ -7,7 +7,7 @@ IF ! Empty(cKundma)
    oExtra := ku->(ExtraData():New( ku->Nummer ))
 ENDIF
 
-IF nTab == 12 .AND. oExtra != NIL .AND. oExtra:IecLock //! Empty(cKundma) .AND. "|"+Trim(cKundma)+"|" $ HB_AnsiToOem("|KASH|MERSCHJO|FR÷HLI|MONACOR|EFBELEK|KALTHOFF|HERWECK|HAWA|SCHULZKA|STAYONLI|BECHTLE|BECHTLEN|")
+IF (nTab == 12 .OR. nArtnr $ {15353}) .AND. oExtra != NIL .AND. oExtra:IecLock //! Empty(cKundma) .AND. "|"+Trim(cKundma)+"|" $ HB_AnsiToOem("|KASH|MERSCHJO|FR÷HLI|MONACOR|EFBELEK|KALTHOFF|HERWECK|HAWA|SCHULZKA|STAYONLI|BECHTLE|BECHTLEN|")
    nTab := 29 //change to IEC disti price list
    //Alert("HERE")
 ELSEIF (nTab == 1 .OR. nTab == 2 ) .AND. ! Empty(cKundma) .AND. "|"+Trim(cKundma)+"|" $ HB_AnsiToOem("|HARDYSRH|EFBELEK|MONACOR|")  //Elektrogroﬂhandel

@@ -1,10 +1,12 @@
 FUNC HOOK_GET_FREIGABE_FIELDS(cState)
 
-   If cState $ "UNT"
+   If cState $ {"UNT","ZNG"}
       Return {"user"}
    ELSEIF cState == "MUS"
       RETURN {"user","ignore","forcesonderonignore"}
-   Elseif cState $ "UNTK KU"
+   Elseif cState == "UNTK"
+      RETURN {"customer","canchangesupplier"}
+   Elseif cState == "KU"
       RETURN {"customer"}
    Endif
 

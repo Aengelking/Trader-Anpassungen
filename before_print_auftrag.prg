@@ -10,7 +10,7 @@ FUNCTION Before_Print_auftrag(oAuftrag,hEmailData)
    IF lCheck .OR. Empty(oAuftrag:LastPrint)
       TxtBox("BestÑtigungen werden geprÅft...")
       oAuftrag:Positions:Each({|oPos|
-         IF lCheck .OR. HB_RegexMatch("^(48|59-5|49-1|49-9|57M|58M|SA(48|57|50)|JSC4|SDD|[SGCH](48|57M))",oPos:Artikel:Matchcode)
+         IF lCheck .OR. (HB_RegexMatch("^(48|49-1|49-9|57M|58M|SA(48|57|50)|JSC4|SDD|[SGCH](48|57M))",oPos:Artikel:Matchcode) .AND. ! HB_RegexMatch("^48-[1]-RB-[N,R,G]{1}-[A-Z]{2}-B$",Trim(oPos:Artikel:Matchcode)))
             IF ! HHasKey(hArtikel,oPos:Artikel:Artikelnr)            
                hArtikel[oPos:Artikel:Artikelnr] := aAvail := GetKwQty(oPos:Artikel:Artikelnr,.T.)  //only with confirmed PO's
             ELSE
@@ -35,7 +35,7 @@ FUNCTION Before_Print_auftrag(oAuftrag,hEmailData)
          ELSE
             Tr_MsgBox({"Auftrag enthÑlt Positionen von ITW EBA.","Nicht alle dieser Positionen sind von ITW bestÑtigt.","AB kann noch nicht verschickt werden."},"FEHLER")
          ENDIF
-         SendMail({{"amos.engelking@engelking.de","Amos"}},"AB "+Ltrim(str(oAuftrag:AbNr)),Trim(Buy(Tr_Getini(28),.T.))+" mîchte ein AB verschicken. Es sind jedoch nicht alle Positionen bestÑtigt.")
+         SendMail({{"amos.engelking@engelking.de","Amos"}},"AB "+Ltrim(str(oAuftrag:AbNr)),Trim(Buy(Tr_Getini(28),.T.))+" mîchte eine AB verschicken. Es sind jedoch nicht alle Positionen bestÑtigt.")
       ENDIF      
       RETURN .F.
    /*ELSEIF oAuftrag:Abnr == 57786

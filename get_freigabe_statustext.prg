@@ -1,7 +1,7 @@
 FUNC HOOK_GET_FREIGABE_STATUSTEXT(cState,lFrei,lSonder,nMenge,dDatum,nVerbraucht)
 LOCAL hText,cText
 
-hText := {"UNT"=>"Fertigungsunt.","UNTK"=>"Unt. v. Kunden","MUS"=>"Muster","KU"=>"Vom Kunden"}
+hText := {"UNT"=>"Fertigungsunt.","UNTK"=>"Unt. v. Kunden","MUS"=>"Muster","KU"=>"Vom Kunden","ZNG"=>"Zeichnung"}
 If cState=="DONE"
 	If ValType(lFrei) == "L"
 		If lFrei

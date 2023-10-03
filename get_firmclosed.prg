@@ -49,6 +49,9 @@ ELSEIF nYear == 2020
    
 ELSEIF nYear == 2021
    Aadd(aDays,StoD("20211223"))   
+ELSEIF nYear == 2022
+   Aadd(aDays,StoD("20211223"))   
+
 ENDIF
 
 RETURN aDays

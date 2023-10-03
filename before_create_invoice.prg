@@ -16,7 +16,9 @@ FUNC HOOK_BEFORE_CREATE_INVOICE(oRechnung,lCredit)
          Aadd(aMsg,"Keine Kontaktperson vorhanden")
       ENDIF
       IF Len(aMsg) > 0
-         Tr_MsgBox(aMsg,"Kontaktdaten fehlen")
+         IF ! GetConfigValue("BATCHMODE")
+            Tr_MsgBox(aMsg,"Kontaktdaten fehlen")
+         ENDIF
          RETURN .F.
       ENDIF
    ENDIF

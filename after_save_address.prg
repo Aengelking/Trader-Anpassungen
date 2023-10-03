@@ -3,7 +3,7 @@ PROCEDURE After_Save_address(oAddress,lNew)
 LOCAL lChange,nRec,cName,lJur
 LOCAL lEG,nResult
 LOCAL aList,oRechnung,nRechnr
-LOCAL oCustom,oExtra
+LOCAL oCustom,oExtra,lUpDated
 
 NetUse("rechnung","reh")
 NetUse("englsre","re")
@@ -45,7 +45,7 @@ IF lEG .AND. ! Empty(oAddress:Vatnr) //bei EG Adressen prfen wir die Richtigkei
    ENDIF
 ENDIF
 
-IF ku->GROUP == "K" //nur Bei Kunden 
+IF oAddress:GROUP == "K" //nur Bei Kunden 
 
    IF oAddress:HasCargo("report") //save the report, needs to be done before GetCustomerCreditLimit
       CS_SaveReport(oAddress:Nummer,oAddress:GetCargo("report")) //this also downloads the PDF and saves it
@@ -113,6 +113,27 @@ IF ku->GROUP == "K" //nur Bei Kunden
       oExtra := ku->(ExtraData():New(ku->Nummer))
       oExtra:OnlineKauf := .T.
       oExtra:Save()
+   ENDIF   
+ENDIF
+
+
+IF oAddress:Group == "L"
+   lUpdated := .F.
+   IF ! lNew    
+      IF oAddress:FieldUpdatedLastSave("IBAN") .OR. oAddress:FieldUpdatedLastSave("BIC")
+         lUpDated := .T.      
+      ENDIF
+      IF oAddress:FieldUpdatedLastSave("SKONTO") 
+         lUpDated := .T.
+      ENDIF
+   ENDIF 
+   IF lNew .OR. lUpdated //Neuer Lieferant
+      IF ku->Skonto != 9 .AND. (Empty(oAddress:IBAN) .OR. Empty(oAddress:BIC))
+         Tr_MsgBox("Bitte IBAN und BIC hinterlegen.")
+      ENDIF
+      NetUse("skontob","skb")
+      skb->(dbGoto(oAddress:Skonto+1))
+      SendMail({{"amos.engelking@engelking.de","Amos"}},IF(lNew,"Neuer","Ge„nderter")+" Lieferant: "+Trim(oAddress:Kunde),"Name: "+oAddress:cName+Chr(10)+Chr(13)+skb->(SKONT(0,0,skb->Ziel1,skb->Ziel2,skb->Ziel3,skb->Rate1,skb->Rate2,skb->Rate3,"D",.F.))+Chr(10)+Chr(13)+"W„hrung: "+Currate(oAddress:Money,"X")+Chr(10)+Chr(13)+"IBAN: "+oAddress:IBAN+Chr(10)+Chr(13)+"BIC: "+oAddress:BIC)
    ENDIF
 ENDIF
 

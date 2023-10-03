@@ -3,7 +3,7 @@ FUNCTION HOOK_APPROVE_BES(nBesnr)
 #define DEBUG Tr_Getini(28) == 9
 
 LOCAL nLevel := 4
-LOCAL aLevels := { {9},{37,45},{57},{28,33,41,54,58} }
+LOCAL aLevels := { {9},{37,45},{57},{28,33,41,54,58,63} }
 LOCAL cText := "",cBaseText
 LOCAL aUsers
 LOCAL oArt
@@ -17,7 +17,7 @@ LOCAL aLowPrice
 LOCAL nCur
 
 IF  Date() >= GetValue("HOLIDAY-AMOS-START") .AND. Date() <= GetValue("HOLIDAY-AMOS-END") //Amos holiday
-   Aadd(aLevels[1],57)
+   Aadd(aLevels[1],45)
 ENDIF
 
 IF Trim(bes->Liefma) == "BULGIN" //tempor„r bis wir eine Bestellung ber 4000 GBP zusammmen haben
@@ -64,6 +64,9 @@ DO WHILE bes->Besnr == nBesnr .AND. ! bes->(Eof())
          IF ! lHasFolge .AND. ! AT("WA",bes->Grund) == 1
             IF Trim(bes->Matchcode) == "PRšFBERICHT" .AND. bes->EKpr < 100
                nLevel := 3
+            ELSEIF Trim(bes->Matchcode) == "WERKZEUGKOSTEN"
+               cText := cBaseText+" beim Lieferanten als @ bestellen"
+               nLevel := 1
             ELSE
                nLevel := 1
                cText := cBaseText+" Artikel nicht lagerf„hig"

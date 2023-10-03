@@ -11,13 +11,11 @@ PROC HOOK_AFTER_CHANGE_ADR_MATCHCODE(cOldMatch,cMatch,cGroup)
    IF ! Empty(oExtra:AgorumID)      
       TxtBox("Agorum Core wird aktualisiert")
       oCustom := AgorumCustomApi():New()
-      IF ! oCustom:SaveAddress(oAddress)
-         Tr_MsgBox({"Fehler beim speichern der Adresse in Agorum Core.",oCustom:cErrorText})
-      ENDIF
-      IF Left(cOldMatch,2) != Left(cMatch,2)
+      IF ! oCustom:ChangeMatchcode(oAddress,cOldMatch)         
+         Tr_MsgBox({"Fehler beim speichern der Adresse in Agorum Core. Administrator wird informiert.",oCustom:cErrorText})
          oAdmin := User():New()         
          IF oAdmin:Load(GetValue("AGORUM_ADMIN",9,"Administrator Benutzer")) .AND. oAdmin:Aktive .AND. ! Empty(oAdmin:Email)
-            SendMail({{oAdmin:Email,Trim(oAdmin:Buyer)}},"Adressordner in Agorum verschieben","Alter Matchcode: "+cOldMatch+Chr(10)+Chr(13)+"Neuer Matchcode: "+cMatch+Chr(10)+Chr(13)+"Gruppe: "+cGroup)
+            SendMail({{oAdmin:Email,Trim(oAdmin:Buyer)}},"Fehler beim „ndern des Matchcodes der Adresse "+LTrim(Str(oAddress:Nummer))+" in Agorum Core.",oCustom:cErrorText)
          ENDIF
       ENDIF
       TxtClear()
@@ -27,4 +25,4 @@ PROC HOOK_AFTER_CHANGE_ADR_MATCHCODE(cOldMatch,cMatch,cGroup)
    
 RETURN
 
-#include "X:\run\agorum.prg"
+//#include "X:\run\agorum.prg"

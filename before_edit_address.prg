@@ -17,6 +17,13 @@
          ATail(GetList):Control:Select(ATail(GetList):VarGet());;
          ATail(GetList):Control:Display()
 
+#command @ <top>,<left>,<bottom>,<right> GET <var> LISTBOX <hash> ASSOCIATIVE ;
+	[VALID <valid>];
+	[WHEN <when>];
+	[COLOR <color>];
+;
+=> GET_AssociativeListBox(getlist,<top>,<left>,<bottom>,<right>,{|v| If(v==NIL,<var>,<var>:=v)},<hash>,<{valid}>, <{when}>,<color>)
+
 FUNC HOOK_BEFORE_EDIT_ADDRESS(oAddress)
 
 LOCAL aOpts,oSOAP,oCtr,oSearch
@@ -26,6 +33,8 @@ LOCAL nMenu,aEnv := SaveEnv()
 LOCAL getlist := {}
 LOCAL oXML,oName,oCity,nCompany,nX,oReport,oBasic
 LOCAL aTokens,cName1,cName2,lName1,oRegCity,cGer,oLegal,cLegal,oMisc
+LOCAL cCountryIso
+LOCAL hCountries := {"DE"=>"Deutschland","AT"=>"™sterreich"}
 
 MEMVAR c_four,c_four_list
 
@@ -39,7 +48,7 @@ IF oAddress:lNew
    aOpts := Array(3)
    aOpts[1] := "manuelle Eingabe"
    aOpts[2] := "Suche nach Registernummer (nur D)"
-   aOpts[3] := "Suche nach Name (nur D)"
+   aOpts[3] := "Suche nach Name (nur D und AT)"
 
 
    DO WHILE .T.
@@ -64,14 +73,17 @@ IF oAddress:lNew
       oSOAP := CreditSafe()
 
       oCtr := SOAPParameter():New("countries")
-      oCtr:CreateChild("CountryCode","DE",,"http://schemas.datacontract.org/2004/07/Creditsafe.GlobalData")
-
-      
+            
 
       oSearch := SOAPParameter():New("searchCriteria",,,"http://www.creditsafe.com/globaldata/operations")
 
       IF nMenu == 3
          @ 02,04 SAY "Name " GET cName VALID ! Empty(cName)
+         cCountryIso := "DE"
+         
+         @ 03,04 SAY "Land " 
+         @ 03,10,08,30 GET cCountryIso LISTBOX hCountries ASSOCIATIVE COLOR c_four_list
+                     
          READ
          IF LastKey() == 27
             LOOP
@@ -91,10 +103,13 @@ IF oAddress:lNew
          ENDIF
          oSearch:CreateChild("RegistrationNumber",cCompNo,,"http://www.creditsafe.com/globaldata/datatypes")
          IF ! Empty(cGericht)
-            Alert(cGericht)
             oSearch:CreateChild("Address",,,"http://www.creditsafe.com/globaldata/datatypes"):CreateChild("City",cGericht,,"http://www.creditsafe.com/globaldata/datatypes")
          ENDIF  
+         cCountryIso := "DE"
       ENDIF
+      
+      oCtr:CreateChild("CountryCode",cCountryIso,,"http://schemas.datacontract.org/2004/07/Creditsafe.GlobalData")
+
       TxtBox(t("Suche läuft..."))
       oXML := oSOAP:Call("FindCompanies",{oCtr,oSearch})
       TxtClear()
@@ -114,6 +129,7 @@ IF oAddress:lNew
             DO WHILE oNode != NIL
                oName := TXmlIteratorScan():New(oNode):Find("Name")
                oCity := TXmlIteratorScan():New(oNode):Find("City")
+               
                Aadd(aCompanies,IF(oName!=NIl,oName:cData,"??")+" - "+IF(oCity!=NIL,oCity:cData,"??"))
                oNode := oNode:oNext
             ENDDO

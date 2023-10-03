@@ -10,10 +10,45 @@ LOCAL aMonths := {"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","N
 LOCAL cDate
 LOCAL aTemp,aSearchDirs,cDir
 LOCAL cExtension,aMatches
+LOCAL oAgorum,aFile
+LOCAL cDocType
+LOCAL aHistory
+LOCAL bAdd
+LOCAL hDocTypes := {;
+         "ek_customer_order_confirmation"=>"Auftragsbest„tigung",;
+         "ek_customer_order"=>"Auftrag",;
+         "ek_supplier_order"=>"Bestellung";
+      }
+   
+SET TIME FORMAT TO "hh:mm:ss"
+IF .F. //Tr_getini(28) $ {9,45}
+   oAgorum := AgorumCustomApi():New() 
+   bAdd := {|cDate|
+      LOCAL dDT := StoT(StrTran(StrTran(StrTran(cDate,"-",""),"T",""),":",""))+2/24
+      Aadd(aDirs,{cDocType+" (Agorum)",,StoD(TtoS(dDT)),SubStr(TtoC(dDT),10,8),,'agorum:open:path:get:'+aFile["uuid"]})
+      RETURN NIL
+   }
+   FOR EACH aFile IN oAgorum:Search(HGetKeyAt(hTyp,1),HGetValueAt(hTyp,1))
+      IF aFile != NIL
+         IF hHasKey(hDocTypes,aFile["metadata"]["ag_metadata_collection"]) 
+            cDocType := hDocTypes[aFile["metadata"]["ag_metadata_collection"]]
+         ELSE
+            cDocType := aFile["metadata"]["ag_metadata_collection"]
+         ENDIF
+         Eval(bAdd,aFile["date"])
+         FOR EACH aHistory IN aFile["history"]
+            Eval(bAdd,aHistory["date"])
+         NEXT
+      ENDIF
+   NEXT
+
+ENDIF
+
 
 DispEnd()
 FOR EACH nNo IN hTyp
-   cTyp := nNo:__eNumKey()
+   cTyp := nNo:__eNumKey()   
+   
    //cDir := cArchDir+"\"+hTypes[cTyp]:Dir+"\"
    aSearchDirs := GetArchiveDirList(hTypes[cTyp])   
    FOR EACH cDir IN aSearchDirs
@@ -49,7 +84,7 @@ FOR EACH nNo IN hTyp
          ENDIF
          //FileStats(cDir+aFile[1],,,,,@dChangeDate,@nChangeTime)
          //aFile[3] := dChangeDate
-         //aFile[4] := SecToTime(nChangeTime)
+         //aFile[4] := SecToTime(nChangeTime)         
          Aadd(aDirs,aFile)
          RETURN NIL
       })
@@ -84,3 +119,4 @@ STATIC Function _GetFieldData(cFile,aFields,cContent,cEndChar,cAltEndChar)
 RETURN hFields
 
 #include 'archive.prg'
+//#include '../run/agorum.prg'

@@ -44,14 +44,14 @@ COPY FILE (cFileName) TO (cSaveFileName)
 IF ! SetFDaTi(cSaveFileName,dDate,FileTime(cFileName))
 ENDIF
 
-IF ! lAttached .AND. Tr_getini(28) == 9  .AND. ! GetConfigValue("BATCHMODE")
+IF ! lAttached .AND. Tr_getini(28) $ {9,45}  .AND. ! GetConfigValue("BATCHMODE")
    //IF Type("AGORUMCUSTOMAPI") == "U"; MBaseRun(Path("run\agorum")); ENDIF
    oAgorum := AgorumCustomApi():New()
    TxtBox("Archivierung...")
-   IF ! oAgorum:AddFile(cTyp,nNo,cFilename,oObject)
+   IF ! oAgorum:AddFile(cTyp,cFilename,oObject)
       Alert("Nicht in Agorum archiviert;"+oAgorum:cErrorText)
    ELSE
-      Alert("In Agorum erfolgreicharchiviert")
+      //Alert("In Agorum erfolgreich archiviert")
    ENDIF
    TxtClear()
 ENDIF

@@ -20,4 +20,7 @@ FUNCTION HOOK_BEFORE_BOOK_WE(hData,oBesPos)
       ENDIF
       hData:cCharge := cCharge
    ENDIF
+   IF Trim(oBesPos:Liefma) == "OPTRIS" .AND. Left(oBesPos:oArtikel:Matchcode,9) == "KABEL.SAB"
+      Tr_MsgBox("Bitte Lieferschein einscannen und an Chris schicken.")
+   ENDIF
 RETURN .T.

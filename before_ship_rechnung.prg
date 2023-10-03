@@ -2,6 +2,7 @@ FUNCTION HOOK_BEFORE_SHIP_RECHNUNG(oRechnung,lShip)
    LOCAL oExtra
    LOCAL nCurWeek
    LOCAL lAllDue
+   LOCAL lAllWeight,cText
 
    IF lShip      
       oRechnung:oKunde:gotoRec()
@@ -24,17 +25,35 @@ FUNCTION HOOK_BEFORE_SHIP_RECHNUNG(oRechnung,lShip)
                   lDue := GetJITLiefertag(auf->BDatum,oRechnung:oKunde:JIT_LZ) <= Date()
                ELSE
                   lDue := auf->dterm <= nCurWeek
-               ENDIF
+               ENDIF               
                IF ! lDue
                   lAllDue := .F.
-                  Tr_MsgBox({"Bei diesem Kunden darf nur zum best„tigten Termin geliefert werden.","Daher kann diese nicht freigeben werden."})
-                  RETURN .F.
+                  IF GetConfigValue("BATCHMODE")                     
+                     SendMail(GetConfigEmail("SO-READY"),"Rechnung konnte nicht verschickt werden "+LTrim(Str(oRechnung:Rechnr)),"Bei diesem Kunden darf nur zum best„tigten Termin geliefert werden."+Chr(10)+Chr(13)+"Daher kann diese nicht freigeben werden.")
+                  ELSE
+                     Tr_MsgBox({"Bei diesem Kunden darf nur zum best„tigten Termin geliefert werden.","Daher kann diese nicht freigeben werden."})
+                  ENDIF
+                  RETURN .F. //break out of loop
                ENDIF
             ENDIF
             RETURN .T.
          })
          IF ! lAllDue
             RETURN .F.            
+         ENDIF
+      ENDIF
+      IF oExtra:PrintWeigh
+         lAllWeight := .T.
+         cText := "Bei den folgenden Artikeln fehlt das Stckgewicht:"
+         oRechnung:Positions:Each({ |oPos|
+            IF oPos:oArtikel:Gewicht == 0
+               lAllWeight := .F.
+               cText += Chr(10)+Chr(13)+oPos:oArtikel:Matchcode
+            ENDIF
+            RETURN .T.
+         })
+         IF ! lAllWeight
+            SendMail(GetConfigEmail("SO-READY"),"Rechnung konnte nicht verschickt werden "+LTrim(Str(oRechnung:Rechnr)),cText)
          ENDIF
       ENDIF
    ENDIF

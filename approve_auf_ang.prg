@@ -223,7 +223,7 @@ FOR EACH hProd IN aProducts
              ENDIF
              bpr->(dbClearFilter())
            ENDIF
-           IF art->Lagerart
+           IF art->Lagerart .AND. art->Bezug < 5 
              ali->(dbSetOrder( 5 ))
              lWaldom := .F.     
              IF lUnderMOQ        
@@ -244,7 +244,7 @@ FOR EACH hProd IN aProducts
                ENDIF
             ENDIF
 
-            IF (Empty(hProd:Supplier) .OR. hProd:Supplier == ku->Kunde)
+            IF (Empty(hProd:Supplier) .OR. hProd:Supplier == ku->Kunde) 
                 ali->(dbSeek( Str(hProd:Artikel:Artikelnr,6) + ku->Kunde ))
                 IF lUnderMOQ .OR. hProd:Qty < ali->VPE //under MOQ of Manufacturer
                   DbgPrn("Under MOQ")
@@ -280,7 +280,7 @@ FOR EACH hProd IN aProducts
                      hProd:Supplier := Pad("WALDOM",8)
                      hProd:Margin :=  (hProd:VkPr / Currate( cMoney, "V" ) - hProd:nEK) /  (hProd:VkPr / Currate( cMoney, "V" ))
                      DbgPrn("Waldom (wegen MOQ), Margin:"+LTrim(Str(hProd:Margin))+", EK: "+Ltrim(str(hProd:nEK)))
-                  ELSE //see if we can buy from RS or TME
+                  ELSEIF hProd:Artikel:Bezug < 5 //see if we can buy from RS or TME
                      //TME
                      
                      hProd:Artikel:gotoRec()
@@ -375,9 +375,9 @@ FOR EACH hProd IN aProducts
                   ENDIF
                NEXT
             ELSE
-               IF aCalcCost["ERROR"] ==  -2
+               IF aCalcCost["ERROR"] ==  2
                   Tr_MsgBox("Keine Gesamtkosten in der Kalkulation gefunden")
-               ELSEIF aCalcCost["ERROR"] ==  -3
+               ELSEIF aCalcCost["ERROR"] ==  3
                   Tr_MsgBox("Keine Menge in der Kalkulation gefunden")
                ENDIF
                DbgPrn(aCalcCost["ERRORTEXT"])
@@ -397,7 +397,7 @@ FOR EACH hProd IN aProducts
             (lStaffelVor .AND. Round(hProd:Margin,2) < _GetMinMargin(hProd:Artikel:Matchcode));
          );
          .AND. Left(hProd:Artikel:Matchcode,4) != "TEXT" //mehr als eine Staffel vorlauf 30% Marge, bei Staffelvorlauf min. 20%
-         cText1 += cPreText+" Margin:"+Str(hProd:Margin*100,6,1)+"% zu niedrig"+IF(Tr_getini(28)==9," ("+Trim(hProd:Supplier)+" - "+IF(HB_HHasKey(hProd,"NEK"),LTrim(Str(hProd:nEk)),"")+")","")+";"
+         cText1 += cPreText+" Margin:"+Str(hProd:Margin*100,6,1)+"% zu niedrig ("+Trim(hProd:Supplier)+" - "+IF(HB_HHasKey(hProd,"NEK"),LTrim(Str(hProd:nEk,12,2)),"")+");"
          IF hProd:Margin <= 0.2
             IF Trim(cKundma) $ {"SOFTCOM"} .AND. hProd:Margin >= 0.05 //Beistellware fÅr Produktion
                nLevel := 4

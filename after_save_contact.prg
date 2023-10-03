@@ -1,5 +1,5 @@
-PARAMETERS lNew
-
+PROC HOOK_AFTER_SAVE_CONTACT(lNew,oContact)
+   LOCAL oAddress,oCustom
 //Alert("Contact has been edited "+IF(lNew,"NEW",""))
 
 NetUse("phonebook","pbk")
@@ -20,3 +20,21 @@ ELSE
 ENDIF
 pbk->Number := NormalizeTelNo(cNumber)
 pbk->(dbUnLock())
+
+IF lNew .OR. oContact:FieldUpdatedLastSave("EMAIL")
+   oAddress := Adresse():New()   
+   oAddress:Load(oContact:Address)
+   IF oAddress:nRecno != 0 .AND. oAddress:Group $ {"K","L"}
+      TxtBox("Agorum Core wird aktualisiert")
+      oCustom := AgorumCustomApi():New()
+      IF ! oCustom:SaveAddress(oAddress)
+         SendMail({{"amos.engelking@engelking.de","Amos"}},"Fehler beim Speichern der Adresse in Agorum Core","Adresse: "+LTrim(Str(oAddress:Nummer))+Chr(10)+Chr(13)+oCustom:cErrorText)
+         //Tr_MsgBox({"Fehler beim Speichern der Adresse in Agorum Core.",oCustom:cErrorText})
+      ENDIF
+      TxtClear()
+   ENDIF
+   
+ENDIF
+
+
+#include "X:\run\agorum.prg"

@@ -112,6 +112,14 @@ IF lRech
       Tr_MsgBox("Bitte zuerst die Zollanmeldung durchfhren")
       RETURN .F.
    ENDIF
+
+   IF nVersandart $ {2,19,23,34,43,44,45,46,49,51} .AND. oRechnung:Brutto > 30000
+      Tr_MsgBox("Wert der Sendung zu hoch, bitte per Spedition versenden.")
+      
+      oRechnung:VersandArt := 57
+      oRechnung:Save()
+   ENDIF
+
    
 ENDIF
 

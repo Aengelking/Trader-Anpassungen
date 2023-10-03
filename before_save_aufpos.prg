@@ -33,7 +33,7 @@ NetUse("ppf","ppf")
 oExtra := ku->(ExtraData():New( oAufPos:Auftrag:Kunde:Nummer ))
 oArtExtra := art->(ExtraData():New(oAufpos:Artikelnr))
 
-IF oExtra:WerksBesch .AND. ! oArtExtra:CoC 
+IF oExtra:WerksBesch .AND. ! oArtExtra:CoC .AND. ! (oAufPos:Auftrag:Kunde:Kunde == "RMWKABEL" .AND. Trim(art->Matchcode) == "PX0587")
    Tr_MsgBox({"Dieser Artikel hat keine Werksbescheinigungen (CoC).","Dieser Kunde m”chte nur Artikel mit CoC."})
    RETURN .F.
 ENDIF
@@ -149,7 +149,8 @@ IF ( Trim(oExtra:AufnrForm) == "SAPEK" .AND. ! HB_RegexMatch("^[0-9]{3}\/4[0-9]{
    ( Trim(oExtra:AufnrForm) == "6ZIFF" .AND. ! HB_RegexMatch("^[0-9]{6}$",Trim(oAufPos:Aufnr))) .OR.;
    ( Trim(oExtra:AufnrForm) == "2-6-3" .AND. ! HB_RegexMatch("^([A-Z]{2}-)?[0-9]{6}-[A-Z0-9]{3}$",Trim(oAufPos:Aufnr))) .OR.;
    ( Trim(oExtra:AufnrForm) == "B8ZEK" .AND. ! HB_RegexMatch("^(W[0-9]{7})|(K[0-9]{8})\/[A-Z]{4}$",Trim(oAufPos:Aufnr))) .OR.;
-   ( Trim(oExtra:AufnrForm) == "BZ-" .AND. ! HB_RegexMatch("^[A-Z\-0-9]{1,}$",Trim(oAufPos:Aufnr)))
+   ( Trim(oExtra:AufnrForm) == "BZ-" .AND. ! HB_RegexMatch("^[A-Z\-0-9]{1,}$",Trim(oAufPos:Aufnr))) .OR.;
+   ( Trim(oExtra:AufnrForm) == "10ZIF" .AND. ! HB_RegexMatch("^[0-9]{10}$",Trim(oAufPos:Aufnr)))
    
       Tr_MsgBox("Auftragsnummer nicht im richtigen Format")
       RETURN .F.
@@ -163,14 +164,14 @@ IF At("TEXT",oAufPos:Artikel:Matchcode) != 1
 
 
    IF oExtra:AufPos .AND. ! oAufPos:IsRahmen // Trim(oAufPos:Auftrag:Kundma)+"|" $ "KWAUTOMO|RUAGTHUN|"
-      hFields["POS"] := {"TEXT"=>"Position","TYPE"=>"N","VALUE"=>0,"PICTURE"=>"999","LINE"=>0}
+      hFields["POS"] := {"TEXT"=>"Position","TYPE"=>"N","VALUE"=>0,"PICTURE"=>"999","LINE"=>0,"VALID"=>{|| .T.}}
    ENDIF
    IF oExtra:AufBestimm .AND. ! oAufPos:IsRahmen //Trim(oAufPos:Auftrag:Kundma) == "GESSMANN"
       //hFields["POS"] := {"TEXT"=>"Position","TYPE"=>"N","VALUE"=>0,"PICTURE"=>"999","LINE"=>0}
-      hFields["FOR"] := {"TEXT"=>t("Bestimmt für"),"TYPE"=>"C","VALUE"=>Space(80-15),"PICTURE"=>"@S20","LINE"=>0}
+      hFields["FOR"] := {"TEXT"=>t("Bestimmt für"),"TYPE"=>"C","VALUE"=>Space(80-15),"PICTURE"=>"@S20","LINE"=>0,"VALID"=>{|| .T.}}
    ENDIF
    IF  oExtra:AufLos .AND. oAufPos:IsRahmen // Trim(oAufPos:Auftrag:Kundma) == "BACHMANG"
-      hFields["LOS"] := {"TEXT"=>t("Losgröße"),"TYPE"=>"N","VALUE"=>0,"PICTURE"=>Me(art->me),"LINE"=>0}
+      hFields["LOS"] := {"TEXT"=>t("Losgröße"),"TYPE"=>"N","VALUE"=>0,"PICTURE"=>Me(art->me),"LINE"=>0,"VALID"=>{|nVal| nVal > 0 }}
    ENDIF
 
    IF Len(hFields) > 0
@@ -197,7 +198,7 @@ IF At("TEXT",oAufPos:Artikel:Matchcode) != 1
       @ 10,10 TO 10+Len(hFields)+1,MaxCol()-10
       @ 10,11 SAY "[ Weitere Details ]"
       FOR EACH hField IN hFields
-         @ 10+hField:__eNumIndex(),11 SAY hField:Text GET hField:Value PICTURE hField:Picture
+         @ 10+hField:__eNumIndex(),11 SAY hField:Text GET hField:Value PICTURE hField:Picture VALID Eval(hField:Valid,hField:Value)
       NEXT
       READ
 

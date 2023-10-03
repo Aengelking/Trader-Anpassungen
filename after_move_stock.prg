@@ -5,12 +5,14 @@ FUNC HOOK_AFTER_MOVE_STOCK(nArtnr,cVonLager,cNachLager,nMenge,cCharge)
    LOCAL lFromQS := .F.
    LOCAL lFromSperr := .F.
    LOCAL lToSperr := .F.
+   LOCAL cGrund,aTo
+   
 
    NetUse("lagerort","lago")
    lago->(dbSeek(cVonLager))
    IF lago->SperrLager       
-      IF lago->TempSperr .AND. Left(cNachLager,3) != "093"
-         lFromQS := .T.
+      IF lago->TempSperr .AND. Left(cVonLager,3) != "093"
+         //lFromQS := .T.
       ELSE
          lFromSperr := .T.
       ENDIF
@@ -23,10 +25,27 @@ FUNC HOOK_AFTER_MOVE_STOCK(nArtnr,cVonLager,cNachLager,nMenge,cCharge)
          lToSperr := .T.
       ENDIF
    ENDIF
-   IF (lFromQS .AND. lToSperr) .OR. lFromSperr
-      oArt := Artikel():New()
-      oArt:Load(nArtnr)
-      SendMail({{"amos.engelking@engelking.de","Amos"}},Trim(oArt:Matchcode)+" wurde "+IF(lFromSperr,"ent","ge")+"sperrt.","Von Lager: "+cVonLager+CRLF+"Nach Lager:"+cNachLager+CRLF+"Menge: "+Transform(nMenge,oArt:cPicture))   
+   IF (!lFromSperr .AND. lToSperr) .OR. (lFromSperr .AND. ! lToSperr)
+      Netuse("artikel","art")
+      art->(dbSetOrder( 2 ))
+      art->(dbSeek( Str(nArtnr,6) ))
+
+      IF MaxCol() < 50
+         cGrund := "šber Scanner"
+      ELSEIF ! lFromSperr  //wird gesperrt und nicht auf dem Scanner
+         cGrund := MBaseRun(Path("run\print_sperrvermerk"),{.T.})
+      ELSE
+         cGrund := ""
+      ENDIF
+
+      IF Date() >= GetValue("HOLIDAY-AMOS-START") .AND. Date() <= GetValue("HOLIDAY-AMOS-END")
+         aTo := {{"joel.engelking@engelking.de","Joel"}}
+      ELSE
+         aTo := {{"amos.engelking@engelking.de","Amos"}}
+      ENDIF 
+
+
+      SendMail(aTo,Trim(art->Matchcode)+" wurde "+IF(lFromSperr,"ent","ge")+"sperrt","Von Lager: "+cVonLager+CRLF+"Nach Lager:"+cNachLager+CRLF+"Menge: "+Transform(nMenge,Me(art->Me))+CRLF+cGrund)   
    ENDIF
          
 RETURN NIL

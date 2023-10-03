@@ -1,8 +1,11 @@
 FUNCTION HOOK_BEFORE_SAVE_BESPOS( oBesPos )
 
 LOCAL nPrice,nPe,lCheap,lStock,nEk,nPerc
-LOCAL cTextFile,cText
+LOCAL cTextFile,cText,nQty
 LOCAL oAddress
+
+MEMVAR mcNoBesPos 
+PUBLIC mcNoBesPos := ""
 
 IF ! oBesPos:lNew
    RETURN .T.
@@ -22,23 +25,27 @@ IF Trim(art->Matchcode) == "PX0833" .AND. Trim(oBesPos:oBestellung:Liefma) != "R
    TR_MsgBox("Diesen Artikel bei Reichelt bestellen - ist am gnstigsten.")
 ENDIF*/
 
-IF Trim(art->Matchcode) $ "PX0910 SA3324 PX0960 SA3325 PX0920 PX0980"
+/*IF Trim(art->Matchcode) $ "PX0910 SA3324 PX0960 SA3325 PX0920 PX0980" .AND. ! GetConfigValue("BATCHMODE")
    IF Tr_MsgBox(t("Bitte prüfen ob es nicht sinnvoller wäre PX09/07_SET zu bestellen"),,{"abbrechen",t("trotzdem einfügen")}) != 2
       RETURN .F.
    ENDIF
-ENDIF
+ENDIF*/
 
 IF Empty(art->Kncode) .AND. art->Lagerart
    oAddress := Adresse():New(.F.)
    oAddress:LoadMatchcode(oBesPos:oBestellung:Liefma,"L")
    IF oAddress:CountryIso != "DE" .AND. IsCountryInEU(oAddress:CountryIso) 
-      Tr_MsgBox("Bitte Zolltarifnummer hinterlegen.")
-      RETURN .F.
+      IF ! GetConfigValue("BATCHMODE")
+         Tr_MsgBox("Bitte Zolltarifnummer hinterlegen.")
+         RETURN .F.
+      ELSE
+         SendMail({{"amos.engelking@engelking.de","Amos"}},"Zolltarifnummer bei Artikel "+Trim(art->Matchcode)+" hinterlegen")
+      ENDIF
    ENDIF
 ENDIF
 
 
-IF oBesPos:oArtikel:Manufactur == 1 .AND. oBesPos:BeQty > 0 .AND. oBesPos:WTerm <= Val(CalWeek(Date())) //Bulgin, Bestellmenge größer null und auf sofort bestellt
+IF oBesPos:oArtikel:Manufactur == 1 .AND. oBesPos:BeQty > 0 .AND. oBesPos:WTerm <= Val(CalWeek(Date())) .AND. ! GetConfigValue("BATCHMODE") //Bulgin, Bestellmenge größer null und auf sofort bestellt
 
    nPrice := nPe := 0
    lCheap := .F.
@@ -106,14 +113,23 @@ IF oBesPos:oArtikel:Manufactur == 1 .AND. oBesPos:BeQty > 0 .AND. oBesPos:WTerm 
 ENDIF
 
 IF oBesPos:oArtikel:Manufactur == 11 //Techno
-   nQty := QtyProducible(oBesPos:oArtikel:Artikelnr,,.T.)
+   nQty := QtyProducible(oBesPos:oArtikel:Artikelnr,,.T.,.T.)
    IF nQty > 0
-      Tr_MsgBox(Transform(nQty,oBesPos:oArtikel:cPicture)+" "+oBesPos:oArtikel:Me+" k”nnen gefertigt werden.")
+      IF GetConfigValue("BATCHMODE")
+         mcNoBesPos := Transform(nQty,oBesPos:oArtikel:cPicture)+" "+oBesPos:oArtikel:Me+" k”nnen gefertigt werden."
+         RETURN .F.
+      ELSE
+         Tr_MsgBox(Transform(nQty,oBesPos:oArtikel:cPicture)+" "+oBesPos:oArtikel:Me+" k”nnen gefertigt werden.")
+      ENDIF
    ENDIF
 ENDIF
 
-IF Trim(oBesPos:oBestellung:Liefma) $ {"WHTECH","SELT"} .AND. oBesPos:BeQty == 1 .AND. Tr_MsgBox("Wirklich nur 1 Stck? Kein Erstmuster notwendig?",,{"Nein","Ja"}) != 2
-   RETURN .F.
+IF Trim(oBesPos:oBestellung:Liefma) $ {"WHTECH","SELT"} .AND. oBesPos:BeQty == 1
+   IF GetConfigValue("BATCHMODE") 
+      SendMail({{"amos.engelking@engelking.de","Amos"}},"Erstmuster fr Artikel "+Trim(art->Matchcode)+" bestellen?")   
+   ELSEIF Tr_MsgBox("Wirklich nur 1 Stck? Kein Erstmuster notwendig?",,{"Nein","Ja"}) != 2
+      RETURN .F.
+   ENDIF
 ENDIF
    
 
@@ -130,6 +146,27 @@ ENDIF
 
    ENDIF
 ENDIF*/
+   #define CRLF CHr(13)+Chr(10)
+   NetUse("zeichpruef","zeipr")
+   IF ! Empty(oBesPos:oArtikel:Zeichnung) .AND. Trim(oBesPos:Liefma) == "WHTECH".AND. (! zeipr->(dbSeek(oBesPos:oArtikel:Zeichnung+oBesPos:oArtikel:ZeichIndex+IF(oBesPos:oArtikel:KuZeichnun,"Y","N"))) .OR. zeipr->Datum < StoD("20230914"))
+      cText := "Hi Heike,"+CRLF+CRLF+"Bitte prfe ob der folgenden Zeichnung die Kabel-/Litzenhersteller bestimmt sind"+CRLF
+      cText += "Zeichnung: "+oBesPos:oArtikel:Zeichnung+CRLF
+      cText += "Artikel: "+oBesPos:oArtikel:Matchcode+" (eventuell noch weitere!)"+CRLF
+      
+      SendMail({{"heike.scheckenburger@engelking.de","Heike"}},"Zeichnung prfen",cText)
+      IF zeipr->(EOF())
+         zeipr->(Add_Rec(0))
+         zeipr->Zeichnung := oBesPos:oArtikel:Zeichnung
+         zeipr->ZeichIndex := oBesPos:oArtikel:ZeichIndex
+         zeipr->KuZeichnun := oBesPos:oArtikel:KuZeichnun
+      ELSE
+         zeipr->(Rec_Lock())
+      ENDIF
+      zeipr->Datum := Date()
+      zeipr->(dbUnLock())
+
+   ENDIF
+
 
 RETURN .T.
 

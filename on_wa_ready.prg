@@ -1,5 +1,5 @@
 FUNCTION HOOK_ON_WA_READY(nWaNr)
-   LOCAL cMissing,oExtra
+   LOCAL cMissing,oExtra,cText
    
    NetUse("engkund","ku")
 
@@ -35,7 +35,13 @@ FUNCTION HOOK_ON_WA_READY(nWaNr)
          wer->RemindStat := "READY"
          wer->RemindDate := Date()
          wer->(dbUnLock())
-         SendMail(GetConfigEmail("PROD-READY"),t("WA "+LTrim(Str(nWaNr))+" konnte nicht ausgelˆst werden " ),t("Gr¸nde<br>")+StrTran(cMissing,Chr(13)+Chr(10),"<br>"),,,,.T.)
+         NetUse("artikel","art")
+         art->(dbSetOrder(2))
+         art->(dbSeek( Str(wer->Artno,6) ))
+         cText := 'Auftrag: <a href="trader: -F WerkAuf('+LTrim(Str(nWaNr))+')">'+LTrim(Str(nWaNr))+"</a><br>"
+         cText += 'Artikel: <a href="trader: -F BrowseArtikel('+"'"+Trim(art->Matchcode)+"'"+')">'+Trim(art->Matchcode)+"</a> (#"+LTrim(Str(art->Artikelnr))+")<br>"
+         cText += "GrÅnde<br>"+StrTran(cMissing,Chr(13)+Chr(10),"<br>")
+         SendMail(GetConfigEmail("PROD-READY"),t("WA "+LTrim(Str(nWaNr))+" konnte nicht ausgelˆst werden " ),cText,,,,.T.)
       ENDIF
       //RETURN .T.  //return .T. still sends email
    ENDIF

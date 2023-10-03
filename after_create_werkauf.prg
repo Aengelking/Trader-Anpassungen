@@ -1,11 +1,11 @@
-PARAMETERS nNr,lFehl,lChange,cMissing
+FUNC HOOK_AFTER_CREATE_WERKAUF( nNr,lFehl,lChange,cMissing )
 
 #define CRLF  "<BR>" //Chr(13)+Chr(10)
 
 LOCAL cDir  := "Y:\Technik\Prozessdoku\"
 LOCAL cText := ""
 //LOCAL aTo   := {{"GF","Geschäftsführung"}} 
-LOCAL aTO   := {{"hp@engelking.de","HP"}}
+LOCAL aTO   := {{"chris.chertesp@engelking.de","Chris"}}
 LOCAl nW
 
 IF ValType(lChange) != "L"
@@ -57,6 +57,31 @@ IF ! lChange .AND. ! Empty(wer->Liefma) .AND. Trim(wer->Liefma) $ "WETEC HECK"
 		SendMail(aTo,"Fehlende Arbeitsanweisung",cText,,,2,.T.)
 	ENDIF
 ENDIF
+
+NetUse("zeichpruef","zeipr")
+art->(dbSetOrder( 2 ))
+IF ! art->(dbSeek( Str(wer->artno,6) ))
+   Tr_MsgBox("Artikel "+Ltrim(str(wer->artno))+" nicht gefunden")
+ENDIF
+IF ! Empty(art->Zeichnung) .AND. Trim(wer->Liefma) == "WHTECH".AND. (! zeipr->(dbSeek(art->Zeichnung+art->ZeichIndex+IF(art->KuZeichnun,"Y","N"))) .OR. zeipr->Datum < StoD("20230914"))
+   cText := "Hi Heike,"+CRLF+CRLF+"Bitte prfe ob der folgenden Zeichnung die Kabel-/Litzenhersteller bestimmt sind"+CRLF
+   cText += "Zeichnung: "+art->Zeichnung+CRLF
+   cText += "Artikel: "+art->Matchcode+" (eventuell noch weitere!)"+CRLF
+   
+   SendMail({{"heike.schneckenburger@engelking.de","Heike"}},"Zeichnung prfen",cText)
+   IF zeipr->(EOF())
+      zeipr->(Add_Rec(0))
+      zeipr->Zeichnung := art->Zeichnung
+      zeipr->ZeichIndex := art->ZeichIndex
+      zeipr->KuZeichnun := art->KuZeichnun
+   ELSE
+      zeipr->(Rec_Lock())
+   ENDIF
+   zeipr->Datum := Date()
+   zeipr->(dbUnLock())
+
+ENDIF
+
 
 If wer->Termin <= Val(CalWeek(DATE())) .AND. ! lFehl 
    IF Tr_MsgBox("Auftrag zum Richten freigeben?",,{"Ja","Nein"})==1

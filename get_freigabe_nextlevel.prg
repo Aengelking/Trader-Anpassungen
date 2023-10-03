@@ -17,6 +17,12 @@ FUNCTION HOOK_GET_FREIGABE_NEXT_LEVEL(cState,nArtnr,nSupplier)
             RETURN "KU"
          ENDIF
       ENDIF
+   ELSEIF Left(oArt:Matchcode,2) == "BA" .OR. Trim(oArt:Matchcode) $ {"KS28074/1"}
+      IF cState == "" .OR. cState == "UNTK" //UNTK only for existing parts where we have alreeady started
+         RETURN "ZNG"
+      ELSE
+         RETURN "DONE"
+      ENDIF
    ELSE //Kaufteil oder externe Prodkution
       If cState == "" .AND. ! oArt:KuZeichnun  .AND. Trim(oArt:Type) == "WARE"//keine Kundenzeichnung, dann muss diese vom Kunden freigegeben werden, aber nur wenn es Ware ist, d.h. RHB und UNFERT nicht
          RETURN "UNTK"

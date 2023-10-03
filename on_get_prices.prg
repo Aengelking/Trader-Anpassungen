@@ -40,7 +40,6 @@ IF art->Manufactur == 9 .AND. AT("/PB",art->Matchcode) != 0
    ENDIF
 ENDIF
 
-
 IF nTab == 1 .AND. art->Manufactur $ {1,10} //Bulgin, check if we can buy direct
    NetUSe("manufact","manu")
    manu->(dbSeek( Str(art->Manufactur,5) ))
@@ -54,24 +53,29 @@ IF nTab == 1 .AND. art->Manufactur $ {1,10} //Bulgin, check if we can buy direct
       RETURN GetPrices(art->Artikelnr,30,dDate,cKundma)   
    ENDIF
 ELSEIF nTab == 12 .OR. nTab == 29
+
    oArt := Artikel():New()
    oArt:Load(nArtnr)
 
    IF oArt:Manufactur == 9
+
       NetUse("artlief","ali")
-      ali->(dbSetOrder( 5 ))
+      ali->(dbSetOrder( 5 ))        
       IF ali->(dbSeek( Str( nArtnr, 6)+Pad("SCOLMORE",8) ))
-         IF nTab == 29 .AND. ali->VPE != 0 .AND. oArt:Mindest == 0
-            DO WHILE ali->VPE >= aPriceTabs[2,1]
+         IF nTab == 29 .AND. ali->MIN != 0 .AND. oArt:Mindest == 0
+            DO WHILE ali->MIN >= aPriceTabs[2,1]
                HB_ADel(aPriceTabs,2,.T.)
             ENDDO
-            aPriceTabs[1,1] := ali->Vpe
-         ELSEIF nTab == 12 .AND. ali->VPE < aPriceTabs[3,1]
-            aPriceTabs[3,1] := ali->VPE
-            IF ali->VPE <= aPriceTabs[2,1]
+            aPriceTabs[1,1] := ali->MIN         
+         ELSEIF nTab == 12 .AND. ali->MIN != 0 .AND. ali->MIN < aPriceTabs[3,1]
+            aPriceTabs[3,1] := ali->MIN
+            IF ali->MIN <= aPriceTabs[2,1]
                HB_ADel(aPriceTabs,2,.T.)
             ENDIF
          ENDIF
+         DO WHILE Len(aPriceTabs) >= 2 .AND. aPriceTabs[2,2] == aPriceTabs[1,2]
+            HB_ADel(aPriceTabs,2,.T.)
+         ENDDO
       ENDIF
    ENDIF
    IF nTab == 12 .AND. oExtra != NIL .AND. oExtra:IecLockDis //! Empty(cKundma) .AND. Trim(cKundMa)+"|" $ HB_AnsiToOem("PLASTRO|RGR|MÜLLERPL|FELLER|SOMMERCA|LEONI|LEONISLO|KLOTZ|") //Kunden mit Rabatt bei Scolmore
@@ -187,15 +191,17 @@ IF nTab == 11
    IF art->Gewicht == 0 //no weight, no prices
       aPriceTabs := {}
    ELSE
-      nWeight := art->Gewicht/1000      
-      AEval(aPriceTabs,{|aTab| IF(aTab[2]!=0,aTab[2] := aTab[2]+Hook("get_supplier_ship_cost",{Pad("SIGNAL",8),nWeight/1000*aTab[1]})/aTab[1],.T.) })
+      nWeight := art->Gewicht      
+      AEval(aPriceTabs,{|aTab| IF(aTab[2]!=0,aTab[2] := aTab[2]+Hook("get_supplier_ship_cost",{Pad("SIGNAL",8),nWeight*aTab[1]})/aTab[1],.T.) }) 
    ENDIF   
-ELSEIF art->Manufactur $ {12,16} //Elcom oder Signal, Frachtkosten einrechnen
-   IF art->Gewicht == 0 //no weight, no prices
-      aPriceTabs := {}
+ELSE //Frachtkosten einrechnen, bei vielen gibt der Hook jedoch 0 zurck //IF art->Manufactur $ {12,16} //Elcom oder Signal, Frachtkosten einrechnen
+   IF art->Gewicht == 0 
+      IF art->Manufactur $ {12,16} //no weight, no prices only for these manufacturers
+         aPriceTabs := {}
+      ENDIF
    ELSE
-      nWeight := art->Gewicht/1000      
-      AEval(aPriceTabs,{|aTab| IF(aTab[2]!=0,aTab[2] := aTab[2]+GetUpsImportCost(nWeight*aTab[1])/aTab[1],.T.) })
+      nWeight := art->Gewicht      
+      AEval(aPriceTabs,{|aTab| IF(aTab[2]!=0,aTab[2] := aTab[2]+GetUpsImportCost(nWeight*aTab[1])/aTab[1],.T.) })  //this also uses get_supplier_ship_cost just looks for the manufacturer first
    ENDIF   
 ENDIF
 

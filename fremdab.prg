@@ -16,12 +16,17 @@ hFremdRahmen[14693] := 31937 //"POLYRACK"=>"EGYM"
 hFremdRahmen[27434] := 27434 //"TRUMPFSA"=>"TRUMPFSA", dadurch kann TRUMPFSA aus eigenen Rahmen abrufen. Bei denen ist das so eingestellt weil die st„ndig die Lieferadresse „ndern
 hFremdRahmen[33991] := 33603 //FREISTRI => STEIERMA
 hFremdRahmen[34270] := 14696 //Technograv => Gessmann
+hFremdRahmen[25429] := 13262 //STORZCH => STORZ
+
+//Seidenader
 hFremdRahmen[32795] := 23697 //K™RBERM => Seidenad
 hFremdRahmen[26774] := 23697 //F.EE => Seidenad
 hFremdRahmen[35939] := 23697 //Tripspol => Seidenad
 hFremdRahmen[27538] := 23697 //TRIPS => Seidenad
 hFremdRahmen[36117] := 23697 //KOERBERU => Seidenad
 hFremdRahmen[35780] := 23697 //KOSTWEIN => Seidenad
+hFremdRahmen[32997] := 23697 //BIRCHER => Seidenad
+
 
 //IF HHasKey(hFremdRahmen,Trim(oAufPos:Auftrag:Kundma))
 IF HHasKey(hFremdRahmen,oAufPos:Auftrag:Kunde:Nummer)

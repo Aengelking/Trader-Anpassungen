@@ -198,9 +198,9 @@ FUNCTION ProcessOCData(aData,cSup,cAbNr,nPO,cDate,caDateFormat,cIgnoreParts,lKom
                      bes->(dbSkip(-1))
                   ELSE
                      Tr_MsgBox({"Bestellung "+LTrim(Str(nPo)),"Artikel: "+hRow["PART"],"Menge: "+hRow["QTY"],"frher als der Wunschtermin ("+NiceWeek(bes->WTerm)+") best„tig ("+NiceWeek(nKW)+").","Position wurde nicht verbucht"},"Fehler")
-                     #ifdef DEBUG
+                     IF DEBUG
                         cError += "CONFIRMED DATE EARLIER THAN REQUESTED "+Chr(13)+Chr(10)
-                     #endif
+                     endif
                   ENDIF
                ELSE
                   nR := Row()
@@ -210,9 +210,9 @@ FUNCTION ProcessOCData(aData,cSup,cAbNr,nPO,cDate,caDateFormat,cIgnoreParts,lKom
                   SetPos(nR,nC)
                ENDIF
             ELSE
-               #ifdef DEBUG
+               IF DEBUG
                   cError += "PART/QTY NOT FOUND"+Chr(13)+Chr(10)
-               #endif
+               endif
             ENDIF
             RETURN NIL
          }
@@ -282,7 +282,7 @@ FUNCTION ProcessOCData(aData,cSup,cAbNr,nPO,cDate,caDateFormat,cIgnoreParts,lKom
                         ENDIF
                      ELSE
                         IF DEBUG
-                           cError += "PART NOT FOUND"+Chr(13)+Chr(10)
+                           cError += "PART ("+hRow["PART"]+") NOT FOUND"+Chr(13)+Chr(10)
                         ENDIF
                      ENDIF
                      IF ! lFound
@@ -321,12 +321,12 @@ FUNCTION ProcessOCData(aData,cSup,cAbNr,nPO,cDate,caDateFormat,cIgnoreParts,lKom
    IF ! Empty(cError)
       SetColor(c_Five)
       cScreen := SaveScreen()
-      @ 10,05 CLEAR TO 20,87
-      @ 10,05 TO 20,87
+      @ 10,05 CLEAR TO 20,88
+      @ 10,05 TO 20,88
       @ 10,06 SAY "[ FEHLER! Bestellpositionen nicht gefunden, bitte manuell buchen ]"
       @ 20,06 SAY "[ Beenden mit >ESC< ]"
       cError := Pad("Bes.Nr.",6)+" "+Pad("Artikel",40)+" "+PadL("Menge",12)+" "+Pad("Preis",6)+Space(5)+" "+"Termin"+Chr(13)+Chr(10)+cError
-      MemoEdit(cError,11,06,19,86,.F.)
+      MemoEdit(cError,11,06,19,87,.F.)
       RestScreen(,,,,cScreen)
       RETURN .F.
    ENDIF
@@ -543,11 +543,11 @@ FUNCTION GetDataFromPDF(cFile,aArea,hFields,hSearch,hResults,cAreaHead,hCols)
          FOR nCol := 1 TO Len(aRow)
             FOR EACH cRegex IN hSearch
                IF DEBUG
-                  //? cRegex
+                  ? cRegex
                ENDIF
                aRegex := HB_Regex(cRegex,aRow[nCol])
                IF DEBUG .AND. ! Empty(aRegex)
-                  //? ValToPrg(aRegex)
+                  ? ValToPrg(aRegex)
                ENDIF
                IF Len(aRegex) >= 2
                   hResults[cRegex:__eNumKey()] := aRegex[2]
@@ -579,31 +579,35 @@ FUNCTION GetDataFromPDF(cFile,aArea,hFields,hSearch,hResults,cAreaHead,hCols)
    HB_CloseProcess(nProc)
 RETURN aData
 
-FUNCTION GetDataFromHTMLTable(oTable,hFields)
-   LOCAL nRow,nCol,cRegex,hCols := {=>},aData := {},cContent
+FUNCTION GetDataFromHTMLTable(oTable,hFields,nFirst)
+   LOCAL nRow,nCol,cRegex,hCols := {=>},aData := {},cContent,oTbody
    LOCAL aCols
    LOCAL aRows,hRow
-   LOCAL bGetContent := {|| StrTran(HB_RegexReplace("<[^>]*>",aCols[nCol]:toString(),""),Chr(13)+Chr(10),"") }
+   LOCAL bGetContent := {|| StrTran(HB_RegexReplace("<[^>]*>",aCols[nCol]:getText(),""),Chr(13)+Chr(10),"") }
 
+   Default(@nFirst,1)
+   
    aRows := oTable:childNodes() //findNodesByTagName("tr")
    IF Len(aRows) > 0 .AND. Upper(aRows[1]:htmlTagName) != "TR" //in case there is a tbody tag
-      aRows := aRows[1]:childNodes()
+      aRows := aRows[1]:childNodes()      
    ENDIF
-   FOR nRow := 1 TO Len(aRows)
-      ? aRows[nRow]:htmlTagName
+
+   FOR nRow := nFirst TO Len(aRows)      
       aCols := aRows[nRow]:childNodes() //findNodesByTagName(IF(nRow==1,"th","td"))
       IF aCols != NIL
-         IF nRow == 1
+         IF nRow == nFirst            
             FOR nCol := 1 TO Len(aCols)
                cContent := Eval(bGetContent) //remove all HTML tags
                ? cContent
-               //? nCol,aCols[nCol]:htmlTagName,cContent //,aCols[nCol]:toString()
-               //Inkey(0,128)
+
                //find the columns based on a regex
                FOR EACH cRegex IN hFields
+                  ? cRegex
                   IF HB_RegexMatch(cRegex,cContent,.F.)
                      hCols[cRegex:__eNumKey()] := nCol
                      EXIT
+                  ELSE
+                     ?? "no match"
                   ENDIF
                NEXT
             NEXT
@@ -667,6 +671,9 @@ FUNCTION __CSVToData(cCSV,hFields,hCols)
             IF Len(aRow) >= nMax
                hRow := {=>}
                FOR EACH nCol IN hCols
+                  IF DEBUG
+                     ? nCol:__eNumKey(),aRow[nCol]
+                  ENDIF
                   hRow[nCol:__eNumKey()] := aRow[nCol]
                NEXT
                Aadd(aData,hRow)

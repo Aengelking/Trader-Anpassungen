@@ -72,6 +72,10 @@ Endif
 
 oExtra := ku->(ExtraData():New( ku->Nummer ))
 
+IF oExtra:UpsContact != 0
+   nContact := oExtra:UpsContact
+ENDIF
+
 If ku->CountryISO != "DE"  //.AND. ! lAusland
 	lAusland := .T.
 Endif

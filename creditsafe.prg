@@ -39,6 +39,7 @@ RETURN oSOAP
 
 FUNCTION CS_ListMonitoredCompanies(oSoap,aPortfolioIds,lChangedOnly,dChangedSince,nFirstPosition,nPageSize)
    LOCAL aP := {},nId,oList
+
    
    Default(@lChangedOnly,.F.)
    Default(@nFirstPosition,1)
@@ -68,6 +69,7 @@ RETURN oList
 FUNCTION CS_GetCompanyReport(oSoap,cID,nReason)
    LOCAL aP := {}
    LOCAL oEntries,oReport
+   LOCAL cText,i
    //LOCAL bErrorBlock
    NetUse("cslog","cslog")
 
@@ -81,6 +83,7 @@ FUNCTION CS_GetCompanyReport(oSoap,cID,nReason)
    ELSE
       cID := cID
    ENDIF
+   //Alert(cID)
 
    IF cslog->(dbSeek( cID ))
       DO WHILE cslog->Id == cID .AND. ! cslog->(EOF())
@@ -107,7 +110,9 @@ FUNCTION CS_GetCompanyReport(oSoap,cID,nReason)
    Aadd(aP,SOAPParameter():New("language","DE"))
    Aadd(aP,SOAPParameter():New("customData"))
    oEntries := ATail(aP):CreateChild("Entries",,,"http://www.creditsafe.com/globaldata/datatypes")
-   oEntries:CreateChild("Entry",Str(nReason,1),{"key"=>"de_reason_code"},"http://www.creditsafe.com/globaldata/datatypes")
+   IF AT("DE",cID) == 1
+      oEntries:CreateChild("Entry",Str(nReason,1),{"key"=>"de_reason_code"},"http://www.creditsafe.com/globaldata/datatypes")
+   ENDIF
    oEntries:CreateChild("Entry","pdf",{"key"=>"binary_attachment"},"http://www.creditsafe.com/globaldata/datatypes")
 
    Aadd(aP,SOAPParameter():New("chargeReference",""))
@@ -357,16 +362,27 @@ Function CS_Error(oXML)
 RETURN lError
 
 FUNCTION EditCSNumber()   
-   LOCAL cCSNr := Space(10),oSoap
-   LOCAL cCSPre := "DE001/",cPic := "DE"+Replicate("9",8)
+   LOCAL cCSNR,oSoap
+   LOCAL cCSPre,cPic
    LOCAL oReport
 
-   IF Trim(ku->CompForm) $ {"GMBH","AG","EK","KG","KGaA","OHG","SE","UG"}
-      cCSPre += "0/"
+   IF ku->CountryIso == "DE"
+      cCSNR := "DE"+Space(8)
+      cPic := "!!"+Replicate("9",8)
+      cCSPre := ku->CountryIso+"001/"  
+      IF Trim(ku->CompForm) $ {"GMBH","AG","EK","KG","KGaA","OHG","SE","UG"}
+         cCSPre += "0/"
+      ELSE
+         cCSPre += "1/"
+      ENDIF   
+   ELSEIF ku->CountryIso == "AT"
+      cCSNr := Space(7)
+      cPic := "9999999"
+      cCSPre := "AT025/X/"
    ELSE
-      cCSPre += "1/"
-   ENDIF
-   
+      Tr_MsgBox("Land nicht untersttzt")
+      RETURN .T.
+   ENDIF   
 
    NetUse("creditsafe","cs")
    IF cs->(dbSeek( Str(ku->Nummer,6) )) .AND. ! Empty(cs->ID)

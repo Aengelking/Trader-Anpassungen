@@ -78,9 +78,10 @@ FOR nX := 1 TO Len(aDir)
          ENDIF
 
          NetUse(cFile,"backup",,,cDriver)
+         backup->(dbSetOrder(0)) //keep current order
 
          COPY TO (cBackDir+aDir[nX,1]) VIA cDriver
-         cLog += " success"//, Driver:"+cDriver
+         cLog += " success) , Driver:"+cDriver
          ErrorBlock(bErrorBlock)
       RECOVER USING oErr
          ErrorBlock(bErrorBlock)

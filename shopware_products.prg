@@ -13,9 +13,11 @@ PROC RUN_SHOPWARE_PRODUCTS  //donwload product ID's from website (this will run 
    NetUse("shopware","shop")
    NetUse("artikel","art")
    NetUse("waldom","wald")
+   
+   //"filter"=>{{"type"=>"not","queries"=>{{"type"=>"equals","field"=>"parentId","value"=>NIL}}}},;
+   //this filter was going to exlude all parents ofvariant products, but also exludes all single products too
 
-   hSendData := {; 
-      "filter"=>{{"type"=>"not","queries"=>{{"type"=>"equals","field"=>"parentId","value"=>NIL}}}},;
+   hSendData := {;       
       "includes"=>{;
          "product"=>{; //only the fields we really need
             "id",;
@@ -50,8 +52,11 @@ PROC RUN_SHOPWARE_PRODUCTS  //donwload product ID's from website (this will run 
       ENDIF      
       nDown += Len(hProdData["data"])
       
+      @ 01,13 SAY Str(nDown,10)
+
       AEval(hProdData["data"],{|aData| 
          LOCAL nArtnr := 0
+
          
          IF art->(dbSeek( aData["attributes"]["productNumber"] ))            
             nArtnr := art->Artikelnr
@@ -82,10 +87,13 @@ PROC RUN_SHOPWARE_PRODUCTS  //donwload product ID's from website (this will run 
             ENDIF
             shop->(dbUnLock())
          //ENDIF
-        
+
+         @ 02,13 SAY Str(nFound,10)
+         @ 03,13 SAY Str(nWald,10)
+
          RETURN .T.
       })
-      @ 01,13 SAY Str(nDown,10)
+      //@ 01,13 SAY Str(nDown,10)
       @ 02,13 SAY Str(nFound,10)
       @ 03,13 SAY Str(nWald,10)
       IF Len(hProdData["data"]) < nLimit //we received less than one page, all data has been downloaded         
@@ -94,6 +102,9 @@ PROC RUN_SHOPWARE_PRODUCTS  //donwload product ID's from website (this will run 
       nPage++   
    ENDDO
    //? "completed"
-   //SInkey(0)
+   IF ! GetConfigValue("BATCHMODE")
+      ? "completed"
+      SInkey(0)
+   ENDIF
 
    #include 'x:\run\shopware.prg'

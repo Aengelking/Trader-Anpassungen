@@ -53,12 +53,17 @@ LOCAL hKontoGenehm := {=>} //bestimmte Kreditoren einer Person zuweisen
 LOCAL nImageTop := 0,nImageRight := 0,nImageBottom := 0
 LOCAL nImageTopDiff:= 0,nImageRightDiff := 0
 LOCAL lAuto := .F.
+LOCAL nBetrag := 0
+LOCAL bDisplayButtons,nPage := 1
+LOCAL nPersOnApprove := P_SIGRID //automatically assign to this person on approval
+LOCAL dNext,lApprove,nRec
 
 MEMVAR c_two,c_one
 
 SetKey(1014,{||
    nScale++
    Eval(bDrawImage)
+   Eval(bDisplayButtons)
    RETURN NIL
 })
 
@@ -67,11 +72,49 @@ SetKey(1015,{||
       nScale--
       @ 10,00 CLEAR
       Eval(bDrawImage)
+      Eval(bDisplayButtons)
    ENDIF
    RETURN NIL
 })
 
-/*SetKey(K_LBUTTONDOWN,{||
+SetKey(K_LBUTTONDOWN,{||
+   IF Mrow() == 09 .AND. ! Empty(cImageFile)
+      IF MCol() >= 50 .AND. MCol() <= 54
+         nScale += .5     
+         Eval(bDrawImage)
+      ELSEIF MCol() >= 56 .AND. MCol() <= 60 .AND. nScale > 1
+         nScale -= .5
+         @ 10,00 CLEAR
+         Eval(bDrawImage)
+      ELSEIF MCol() >= 62 .AND. MCol() <= 70 //.AND. nImageTopDiff*-1 < MaxRow()-30 
+         nImageTopDiff -= 20
+         @ 10,00 CLEAR
+         Eval(bDrawImage)
+      ELSEIF MCol() >= 71 .AND. MCol() <= 82 .AND. nImageTopDiff < 0
+         nImageTopDiff += 20
+         @ 10,00 CLEAR
+         Eval(bDrawImage)
+      ELSEIF MCol() >= 83 .AND. mCol() <= 99 .AND.  (nScale > 1 .OR.nImageTopDiff < 0)
+         nScale := 1
+         nImageTopDiff := 0
+         @ 10,00 CLEAR
+         Eval(bDrawImage)
+      ELSEIF MCol() >= 100 .AND. MCol() <= 106 .AND. nPage > 1
+         nPage--         
+         nImageTopDiff := 0
+         @ 10,00 CLEAR
+         Eval(bDrawImage)
+      ELSEIF MCol() >= 108 .AND. MCol() <= 114 .AND. File(StrTran(cImageFile,"%d",LTrim(str(npage+1))))
+         nPage++         
+         nImageTopDiff := 0
+         @ 10,00 CLEAR
+         Eval(bDrawImage)
+      ENDIF
+   Eval(bDisplayButtons)   
+   ENDIF
+RETURN NIL
+})
+/*
    LOCAL nKey
    LOCAL nMRow,nMCol
    LOCAL cScreen := SaveScreen()
@@ -148,6 +191,7 @@ NetUse("engkund","ku")
 NetUse("engrech","rech")
 NetUse("fibu","fibu")
 NetUse("contacts","conts")
+NetUse("rerepeat","rerep")
 
 LX_Start()
 hAccounts := LX_GetAccountsInCat(LX_CAT_KREDITOR,.T.)
@@ -267,7 +311,7 @@ ELSEIF cType == "CONTEXT" .AND. Empty(cMsgPath)
 ENDIF
 
 IF HB_RegExMatch("\.((pdf)|(doc))$",cFileName,.F.)
-   cImageFile := GetEnv("temp")+"\"+SubStr(cFileName,Rat("\",cFileName)+1)+".jpg"
+   cImageFile := GetEnv("temp")+"\"+SubStr(cFileName,Rat("\",cFileName)+1)+"_%d.jpg"
    cGSExe := GS_EXE+' -sDEVICE=jpeg -r300 -q -dBATCH -dNOPAUSE -sOutputFile="'+cImageFile+'" "'+cFileName+'"' //extract first page from PDF as JPEGs
    HB_ProcessValue(HB_OpenProcess(cGSExe,,@nStdOut,,.T.),.T.) //run GS and wait until it terminates
 
@@ -285,6 +329,7 @@ ENDIF
 
 bDrawImage := {||
    LOCAL nRatio,nWidth
+   LOCAL cScreen
    IF ! Empty(cImageFile)
       //A4 = 210x297mm
 //      @ 30,60 SAY HB_GTINFO( HB_GTI_FONTWIDTH)
@@ -301,7 +346,15 @@ bDrawImage := {||
       nImageBottom := nImageTopDiff+47*nScale
       nImageRight := nWidth*nScale
 
-      Wvt_DrawImage( nImageTop+nImageTopDiff,00+nImageRightDiff,nImageBottom,nImageRight+nImageRightDiff, cImageFile, {00, 00, 00, Mod(nRatio,47-10)*72*nScale } )
+      IF nImageTopDiff < 0
+         cScreen := SaveScreen(00,00,09,MaxCol())
+      ENDIF
+
+      Wvt_DrawImage( nImageTop+nImageTopDiff,00+nImageRightDiff,nImageBottom,nImageRight+nImageRightDiff, StrTran(cImageFile,"%d",LTrim(str(nPage))), {00, 00, 00, Mod(nRatio,47-10)*72*nScale } )
+
+      IF nImageTopDiff < 0
+         RestScreen(00,00,09,MaxCol(),cScreen)
+      ENDIF
 
    ENDIF
    RETURN NIL
@@ -315,6 +368,22 @@ DO WHILE .T.
    Head("Rechnungseingang")
 
    //Eval(bDrawImage)
+
+   bDisplayButtons := {||
+      LOCAL cActive := HB_ColorIndex(SetColor(),4)
+      LOCAL cInActive := "N+/W"
+      IF ! Empty(cImageFile)
+         @ 09,50 SAY "[ + ]" COLOR cActive   
+         @ 09,56 SAY "[ - ]" COLOR IF(nScale > 1,cActive,cInActive)      
+         @ 09,62 SAY "[ hoch ]" COLOR cActive
+         @ 09,71 SAY "[ runter ]" COLOR IF(nImageTopDiff < 0,cActive,cInActive)
+         @ 09,82 SAY "[ zurcksetzen ]" COLOR IF(nImageTopDiff<0.OR.nScale>1,cActive,cInActive)
+         @ 09,100 SAY "[ << ]" COLOR IF(nPage>1,cActive,cInActive)
+         @ 09,108 SAY "[ >> ]" COLOR IF(File(StrTran(cImageFile,"%d",LTrim(str(npage+1)))),cActive,cInActive)
+      ENDIF
+      RETURN NIL
+   }
+   Eval(bDisplayButtons)
 
    cBelegKurz := ""
    IF ! Empty(cLiefma)
@@ -353,13 +422,16 @@ DO WHILE .T.
       RETURN .T.
    }
    Aadd(getlist,oGet)
-   @ 04,00 SAY Pad("Belegjahr",19) GET nYear VALID nYear >= Year(Date())-1 .AND. nYear <= Year(Date()+31) PICTURE "9999" WHEN cType != "SCAN" .AND. ! lAuto //Belegjahr außer bei Scan's da wird es von der ID entnommen
+   @ 04,00 SAY Pad("Rechnungssumme",19) GET nBetrag VALID nBetrag != 0 PICTURE "@E 9,999,999.99"
+   @ 05,00 SAY Pad("Belegjahr",19) GET nYear VALID nYear >= Year(Date())-1 .AND. nYear <= Year(Date()+31) PICTURE "9999" WHEN cType != "SCAN" .AND. ! lAuto //Belegjahr außer bei Scan's da wird es von der ID entnommen
 
    IF cType == "SCAN"
       @ 06,00 SAY "Interne Belegnummer "+Str(nID,9)
    ENDIF
    Wvt_Paint()
    READ
+
+
 
    IF LastKey() == 27
       RETURN
@@ -580,6 +652,10 @@ DO WHILE .T.
             rebp->Rev     := nRev
          ENDIF
 
+         reb->Betrag := nBetrag
+
+         //reb->(dbUnLock()) //this causes it to crash
+
          rebp->(Add_Rec(0))
          rebp->ID := nID
          rebp->DateTime := DtoS(dEingang)
@@ -587,30 +663,8 @@ DO WHILE .T.
          rebp->Person := Tr_Getini(28)
          rebp->Rev    := nRev
 
-         /*IF nType == 0 .AND. Date() > dEingang+10
-            rebp->(dbSetOrder( 2 ))
-            cArchiveTime := ""
-            IF rebp->(dbSeek(Str(nID-1,9)+"ARCHIV")) .AND. StoD(rebp->DateTime) < Date()-3
-               tArchiveTime := StoT(rebp->DateTime)+1/(24*60)*HB_Random(60)+1/(24*60*60)*HB_Random(60)+1/(24*60*60*60)*HB_Random(60)
-               IF Val(SubStr(TtoS(tArchiveTime),9,2)) >= 18
-                  tArchiveTime += .6
-               ELSEIF Val(SubStr(TtoS(tArchiveTime),9,2)) < 7
-                  tArchiveTime += .4
-               ENDIF
-               IF IsFeiertag(tArchiveTime,"BW",.T.) .OR. Dow(tArchiveTime) == 1 .OR. DoW(tArchiveTime) == 7
-                  tArchiveTime := StoT(DToS(AddWorkingDays(tArchiveTime,1,"BW",.T.))+SubStr(TtoS(tArchiveTime),9))
-               ENDIF
-               cArchiveTime := TtoS(tArchiveTime)
-               IF tArchiveTime < dEingang
-                  cArchiveTime := ""
-               ENDIF
-            ENDIF
-            IF Empty(cArchiveTime)
-               cArchiveTime := DtoS(AddWorkingDays(dEingang,1,"BW",.T.))+SubStr(TtoS(DateTime()),9)
-            ENDIF
-         ELSE  */
-            cArchiveTime := TtoS(DateTime())
-         //ENDIF
+         cArchiveTime := TtoS(DateTime())
+         
          rebp->(Add_Rec(0))
          rebp->ID := nID
          rebp->DateTime := cArchiveTime
@@ -635,10 +689,57 @@ DO WHILE .T.
          IF ! LETO_COMMITTRANSACTION() //this also unlocks the records
             LETO_ROLLBACK()
             lError := .T.
+         ELSE                     
+            IF Empty(cLiefma) .AND. rerep->(dbSeek( Str(nKonto,6)+Str(nBetrag*100,14,0) )) 
+               lApprove := .F.
+               //check to see if this invoice is a reoccuring invoice which can be automatically released         
+               DO WHILE rerep->Konto == nKonto .AND. rerep->Betrag == nBetrag  //there can be multiple entries
+                  IF Empty(rerep->End) .OR. rerep->End > dEingang
+                     IF rerep->Intervall=="M" 
+                        dNext := AddMonth(rerep->Last,1)-5 //5 Tage Toleranz
+                     ELSEIF rerep->Intervall=="H" 
+                        dNext := AddMonth(rerep->Last,6)-15 //15 Tage Toleranz               
+                     ELSEIF rerep->Intervall=="J"
+                        dNext := AddMonth(rerep->Last,12)-30 //30 Tage Toleranz               
+                     ELSE
+                        dNext := StoD("")
+                     ENDIF               
+                     IF dNext <= dEingang 
+                        lApprove := .T.                  
+                        EXIT           
+                     ENDIF            
+                  ENDIF
+                  rerep->(dbSkip())
+               ENDDO
+            
+               IF lApprove //invoice has been auto approved            
+                  LETO_BEGINTRANSACTION()
+                  BEGIN SEQUENCE
+                     rerep->(Rec_Lock(0))
+                     rerep->Last := dEingang    
+
+                     reb->(Rec_Lock())
+                     reb->Status := 8
+                     reb->Person := nPersOnApprove
+                     rebp->(Add_Rec())
+                     rebp->ID := nID
+                     rebp->DateTime := TtoS(DateTime())
+                     rebp->Type     := "APR"
+                     rebp->Person   := -1  //we use -1 for automatic
+                     rebp->Rev      := nRev
+                     LETO_COMMITTRANSACTION()
+                  RECOVER
+                     LETO_ROLLBACK()
+                  END
+                  Sendmail({{"amos.engelking@engelking.de","Amos"}},"Wiederholungsrechnung gefunden",Str(nid)+Chr(13)+Chr(10)+Str(nKonto)+Chr(13)+Chr(10)+Str(nBetrag,14,2))  
+               ELSE
+                  Sendmail({{"amos.engelking@engelking.de","Amos"}},"Keine Wiederholungsrechnung gefunden - Eintr„ge stimmen nicht berein",Str(nid)+Chr(13)+Chr(10)+Str(nKonto)+Chr(13)+Chr(10)+Str(nBetrag,14,2))  
+               ENDIF
+            ELSEIF nKonto != 0
+               //Sendmail({{"amos.engelking@engelking.de","Amos"}},"Keine Wiederholungsrechnung gefunden","ID:"+Str(nid)+Chr(13)+Chr(10)+"Konto:"+Str(nKonto)+Chr(13)+Chr(10)+"Betrag:"+Str(nBetrag,14,2)+Chr(13)+Chr(10)+"Record:"+Str(reb->(Recno())))  
+            ENDIF
+            #endif
          ENDIF
-         #endif
-         //? "abgeschlossen"
-         //Sinkey(0)
       RECOVER
          #ifndef TEST
          LETO_ROLLBACK()

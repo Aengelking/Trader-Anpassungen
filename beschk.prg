@@ -115,17 +115,26 @@ Aadd(aAutoOC,{;
       RETURN .F.
    };
 }) */
-
-Aadd(aAutoOC,{;
+   //salessupportemea@waldom.com
+   //
+Aadd(aAutoOC,{;   
    "EMAIL"=>"waldom(?:emea|\.zendesk)?.com$",;
    "BLOCK"=>{|oMsg,cFile|
-      LOCAL oHTML := THtmlDocument():New(oMsg:Fields("HTML"):Value)
-      //LOCAL aMonths := {"JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"}
+
+      LOCAL oHTML,cHTML
       LOCAL aRegex,nX,nPO,cAB
-      LOCAL oTable
+      LOCAL oTable,nMonth
 
       HB_SYMBOL_UNUSED(cFile)
-      
+
+      cHtml := oMsg:Fields("HTML"):Value
+
+      IF AT("<html",cHtml) == 0
+         cHtml := "<html><body>"+cHtml+"</body></html>"
+      ENDIF
+
+      oHTML := THtmlDocument():New(cHtml)
+
       IF HB_RegexMatch("Due date change.*",oMsg:Subject)
          Alert(t("Terminänderung"))
          aRegex := HB_Regex('<a[^>]*([">]*zendesk[^"]*)',oMsg:Fields("HTML"):Value)
@@ -134,28 +143,30 @@ Aadd(aAutoOC,{;
          ENDIF
       ENDIF
 
-      aRegex := HB_Regex("[^0-9]*([0-9]{5,})\s*[^#]*#([0-9]{1,})",oMsg:SubJect)
+      aRegex := HB_Regex("[^0-9]*([0-9]{5,})\s*[^#]*#\s*([0-9]{1,})",oMsg:SubJect)
 
-      IF Len(aRegex) >= 3
+      IF Len(aRegex) >= 3 .OR. Len(oHTML:getNodes("table")) >= 9
          nPO := Val(aRegex[2])
          cAB := aRegex[3]
 
-         oTable := oHTML:getNodes("table")[7]
-         //MemoEdit(oTable:toString())
-         aData := GetDataFromHTMLTable(oTable,{"PART"=>"(Artikelnummer|PartNumber)","QTY"=>"(Bestellmenge|Order Quantity)","PRICE"=>"(St.ckpreis|Unit Cost)","DATE"=>"ShipDate"})
+         oTable := oHTML:getNodes("table")[9]
 
-         FOR nX := 1 TO Len(aData)
-            //aRegex := HB_Regex("([0-9\.,]{1,})[^0-9]*(?:([0-9]{2}\s*[A-Z]{3}\s*[0-9]{4})|([0-9]{1,2}))",aData[nX]["QTY"])
-            //IF Len(aRegex) >= 3
-               //aData[nX]["QTY"] := aRegex[2]
+         aData := GetDataFromHTMLTable(oTable,{"PART"=>"(Artikelnummer|Part\s*Number)","QTY"=>"(Bestellmenge|Order\s*Quantity)","PRICE"=>"(St.ckpreis|Unit\s*Cost)","DATE"=>"Expected\s*Ship\s*Date"},2)
 
-/*               FOR nM := 1 TO Len(aMonths)
-                  aData[nX]["DATE"] := StrTran(aData[nX]["DATE"],aMonths[nM],StrZero(nM,2))
-               NEXT*/
-               aData[nX]["PRICE"] := LTrim(StrTran(StrTran(aData[nX]["PRICE"],"?",""),"&euro;",""))
-            //ENDIF
+         FOR nX := 1 TO Len(aData)            
+            
+            FOR nMonth := 1 TO 12
+               aData[nX]["DATE"] := StrTran(aData[nX]["DATE"] ,{"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"}[nMonth],StrZero(nMonth,2))
+            NEXT
+            aData[nX]["DATE"] := SubStr(aData[nX]["DATE"],0,8)
+            
+            aData[nX]["PRICE"] := StrTran(LTrim(StrTran(StrTran(aData[nX]["PRICE"],"?",""),"&euro;","")),Chr(9),"")
+            aData[nX]["PART"] := StrTran(aData[nX]["PART"],Chr(9),"")
+            aData[nX]["QTY"]  := StrTran(aData[nX]["QTY"],Chr(9),"")
          NEXT
-         RETURN ProcessOCData(aData,Pad("WALDOM",8),cAB,nPO,,"dd mm yyyy")
+         RETURN ProcessOCData(aData,Pad("WALDOM",8),cAB,nPO,,"dd mm yy")
+      ELSE
+         Tr_MsgBox("Format der Email nicht korrekt.")
       ENDIF
       RETURN .F.
    };
@@ -188,7 +199,7 @@ Aadd(aAutoOC,{;
    "BLOCK"=>{|oMsg,cFile|
       HB_SYMBOL_UNUSED(oMsg)
       TxtBox("Daten werden eingelesen...")
-      aData := GetDataFromPDF(cFile,{"-a 380,0,790,575 -c 38,86,260,365,453,527 -p all"},{=>},{"PO"=>"Your Order\(s\):\s*([0-9]{5,})","AB"=>"No\.:\s*([0-9]{1,})"},@hResults,,{"PART"=>4,"QTY"=>6,"PRICE"=>5,"DATE"=>7})
+      aData := GetDataFromPDF(cFile,{"-a 380,0,790,575 -c 38,86,260,365,453,527 -p all"},{=>},{"PO"=>"Customer Ref\s*([0-9]{5,})","AB"=>"Order No\.\s*SO([0-9]{1,})"},@hResults,,{"PART"=>4,"QTY"=>6,"PRICE"=>5,"DATE"=>7})
       TxtClear()
       //? ValToPrg(aData)
       //? ValToPrg(hResults)
@@ -208,9 +219,9 @@ Aadd(aAutoOC,{;
 
       TxtBox("Daten werden eingelesen...")                                             
       // {"PART"=>"Product Code","QTY"=>"Qty","PRICE"=>"Unit Price"}
-      aData := GetDataFromPDF(cFile,{"-a 319,23,792,570 -c 23,125,435,470,530 -p all"},{=>},{"PO"=>"Customer\s*Order\s*No\s*:\s*([0-9]{5,})","AB"=>"^Order\s*No\:\s*([0-9]{1,})","DATE"=>"Delivery\s*Date\s*:\s*([0-9\/]*)"},@hResults,"-a 96,23,304,570 -p 1",{"PART"=>2,"QTY"=>4,"PRICE"=>5})
-//      ? ValToPrg(aData)
-//      ? ValToPrg(hResults)
+      aData := GetDataFromPDF(cFile,{"-a 319,23,792,570 -c 23,125,435,470,530 -p all"},{=>},{"PO"=>"Customer\s*Order\s*No\s*:\s*([0-9]{5,})","AB"=>"^Order\s*No\:\s*([0-9]{1,})","DATE"=>"Received\s*Date\s*:\s*([0-9\/]*)"},@hResults,"-a 96,23,304,570 -p 1",{"PART"=>2,"QTY"=>4,"PRICE"=>5})
+      //? ValToPrg(aData),Len(aData)
+//     ? ValToPrg(hResults)
 //      SinKey(0)
       TxtClear()
       IF Len(aData) == 0

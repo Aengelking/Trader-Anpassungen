@@ -328,7 +328,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                   Aadd(aText,"Ausschuss:"+Str(wer->PlanBad)+"->"+Str(hOrders[wer->Aufno]:BadQty))
 
                   Eval(bAddJobs,hOrders[wer->Aufno]:Jobs,wer->Aufno)
-                  nChoice := Tr_MsgBox(aText,,{"Nein","Ja","zurck"}) 
+                  nChoice := Tr_MsgBox(aText,"Best„tiger Auftrag",{"Nein","Ja","zurck"}) 
                   IF nChoice == 2                     
                      
                      oWerk := WA():New()
@@ -361,7 +361,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                Aadd(aCSV,{wer->Aufno,"bestehend","FEHLER",hOrders[wer->Aufno]:Status,wer->Status,oExtra:FreppleSta})
                Tr_MsgBox("FA "+LtrIM(str(wer->Aufno))+" kann nicht ge„ndert werden")
             ENDIF
-         ELSE            
+         ELSEIF wer->Status == 0            
             aRow := Array(9)
             AFill(aRow,"")   
 

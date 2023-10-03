@@ -19,7 +19,7 @@ PROC RUN_CHANGE_FOLGE
 
    IF lAuto
       ? "Artikel werden eingelesen..."
-      art->(dbSetFilter( {|| art->manufactur == 11 .AND. ! art->LagerArt }, "manufactur == 11 .AND. ! LagerArt" ))
+      art->(dbSetFilter( {|| art->manufactur == 11 .AND. ! art->LagerArt .AND. AT("KS",art->Matchcode)!=1}, "manufactur == 11 .AND. ! LagerArt .AND. AT('KS',Matchcode)!=1" ))
       art->(dbGoTop())
       DO WHILE ! art->(Eof())
          Aadd(aArtikel,art->Artikelnr)
@@ -65,7 +65,9 @@ PROC RUN_CHANGE_FOLGE
       
       art->(dbSetOrder( 2 ))
 
-      IF bom->(dbSeek( Str(oArt:Artikelnr,6) ))         
+      part->(dbSetOrder( 1 ))
+      
+      IF part->(dbSeek( Str(oArt:Artikelnr,6) ))         
          @ 03,00 SAY "Stckliste bereits vorhanden"
          LOOP
       ENDIF
@@ -145,10 +147,15 @@ PROC RUN_CHANGE_FOLGE
          LOOP
       ENDIF
       SetPos(nRow+1,00)
-      oBom := bom->(Bom_Model():New(.T.))
-      oBom:Date := Date()
-      oBom:Artikelnr := oArt:Artikelnr
-      oBom:Index := 1
+      IF bom->(dbSeek( Str(oArt:Artikelnr,6) ))
+         oBom := bom->(Bom_Model():New( .F. ))         
+         oBom:Load( oArt:Artikelnr )
+      ELSE
+         oBom := bom->(Bom_Model():New( .T. ))
+         oBom:Artikelnr := oArt:Artikelnr
+      ENDIF
+      oBom:Date := Date()      
+      oBom:Index++ // := 1
       oBom:Used := .F.
       oBom:Save()     
       

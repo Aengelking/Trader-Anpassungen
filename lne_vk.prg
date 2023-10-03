@@ -11,6 +11,9 @@ FUNCTION RUN_LNE_VK(oPrinter)
    ELSE
       oArt:Load(lne->Artikelnr)
       oPrinter:posinfo["val"]:=oArt:GetAvgBuyPrice(Date())*IF(ku->Group=="K",1.5,1)
+      IF oPrinter:posinfo["val"] == 0
+         oPrinter:posinfo["val"] := oArt:Letzte_Ek/oArt:PE*IF(ku->Group=="K",1.5,1)
+      ENDIF
    ENDIF
 
    RestEnv(aEnv,.F.)

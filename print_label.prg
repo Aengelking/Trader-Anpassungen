@@ -10,5 +10,9 @@ PROC print_label
       ENDIF
    ELSEIF Alias()=="ART" .OR. ProcName(8) == "BROWSEARTIKEL" .OR. ProcName(7) == "BROWSEARTIKEL"
       StickPrint("WARE")
+   ELSEIF  ProcName(8) == "PROJECT_BROWSE"      
+      StickPrint("PROJEKT")
+   ELSEIF Tr_Getini(28) == 9
+      Alert(ProcName(8))
    ENDIF
 RETURN NIL

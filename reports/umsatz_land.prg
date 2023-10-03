@@ -4,9 +4,10 @@ LOCAL nTotal := 0
 LOCAL nFactoring := 0
 LOCAL nPrePay := 0
 LOCAL getList := {}
-LOCAL nTotD := 0,nTotUSCA := 0,nTotRest := 0,nTotEU := 0
+LOCAL nTotD := 0,nTotUSCA := 0,nTotRest := 0,nTotEU := 0,nKFZ := 0
+LOCAL oExtra
 
-Head("Umsätze nach Regionen")
+Head("Umsätze nach Regionen + KFZ")
 
 @ 01,00 SAY "Jahr" GET nYear PICTURE "9999"
 READ
@@ -16,6 +17,7 @@ IF LastKey() == 27
 ENDIF
 
 NetUse("englsre","re")
+NetUse("engkund","ku")
 NetUse("skontoa","sk")
 NetUSe("countri2","ct2")
 
@@ -27,6 +29,7 @@ re->(dbSeek( Str(nYear,4)+"0101",.T. ))
 DO WHILE Year(re->Rechdat) == nYear
    @ 02,00 SAY re->Rechnr
    ku->(dbSeek( re->Kunde+"K" ))
+   oExtra := ku->(Extradata():New(ku->Nummer))
    IF ku->CountryIso == "DE"
       nTotD += re->PosWt-re->Preis
    ELSEIF ku->CountryIso $ {"US","CA"}
@@ -35,6 +38,9 @@ DO WHILE Year(re->Rechdat) == nYear
       nTotEU += re->PosWt-re->Preis
    ELSE
       nTotRest += re->Poswt-re->Preis
+   ENDIF
+   IF oExtra:KFZ
+      nKFZ += re->Poswt-re->Preis
    ENDIF
 
    nTotal += re->PosWt
@@ -46,10 +52,16 @@ DO WHILE Year(re->Rechdat) == nYear
    re->(dbSkip())
 ENDDO
 @ 02,00 CLEAR
-@ 03,00 SAY "Deutschland : "+Transform(nTotD,"@E 9,999,999.99")
-@ 04,00 SAY "EU          : "+Transform(nTotEU,"@E 9,999,999.99")
-@ 05,00 SAY "USA/Kanada  : "+Transform(nTotUSCA,"@E 9,999,999.99")
-@ 06,00 SAY "Rest        : "+Transform(nTotRest,"@E 9,999,999.99")
+@ 03,00 SAY "Deutschland  : "+Transform(nTotD,"@E 9,999,999.99")
+@ 04,00 SAY "Ausland      : "+Transform(nTotEU+nTotUSCA+nTotRest,"@E 9,999,999.99")
+@ 05,00 SAY "Ausland o.USA: "+Transform(nTotEU+nTotRest,"@E 9,999,999.99")
+@ 06,00 SAY "  EU         : "+Transform(nTotEU,"@E 9,999,999.99")
+@ 07,00 SAY "  USA/Kanada : "+Transform(nTotUSCA,"@E 9,999,999.99")
+@ 08,00 SAY "  Rest       : "+Transform(nTotRest,"@E 9,999,999.99")
+@ 09,00 SAY "KFZ          : "+Transform(nKFZ,"@E 9,999,999.99")
+
+
+
 SInkey(0,128)
 
 RETURN

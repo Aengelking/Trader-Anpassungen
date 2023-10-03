@@ -2,19 +2,23 @@ PARAMETERS nArtnr,cArtlief,cMatch
 
 LOCAL nX,hData,hPrice,hPrices := {=>},oHttp,oHttp2
 LOCAL nPos,cPrices,cDomain := "https://www.buerklin.com"
-LOCAL lDbg := Tr_Getini(28) == 9 .AND. ! GetConfigValue("BATCHMODE")
+LOCAL lDbg := .F. // Tr_Getini(28) == 9 .AND. ! GetConfigValue("BATCHMODE")
 LOCAL hCookies := {=>},cValue
 LOCAL cScreen
    
-   cUrl :=  cDomain+"/de/x/x/p/"+StrTran(cArtLief," ","")
+   cUrl :=  cDomain+"/de/p/x/x/"+Lower(Trim(StrTran(cMatch,"/","-")))+"/"+StrTran(cArtLief," ","")+"/"
+   IF lDBg
+      gtSetClipboard(cUrl)
+      Alert(cUrl)
+   ENDIF
    cData := __DownLoadPage(cUrl) //oHttp:readAll()
 
    IF ValType(cData) == "C"       
       IF lDbg
          /*cScreen := SaveScreen()
-         MemoEdit(cData)
+         MemoEdit(cData)*/
          gtSetClipboard(cData)
-         RestScreen(,,,,cScreen)*/
+         //RestScreen(,,,,cScreen)
       ENDIF
       IF (nP := AT("crossselling",cData)) != 0
          cData := SubStr(cData,1,nP)  //cut off all crossselling products to avoid wrong information

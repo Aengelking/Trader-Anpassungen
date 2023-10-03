@@ -10,7 +10,7 @@ LOCAL nX,nY,nSt
 MEMVAR cFilter
 PRIVATE cFilter
 
-IF Tr_Getini(28) == 9   //testing heidelberger   
+IF .F. //Tr_Getini(28) == 9   //testing heidelberger   
    RUN_CollectAndProcess_LE({;
          "KUNDE"=>15958,;
          "PRODFREIGABE"=>3,;  //Anzahl Monate Produktionsfreigabe
@@ -76,26 +76,30 @@ Aadd(aAutoBeleg,{;
 
       Head("Automatische Auftragsverarbeitung")
 
-      TxtBox("Daten werden eingelesen...")
-      aData := GetDataFromPDF(cFile,{"-a 512,0.0,840,550 -c 19,80,250 -p 1"},{=>},{"ORDER"=>"Number\s*([0-9]{10})","MATDATE"=>"go-ahead\s*for\s*procurement\s*until\s*:\s*([0-9]{2}.[0-9]{2}.[0-9]{4})"},@hResults,,{"DATE"=>2,"QTY"=>3,"CHANGEQTY"=>4})
-      TxtClear()
-      SetPos(1,0)
-      //? ValToPrg(aData)
-      //? ValToPrg(hResults)
-      //SInkey(0)
-     
+      IF Tr_MsgBox("Ist "+cFile+" eine Liefereinteilung?",,{"Ja","Nein"}) == 1
 
-      hResults["ORDER"] := Pad(hResults["ORDER"],20)
-      hResults["MATDATE"] := CtoD(hResults["MATDATE"])  
-      hResults["PRODDATE"] := hResults["MATDATE"] 
-      hResults["FRAME"] := hResults["ORDER"] 
-      hResults["LASTWE"] := 0
+         TxtBox("Daten werden eingelesen...")
+         aData := GetDataFromPDF(cFile,{"-a 512,0.0,840,550 -c 19,80,250 -p 1"},{=>},{"ORDER"=>"Number\s*([0-9]{10})","MATDATE"=>"go-ahead\s*for\s*procurement\s*until\s*:\s*([0-9]{2}.[0-9]{2}.[0-9]{4})"},@hResults,,{"DATE"=>2,"QTY"=>3,"CHANGEQTY"=>4})
+         TxtClear()
+         SetPos(1,0)
+         //? ValToPrg(aData)
+         //? ValToPrg(hResults)
+         //SInkey(0)
+      
 
-      IF ! ProcessSalesOrder(30002,hResults,aData,@oAuftrag)
-         RETURN .F.
+         hResults["ORDER"] := Pad(hResults["ORDER"],20)
+         hResults["MATDATE"] := CtoD(hResults["MATDATE"])  
+         hResults["PRODDATE"] := hResults["MATDATE"] 
+         hResults["FRAME"] := hResults["ORDER"] 
+         hResults["LASTWE"] := 0
+
+         IF ! ProcessSalesOrder(30002,hResults,aData,@oAuftrag)
+            RETURN .F.
+         ENDIF
+
+         RETURN .T.
       ENDIF
-
-      RETURN .T.
+      RETURN .F.
    };
 })
 //   "FILE"=>"Lieferplan.*.pdf",;

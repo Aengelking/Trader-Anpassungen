@@ -24,22 +24,57 @@ LOCAL lAuftrag := .T.
 //LOCAL lTel := .F.
 LOCAL cGroup := Space(4)
 LOCAL hPos,cWeek,cFile,nX,cKunde,nP
-LOCAL hContact,nA
+LOCAL nA
 LOCAL lAllContacts := .F.
 LOCAL lNoGeneral := .F.,aPeople
 LOCAL lNurEmail := .T.
-LOCAL aCSV := {},nCount,cAnrede,cEmail,cName
+LOCAL hData := {=>},nCount,cAnrede,cEmail,cName
+LOCAL cLang,aCSV,nH
 
 Head("Ansprechpartner mit Email Adressen exportieren")
 
+bShowGets := {|| 
+   LOCAL nG := MaxRow()+1
+   getlist[1]:Control:close()
+
+   @ 02,00 CLEAR TO 02,MaxCol()   
+   IF nType == 1
+      @ 02,00 SAY "Regex"      
+   ELSEIF nType == 2
+      @ 02,00 SAY "Hersteller"
+   ELSE
+      @ 02,00 SAY "Produktgruppe"      
+   ENDIF
+      
+   getlist[2]:row := IF(nType==1,02,nG)         
+   getlist[3]:row := IF(nType==2,02,nG)
+   getlist[3]:Control:top := IF(nType==2,02,nG)   
+   getlist[4]:row := IF(nType==3,02,nG)
+
+   getlist[2]:Display()
+   getlist[3]:control:Display()
+   getlist[4]:Display()
+   
+   RETURN .T.
+}
+
 @ 01,00 SAY "Auswahlart"
-@ 01,27,10,50 GET nType LISTBOX aTypes DROPDOWN
-@ 02,00 SAY "Regex"
+@ 01,27,10,50 GET nType LISTBOX aTypes DROPDOWN VALID Eval(bShowGets)
+/*ATaiL(getlist):Control:fBlock := {||   
+   @ MaxRow(),00 SAY Seconds()+" "+IF(getlist[1]:control:IsOpen,"O"," ")
+   @ 02,00 CLEAR TO 02,MaxCol()
+   getlist[2]:Display()
+   getlist[3]:Control:Display()
+   getlist[4]:Display()   
+   RETURN .T.
+}*/
+//@ 02,00 SAY "Regex"
 @ 02,27 GET cBegin WHEN nType == 1 //VALID HB_IsRegexString(cBegin)
-@ 03,00 SAY "Hersteller"
-@ 03,27,22,40 GET nManu LISTBOX hManu ASSOCIATIVE WHEN nType == 2
-@ 04,00 SAY "Produktgruppe"
-@ 04,27 GET cGroup PICTURE "@!" WHEN nType == 3
+//@ 03,00 SAY "Hersteller"
+@ MaxRow()+1,27,22,40 GET nManu LISTBOX hManu ASSOCIATIVE WHEN nType == 2
+//@ 04,00 SAY "Produktgruppe"
+@ MaxRow()+1,27 GET cGroup PICTURE "@!" WHEN nType == 3
+Eval(bShowGets)
 //@ 05,00 SAY t("Telefonnummern exportieren")
 //@ 05,27 GET lTel CHECKBOX
 @ 06,00 SAY "Muster"
@@ -149,22 +184,24 @@ IF lAngebot
    ang->(dbClearFilter())
 ENDIF
 
-cFile := Trim(Tr_Getini(1))+"\export\"+IF(nType==1,Lower(CharRepl("*.\?:()|/\",Trim(cBegin)," __")),IF(nType==2,Trim(hManu[nManu]),Trim(cGroup)))+"_auftraege.csv"
 //SET PRINTER TO (cFile)
 //SET PRINTER ON
 @ 26,00 SAY "Exportiere"
 @ 26,21 SAY "/"+LTrim(Str(Len(hPos)))
 
-Aadd(aCSV,{"Sprache","Anrede","Name","Email"})
-/*IF lTel
-   Aadd(aCSV[1],"Telefon")
-ENDIF*/
-Aadd(aCSV[1],"Matchcode")
-Aadd(aCSV[1],"Firma")
-Aadd(aCSV[1],"Straáe")
-Aadd(aCSV[1],"PLZ")
-Aadd(aCSV[1],"Stadt")
-Aadd(aCSV[1],"Land")
+   cLang := "D"
+   hData[cLang] := {}
+   Aadd(hData[cLang],{"Anrede","Name","Email"})
+   /*IF lTel
+      Aadd(aCSV[1],"Telefon")
+   ENDIF*/
+   Aadd(hData[cLang][1],"Matchcode")
+   Aadd(hData[cLang][1],"Firma")
+   Aadd(hData[cLang][1],"Straáe")
+   Aadd(hData[cLang][1],"PLZ")
+   Aadd(hData[cLang][1],"Stadt")
+   Aadd(hData[cLang][1],"Land")
+
 
 aku->(dbSetOrder( 3 ))
 nX := 1
@@ -201,17 +238,20 @@ Do While nX <= Len(hPos)
 				nA := 1
             //hContact := GetContact(aPeople[nP])
             IF ! lNurEmail .OR. ! Empty(cEmail)
-               Aadd(aCSV,{{"D"=>"DE","E"=>"EN"," "=>"DE"}[ku->Language],cAnrede,cName,cEmail})
+               IF ! HHasKey(hData,ku->Language)
+                  hData[ku->Language] := {AClone(hData["D"][1])}
+               ENDIF
+               Aadd(hData[ku->Language],{cAnrede,cName,cEmail})
                
                /*IF lTel
                   AAdd(ATail(aCSV),hContact["fullphone"])
                ENDIF*/
-               AAdd(ATail(aCSV),Trim(ku->Kunde))
-               AAdd(ATail(aCSV),Trim(Trim(ku->Name1)+" "+ku->Name2))
-               AAdd(ATail(aCSV),Trim(ku->Street))
-               AAdd(ATail(aCSV),Trim(ku->Plz))
-               AAdd(ATail(aCSV),Trim(ku->Town))
-               AAdd(ATail(aCSV),Trim(GetCountryname(ku->CountryIso)))
+               AAdd(ATail(hData[ku->Language]),Trim(ku->Kunde))
+               AAdd(ATail(hData[ku->Language]),Trim(Trim(ku->Name1)+" "+ku->Name2))
+               AAdd(ATail(hData[ku->Language]),Trim(ku->Street))
+               AAdd(ATail(hData[ku->Language]),Trim(ku->Plz))
+               AAdd(ATail(hData[ku->Language]),Trim(ku->Town))
+               AAdd(ATail(hData[ku->Language]),Trim(GetCountryname(ku->CountryIso)))
                /*
                ASort(hPos[cKunde]["artikel"])
                Do While nA <= Len(hPos[cKunde]["artikel"])
@@ -232,15 +272,19 @@ Enddo
 
 //SET PRINTER TO
 //SET PRINTER OFF
-DO WHILE (nH := Fopen(cFile,"W")) == 0 .AND. Tr_MsgBox("Datei kann nicht ge”ffnet werden",,{"wiederholen","abbrechen"}) != 2
-ENDDO
-IF nH != 0
-   FClose(nH)
-   @ 27,00 SAY "Speichern..."
-   SaveAsCSV(cFile,aCSV)
-   @ 27,14 SAY "abgeschlossen"
-   WAPI_ShellExecute(NIL, "Open", cFile, "", "", 1)
-ENDIF
+@ 27,00 SAY "Speichern..."
+FOR EACH aCSV IN hData
+   cLang := aCSV:__eNUmKey()
+   cFile := Trim(Tr_Getini(1))+"\export\emails_"+IF(nType==1,Lower(CharRepl("*.\?:()|/\",Trim(cBegin)," __")),IF(nType==2,Trim(hManu[nManu]),Trim(cGroup)))+"_auftraege_"+cLang+".csv"
+   DO WHILE (nH := Fopen(cFile,"W")) == 0 .AND. Tr_MsgBox("Datei kann nicht ge”ffnet werden",,{"wiederholen","abbrechen"}) != 2
+   ENDDO
+   IF nH != 0
+      FClose(nH)     
+      SaveAsCSV(cFile,aCSV)            
+      WAPI_ShellExecute(NIL, "Open", cFile, "", "", 1)
+   ENDIF   
+NEXT
+@ 27,14 SAY "abgeschlossen"
 SET CURSOR ON
 
 TR_MsgBox("Export abgeschlossen")

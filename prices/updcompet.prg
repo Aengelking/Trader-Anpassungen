@@ -20,10 +20,10 @@ PUBLIC cPriceError
 Default(@lDisp,.T.)
 Default(@lForce,.F.)
 
-IF Tr_Getini(28) == 9
+IF .F. //Tr_Getini(28) == 9
    aCompet := {"BšRKLIN"}
 ELSE
-   aCompet := {"RS","Schukat",HB_AnsiToOem("BÜRKLIN"),"ARROW"} //Farnell //"Conrad", "Reichelt","Mouser" does not work
+   aCompet := {"RS","Schukat","ARROW","Farnell",HB_AnsiToOem("BÜRKLIN") } //HB_AnsiToOem("BÜRKLIN") //Brklin hat alle Preise von Bulgin deaktiviert //"Conrad", "Reichelt","Mouser" does not work
 ENDIF
 
 IF lDisp
@@ -124,12 +124,13 @@ FOR nX := 1 TO Len(aCompet)
    ku->(dbSeek( Pad(Upper(aCompet[nX]),8)+"L" ))
 
    IF (ali->(dbSeek(Pad(Upper(aCompet[nX]),8)+Str(art->Artikelnr,6))) .AND. ! Empty(ali->artlief)) .OR. aCompet[nX] $ "Schukat TME"
-      IF lDisp
-         @ MaxRow()/2-2,MaxCol()/2-15 SAY PadC("["+aCompet[nX]+"]",30,Chr(196)) COLOR c_five
-      ENDIF
-
+      
       cPriceError := ""
-      IF ! cmp2->(dbSeek( Str(art->Artikelnr,6)+Str(ku->Nummer,6) )) .OR. cmp2->Datum < Date() .OR. lForce //avoids calling off the prices several times if one failes
+      IF ! cmp2->(dbSeek( Str(art->Artikelnr,6)+Str(ku->Nummer,6) )) .OR. cmp2->Datum < Date() .OR. lForce //avoids calling off the prices several times if one failes         
+         IF lDisp
+            @ MaxRow()/2-2,MaxCol()/2-15 SAY PadC("["+aCompet[nX]+"]",30,Chr(196)) COLOR c_five
+         ENDIF
+
          hPrices := MBaseRun(Trim(Tr_Getini(1))+"\run\prices\"+aCompet[nX],{art->Artikelnr,ali->Artlief,art->Matchcode,@nError})
          IF ValType(hPrices) == "H" .AND. Len(hPrices) != 0
             IF ! cmp2->(dbSeek( Str(art->Artikelnr,6)+Str(ku->Nummer,6) ))
@@ -234,6 +235,15 @@ DO WHILE cmpr->Artikelnr == nArtnr
    ENDIF
    cmpr->(dbSkip())
 ENDDO
+
+IF ! cmpr->(dbSeek( Str(nArtnr,6) )) //no prices available, just remember that we checked
+   cmpr->(Add_Rec(0))
+   cmpr->Artikelnr := nArtnr
+   cmpr->Menge := 99999999
+
+   cmpr->Datum := Date()
+   cmpr->(dbUnLock())
+ENDIF
 
 IF lDbg
    ? "Done"

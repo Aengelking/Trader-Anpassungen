@@ -39,7 +39,7 @@
       oUser:Load((aOrders:__eNumKey))
       nLastAB := 0
       cText := "Hallo "+SubStr(oUser:Name,1,AT(" ",oUser:Name)-1)+","+CRLF+CRLF+"folgende Auftr„ge stehen noch auf 'Termin folgt' oder 'Unbekannt':<pre>"   
-      cText += "AB-Nr. Pos "+Pad("Artikel",25)+PadL("Menge",12)+" "+Space(4)+" "+"m”glicher Termin"+CRLF
+      cText += "AB-Nr. Pos "+Pad("Artikel",25)+PadL("Menge",12)+" "+Space(4)+" "+"Datum"+" "+"m”glicher Termin"+CRLF
       FOR nX := 1 TO Len(aOrders)
          auf->(dbSeek( Str(aOrders[nX,1],6)+Str(aOrders[nX,2]) ))
 
@@ -49,7 +49,7 @@
             cText += Space(6)
          ENDIF
          art->(dbSeek( Str(auf->Artikelnr,6) ))
-         cText += " "+Str(auf->Itmnr)+" "+auf->Matchcode+PadL(Transform(auf->VkQty,Me(art->Me)),12)+" "+art->Me+" "+IF(!Empty(aOrders[nX,3]),NiceWeek(aOrders[nX,3]),"-")+CRLF
+         cText += " "+Str(auf->Itmnr)+" "+auf->Matchcode+PadL(Transform(auf->VkQty,Me(art->Me)),12)+" "+art->Me+" "+DtoC(auf->Besda)+" "+IF(!Empty(aOrders[nX,3]),NiceWeek(aOrders[nX,3]),"-")+CRLF
          nLastAB := auf->Abnr
       NEXT
       

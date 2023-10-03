@@ -155,6 +155,8 @@ aTotal := {=>}
                   oPdf:RJust(Str(hZahl:nBetrag,12,2),nRow,65,'R')
 					NEXT
 				ENDIF
+         ELSEIF aVal[nY]["vorkasse"] .AND. aVal[nY]["paid"] != 0
+            oPdf:RJust(Str(aVal[nY]["paid"],12,2),nRow,65,'R')
          ENDIF
 
 			nY++

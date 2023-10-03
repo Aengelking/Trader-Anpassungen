@@ -6,21 +6,24 @@ FUNCTION RUN_TestSaveOO()
    
 RETURN NIL
 
-FUNCTION SaveToOO(cFileName,hData,cPW,cType,lShow)
+FUNCTION SaveToOO(cFileName,hData,cPW,cType,lShow,bProgress)
    LOCAL oOO,aProps,oDesk
    LOCAL oDoc,oSheets,oSheet,oCell
    LOCAL nR,nC,aData
+   LOCAL nDone := 0,nTot := 0
  
    IF ValType(hData) == "A"
       hData := {""=>hData}
    ENDIF
+   
 
    IF ValType(cType) != "C" .OR. ! Upper(cType) $ {"ODS","XLS","XLSX"}
       cType := "ODS"
    ELSE
       cType := Upper(cType)
    ENDIF
-      
+
+   Default(@bProgress,{|| .T. })   
    Default(@lShow,.F.)
 
    oOO := CreateObject("com.sun.star.ServiceManager")
@@ -39,6 +42,11 @@ FUNCTION SaveToOO(cFileName,hData,cPW,cType,lShow)
    oSheets := oDoc:getSheets()
 
    FOR EACH aData IN hData
+      nTot += Len(aData)
+   NEXT
+
+   FOR EACH aData IN hData
+      
       IF aData:__eNumIndex() == 1  //get the sheet already contained in the new document
          oSheet := oSheets:getByIndex(0)
          IF ! Empty(aData:__eNumKey()) //we can leave the first sheet name blank (e.g. when we only have one sheet)
@@ -50,6 +58,7 @@ FUNCTION SaveToOO(cFileName,hData,cPW,cType,lShow)
       ENDIF
 
       FOR nR := 1 TO Len(aData)
+         Eval(bProgress,nTot,nDone+nR)
          FOR nC := 1 TO Len(aData[nR])
             oCell := oSheet:getCellByPosition(nC-1,nR-1)
             SWITCH ValType(aData[nR,nC])
@@ -71,8 +80,10 @@ FUNCTION SaveToOO(cFileName,hData,cPW,cType,lShow)
             END
             
          NEXT
-      NEXT
+      NEXT      
+      nDone := Len(aData)
    NEXT
+   
    IF ! Empty(cFileName)      
       aProps := {}
       IF ! Empty(cPW)

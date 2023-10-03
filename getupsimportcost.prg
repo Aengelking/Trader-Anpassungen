@@ -14,7 +14,7 @@ FUNCTION GetUpsImportCost(nGewicht)
       NetUse("engkund","ku")
    ENDIF
 
-   nGewicht := Max(1,nGewicht) //always min. 1kg   
+   nGewicht := Max(1000,nGewicht) //always min. 1kg   
    
    NetUSe("manufact","manu")
    manu->(dbSeek( Str(art->Manufactur,5) ))
@@ -22,7 +22,8 @@ FUNCTION GetUpsImportCost(nGewicht)
    ku->(dbSetOrder( 8 ))
    ku->(dbSeek( Str(manu->Address,6) ))
    
-   nPrice := PakPreis(15,nGewicht)
+   nPrice := Hook("get_supplier_ship_cost",{ku->Kunde,nGewicht})
+   //nPrice := PakPreis(15,nGewicht)
 
    IF nRec != NIL
       ku->(dbSetOrder(nOrd))      

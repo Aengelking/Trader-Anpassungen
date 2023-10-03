@@ -1,12 +1,13 @@
 #include 'hbclass.ch'
 #include 'inkey.ch'
 
+STATIC aList := {}
+STATIC tUpd  
+
 PROC Run_TimeButler(oWidget)
    LOCAL oAPI := TimeButlerAPI():New()
    LOCAL aAbsences,hAbsence
-   LOCAL aList := {}
-   LOCAL hTypes := {=>}
-   LOCAL oBrowse
+   //LOCAL aList := {}
    LOCAL hAbsenceTypes := {"Vacation"=>"Urlaub","Sickness"=>"Krank","Training school"=>"Berufsschule","Child ill"=>"Kind krank","Child ill w/o payment"=>"Kind krank","Home office"=>"Homeoffice",;
                            "Warehouse"=>"Lager","Further training"=>"Weiterbildung","Fair"=>"Messe","Business trip"=>"Dienstreise"}
    LOCAL dFrom := Date()      
@@ -15,31 +16,38 @@ PROC Run_TimeButler(oWidget)
 
    NetUse("buyer","buy")
 
-   aAbsences := oAPI:Execute("absences")
+   IF Empty(tUpd) .OR. tUpd+30/24/60 <= DateTime()  //only update every 30min
+      aList := {}
+      aAbsences := oAPI:Execute("absences")
 
-   IF ValType(aAbsences) != "A"
-      oWidget:WriteAt(00,00,"Fehler bei der Verbindung zu timebutler")
-      oWidget:WriteAt(01,00,aAbsences)
-      RETURN
-   ENDIF
-   FOR EACH hAbsence IN aAbsences            
-      IF Len(hAbsence) > 1 .AND.;
-         ((dFrom <= hAbsence["From"] .AND. hAbsence["From"] <= dTo) .OR. ;  //begins before and does not end before
-         (dFrom >= hAbsence["From"] .AND. dFrom <= hAbsence["To"])) //begins within
-         //hAbsence["From"] <= dFrom  .AND. hAbsence["To"] >= dFrom
-         IF ! HHasKey(hAbsence,"Employee number") .OR. ValType(hAbsence["Employee number"]) != "N"
-            IF hAbsence["User ID"] == 374365
-               hAbsence["name"] := "Bob v. Knobloch"               
-            ELSE
-               hAbsence["name"] := "Benutzer "+LTrim(Str(hAbsence["User ID"]))               
-            ENDIF
-         ELSE
-            buy->(dbGoTo( hAbsence["Employee number"] ))            
-            hAbsence["name"] := buy->Buyer            
-         ENDIF
-         Aadd(aList,hAbsence)
+      IF oWidget == NIL
+         Alert(ValToPrg(aAbsences))
       ENDIF
-   NEXT
+
+      IF ValType(aAbsences) != "A"
+         oWidget:WriteAt(00,00,"Fehler bei der Verbindung zu timebutler")
+         oWidget:WriteAt(01,00,aAbsences)
+         RETURN
+      ENDIF
+      FOR EACH hAbsence IN aAbsences            
+         IF Len(hAbsence) > 1 .AND.;
+            ((dFrom <= hAbsence["From"] .AND. hAbsence["From"] <= dTo) .OR. ;  //begins before and does not end before
+            (dFrom >= hAbsence["From"] .AND. dFrom <= hAbsence["To"])) //begins within         
+            //hAbsence["From"] <= dFrom  .AND. hAbsence["To"] >= dFrom
+            IF ! HHasKey(hAbsence,"Employee number") .OR. ValType(hAbsence["Employee number"]) != "N"
+               hAbsence["name"] := "Benutzer "+LTrim(Str(hAbsence["User ID"]))                           
+            ELSE
+               buy->(dbGoTo( hAbsence["Employee number"] ))            
+               IF ! buy->Aktive
+                  LOOP
+               ENDIF
+               hAbsence["name"] := Left(buy->Buyer,AT(" ",buy->Buyer)-1)
+            ENDIF
+            Aadd(aList,hAbsence)
+         ENDIF
+      NEXT
+      tUpd := DateTime()
+   ENDIF
    
    IF Len(aList) == 0
       oWidget:WriteAt(01,01,"Keine")      
@@ -84,14 +92,13 @@ CLASS TimeButlerAPI FROM RestAPI
 ENDCLASS
 
 METHOD Execute(cUrl,cMethod,hData)
-   LOCAL cData,aData
+   LOCAL cData,aData,aHeader
    LOCAL aRowData,hRowData,aMatches
 
    Default(@cMethod,"POST") //would need to be configured
    Default(@hData,{=>})
 
-   //aHeader := {"X-API-KEY: "+IF(lAsUsr .AND. ! Empty(::cUsrToken),::cUsrToken,::cApiKey)}
-   hData["auth"] := "$PASSWORD$" //::cApiKey   
+   hData["auth"] := "$PASSWORD$"
 
    cData := ::Super:Execute(cUrl,cMethod,hData)
 
@@ -106,7 +113,7 @@ METHOD Execute(cUrl,cMethod,hData)
       AEval(aData,{|xRow,nX| 
          aRowData := HB_ATokens(xRow,";")
          IF nX == 1         
-            aData[nX] := aRowData //save the header for later use
+            aData[1] := aRowData //save the header for later use
          ELSE  //convert row data into hash with field names from row one
             hRowData := {=>}
             AEval(aData[1],{|cField,nF| 

@@ -165,12 +165,14 @@ PROC RUN_CHECK_FREIGABE
       SET FILTER TO
       
       //Alle Artikel mit Zeichnung
-      /*Select("art")
+      Select("art")
       art->(dbSetFilter({|| ! Empty(art->Zeichnung) .AND. ! art->Obsolete .AND. art->Lagerart },"! Empty(Zeichnung) .AND. ! Obsolete .AND. Lagerart"))
       ali->(dbSetOrder( 4 ))
 
-      art->(dbGoTop())
-      DO WHILE ! art->(EOF()) 
+      //art->(dbGoTop())
+      art->(dbSetOrder(1))
+      art->(dbSeek("KS27732"))
+      DO WHILE ! art->(EOF()) .AND. AT("KS27732",art->Matchcode) == 1
          IF ali->(dbSeek( Str(art->Artikelnr) ))
             _AddEntry(hArt,art->Artikelnr)         
             IF hArt[art->Artikelnr]:Qty == 0
@@ -180,7 +182,7 @@ PROC RUN_CHECK_FREIGABE
          art->(dbSkip())
       ENDDO
 
-      SET FILTER TO*/   
+      SET FILTER TO
 
       
       //add parts from DB to be re-checked if they are not on the list anymore
@@ -205,7 +207,7 @@ PROC RUN_CHECK_FREIGABE
          oArt := Artikel():New()
          oArt:Load(nArt)
 
-         IF nQty > oArt:Bestand
+         IF nQty > oArt:Bestand .AND. ! oArt:Obsolete
             //? oArt:Artikelnr,oArt:Matchcode,oArt:IsManufactured
             //LIEFERANTEN mit begonnenem Freigabeprozess suchen            
             ppf->(dbSeek( Str(oArt:Artikelnr,6)+oArt:Zeichnung+oArt:ZeichIndex, .T. ))

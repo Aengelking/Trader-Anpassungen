@@ -4,9 +4,9 @@ PROC RUN_REINDEX
 
    Head("Reindexing")
 
-   IF ! SystemUser():CheckPermission("U","SYSTEM_DATABASE")
+   /*IF ! SystemUser():CheckPermission("U","SYSTEM_DATABASE")
       RETURN
-   ENDIF
+   ENDIF*/
 
    SET CONSOLE ON
 
@@ -14,8 +14,13 @@ PROC RUN_REINDEX
    IF nChoice == 0
       RETURN
    ENDIF
-
-   aDir := Leto_Directory("*.dbf") //Trim(Tr_Getini(1))+"\*.dbf")
+   
+   IF ! Empty(GetConfigValue("LETO_SERVER"))
+      aDir := Leto_Directory("*.dbf") //Trim(Tr_Getini(1))+"\*.dbf")
+   ELSE
+      Alert(Path("\*.dbf","DB"))
+      aDir := Directory(Path("\*.dbf","DB"))
+   ENDIF
    aFile := {}   
    AEval(aDir,{|x|       
       cFile := StrTran(Upper(x[1]),".DBF")      
@@ -28,7 +33,9 @@ PROC RUN_REINDEX
    IF nChoice != 3
       nI := AMenu(aFile)
    ELSE      
-      nI := AScan(aFile,{|x| AT("FOLGEART",x) == 1 })
+      dbCloseAll()
+      //nI := AScan(aFile,{|x| AT("FOLGEART",x) == 1 })
+      nI := 1
       IF nI == 0
          Alert("Not Found")
          RETURN
@@ -48,9 +55,10 @@ PROC RUN_REINDEX
          cFile := StrTran(Upper(aFile[ni,1]),".DBF","")
       IF File(Trim(Tr_Getini(1))+"\obsolete\"+cFile+".NTX")
       */
+      BEGIN SEQUENCE
          If cFile == "CURRENCY" .AND. Select("cur") != 0
             Alert("Close workarea")
-            cur->(dbCloseArea())
+            cur->(dbCloseArea())         
          Endif
             ? cFile
             NetUse(cFile,cFile,If(nChoice==1 .OR. nChoice == 3,.T.,.F.),0)
@@ -63,12 +71,18 @@ PROC RUN_REINDEX
             ? '  '+StrZero(nOrd,2)+'. '+OrdKey(nOrd)
             //ordCondSet(,,.T.,{||.T.},{||  SetPos(Row(),0),QQout(STR((RECNO()/LASTREC()) * 100,3,0)+'%') },10)
             if ( nChoice == 1 .OR. nChoice == 3)
-               ordListRebuild()
+               
+                  ordListRebuild()
+               
             Endif
             nOrd++
          enddo
          dbCloseArea()
+         RECOVER
+            dbCloseArea()
+         END
       NEXT
+      
 
    endif
    //NEXT

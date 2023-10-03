@@ -1,4 +1,4 @@
-LOCAL aCust := {},hManu := {=>}
+LOCAL aCust := {},hManu := {=>},aAllCust := {}
 LOCAL nStKw,nEnKw,cYear,nY,nR,nC
 LOCAL cKundma := "",aManu
 
@@ -19,7 +19,7 @@ DO WHILE ! manu->(EOF())
    manu->(dbSkip())
 ENDDO
 
-FOR nY := 0 TO 14
+FOR nY := 0 TO 10
    aCust := {}
    hManu := {=>}
    cYear := Str(Year(Date())-nY,4)
@@ -35,6 +35,9 @@ FOR nY := 0 TO 14
       IF auf->Kundma != cKundMa
          IF AScan(aCust,auf->Kundma) == 0
             Aadd(aCust,auf->Kundma)
+         ENDIF
+         IF AScan(aAllCust,auf->Kundma) == 0
+            Aadd(aAllCust,auf->Kundma)
          ENDIF
          cKundma := auf->Kundma
       ENDIF
@@ -59,6 +62,8 @@ FOR nY := 0 TO 14
       manu->(dbSkip())
    ENDDO
 NEXT
+
+? "Gesamt: "+Str(Len(aAllCust))
 
 Tone(700,10);WaitPeriod(10);Tone(900,10);WaitPeriod(10);Tone(1100,10)
 

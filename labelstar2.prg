@@ -66,7 +66,7 @@ FOR EACH cField IN hFieldMap
 NEXT
 
 IF cPrinter == NIL
-   IF Type("Mini_StickPrint()") == "UI"
+   IF Type("Mini_StickPrint()") == "UI" //.AND. Tr_MsgBox("Drucker",,{"Wagen","Tisch"}) != 2
       cPrinter := "CAB EOS4/300"
    ELSE
       cPrinter := "Pica 108/12"

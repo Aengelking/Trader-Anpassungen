@@ -1,7 +1,7 @@
 PROC RUN_BERICHT_STOCK_MOVEMENTS
    LOCAL hArtikel
    LOCAL dStart,dEnd
-   LOCAL aTypes := {"Inventur","Inv. ohne Z/A","Eingang/Abgang"}
+   LOCAL aTypes := {"Inventur","Inv. ohne Z/A","Ein- und Ausgang"}
    LOCAL nType := 1,nOut := 1
    LOCAL getlist := {}
    LOCAL aData,cFile
@@ -9,6 +9,8 @@ PROC RUN_BERICHT_STOCK_MOVEMENTS
    LOCAL nPreis
 
    MEMVAR cTypes
+
+   PUBLIC cTypes
 
    Head(t("Bestandsveränderungen"))
 NetUse("engabg","abg",.F.,0)
@@ -43,7 +45,7 @@ ENDIF
 
 //@ 24,13 SAY "/"+LTrim(Str(abg->(LastRec())))
 nX := 0
-abg->(dbSetFilter({|| Trim(abg->BuArt) $ cTypes },"Trim(BuArt) $ cTypes"))
+abg->(dbSetFilter({|| Trim(abg->BuArt) $ cTypes },'Trim(BuArt) $ "'+cTypes+'"'))
 abg->(dbSeek( DtoS(dStart) , .T. ))
 art->(dbSetOrder(2))
 Do While ! abg->(Eof()) .AND. abg->TransDate >= dStart .AND. abg->Transdate <= dEnd
@@ -64,6 +66,8 @@ Do While ! abg->(Eof()) .AND. abg->TransDate >= dStart .AND. abg->Transdate <= d
 	@ 24,00 SAY Str(nX,12)
 	abg->(dbSkip(1))
 Enddo
+
+abg->(dbClearFilter())
 
 art->(dbSetOrder(1))
 

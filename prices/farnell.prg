@@ -18,13 +18,14 @@ LOCAL pCurl
 MEMVAR cPriceError 
 PUBLIC cPriceError := ""
 
-RETURN NIL  //08.10.21 disabled, Farnell is returning access denied
+//RETURN NIL  //08.10.21 disabled, Farnell is returning access denied
 
    HB_SYMBOL_UNUSED(nArtnr)
 
    //libcurl times out, the command line seems to work fine!
    cData := __DownLoadPage(cUrl)
    lSuccess := .T.
+
 
    /*DO WHILE ! lSuccess .AND. nCount < 10
       oHttp := TIpClientHttp():new( cUrl )
@@ -79,11 +80,20 @@ RETURN NIL  //08.10.21 disabled, Farnell is returning access denied
          //Alert(ValToPrg(oHttp:hHeaders))
          //Alert(ValToPrg(oHttp:getCookies()))
          Return NIL
+      ELSE
+         IF lDbg
+            gtSetClipboard(cData)
+         ENDIF   
+         IF AT("gesuchte Seite nicht gefunden",cData) != 0
+            IF lDbg
+               Alert("Produkt nicht gefunden")
+            ENDIF
+            RETURN NIL
+         ENDIF
       ENDIF
 
       
       nPos := AT('tableProductDetailPrice',cData )
-
       IF nPos == 0
          IF lDbg
             Alert("NO TABLE FOUND")

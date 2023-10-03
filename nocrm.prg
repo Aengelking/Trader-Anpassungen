@@ -43,7 +43,7 @@ FUNCTION noCRM_Interface(lComment)
    LOCAL cUsrEmail
    LOCAL nRemindDays := 0
    LOCAL nMinValue := GetValue("NOCRM_MINVALUE",500,"Wert ab dem eine Wiedervorlage Pflicht ist (0=aus)")
-   LOCAL oExtra
+   LOCAL oExtra,nWeekDay := 1,bCheckWeekday
 
    Default(@lComment,.T.)
 
@@ -85,6 +85,18 @@ FUNCTION noCRM_Interface(lComment)
       RETURN .T.
    } 
 
+   bCheckWeekday := {||
+      LOCAL lAdded := .F.
+      DO WHILE DoW(dReminddate) == 1 .OR. DoW(dRemindDate) == 7 .OR. IsFeiertag(dRemindDate,GetConfigValue("STATE"),.T.)  //Feiertag oder Wochenende
+         dRemindDate++
+         lAdded := .T.
+      ENDDO
+      IF lAdded
+         nWeekDay    := DoW(dRemindDate)-1
+      ENDIF
+      RETURN lAdded
+   }
+
    DO WHILE .T.
 
       @ 01,00 SAY "Angebotswert: "+LTrim(Transform(aValues[2],"9999999.99"))+IF(aValues[2]<nMinValue," (Wiedervorlage nicht verpflichtend)","")
@@ -94,20 +106,34 @@ FUNCTION noCRM_Interface(lComment)
             RETURN .F.
          ENDIF
          dRemindDate := AddWorkingDays(Date(),nRemindDays,GetConfigValue("STATE"),.T.)
-         getlist[2]:Display()
+         nWeekDay    := DoW(dRemindDate)-1
+         getlist[2]:Control:Display()
+         getlist[3]:Display()
          RETURN .T.
       }
-      @ 23,00 SAY "Wiedervorlage Datum       " GET dRemindDate VALID {||         
-         IF dRemindDate > Date()
-            lAdded := .F.
-            DO WHILE DoW(dReminddate) == 1 .OR. DoW(dRemindDate) == 7 .OR. IsFeiertag(dRemindDate,GetConfigValue("STATE"),.T.)  //Feiertag oder Wochenende
-               dRemindDate++
-               lAdded := .T.
-            ENDDO
-            getlist[2]:Display()
+      @ 23,00 SAY "Wochentag" 
+      @ 23,27,30,55 GET nWeekDay LISTBOX {"Montag","Dienstag","Mittwoch","Donnerstag","Freitag"} DROPDOWN VALID {||
+         IF nWeekDay != DoW(dRemindDate)-1            
+            dRemindDate += nWeekDay-DoW(dRemindDate)+1
+            IF Eval(bCheckWeekday)
+               getlist[2]:Control:Display()   
+            ENDIF
             nRemindDays := CountWorkingDays(Date(),dRemindDate,GetConfigValue("STATE"),.T.)-1
             getlist[1]:Display()
-            IF LastKey() != K_UP 
+            getlist[3]:Display()
+         ENDIF
+         RETURN .T.
+      }
+
+      @ 24,00 SAY "Wiedervorlage Datum       " GET dRemindDate VALID {||         
+         IF dRemindDate > Date()
+            lAdded := Eval(bCheckWeekday)
+            getlist[3]:Display()
+            nRemindDays := CountWorkingDays(Date(),dRemindDate,GetConfigValue("STATE"),.T.)-1
+            getlist[1]:Display()
+            nWeekDay    := DoW(dRemindDate)-1
+            getlist[2]:Control:Display()
+            IF ! LastKey() $ {K_UP,K_SH_TAB}
                IF nRemindDays > GetValue("NOCRM_REM_WARN",5,"Warnung wenn WV diesen Wert in Werktagen Åberschreitet") .AND.  Tr_MsgBox("Bist Du sicher, dass die Wiedervorlage erst so spÑt erfolgen soll?",,{"Nein","Ja"}) != 2
                   RETURN .F.
                ENDIF
@@ -156,6 +182,7 @@ FUNCTION noCRM_Interface(lComment)
                lAdded := .T.
             ENDDO
             nRemindDays := CountWorkingDays(Date(),dRemindDate,GetConfigValue("STATE"),.T.)-1
+            nWeekDay    := DoW(dRemindDate)-1
          ENDIF
       ELSE
          hLead := oNoCRM:Execute("leads/"+Ltrim(Str(nLeadId)),"GET")      
@@ -169,6 +196,7 @@ FUNCTION noCRM_Interface(lComment)
          ELSE
             nRemindDays := 0
          ENDIF
+         nWeekDay    := DoW(dRemindDate)-1
          IF ! Empty(hLead["pipeline"]) //if this lead has already been assigned to a pipeline we use this one and not the default one
             nX := AScan(aPipelines,{|x| x["name"] == hLead["pipeline"] })
             IF nX != 0
@@ -177,8 +205,9 @@ FUNCTION noCRM_Interface(lComment)
          ENDIF
       ENDIF
 
-      getlist[2]:Display()
-      
+      getlist[2]:Control:Display()
+      getlist[3]:Display()
+
       READ
       IF LastKey() == 27
          IF ! Eval(bExit)

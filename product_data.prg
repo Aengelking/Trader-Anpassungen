@@ -10,7 +10,8 @@ LOCAL nWaldomLZ   := 14    //Delivery time (in Days) for waldom parts
 //LOCAL cFTPUrl     := "sftp://24982-conrad:H7f2e6ardK(z@ftp.engelking.de/"
 LOCAL cFTPUrl     := "sftp://24982-conrad:H7f2e6ardK(z@ftp.engelking-elektronik.de/"
 //LOCAL cFTPHostKey := "ssh-rsa 2048 SopeNvOCO4EQRUXtLfArGX5IgtALtD7g2DVw5YqMwPc="
-LOCAL cFTPHostKey := "ssh-rsa 2048 aKuZdTEQ9+UBaEwamAfdNkFL3Ab1rTyldK1vfEjdMs4="
+//LOCAL cFTPHostKey := "ssh-rsa 2048 aKuZdTEQ9+UBaEwamAfdNkFL3Ab1rTyldK1vfEjdMs4="
+LOCAL cFTPHostKey := "ssh-rsa 4096 d8UwfuV9Sp9JIOjQwek7pTcF8kZhPI4yapqOSZvFWcI="
 LOCAL cSCPDir     := "C:\Program Files (x86)\WinSCP\"
 
 /*************************/
@@ -45,6 +46,8 @@ LOCAL nH,nH2
 LOCAL cPDFile := Path("export\conrad\pd_"+Lower(cCat)+"_"+cBrand+".csv")
 LOCAL cQuoteFile := Path("export\conrad\quote_"+Lower(cCat)+"_"+cBrand+".csv")
 LOCAL nMwSt,oErr
+
+LOCAL nStdOUT,nProc,cData
 
 LOCAL bQtyBlock,bPrBlock,nTeMulti,nLastQty,nLastPrice
 LOCAL oExtra
@@ -118,6 +121,7 @@ bAddQuote := {|cSku,lArtFound,cProdIdType|
    nArtLZ := IF(art->LZ==0,12,art->LZ)
 
    hPriceData["product-id"] := cSku
+   hPriceData["producer-id[DE-WEEE]"] := "DE 43356265"
    hPriceData["product-id-type"] := cProdIdType
    hPriceData["leadtime-to-ship"] := (nArtLZ+1)*5  //lieferzeit in werktagen                     
    hPriceData["state"] := 11 //"Neu"
@@ -224,7 +228,7 @@ bAddQuote := {|cSku,lArtFound,cProdIdType|
 
 CLS
 
-oNode := oIter:Find("product")
+/*oNode := oIter:Find("product")
 IF ! GetConfigValue("BATCHMODE") .AND. Tr_MsgBox("Nur Zusatzdaten?",,{"Ja","Nein"}) == 1
    oNode := NIL
 ENDIF
@@ -362,15 +366,10 @@ DO WHILE oNode != NIL
    IF lQuit
       EXIT
    ENDIF
-ENDDO
+ENDDO*/
 
 IF GetConfigValue("BATCHMODE") .OR. Tr_MsgBox("Artikel mit Conrad-Artikelnr",,{"Ja","Nein"}) == 1
-   hExclude := {} /*407657,407662,407693,407697,407702,407705,407706,407708,407718,407719,407727,407744,407754,501614,529891,529953,700510,701528,701567,708508,740104,740235,740236,740249,740262,740288,;
-   740327,740369,740418,740431,740432,740445,740457,740471,740484,740498,740523,740552,740655,740688,740717,740718,740732,740747,740773,740797,740815,740824,740839,740855,740866,740930,;
-   740933,740947,740957,740959,740973,740999,741022,741026,741040,741056,741057,741072,741111,741125,747237,747238,747249,1210937,1305625,1305626,1384779,1384780,1384781,1384785,1384786,;
-   1384787,1384788,1384789,1384790,1384791,1384792,1384793,1384794,1384796,1384797,1384799,1384800,1384801,1384802,1384804,1384806,1384809,1384810,1384811,1384813,1384814,1384815,1384816,;
-   1384817,1384818,1384820,1384822,1384824,1384826,1384829,1384831,1384833,1384835,1384837,1384839,1384840,1384841,1384842,1492552,1492554,1492562,1492563,1492572,740960,407709,740881,740801,;
-   1492564,701515,740353,1384782,701277,407717,1384805,747225,700502,407653,529928,700053,741039}*/
+   hExclude := {}
 
    Select("art")
    SET FILTER TO art->Manufactur == 1
@@ -378,6 +377,7 @@ IF GetConfigValue("BATCHMODE") .OR. Tr_MsgBox("Artikel mit Conrad-Artikelnr",,{"
 
    DO WHILE ! art->(EOF())
       IF ali->(dbSeek(Pad("CONRAD",8)+Str(art->Artikelnr,6))) .AND. ! Empty(ali->Artlief) .AND. ! Val(ali->Artlief) $ hExclude
+         @ 00,00 SAY art->Matchcode
          hPriceData := {=>} 
          Eval(bAddQuote,Trim(ali->Artlief),.T.,"SKU")
       ENDIF
@@ -389,6 +389,8 @@ ENDIF
 
 
 //add the waldom stock of TE parts we do not have on the system
+//we have been informed by Conrad that they do not allow this from non-authorized distributors anymore
+/*
 wald->(dbSetFilter({|| wald->Stock != 0 },"stock != 0")) //.AND. Trim(wald->prc) $ {'BUL','ARC'}
 wald->(dbGoTop())
 
@@ -400,6 +402,7 @@ DO WHILE ! wald->(EOF())
 
       hPriceData := {=>} 
       hPriceData["product-id"] := Trim(bte->Bestellnr)
+      hPriceData["producer-id[DE-WEEE]"] := "DE 43356265"
       hPriceData["product-id-type"] := "SKU"
       hPriceData["state"] := 11 //"Neu"
       hPriceData["reversecharge"] := "false"
@@ -445,7 +448,7 @@ DO WHILE ! wald->(EOF())
    ENDIF
    wald->(dbSkip())
 ENDDO
-wald->(dbClearFilter())
+wald->(dbClearFilter())*/
 
 CLS
 ? "Anzahl:",Len(aData)-1
@@ -457,12 +460,31 @@ ENDIF
 FClosE(nH)
 FClose(nH2)
 
-SaveAsCSV(cPDFile,aData,.T.)
+//SaveAsCSV(cPDFile,aData,.T.)
 SaveAsCSV(cQuoteFile,aPriceData,.T.)
+
+
+
+
 IF GetConfigValue("BATCHMODE") .OR. Tr_MsgBox("Run upload script?",,{"Yes","No"}) == 1
-   WAPI_ShellExecute(,"open",'"'+cScpDir+'\WinScp.com"',;
-         '/command "open '+cFTPUrl+' -hostkey=""'+cFTPHostKey+'""" '+;
-         '"put '+cQuoteFile+'" "exit"')    //-hostkey="ssh-rsa 2048 '+cFTPHostKey+'"'+;
+   cCmd := '"'+cScpDir+'\WinScp.com"'
+   cParam := '/command "open '+cFTPUrl+' -hostkey=""'+cFTPHostKey+'""" '+;
+      '"put '+cQuoteFile+'" "exit"'
+   /*gtSetClipboard(cCmd+" "+cParam)
+   WAPI_ShellExecute(,"open",cCmd,cParam)*/    //-hostkey="ssh-rsa 2048 '+cFTPHostKey+'"'+;
+   
+   nStdOUT := 0   
+   nProc := HB_OpenProcess(cCmd+" "+cParam,,@nStdOut,,.T.)
+   cData := ""
+   DO WHILE HB_ProcessValue(nProc,.F.) == -1
+      cLine := Space( 1000 )
+      nBytes := Fread( nStdOUT, @cLine, Len(cLine) )         
+      cData += SubStr(cLine,1,nBytes)       
+   ENDDO            
+   IF AT("100%",cData) == 0
+      SendMail({{"amos.engelking@engelking.de","Amos"}},"Conrad Upload Error",cData)
+   ENDIF
+
 ENDIF
 
 

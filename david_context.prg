@@ -107,6 +107,7 @@ PROCEDURE RUN_DAVID_CONTEXT( cFunction,cMsgPath )
          Quote_edit()
          EXIT   
       CASE "ENQUIRY"
+         //MBaseRun(Path("\run\test_nocrm_email"),{cMsgPath})
          Enquiry()
          EXIT
       CASE "AUFTRAG"

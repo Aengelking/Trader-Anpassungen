@@ -31,6 +31,8 @@ PROC ShopWare_Update_Partno
    LOCAL hResponse
    LOCAL cErrorLog := ""
    LOCAL cSep
+
+   MEMVAR c_five
    
    //oSW:cBaseUrl := "https://egl.teufels-werk.de/api/" // "https://engelkingtest.shopware.store/api/"
 

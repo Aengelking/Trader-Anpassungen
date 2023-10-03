@@ -31,11 +31,14 @@ FUNCTION __DownLoadPage(cUrl,hPost,lModAgent)
       NEXT
       cCommand += '"'
    ENDIF
+   //gtSetClipboard(cCommand)
+   //Alert(cCommand)
    nProc := HB_OpenProcess(cCommand,,@nStdOut,,.T.)
    DO WHILE HB_ProcessValue(nProc,.F.) == -1
       cLine := Space( 1000 )
       nBytes := Fread( nStdOUT, @cLine, Len(cLine) )
       cData += SubStr(cLine,1,nBytes)
    ENDDO
+   //MemoEdit(cData)
 RETURN cData
 

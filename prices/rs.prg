@@ -1,13 +1,19 @@
 FUNCTION RUN_PRICES_RS(nArtnr,cArtlief,cMatch,lSub)
 
 LOCAL nX
-LOCAL lDbg := .F. //Tr_Getini(28) == 9 .AND. ! GetConfigValue("BATCHMODE")
+LOCAL lDbg := Tr_Getini(28) == 9 .AND. ! GetConfigValue("BATCHMODE")
+LOCAL lPriceDbg := .F.
 LOCAL cChr
 LOCAL hPrices,cUrl,nPe,aRegex
 LOCAL hData,hSubData
 LOCAL nBrake,nPrice,aBrakes
 LOCAL oArtikel,cData,nAmount,nPos,cValue,hPrices2,nLow,nHigh
-LOCAL aTexts,nT
+LOCAL aTexts,nT,nSec,cProdType,cArtLief2
+LOCAL hGroups := {;
+   "STIE"=>"iec-steckverbinder",;
+   "STWP"=>"industrie-automation-steckverbinder",;
+   "SHST"=>"sicherungshalter";
+   }
 
 MEMVAR cPriceError
 
@@ -16,13 +22,27 @@ MEMVAR cPriceError
       cArtLief := SubStr(cArtLief,1,Len(Trim(cArtlief))-1)
    ENDIF
 
-   cUrl := "https://de.rs-online.com/web/p/products/"+Trim(cArtlief)+"/"
-   //cUrl := "https://de.rs-online.com/web/p/industrie-automation-steckverbinder/4260919/"
+   cProdType := "products"
+   
+   IF HB_RegexMatch("PX.603[3-4].*",Trim(art->Matchcode))
+      cProdType := "ethernet-steckverbinder"
+   ELSEIF Trim(art->Matchcode) $ {"PXM6083","PX0810","PX0811","PX0733"}
+      cProdType := "staubkappen-rundsteckverbinder"
+   ELSEIF art->Gruppe $ hGroups
+      cProdType := hGroups[art->Gruppe]
+   ENDIF
+   IF lDbg; Alert(art->Gruppe+";"+cProdType); ENDIF
 
+   cUrl := "https://de.rs-online.com/web/p/"+cProdType+"/"+Trim(cArtlief) //+"/"
+   //cUrl := "https://de.rs-online.com/web/p/industrie-automation-steckverbinder/4260919/"
+   nSec := Seconds()
    cData := __DownLoadPage(cUrl,,.F.)
    
    IF lDbg
-      gtSetClipboard(cData,,.F.)
+      //gtSetClipboard(cData,,.F.)
+      gtSetClipboard(cUrl)
+      Alert("Download from: "+cUrl+"; Took "+LTrim(Str(Seconds()-nSec))+"s")
+      gtSetClipboard(cData)
    ENDIF
 
    If ValType(cData) != "C"
@@ -57,6 +77,10 @@ MEMVAR cPriceError
       ENDIF
    NEXT
    
+   IF lDbg .AND. ! lPriceDbg
+      lDbg := .F.
+   ENDIF
+
    hPrices := {=>}
 
    IF nT > Len(aTexts)
@@ -98,11 +122,12 @@ MEMVAR cPriceError
       ENDIF
       nX++
    ENDDO
-
-   IF ValType(lSub) != "L" .OR. lSub != .T.
+   
+   //15.08.23 deactivated as it takes very long
+   IF .F. //ValType(lSub) != "L" .OR. lSub != .T.
       FOR EACH cChr IN {"P","A"}
-         cArtLief := Trim(cArtlief)+cChr
-         hPrices2 := MBaseRun(Trim(Tr_Getini(1))+"\run\prices\rs",{art->Artikelnr,cArtLief,art->Matchcode,.T.})
+         cArtLief2 := Trim(cArtlief)+cChr
+         hPrices2 := MBaseRun(Trim(Tr_Getini(1))+"\run\prices\rs",{art->Artikelnr,cArtLief2,art->Matchcode,.T.})
          IF hPrices2 != NIL
             FOR EACH nPrice IN hPrices2
                nBrake := nPrice:__eNumkey()

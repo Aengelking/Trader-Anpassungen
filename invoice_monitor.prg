@@ -1,3 +1,4 @@
+PROC RUN_INVOICE_MONITOR
 LOCAL cPath := GetRegistry(2,"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders","Personal")+"\Eingangsrechnungen Trader"
 LOCAL aDir,nX
 LOCAL oWin := GetMainWindow()

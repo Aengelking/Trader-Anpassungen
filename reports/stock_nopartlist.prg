@@ -25,7 +25,7 @@ art->(dbGoTop())
 
 abg->(dbSetOrder( 3 ))
 
-Head(t("Bestände ohne Bedarf"))
+Head(t("Bestände (RHB) ohne Bedarf"))
 
 @ 01,00 SAY "Hersteller (Fertigartikel)"
 aManu := GetManufacturerArray()

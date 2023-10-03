@@ -1,6 +1,8 @@
 PROC RUN_EDIT_EXTRAFIELDS(cAli,lNr)
    LOCAL cFile,oBrowse,cName,nOrd
    LOCAL getlist := {},nNr := 0
+   LOCAL bDisplay := {|| .T. }
+   LOCAL nTop := IF(lNr,3,2)
    MEMVAR c_one
    Default(@lNr,.F.)
    //SetColor(c_four)
@@ -15,6 +17,12 @@ PROC RUN_EDIT_EXTRAFIELDS(cAli,lNr)
    ELSEIF Upper(cAli) == "BES"
       cFile := "engbes"
       cName := "Bestellung"
+      bDisplay := {||
+         FindAd(bes->Liefma,"L",01,14)
+         @ 01,50 SAY "Gesamt: "+LTrim(Str(BesGetTotal(bes->Besnr)))+" "+Currate(bes->Money,"X")
+         RETURN NIL
+      }
+      nTop := 06
       nOrd  := 1
    ELSEIF Upper(cAli) == "KU"
       cFile := "engkund"
@@ -27,6 +35,7 @@ PROC RUN_EDIT_EXTRAFIELDS(cAli,lNr)
    ENDIF  
    Head("Extrafelder fr "+cName+" bearbeiten")
 
+   NetUse("engkund","ku")
    NetUSe(cFile,cAli)
    (cAli)->(dbSetOrder(1))
 
@@ -45,8 +54,9 @@ PROC RUN_EDIT_EXTRAFIELDS(cAli,lNr)
          ENDIF
       ENDDO
    ENDIF
+   Eval(bDisplay)
    
-   oBrowse := (cAli)->(ExtraDataBrowse(nNr,IF(lNr,3,2),0,MaxRow(),MaxCol(),!lNr))
-   oBrowse:ColorSpec := "N/W,N+/BG,N+/BG,N/BG,G/B"
+   oBrowse := (cAli)->(ExtraDataBrowse(nNr,nTop,0,MaxRow(),MaxCol(),!lNr))
+   //oBrowse:ColorSpec := "N/W,N+/BG,N+/BG,N/BG,G/B"
    oBrowse:EventLoop()
 RETURN

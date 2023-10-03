@@ -1,9 +1,10 @@
+PROC RUN_REPORT_BOOKINGS_PER_MANU
 LOCAL aData := {}
 
 LOCAL nEnd   := Year(Date())
 LOCAL nStart := nEnd-5
 
-LOCAL aBase
+LOCAL aBase,cFile
 
 Head("Bookings pro Monat und Hersteller")
 
@@ -38,8 +39,8 @@ DO WHILE ! um->(EOF()) .AND. Val(um->Year) <= nEnd
 ENDDO
 um->(dbClearFilter())
 
-IF AT(".",cFile) == 0
+/*IF AT(".",cFile) == 0
    cFile += ".csv"
-ENDIF
-SaveAsCSV(cFile,aData)
+ENDIF*/
+SaveAsCSVInterface(aData,,@cFile)
 WAPI_ShellExecute(,"open",cFile)

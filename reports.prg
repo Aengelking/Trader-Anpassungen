@@ -21,6 +21,7 @@ FOR nX := 1 TO Len(aDir)
    ELSE
       Aadd(oBrowse:aData,{aDir[nX,1],Pad(aDir[nX,1],nWidth)})
    ENDIF
+   //aRegex := HB_Regex("(?i)\:CHECKPERMISSION\(.*(["+'"'+"'])(.*)\g1\)",cData)
 NEXT
 
 ASort(oBrowse:aData,,,{|x,y| Upper(x[2])<Upper(y[2])} )

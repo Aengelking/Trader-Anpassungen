@@ -69,7 +69,7 @@ PROCEDURE RUN_WALDOM
    aData := FParseEx(cTempFile,",")
 
    IF Len(aData) == 0       
-      SendMail({{"amos.engelking@engelking.de","Amos"}},"Waldom: NO Data",,{cTempFile})
+      SendMail({{"amos.engelking@engelking.de","Amos"}},"Waldom: NO Data",cData,{cTempFile})
       RETURN
    ENDIF
 
@@ -163,7 +163,7 @@ PROCEDURE RUN_WALDOM
       lsto->DelQty  := Val(aData[nD][hFieldMap[WALD_STOCK_USA]])
       lsto->(dbUnLock())
 
-      ali->(dbSetOrder( 1 ))
+      /*ali->(dbSetOrder( 1 ))
       IF ! ali->(dbSeek( cLief+Str(nArtnr,6) ))
          ali->(Add_Rec())
          ali->Matchcode := cMatch
@@ -234,7 +234,7 @@ PROCEDURE RUN_WALDOM
          bpr->(dbDelete())
          bpr->(dbUnLock())
          bpr->(dbSkip())
-      ENDDO
+      ENDDO*/
 
    NEXT
 

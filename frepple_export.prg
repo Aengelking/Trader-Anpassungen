@@ -74,6 +74,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
    LOCAL dDate,nKW,cFilter
    LOCAL bAddPurchaseOrder,nGelQty,bAddManuOrder
    LOCAL nDWeek,nRestockWeeks,nGap,aWeeks,nTotMeld
+   LOCAL lHasResource
    MEMVAR c_five
 
    LOCAL bAddSupplier := {|cSupplier|   
@@ -409,22 +410,27 @@ FUNCTION RUN_FREPPLE_EXPORT()
       job->(dbSetOrder( 1 ))
       pjob->(dbSetOrder( 2 ))
       IF pjob->(dbSeek( Str(aRoutingItems[nI],6) ))
-         lIntern := .T.  //only if there is a job we can produce internally            
-      
-         DO WHILE pjob->Artikelnr == aRoutingItems[nI]
-            IF job->(dbSeek( Str(pjob->Job,6) ))  //check if the job really exists
-               cJobName := job->Name
-            ENDIF
+         DO WHILE pjob->Artikelnr == aRoutingItems[nI] .AND. job->(dbSeek( Str(pjob->Job,6) )) .AND. AT(cQSStart,job->Name) == 1  //skip the QS jobs
             pjob->(dbSkip())
          ENDDO
-         IF Empty(cJobName)  //no valid job found, we will output via the DUMMY
-            lDummy := .T.  //remember that we are using a DUMMY operation 
+         IF pjob->Artikelnr == aRoutingItems[nI] 
+            lIntern := .T.  //only if there is a job (which is not QS) we can produce internally            
+         
+            DO WHILE pjob->Artikelnr == aRoutingItems[nI]
+               IF job->(dbSeek( Str(pjob->Job,6) )) .AND. AT(cQSStart,job->Name) != 1 //check if the job really exists and is not a QS job
+                  cJobName := job->Name
+               ENDIF
+               pjob->(dbSkip())
+            ENDDO
+            IF Empty(cJobName)  //no valid job found, we will output via the DUMMY
+               lDummy := .T.  //remember that we are using a DUMMY operation 
+            ENDIF
+
+            Eval(bAddItem)              
+
+            //now we add the output position to the BOM list, we only need this if we can produce internally
+            Aadd(aBom,{cMatch,1*(1-_GetScrapRate(aRoutingItems[nI])),0,Trim(art->Matchcode)+cOpSeparator+IF(!Empty(cJobName),Trim(cJobName),"DUMMY"),"end"})
          ENDIF
-
-         Eval(bAddItem)              
-
-         //now we add the output position to the BOM list, we only need this if we can produce internally
-         Aadd(aBom,{cMatch,1*(1-_GetScrapRate(aRoutingItems[nI])),0,Trim(art->Matchcode)+cOpSeparator+IF(!Empty(cJobName),Trim(cJobName),"DUMMY"),"end"})
       ENDIF
 
       nLohnArt := 0
@@ -452,11 +458,12 @@ FUNCTION RUN_FREPPLE_EXPORT()
             ELSE
                job->(dbSeek( Str(part->Job,6) ))
             ENDIF            
-
+            
             Aadd(aThisBom,{Trim(art->Matchcode),Round(part->Qty*(1+part->AddPercent/100)*IF(part->Factor==0,1,part->Factor)*-1,8),part->AddQty*IF(part->Factor==0,1,part->Factor)*-1,Trim(cRoutingMatch)+cOpSeparator+IF(pjob->(FOUND()),Trim(job->Name),"DUMMY"),IF(part->Qty<0,"end","start")})
-            IF lIntern //if it can be produced internally we add it directly to the BOM list
+            IF lIntern .AND. (lDummy .OR. AT(cQSStart,job->Name) != 1) //if it can be produced internally we add it directly to the BOM list, ignore QS jobs
                Aadd(aBom,ATail(aThisBom))
             ENDIF
+            
          ENDIF
          part->(dbSkip())
 
@@ -670,15 +677,15 @@ FUNCTION RUN_FREPPLE_EXPORT()
                   ENDIF
                   dDate := Max(auf->Besda+IF(art->LZ==0,nDefaultLZ,art->LZ),dDate)                  
                   
-                  Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"MIN",Trim(auf->Kundma),auf->Matchcode,Min(auf->Meldstock,auf->VkQty),Min(auf->Meldstock,auf->VkQty),Frep_DtoC(IF(dDate<=Date().AND.auf->Meldstock <=art->Bestand,Date()+1,dDate),"10:00"),20,cDefaultLocation,"open"})                                 
+                  Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"MIN",Trim(auf->Kundma),auf->Matchcode,Min(auf->Meldstock,auf->VkQty),Min(auf->Meldstock,auf->VkQty),Frep_DtoC(IF(dDate<=Date().AND.auf->Meldstock <=art->Bestand,Date()+1,dDate),"10:00"),10,cDefaultLocation,"open"})                                 
 
                   IF auf->VkQty-auf->GelQty > auf->Meldstock //Add an order for the remaining quantiy at the end date of the frame contract
                      Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"END",Trim(auf->Kundma),auf->Matchcode,auf->VkQty-auf->GelQty-auf->Meldstock,Min(auf->VkQty-auf->GelQty-auf->Meldstock,auf->MeldStock*2),Frep_DtoC(CalWd(Max(nDelWeek,auf->Wterm)),"10:00"),20,cDefaultLocation,"open"})
                   ENDIF
                ENDIF
             ELSE   
-               nPrio := 10 
-               IF ku->JustinTime
+               nPrio := 5
+               /*IF ku->JustinTime
                   nPrio := 5    
                ELSEIF auf->ContrPos != 0
                   nPrio := 7    
@@ -689,7 +696,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
                      nPrio := 7
                   ENDIF
                   auf->(dbGoto(nRec))
-               ENDIF
+               ENDIF*/
                Aadd(aSalesOrders,{Ltrim((Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)),Trim(auf->Kundma),auf->Matchcode,auf->VkQty-auf->GelQty,auf->VkQty-auf->GelQty,;
                                  Frep_DtoC(IF(ku->JustinTime,GetJITLiefertag(auf->BDatum,ku->JIT_LZ),CalWD(IF(Right(Str(auf->Dterm,4),2)${"97","98"},Max(nDelWeek,auf->WTerm),auf->Dterm))+4),"15:00"),;
                                  nPrio,cDefaultLocation,"open"})
@@ -833,6 +840,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
             dEnd := Date()+365  //sometime in the future
          ENDIF
 
+
          //check if there is a BOM for this supplier
          IF (! Empty(wer->Liefma) .AND. AScan(aBOM,{|x| x[4] == Trim(wer->Matchcode)+cOpSeparator+"EXT:"+Trim(wer->Liefma) }) == 0) .OR. ;
             (Empty(wer->Liefma) .AND. Ascan(aBOM,{|x| Trim(wer->Matchcode) == Trim(x[1]) .AND. ! cOpSeparator+"EXT:" $ x[4] }) == 0)
@@ -882,11 +890,14 @@ FUNCTION RUN_FREPPLE_EXPORT()
 
             IF lCurrentParts .OR. wer->status >= 1 //either the part liest ties up or goods have been supplied (then we do not need a part list in frepple)                           
                cStatus := Trim(oWerExtra:FreppleSta)
-               IF wer->status>=1.OR. (!Empty(wer->Liefma).AND.bes->Confirmed=="Y")
+               IF wer->status>=1 .OR. (!Empty(wer->Liefma).AND.bes->Confirmed=="Y")
                   cStatus := "confirmed"
+               ELSEIF Empty(cStatus) .AND. (!Empty(wer->Liefma).AND. ! bes->Printed )
+                  cStatus := "proposed"
                ELSEIF Empty(cStatus)
                   cStatus := "approved"
                ENDIF
+      
                lConfirmed := .T. //cStatus == "confirmed"
 
                rst->(dbSetOrder( 6 ))
@@ -898,20 +909,34 @@ FUNCTION RUN_FREPPLE_EXPORT()
                   tEnd   := StoT(DtoS(dEnd)+"080000")
                   DO WHILE ! rst->(EOF()) .AND. rst->No == wer->Aufno  //look for earliest and latest date
                      tStart := Min(tStart,SToT(rst->Start))
-                     tEnd   := Max(tEnd,SToT(rst->End))                    
+                     tEnd   := Max(tEnd,SToT(rst->End))  
+                     lHasResource := .F.                  
                      IF rst->Job != 0                        
                         job->(dbSeek( Str(rst->Job) ))                                                
                         
-                        Aadd(aManuSubOrders,{"FA"+LTrIM(Str(wer->Aufno))+"-"+Trim(job->Name),cMatch,wer->Qty-wer->GelQty,IF(lConfirmed,TtoC(StoT(rst->Start)),""),IF(lConfirmed,TtoC(StoT(rst->End)),""),IF(rst->Complete,"completed",cStatus),Trim(wer->Matchcode)+cOpSeparator+Trim(job->Name),"FA"+LTrIM(Str(wer->Aufno))})
+                        Aadd(aManuSubOrders,{;
+                           "FA"+LTrIM(Str(wer->Aufno))+"-"+Trim(job->Name),;
+                           cMatch,;
+                           wer->Qty-wer->GelQty,;
+                           IF(lConfirmed,TtoC(StoT(rst->Start)),""),;
+                           IF(lConfirmed,TtoC(StoT(rst->End)),""),;
+                           IF(rst->Complete,"completed",cStatus),; 
+                           Trim(wer->Matchcode)+cOpSeparator+Trim(job->Name),;
+                           "FA"+LTrIM(Str(wer->Aufno));
+                        })
 
                         DO WHILE rst->Job == job->Nummer .AND. rst->No == wer->Aufno .AND. ! rst->(EOF())
-                           IF rst->Resource != 0 .AND. res->(dbSeek( Str(rst->Resource,6) ))                           
+                           IF rst->Resource != 0 .AND. res->(dbSeek( Str(rst->Resource,6) ))    
+                              lHasResource := .T.                       
                               Aadd(aResourceDetail,{res->Name,ATail(aManuSubOrders)[1],1,TtoC(StoT(rst->Start)),TtoC(StoT(rst->End)),"confirmed"}) //alwways import as confirmed, there is no approved status
                            ENDIF
                            rst->(dbSkip())
                         ENDDO
                         rst->(dbSkip(-1))
 
+                        IF ! lHasResource .AND. ATail(aManuSubOrders)[6] != "completed" //if there is no resource we always leave it on confirmed so it is adjusted automatically
+                           ATail(aManuSubOrders)[6] := "confirmed"
+                        ENDIF
                      ENDIF
                      rst->(dbSkip())
                   ENDDO

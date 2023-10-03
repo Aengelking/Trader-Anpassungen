@@ -15,15 +15,17 @@ STATIC oFilter
 PROCEDURE REB
 LOCAL oBrowse,oBrowse2
 LOCAL oBooked,oGenehm,bEditNotes,bRebuild,oYears,oPerson,nYear := 1,aYears,hPeople2
-LOCAL cCol    := Replicate("N/W,",3)+"B+/W"
+LOCAL cCol    := Replicate("N/W*,",3)+"B+/W*"
 LOCAL cKonto,nLiefnr,cLiefma,hAccounts,cScreen,lOK,nKonto := 0
 LOCAL bSkip
 LOCAL getlist := {},aChoice
 LOCAL oGet,oRec
 LOCAL nPerson := Tr_Getini(28),nPersSel,nPersNoBooked
 LOCAL cFor,bSetFilter,lShowNotes := .F.
+LOCAL bTermin,nT,dNext,aSkonto,dDate
+LOCAL cInter
 
-MEMVAR c_five
+MEMVAR c_five,c_one
 
 /*** SETTINGS ***/
 LOCAL lCanApprove := Tr_Getini(28) $ GetValue("REB_APPROVER",{9,57},"Genehmiger (Benutzernummer)")
@@ -49,6 +51,7 @@ NetUse("rebprot","rebp")
 NetUse("rebnotes","rebn")
 NetUSe("engkund","ku")
 NetUSe("skontob","skb")
+NetUse("rerepeat","rerep")
 
 
 LX_Start()
@@ -151,7 +154,7 @@ FOR nYear := 2017 TO Year(Date())
 NEXT
 @ 01,78 SAY "Jahr:"
 nYear := 1
-@ 01,83,10,88 GET nYear LISTBOX aYears DROPDOWN
+@ 01,83,01+Len(aYears)+2,88 GET nYear LISTBOX aYears DROPDOWN
 oYears := Atail(getlist); getlist := {}
 oYears:Control:sBlock := {||
    ReadKill(.T.)
@@ -161,11 +164,33 @@ oYears:Control:sBlock := {||
    RETURN .T.
 }
 //oYears:Display()
-
+bTermin := {||
+   rebp->(dbSetOrder( 1 ))
+   rebp->(dbSeek( Str(reb->ID,9), .T. ))
+   IF reb->Status < 8 .AND. reb->Liefnr != 0
+      IF ! skb->(IsPrePay(ku->Skonto))
+         aSkonto := skb->(GetSkonto(ku->Skonto,StoD(rebp->DateTime)))
+         dDate := AddWorkingDays(StoD(rebp->DateTime)+IF(aSkonto[1,2]==0.AND.Len(aSkonto)>1,aSkonto[2,2],aSkonto[1,2]),nTolPaydate*-1,GetConfigValue("STATE"),.T.)
+      ELSE
+         dDate := StoD(rebp->DateTime)+13 //nach 15 Tagen kommt die Meldung, dass die Rechnung fehlt
+      ENDIF
+      RETURN dDate
+   ENDIF
+   RETURN StoD(rebp->DateTime)+5
+}
 oBrowse := reb->(TBrowseTr():New(03,00,MaxRow()-11,MaxCol()))
 oBrowse:OneColumn := .T.
+//IF Tr_Getini(28) == 9
+   oBrowse:ColorSpec := GetClrPair(c_one,1)+","+GetClrPair(c_one,5)+",R+/W*,GR+/BG,"+GetClrPair(c_one,2)
+//ENDIF
 oBrowse:lBox := .F.
-oBrowse:NewColumn("G",{|| IF(reb->Status < 8,IF(reb->Liefnr == 0,"!","-")," ") })
+oBrowse:NewColumn("G",{|| IF(reb->Status < 8,IF(reb->Liefnr == 0,"!","-")," ") },{|| 
+   //HB_SymbolUnused(oBrowse)
+   IF ! oBooked:Buffer .AND. Eval(bTermin) <= Date()
+      RETURN {3,4}
+   ENDIF
+   RETURN {1,5} 
+})
 oBrowse:NewColumn("Index",{|| Str(reb->ID,9) },,1,Replicate("9",9),0,{|x|Str(x,9)})
 oBrowse:NewColumn("Beleg",{|| reb->Beleg },,5,"@!",Space(35),{|x| X })
 oBrowse:NewColumn("Lieferant/Konto",{||
@@ -197,20 +222,7 @@ oBrowse:NewColumn(,{||
    RETURN " "
 })
 oBrowse:NewColumn("Termin",{||
-   LOCAL dDate,aSkonto
-   
-   rebp->(dbSetOrder( 1 ))
-   rebp->(dbSeek( Str(reb->ID,9), .T. ))
-   IF reb->Status < 8 .AND. reb->Liefnr != 0
-      IF ! IsPrePay(ku->Skonto)
-         aSkonto := skb->(GetSkonto(ku->Skonto,StoD(rebp->DateTime)))
-         dDate := AddWorkingDays(StoD(rebp->DateTime)+IF(aSkonto[1,2]==0.AND.Len(aSkonto)>1,aSkonto[2,2],aSkonto[1,2]),nTolPaydate*-1,GetConfigValue("STATE"),.T.)
-      ELSE
-         dDate := StoD(rebp->DateTime)+13 //nach 15 Tagen kommt die Meldung, dass die Rechnung fehlt
-      ENDIF
-      RETURN DtoC(dDate)
-   ENDIF
-   RETURN DtoC(StoD(rebp->DateTime)+5) //standard ist 5 Tage nach erhalt, das sollte auch fr Skonto reichen
+   RETURN DtoC(Eval(bTermin)) //standard ist 5 Tage nach erhalt, das sollte auch fr Skonto reichen
 })
 
 oBrowse:NewColumn("Kontonr.",{||
@@ -219,6 +231,10 @@ oBrowse:NewColumn("Kontonr.",{||
    ENDIF
    RETURN Space(6)   
 },,7,"999999",0,{|nKonto| Str(nKonto,6) })
+
+oBrowse:NewColumn("Betrag",{||
+   RETURN Transform(reb->Betrag,"@E 9,999,999.99")   
+})
 
 
 oBrowse:bAnyFun := {||
@@ -275,8 +291,11 @@ oBrowse:bAnyFun := {||
       IF reb->Status <= 8 .OR. lShowNotes
          IF rebn->(dbSeek( Str(reb->ID,9) )) .AND. !Empty(rebn->Notes)
             cCol := SetColor("N/GR*")
-            FOR nX := 1 TO 9
-               @ nTop+nX+1,nL SAY Pad(MemoLine(rebn->Notes,nW,nX),nW)
+            //FOR nX := 1 TO 8
+            @ nTop+2,nL CLEAR TO MaxRow(),MaxCol()
+            nT := Max(1,MLCount(rebn->Notes,nW)-7)
+            FOR nX := nT TO MLCount(rebn->Notes,nW)
+               @ nTop+nX+1-nT+1,nL SAY Pad(MemoLine(rebn->Notes,nW,nX),nW)
             NEXT
             SetColor(cCol)
          ENDIF
@@ -333,7 +352,7 @@ bEditNotes := {||
       lNew := .F.
    ENDIF
 
-   cText := MemoEdit(cText,MaxRow()-7,42,MAxRow(),MAxCol())
+   cText := MemoEdit(cText,MaxRow()-7,42,MAxRow(),MAxCol(),.T.,,,,Max(1,MLCount(rebn->Notes,MaxCol()-41)-7))
    SetColor(cCol)
 
    IF ! lNew
@@ -416,11 +435,12 @@ oBrowse:AddKey(K_ENTER,{||
    LOCAL cZuText := "anderer Person zuordnen"
    LOCAL cFirmText := t("Lieferant ändern")
    LOCAL lChangePers := .F.,lChangeFirm := .F.
+   LOCAL dDate
    LOCAL bOpen := {|cFile|
       Wapi_ShellExecute(,"open",cFile)
       RETURN NIL
    }
-   LOCAL nChoice,nTop   
+   LOCAL nChoice,nTop
    MEMVAR c_five,c_one
    ASort(aFiles,,,{|x,y| x[6] < y[6] }) //sort according to file name and not date
    /*IF Tr_Getini(28) == 9
@@ -457,9 +477,64 @@ oBrowse:AddKey(K_ENTER,{||
             lChangeFirm := .T.
          ENDIF
       ELSEIF (lCanApprove .OR. (Tr_Getini(28) $ hApprKto .AND. reb->Konto $ hApprKto[Tr_Getini(28)]) ) .AND. reb->Person == Tr_Getini(28)
-         Eval(bOpen,ATail(aFiles)[6])
-         nChoice := Tr_MsgBox("Freigeben?",,{"Nein","Ja",cZuText,cFirmText})
+         nChoice := 0
+         //Tr_MsgBox("Prfe wiederkehrende Rechnungen")
+         rerep->(dbSetORder( 1 ))
+         IF rerep->(dbSeek( Str(reb->Konto,6)+Str(reb->Betrag*100,14,0) )) 
+            rebp->(dbSetOrder( 1 ))
+            rebp->(dbSeek( Str(reb->ID,9), .T. ))
+            dDate := StoD(rebp->DateTime)
+            //Tr_MsgBox("Prfe wiederkehrende Rechnungen")
+            DO WHILE rerep->Konto == reb->Konto .AND. rerep->Betrag == reb->Betrag  //there can be multiple entries
+               IF Empty(rerep->End) .OR. rerep->End > dDate
+                  IF rerep->Intervall=="M" 
+                     dNext := AddMonth(rerep->Last,1)-5 //5 Tage Toleranz
+                  ELSEIF rerep->Intervall=="H" 
+                     dNext := AddMonth(rerep->Last,6)-15 //15 Tage Toleranz               
+                  ELSEIF rerep->Intervall=="J"
+                     dNext := AddMonth(rerep->Last,12)-30 //30 Tage Toleranz               
+                  ELSE
+                     dNext := StoD("")
+                  ENDIF               
+                  //Tr_MsgBox(rerep->Intervall+" "+DtoC(dNext))
+                  IF dNext <= dDate .OR. Tr_MsgBox("Intervall stimmt nicht. N„chste F„lligkeit: "+DtoC(dNext),,{"OK","Anpassen und freigeben"}) == 2
+                     nChoice := 2
+                     Tr_MsgBox("Automatisch freigegeben.")
+                     rerep->(Rec_Lock(0))
+                     rerep->Last := dDate
+                     rerep->(dbUnLock())       
+                     EXIT           
+                  ENDIF       
+               ENDIF     
+               rerep->(dbSkip())
+            ENDDO
+         ENDIF
+         IF nChoice == 0
+            Eval(bOpen,ATail(aFiles)[6])
+            nChoice := Tr_MsgBox("Freigeben?",,{"Nein","Ja",cZuText,cFirmText,"mit Intervall"})
+         ENDIF
+         IF nChoice == 5
+            cScreen := SaveScreen(10,10,12,41)
+            SetColor(c_five)
+            @ 10,10 CLEAR TO 12,41
+            @ 10,10 TO 12,41
+            cInter := "M"
+            @ 11,11 SAY "Intervall"
+            @ 11,21,16,40  GET cInter LISTBOX {"M"=>"monatlich","H"=>"halbj„hrlich","J"=>"j„hrlich"} ASSOCIATIVE
+            READ
+            RestScreen(10,10,12,41,cScreen)
+            IF LastKey() != 27               
+               rerep->(Add_Rec(0))
+               rerep->Konto := reb->Konto
+               rerep->Betrag := reb->Betrag
+               rerep->Intervall := cInter
+               rerep->Last := Date()
+               rerep->(dbUnLock())
+               nChoice := 2
+            ENDIF
+         ENDIF
          IF nChoice == 2
+            
             LETO_BEGINTRANSACTION()
             BEGIN SEQUENCE
                reb->(Rec_Lock())
@@ -605,6 +680,7 @@ oBrowse:AddKey(K_F11,{||
       IF oFilter == NIL
          oFilter := InteractiveFilter():New(00,02,10,,"REB")
          oFilter:AddValue("Lieferant",'Upper(name)',Space(25))
+         oFilter:AddValue("Betrag",'betrag',0,"999999.99")
       ENDIF
       oFilter:Dialog()
       Eval(bSetFilter)

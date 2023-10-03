@@ -6,6 +6,9 @@ LOCAL dLastMin := StoD("")
 LOCAL dLastMax := Date()
 LOCAL lWE := .T.
 LOCAL lZug := .T.
+LOCAL nMonths := 12
+LOCAL nTotal := 0
+LOCAL nTotOver := 0
 //LOCAL cAbgtypes := "RNR ENT ENé ABG"
 
 LOCAL nManu := 1
@@ -32,13 +35,13 @@ HB_AIns(aManu[2],1,"Alle",.T.)
 //AIns(aManu,
 @ 01,11,15,25 GET nManu LISTBOX aManu[2] DROPDOWN
 
-@ 02,00 SAY "Ab Wert            " GET nMinVal PICTURE "9999"
-@ 03,00 SAY t("Bestand grˆﬂer     ") GET nMinQty PICTURE "999"
-@ 04,00 SAY "Letzter Zugang >=  " GET dLastMin VALID dLastMin < dLastMax
-@ 05,00 SAY "Letzter Zugang <=  " GET dLastMax VALID dLastMin < dLastMax
-@ 06,00 SAY "Wareneingang       " GET lWE CHECKBOX
-@ 07,00 SAY t("Zug‰nge            ") GET lZug CHECKBOX
-
+@ 02,00 SAY "Ab Wert             " GET nMinVal PICTURE "9999"
+@ 03,00 SAY t("Bestand grˆﬂer      ") GET nMinQty PICTURE "999"
+@ 04,00 SAY "Letzter Zugang >=   " GET dLastMin VALID dLastMin < dLastMax
+@ 05,00 SAY "Letzter Zugang <=   " GET dLastMax VALID dLastMin < dLastMax
+@ 06,00 SAY "Wareneingang        " GET lWE CHECKBOX
+@ 07,00 SAY t("Zug‰nge             ") GET lZug CHECKBOX
+@ 08,00 SAY "Bestand fÅr x Monate" GET nMonths VALID nMonths > 0
 //@ 04,00 SAY t("Bewegungen         ")
 //@ 04,20,10,40 GET nType LISTBOX aTypes DROPDOWN
 READ
@@ -69,15 +72,20 @@ oPdf:AtSay( "Bestand > "+LTrim(Str(nMinQty)) )
 hStock := {=>}
 nTotal := 0
 lag->(dbSetOrder( 1 ))
-art->(dbSetFilter({|| art->Bestand > nMinQty .AND. (nManu == 1 .OR. art->Manufactur == aManu[1,nManu-1]) },'Bestand > '+Str(nMinQty)+IF(nManu!=1,' .AND. art->Manufactur == '+Str(aManu[1,nManu-1]),'') ))
+art->(dbSetFilter({|| art->Bestand > nMinQty .AND. (nManu == 1 .OR. art->Manufactur == aManu[1,nManu-1]) },'Bestand > '+Str(nMinQty)+IF(nManu!=1,' .AND. Manufactur == '+Str(aManu[1,nManu-1]),'') ))
 art->(dbGoTop())
 
 
 Do While ! art->(Eof())
    //If art->Bestand > nMinQty
       hReqInq := GetProductRequirementAndIncoming(art->Artikelnr)
-      IF hReqInq["income"]-hReqInq["requirement"]+art->Bestand > hReqInq["avgrequirement"]*12
+      IF hReqInq["income"]-hReqInq["requirement"]+art->Bestand > hReqInq["avgrequirement"]*nMonths
          nPreis := art->avPreis/art->Pe
+         IF Trim(art->matchcode) == "80-599021"
+            /*oArt := Artikel():New()
+            oArt:Load(art->Artikelnr)
+            nPreis := oArt:GetAvgBuyPrice(Date())*/
+         ENDIF
          If nPreis*art->Bestand > nMinVal
          
             abg->(dbSetFilter({|| Trim(abg->BuArt) $ cZugTypes },'Trim(BuArt) $ "'+cZugTypes+'"'))
@@ -106,16 +114,19 @@ art->(dbClearFilter())
 art->(dbSetOrder( 1 ))
 nX := 1
    oPdf:NewLine(2)
-   oPdf:AtSay(Pad("Matchcode",25)+" "+PadL("Bestand",12)+" "+PadL("Bedarf p.a.",12)+" "+PadL("Wert",12)+" l. Zugang")
+   oPdf:AtSay(Pad("Matchcode",25)+" "+PadL("Bestand",12)+" "+PadL("Bedarf p.a.",12)+" "+PadL("Wert",12)+PadL("Wert Åber",12)+" l. Zugang")
 
    nY := 1
    Do While nY <= Len(hStock)
       aVal := HGetValueAt(hStock,nY)
       art->(dbSeek( HGetKeyAt(hStock,nY) ))
       oPdf:NewLine()
-      oPdf:AtSay(art->Matchcode+" "+PadL(Transform(aVal["STOCK"],Me(art->Me)),12)+" "+PadL(Transform(aVal["DS"]*12,Me(art->Me)),12)+" "+Str(aVal["STOCK"]*aVal["PREIS"],12,2)+" "+DToC(aVal["ZUGANG"]))
+      nTotal += aVal["STOCK"]*aVal["PREIS"]
+      nTotOver += (aVal["STOCK"]-aVal["DS"]*nMonths)*aVal["PREIS"]
+      oPdf:AtSay(art->Matchcode+" "+PadL(Transform(aVal["STOCK"],Me(art->Me)),12)+" "+PadL(Transform(aVal["DS"]*nMonths,Me(art->Me)),12)+" "+Str(aVal["STOCK"]*aVal["PREIS"],12,2)+" "+Str((aVal["STOCK"]-aVal["DS"]*nMonths)*aVal["PREIS"],12,2)+" "+DToC(aVal["ZUGANG"]))
       nY++
    Enddo
    nX++
-
+   oPdf:NewLine()
+   oPdf:AtSay(Space(25+1+12+1+12)+" "+Str(nTotal,12,2)+" "+Str(nTotOver,12,2))
 CopyPrint()

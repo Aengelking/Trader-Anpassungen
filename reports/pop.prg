@@ -123,8 +123,7 @@ FOR EACH hArt IN hProducts
 	cMatch := hArt:__enumKey()
 	art->(dbSeek(cMatch))
 	? Trim(cMatch)
-   FOR nY := nYear 
-      TO Year(Date())+1
+   FOR nY := nYear TO Year(Date())+1
 		IF nY >= Year(Date())
          cYear := Str(nY-1,4)+"YTD"
 		ELSE

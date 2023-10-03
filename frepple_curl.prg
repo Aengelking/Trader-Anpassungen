@@ -202,6 +202,7 @@ RETURN oFrepple
       Aadd(aModels,"forecast.forecast") //Sales - Forecast
       Aadd(aModels,"input.operationplanmaterial") //Inventory - Inventory detail
       Aadd(aModels,"input.operationplanresource") //Capacity - Resource detail
+      Aadd(aModels,"input.operationdependency") //
       Aadd(aModels,"input.purchaseorder") //Purchasing - Purchase orders
       Aadd(aModels,"input.manufacturingorder") //Manufacturing - Manufacturing orders
       Aadd(aModels,"input.itemsupplier") //Purchasing - Item suppliers

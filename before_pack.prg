@@ -1,5 +1,5 @@
 
-FUNCTION HOOK_BEFORE_PACK(nNr,lRech,nVersandart,nPerson)
+FUNCTION HOOK_BEFORE_PACK(nNr,lRech,nVersandart,nPerson,aValidVersand)
 
 LOCAL nRec,aParts := {},cKunde,aList
 LOCAL cFilter := "aoqty != 0"
@@ -76,7 +76,7 @@ IF lRech
          DO WHILE Tr_MsgBox(aList,"ETIKETTEN AUFBRINGEN",{"abbrechen","OK"}) != 2
          ENDDO
       ENDIF
-      re->(dbGoto(nRec))
+      re->(dbGoto(nRec))      
    ENDIF
 
    IF oExtra:WerksBesch
@@ -119,8 +119,24 @@ IF lRech
       oRechnung:VersandArt := 57
       oRechnung:Save()
    ENDIF
-
-   
+   GotoRechAddress(.T.) //goto delivery address
+			   
+ELSE   
+   IF lne->RefTyp=="BE"
+      NetUse("engbes","bes")
+      IF  bes->(dbSeek(Str(lne->RefBeleg,6)+Str(lne->RefPos,3)))
+         //bes->ABNR
+         TxtBox({PadC("RMA Aufkleber",22),"","","","","","","","",""})
+         SetPrinterMethodType(5) //stickers
+         StickPrint("RMA_BACK")
+         SetPrinterMethodType(0)
+         TxtClear()
+      ENDIF
+   ENDIF
+   ku->(dbSetOrder( 1 ))
+   ku->(dbSeek(lne->Kunde+lne->Gruppe))
 ENDIF
-
+IF ku->CountryIso == "RO" //if we are shipping to Rum„nien, we only allow UPS and collection
+   aValidVersand := {2,10,19,23,34,43,44,45,46,49,56}
+ENDIF   
 RETURN .T.

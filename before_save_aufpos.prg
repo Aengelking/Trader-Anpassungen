@@ -11,36 +11,33 @@ LOCAL cBez,cText,nX
 LOCAL oArt,hFreigabe,nMaxQty,lBes,oLief,hReq
 LOCAL oContrPos,cLine,nY,nStart,nF,cOldText,nLen,nPos,nOldValue
 LOCAL lExtern := .F.,lSampleFound
-LOCAL bGetFreigabe := { |nLief|
-   hFreigabe := GetFreigabeBesState(nLief)
+LOCAL aFreigabeList
+LOCAL nStock
+LOCAL bGetFreigabe := { |nLief,oLief|
+   LOCAL cText
+   hFreigabe := GetFreigabeBesState(nLief)   
+   IF nLief == 0
+      cText := "INTERN "  
+   ELSE
+      cText := Trim(oLief:Kunde)+" "
+   ENDIF
    IF hFreigabe:lBes       
       IF ! lBes .AND. hFreigabe:nMaxQty != 0 //noch nicht durch anderen Lieferanten freiggebn um Menge beschr„nkt
          nMaxQty += hFreigabe:nMaxQty
       ELSEIF lBes .AND. nMaxQty != 0 .AND. hFreigabe:nMaxQty == 0 //andere Freigabe aeber Beschr„nkt, diese ist unbeschr„nkt, dann Beschr„nkung aufheben
          nMaxQty := 0
       ENDIF            
-      lBes := .T.
+      lBes := .T.      
+   ELSE      
+      cText += "nicht bestellbar. "
+      IF hFreigabe["PPF"] == 0
+         cText += "Freigabe nicht begonnen."
+      ELSE
+         cText += "Freigabe "+GetFreigabeStatusText({GetNextFreigabeLevel(art->Artikelnr,nLief,hFreigabe["ASTATUS"][1]),NIL})+" erforderlich"
+      ENDIF
+      Aadd(aFreigabeList,cText)
    ENDIF
-}
-
-LOCAL hDrawingExceptions := {;
-   "KS28986"=>StoD("20231130"),;
-   "KS36903/HPG/36-5"=>StoD("20231130"),;
-   "KS36903/HPK/36-5"=>StoD("20231130"),;
-   "KS33434/4"=>StoD("20231130"),;
-   "KS21514/11"=>StoD("20231130"),;
-   "KS22322/8"=>StoD("20231230"),;
-   "KS22322/9"=>StoD("20231230"),;
-   "KS17489/30235240"=>StoD("20231215"),;
-   "KS17489/30235241"=>StoD("20231215"),;
-   "KS27732/LINCC00011.REWORK"=>StoD("20231215"),;
-   "KS27732/LINCC00012.REWORK"=>StoD("20231215"),;
-   "KS34717/1"=>StoD("20231215"),;
-   "KS26024/7"=>StoD("20231215"),;
-   "KS26024/5"=>StoD("20231215"),;
-   "KS26024/6"=>StoD("20231215"),;
-   "KS17489/30235260"=>StoD("20231230"),;
-   "KS20702/2"=>StoD("20231221");
+   
 }
 
 MEMVAR c_five
@@ -53,12 +50,12 @@ NetUse("ppf","ppf")
 oExtra := ku->(ExtraData():New( oAufPos:Auftrag:Kunde:Nummer ))
 oArtExtra := art->(ExtraData():New(oAufpos:Artikelnr))
 
-IF oAufpos:lNew .AND. Left(oAufPos:Artikel:Matchcode,3) == "57M" .AND. Trim(art->Matchcode) != "57M-112B."
+IF oAufpos:lNew .AND. oAufPos:ContractPosition == NIL .AND. Left(oAufPos:Artikel:Matchcode,3) == "57M" .AND. Trim(oAufPos:Artikel:Matchcode) != "57M-112B."
    Tr_MsgBox("Artikel aktuell nicht erh„ltlich - auf CM(I)57 ausweichen.")
    RETURN .F.
 ENDIF
 
-IF oExtra:WerksBesch .AND. ! oArtExtra:CoC .AND. ! (oAufPos:Auftrag:Kunde:Kunde == "RMWKABEL" .AND. Trim(art->Matchcode) == "PX0587")
+IF ! oAufPos:Artikel:Manufactur $ {5,6} .AND. oExtra:WerksBesch .AND. ! oArtExtra:CoC .AND. ! (oAufPos:Auftrag:Kunde:Kunde == "RMWKABEL" .AND. Trim(art->Matchcode) == "PX0587")
    Tr_MsgBox({"Dieser Artikel hat keine Werksbescheinigungen (CoC).","Dieser Kunde m”chte nur Artikel mit CoC."})
    RETURN .F.
 ENDIF
@@ -80,7 +77,9 @@ IF oAufpos:Artikel:IsManufactured //in this case we need to get the "Lohn" posit
    ENDIF
 ELSE
    oArt := oAufpos:Artikel
-   lExtern := .T.
+   IF oArt:Lagerart //wenn nicht Lagerf„hig dann ist es wahrscheinlich ein Folgeartikel auf jeden Fall wird das nicht extern bestellt.
+      lExtern := .T.
+   ENDIF
 ENDIF
 IF lExtern .AND. oArt:LagerArt .AND. ! ali->(dbSeek( Str(oArt:Artikelnr,6) )) 
    IF oAufPos:lNew .AND. Tr_MsgBox("Kein Lieferant fr diesen Artikel vorhanden",,{"abbrechen","trotzdem einfgen"}) != 2
@@ -89,50 +88,72 @@ IF lExtern .AND. oArt:LagerArt .AND. ! ali->(dbSeek( Str(oArt:Artikelnr,6) ))
 ENDIF
 IF AT("KS",oAufPos:Artikel:Matchcode) == 1 .AND. Empty(oAufPos:Artikel:Zeichnung);
    .AND. AT("KS14696/59",oAufPos:Artikel:Matchcode) != 1 ;
-   .AND. (! Trim(art->Matchcode) $ hDrawingExceptions .OR. hDrawingExceptions[Trim(art->Matchcode)] <= Date())
-
-   Tr_MsgBox("Bitte Zeichnung/Spezifikation hinterlegen")
-   RETURN .F.
+   .AND. ! Trim(oAufPos:Artikel:Matchcode) $ {"KS29269/1","KS29269/2"}
+//,{"amos.engelking@engelking.de","Amos"}
+   SendMail({{"chris.chertes@engelking.de","Chris"}},"Bitte Zeichnung/Spezifikation bei "+Trim(oAufPos:Artikel:Matchcode)+" hinterlegen")
+   Tr_MsgBox("Keine Zeichnung/Spezifikation hinterlegt - Meldung wurde an Projektmanagement verschickt.")
+   //RETURN .F.
 
 ELSEIF ! Empty(oAufPos:Artikel:Zeichnung) //Freigabe prfen
    hReq := GetProductRequirementAndIncoming(oAufPos:Artikel:Artikelnr)
    //oArt:GotoRec()
    lBes := .F.
    nMaxQty := 0
+   aFreigabeList := {}
    IF ! lExtern
       Eval(bGetFreigabe,0)
    ELSE
       ali->(dbSeek( Str(oArt:Artikelnr,6) )) 
-         
+      
       DO WHILE ali->Artikelnr == oArt:Artikelnr 
          oLief := Adresse():New()
          oLief:LoadMatchcode(ali->Kunde,"L")
-         Eval(bGetFreigabe,oLief:Nummer)
+         
+         Eval(bGetFreigabe,oLief:Nummer,oLief)
          
          ali->(dbSkip())
       ENDDO
       
    ENDIF
-   //Alert(Str(nMaxQty)+";Incoming:"+Str(hReq["income"])+";Requirement:"+Str(hReq["requirement"])+";Qty:"+Str(oAufPos:VkQty-IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)))
-   
-   IF ! lBes .OR. (nMaxQty > 0 .AND. nMaxQty+hReq["income"] < oAufPos:VkQty-IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)+hReq["requirement"])
+   //Alert(oAufPos:Artikel:Matchcode+";Max: "+Str(nMaxQty)+";Incoming:"+Str(hReq["income"])+";Requirement:"+Str(hReq["requirement"])+";Stock:"+Str(oAufPos:Artikel:Bestand)+";Qty:"+Str(oAufPos:VkQty-IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)))
+
+   nStock := oAufPos:Artikel:Bestand-hReq["requirement"]  //not planned stock
+   IF HHasKey(hReq["months"],Str(0,5)+Str(0,3)) //week > 52, e.g. 97, then this is available too
+      nStock += hReq["months"][Str(0,5)+Str(0,3)]["requirement"]
+      //IF Tr_Getini(28) == 9; Alert("97: "+Str(hReq["months"][Str(0,5)+Str(0,3)]));ENDIF
+   ELSEIF Tr_getini(28)==9
+      //Alert('"'+Str(0,4)+Str(0,2)+'";'+ValToPrg(hReq["months"]))
+   ENDIF
+   IF ! oAufpos:lNew .AND. Right(Str(oAufPos:GetField("DTERM",.T.),4),2) != "97"  //if it was 97 it has already been added
+      nStock += IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)
+   ENDIF
+   IF (! lBes .AND. nStock < oAufPos:VkQty) .OR. (nMaxQty > 0 .AND. nMaxQty+nStock < oAufPos:VkQty); //hReq["income"]+ //-IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)+hReq["requirement"]); //other orders should already be on 097 - so only this is important
+      .AND. oAufPos:ContrPos == 0
+
       auf->(dbSetOrder( 13 ))
       auf->(dbSeek( Str(oAufpos:Artikel:Artikelnr,6) ))
       lSampleFound := .F.
-      DO WHILE auf->Artikelnr == oAufpos:Artikel:Artikelnr .AND. auf->Bestat < 3
-         IF auf->VkQty <= nMaxQty
+      DO WHILE auf->Artikelnr == oAufpos:Artikel:Artikelnr .AND. (auf->Bestat <= 3 .OR. (auf->Bestat >= 4 .AND. auf->Bestat < 6))
+         IF (auf->Bestat != 3 .AND. auf->VkQty <= nMaxQty) .OR. (auf->Bestat == 3 .AND. auf->GelQty <= nMaxQty)
             lSampleFound := .T.
          ENDIF         
          auf->(dbSkip())
       ENDDO
       IF ! lSampleFound .AND. oAufPos:lNew
-         Tr_MsgBox("Zuerst Position mit Erstmuster anlegen. Maximal: "+LTrim(Transform(nMaxQty-1,oAufpos:Artikel:cPicture)))
+         IF nMaxQty == 0
+            HB_AIns(aFreigabeList,1,"Keine Freigabe vorhanden",.T.)   
+         ELSE
+            HB_AIns(aFreigabeList,1,"Zuerst Position mit Erstmuster anlegen. Maximal: "+LTrim(Transform(nMaxQty,oAufpos:Artikel:cPicture)),.T.)
+         ENDIF
+         Tr_MsgBox(aFreigabeList)
          RETURN .F.
       ELSEIF Right(Str(oAufPos:DTerm,4),2) != "97"
-         Tr_MsgBox("Freigabe nicht ausreichend - Liefertermin auf 'folgt' (KWxx97) setzen")
+         //IF Tr_Getini(28)==9; Alert(Str(oAufPos:VkQty)+";"+Str(nMaxQty+oAufPos:Artikel:Bestand)+";"+IF(!lBes,"Bestellung nicht m”glich",""));ENDIF
+         Tr_MsgBox("Freigabe nicht ausreichend - Liefertermin auf 'folgt' (KWxx97) setzen. Maximal: "+LTrim(Transform(nMaxQty+nStock,oAufpos:Artikel:cPicture)))
          RETURN .F.
       ELSE
-         Tr_MsgBox("Freigabe nicht ausreichend, Artikel kann nicht bestellt werden.")
+         //Tr_MsgBox("Freigabe nicht ausreichend, Artikel kann nicht bestellt werden. Maximal: "+LTrim(Transform(nMaxQty+nStock,oAufpos:Artikel:cPicture)))
+         //RETURN .F.
       ENDIF
    ENDIF 
 ELSE

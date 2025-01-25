@@ -5,6 +5,9 @@ LOCAL cFile
 
 cFile    := cEtiPath+cName+".lbex"
 IF File(cFile)
+   IF Tr_GetIni(28) == 9
+      Alert("PRINTING "+cFile)
+   ENDIF
    MBaseRun(Trim(Tr_getini(1))+"\run\labelstar",{cFile,nCount})
    RETURN .F.
 ELSE

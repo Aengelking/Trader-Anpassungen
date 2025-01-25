@@ -3,7 +3,7 @@ STATIC lDbg
 FUNCTION Approve_AUF_ANG(aProducts,cText1,nLevel,cKundma,dDate,cMoney,lAuf)
 
 /** SETTINGS **/
-LOCAL aLevels := { {9},{33},{41,54},{45,37,28} }
+LOCAL aLevels := { {9},{33},{41,54},{45,37,28,58},{69,66} }
 LOCAL nMinIncrease := 0.049  //Mindest um diesen Wert in den letzten 12 Monaten angehoben, wenn auáerhalb der Staffel
 LOCAL nIncreasePerYear := 0.029 //Mindestens um diesen Wert pro Jahr angehoben wenn auáerhalb der Staffel
 LOCAL lHoliday := Date() >= GetValue("HOLIDAY-AMOS-START") .AND. Date() <= GetValue("HOLIDAY-AMOS-END")
@@ -24,6 +24,8 @@ MEMVAR c_five
 IF lHoliday .AND. Date() <= StoD("20190510") //Thimo is away too
    Aadd(aLevels[2],37)
 ENDIF
+
+
 
 lDbg := Tr_Getini(28) == 9
 
@@ -194,43 +196,50 @@ FOR EACH hProd IN aProducts
        ENDIF
 
        IF /*hProd:Artikel:LagerArt .AND.*/ hProd:Artikel:Mindest == 0
-          aAvail := GetKwQty(hProd:Artikel:Artikelnr)
-                                    //ATail(aAvail)[6]
-          IF /*GetKwStock(hProd:Artikel:Artikelnr,hProd:KW,aAvail)*/ATail(aAvail)[6] >= IF(lAuf .AND. !hProd:Add,0,hProd:Qty)
-            IF lAuf .OR. GetKwStock(hProd:Artikel:Artikelnr,hProd:KW+IF(hProd:Artikel:LZ==0,12,hProd:Artikel:LZ),aAvail) >= hProd:Qty
-             lStock := .T.
-             //Alert("Here"+Str(ATail(aAvail)[6]))
-            ENDIF
-          ENDIF
+         aAvail := GetKwQty(hProd:Artikel:Artikelnr)
+                                 //ATail(aAvail)[6]
+         IF /*GetKwStock(hProd:Artikel:Artikelnr,hProd:KW,aAvail)*/ATail(aAvail)[6] >= IF(lAuf .AND. !hProd:Add,0,hProd:Qty)
+         IF lAuf .OR. GetKwStock(hProd:Artikel:Artikelnr,hProd:KW+IF(hProd:Artikel:LZ==0,12,hProd:Artikel:LZ),aAvail) >= hProd:Qty
+            lStock := .T.
+            //Alert("Here"+Str(ATail(aAvail)[6]))
+         ENDIF
+         ENDIF
       ELSEIF hProd:Artikel:Mindest != 0
-          lStock := .T. 
-       ENDIF
+         lStock := .T. 
+      ENDIF
                
-       IF ! lStock //we do not have enough in stock or on order to fullfill this order
+      IF ! lStock //we do not have enough in stock or on order to fullfill this order
          DbgPrn("NO STOCK")
          nVPE := 0
          lUnderMOQ := .T. //if we have no direct manufacturer we are always under MOQ
-          IF manu->(dbSeek( Str(hProd:Artikel:Manufactur,5) )) .AND. manu->Address != 0            
-             ku->(dbSetOrder( 8 ))
-             ku->(dbSeek( Str(manu->Address,6) ))
-             ali->(dbSeek( Str(hProd:Artikel:Artikelnr,6) + ku->Kunde ))
-             lUnderMOQ := hProd:Qty < ali->VPE
-             nVPE := ali->VPE
+         IF manu->(dbSeek( Str(hProd:Artikel:Manufactur,5) )) .AND. manu->Address != 0            
+            ku->(dbSetOrder( 8 ))
+            ku->(dbSeek( Str(manu->Address,6) ))
+            ali->(dbSeek( Str(hProd:Artikel:Artikelnr,6) + ku->Kunde ))
+            
+            lUnderMOQ := hProd:Qty < ali->VPE
+            IF lUnderMOQ
+               DbgPrn("Under manufacturer MOQ")
+            ENDIF
+            nVPE := ali->VPE
 
-             
-             bpr->( dbSetOrder( 1 ) ) 
-             cFilter := "Empty(enddate) .OR. enddate >= StoD("+DtoS(dDate)+") .AND. startdate <= StoD("+DtoS(dDate)+")"
-             bpr->(dbSetFilter( {|| bpr->(&(cFilter)) },cFilter))  
-             IF bpr->( dbSeek( ku->Kunde + Str( hProd:Artikel:Artikelnr, 6 ) ) )               
+            bpr->( dbSetOrder( 1 ) ) 
+            cFilter := "(Empty(enddate) .OR. enddate >= StoD('"+DtoS(dDate)+"')) .AND. startdate <= StoD('"+DtoS(dDate)+"')"
+            bpr->(dbSetFilter( {|| bpr->(&(cFilter)) },cFilter))  
+            IF bpr->( dbSeek( ku->Kunde + Str( hProd:Artikel:Artikelnr, 6 ) ) )               
                lUnderMOQ := hProd:Qty < bpr->Qty
+               IF lUnderMOQ
+                  DbgPrn("Under manufacturer price MOQ "+Str(hProd:Qty)+Str(bpr->Qty))
+               ENDIF
                nVPE := bpr->Qty
-             ENDIF
-             bpr->(dbClearFilter())
-           ENDIF
-           IF art->Lagerart .AND. art->Bezug < 5 
-             ali->(dbSetOrder( 5 ))
-             lWaldom := .F.     
-             IF lUnderMOQ        
+            ENDIF
+            bpr->(dbClearFilter())
+         ENDIF
+         
+         IF hProd:Artikel:Lagerart .AND. hProd:Artikel:Bezug < 5  //Lagerf„hige Artikel und Kaufteil            
+            ali->(dbSetOrder( 5 ))
+            lWaldom := .F.     
+            IF lUnderMOQ                       
                IF ali->(dbSeek( Str(hProd:Artikel:Artikelnr,6) + Pad("WALDOM",8) )) .AND. lsto->(dbSeek( Pad("WALDOM",8)+Str(hProd:Artikel:Artikelnr,6) )) //does waldom have this part and is the qty over waldoms MOQ
                   DbgPrn("Waldom prices found")
                   hPrice := GetBuyPrice( Pad("WALDOM",8), hProd:Artikel:Artikelnr, hProd:Qty )
@@ -245,121 +254,121 @@ FOR EACH hProd IN aProducts
                   ENDIF
                ELSE
                   DbgPrn("No Waldom found")
-               ENDIF
-            ENDIF
-
-            IF (Empty(hProd:Supplier) .OR. hProd:Supplier == ku->Kunde) 
-                ali->(dbSeek( Str(hProd:Artikel:Artikelnr,6) + ku->Kunde ))
-                IF lUnderMOQ .OR. hProd:Qty < ali->VPE //under MOQ of Manufacturer
-                  DbgPrn("Under MOQ")
-                  lRS := .F.
-                  lTME := .F.
-                  IF hProd:Artikel:Manufactur==11 //Techno artikel unter VPE                     
-                     //Alert("Techno unter MOQ. "+LTrim(str(hProd:nEK)))
-                     IF hProd:nEK == 0
-                        //margin neu berrechnen, falls bisher kein Preis gefunden wurde
-                        hEK := hProd:Artikel:getBuyPrice(ku->Kunde,-1,,,,,,dDate)  
-                        hProd:nEk :=  hEK["price"]/hEk["unit"]*Currate(ku->Money,"E",dDate)
-                        hProd:Supplier := "Techno under MOQ"
-                        IF hProd:nEk == 0
-                           nGewinn := 0
-                        ELSE
-                           nGewinn := ( hProd:VkPr - hProd:nEk )
-                        ENDIF
-
-                        IF hProd:VkPr != 0
-                           hProd:Margin := ( nGewinn / hProd:VkPr ) //* 100
-                        ELSE
-                           hProd:Margin := 0
-                        ENDIF
-                     ENDIF
-                     /*IF hProd:VkPr*hProd:Qty < 150 .AND. AScan(aProducts,{|x| Trim(x:Artikel:Matchcode)=="MINDERMENGENZUSCHLAG" }) ==0  //Kein Mindermengenzuschlag berechnet
-                      cText1 += cPreText+" VPE ("+Ltrim(Str(ali->VPE))+") und kein Mindermengenzuschlag berechnet;"
-                      IF nLevel > 2
-                         nLevel := 2
-                      ENDIF
-                     ENDIF*/
-                  ELSEIF lWaldom .AND. nWaldPrice > 0
-                     hProd:nEK := nWaldPrice
-                     hProd:Supplier := Pad("WALDOM",8)
-                     hProd:Margin :=  (hProd:VkPr / Currate( cMoney, "V" ) - hProd:nEK) /  (hProd:VkPr / Currate( cMoney, "V" ))
-                     DbgPrn("Waldom (wegen MOQ), Margin:"+LTrim(Str(hProd:Margin))+", EK: "+Ltrim(str(hProd:nEK)))
-                  ELSEIF hProd:Artikel:Bezug < 5 //see if we can buy from RS or TME
-                     //TME
-                     
-                     hProd:Artikel:gotoRec()
-                     hPrice := GetPricesCompet("TME")
-                     IF ValType(hPrice) == "H" .AND. ! Empty(hPrice)
-                        DbgPrn("TME: "+ValToPrg(hPrice))
-                        lTME := .T. //tme has this product, we set lRS to .T. if they are cheap enough
-                        FOR EACH nPrice IN hPrice
-                           IF nPrice:__eNumKey() <= hProd:Qty  .AND. nPrice*1.2  <= hProd:VkPr / Currate( cMoney, "V" )
-                              hProd:nEK := nPrice
-                              hProd:Margin :=  (hProd:VkPr / Currate( cMoney, "V" ) - nPrice) /  (hProd:VkPr / Currate( cMoney, "V" ))
-                              hProd:Supplier := Pad("TME",8)
-                              lRS := .T.
+               ENDIF         
+         
+               IF (Empty(hProd:Supplier) .OR. hProd:Supplier == ku->Kunde) 
+                  ali->(dbSeek( Str(hProd:Artikel:Artikelnr,6) + ku->Kunde ))
+                  IF lUnderMOQ .OR. hProd:Qty < ali->VPE //under MOQ of Manufacturer
+                     DbgPrn("Under MOQ")
+                     lRS := .F.
+                     lTME := .F.
+                     IF hProd:Artikel:Manufactur==11 //Techno artikel unter VPE                     
+                        //Alert("Techno unter MOQ. "+LTrim(str(hProd:nEK)))
+                        IF hProd:nEK == 0
+                           //margin neu berrechnen, falls bisher kein Preis gefunden wurde
+                           hEK := hProd:Artikel:getBuyPrice(ku->Kunde,-1,,,,,,dDate)  
+                           hProd:nEk :=  hEK["price"]/hEk["unit"]*Currate(ku->Money,"E",dDate)
+                           hProd:Supplier := "Techno under MOQ"
+                           IF hProd:nEk == 0
+                              nGewinn := 0
+                           ELSE
+                              nGewinn := ( hProd:VkPr - hProd:nEk )
                            ENDIF
-                        NEXT
-                        IF lRS
-                           DbgPrn("TME "+LTrim(Str(hProd:nEK)))
+
+                           IF hProd:VkPr != 0
+                              hProd:Margin := ( nGewinn / hProd:VkPr ) //* 100
+                           ELSE
+                              hProd:Margin := 0
+                           ENDIF
                         ENDIF
-                     ELSE
-                        DbgPrn("NO TME (no price)")
-                     ENDIF
+                        /*IF hProd:VkPr*hProd:Qty < 150 .AND. AScan(aProducts,{|x| Trim(x:Artikel:Matchcode)=="MINDERMENGENZUSCHLAG" }) ==0  //Kein Mindermengenzuschlag berechnet
+                        cText1 += cPreText+" VPE ("+Ltrim(Str(ali->VPE))+") und kein Mindermengenzuschlag berechnet;"
+                        IF nLevel > 2
+                           nLevel := 2
+                        ENDIF
+                        ENDIF*/
+                     ELSEIF lWaldom .AND. nWaldPrice > 0
+                        hProd:nEK := nWaldPrice
+                        hProd:Supplier := Pad("WALDOM",8)
+                        hProd:Margin :=  (hProd:VkPr / Currate( cMoney, "V" ) - hProd:nEK) /  (hProd:VkPr / Currate( cMoney, "V" ))
+                        DbgPrn("Waldom (wegen MOQ), Margin:"+LTrim(Str(hProd:Margin))+", EK: "+Ltrim(str(hProd:nEK)))
+                     ELSEIF hProd:Artikel:Bezug < 5 //see if we can buy from RS or TME
+                        //TME
+                        IF hProd:Artikel:Gruppe != "KOSO"
+                           hProd:Artikel:gotoRec()
+                           hPrice := GetPricesCompet("TME")
+                           IF ValType(hPrice) == "H" .AND. ! Empty(hPrice)
+                              DbgPrn("TME: "+ValToPrg(hPrice))
+                              lTME := .T. //tme has this product, we set lRS to .T. if they are cheap enough
+                              FOR EACH nPrice IN hPrice
+                                 IF nPrice:__eNumKey() <= hProd:Qty  .AND. nPrice*1.2  <= hProd:VkPr / Currate( cMoney, "V" )
+                                    hProd:nEK := nPrice
+                                    hProd:Margin :=  (hProd:VkPr / Currate( cMoney, "V" ) - nPrice) /  (hProd:VkPr / Currate( cMoney, "V" ))
+                                    hProd:Supplier := Pad("TME",8)
+                                    lRS := .T.
+                                 ENDIF
+                              NEXT
+                              IF lRS
+                                 DbgPrn("TME "+LTrim(Str(hProd:nEK)))
+                              ENDIF
+                           ELSE
+                              DbgPrn("NO TME (no price)")
+                           ENDIF
 
-                     IF ! lRs
+                           IF ! lRs
 
-                        nQty := GetLiefStock("RS",hProd:Artikel:Artikelnr)
-                        IF nQty >= hProd:Qty  //RS hat Lagerbestand
-                           DbgPrn("RS has stock")
-                           hPrice := GetBuyPrice( Pad("RS",8), hProd:Artikel:Artikelnr, hProd:Qty )
-                           nPrice := hPrice["price"]/hPrice["unit"]
-                           IF nPrice <= 0  //no quote found
-                              
-                              DbgPrn("No quote from RS")
-                              
-                              nRec := ali->(Recno())
-                              ali->(dbSeek( Str(hProd:Artikel:Artikelnr,6) + Pad("RS",8) ))
-                              hPrices := MBaseRun(Trim(Tr_Getini(1))+"\run\prices\rs",{hProd:Artikel:Artikelnr,ali->Artlief,hProd:Artikel:Matchcode})
-                              ali->(dbGoTo(nRec))
-                              IF hPrices != NIL .AND. Len(hPrices) > 1
-                                 nPrice := HGetValueAt(hPrices,Len(hPrices)) //last break
+                              nQty := GetLiefStock("RS",hProd:Artikel:Artikelnr)
+                              IF nQty >= hProd:Qty  //RS hat Lagerbestand
+                                 DbgPrn("RS has stock")
+                                 hPrice := GetBuyPrice( Pad("RS",8), hProd:Artikel:Artikelnr, hProd:Qty )
+                                 nPrice := hPrice["price"]/hPrice["unit"]
+                                 IF nPrice <= 0  //no quote found
+                                    
+                                    DbgPrn("No quote from RS")
+                                    
+                                    //nRec := ali->(Recno())
+                                    //ali->(dbSeek( Str(hProd:Artikel:Artikelnr,6) + Pad("RS",8) ))
+                                    hProd:Artikel:gotoRec()
+                                    hPrices := GetPricesCompet("RS") //MBaseRun(Trim(Tr_Getini(1))+"\run\prices\rs",{hProd:Artikel:Artikelnr,ali->Artlief,hProd:Artikel:Matchcode})
+                                    //ali->(dbGoTo(nRec))
+                                    IF hPrices != NIL .AND. Len(hPrices) > 1
+                                       nPrice := HGetValueAt(hPrices,Len(hPrices)) //last break
+                                    ENDIF
+                                 ENDIF
+                                 IF nPrice > 0 .AND. nPrice*1.3 <= hProd:VkPr / Currate( cMoney, "V" )
+                                    DbgPrn("Kaufen wir bei RS")
+                                    hProd:nEK := nPrice
+                                    hProd:Margin :=  (hProd:VkPr / Currate( cMoney, "V" ) - nPrice) /  (hProd:VkPr / Currate( cMoney, "V" ))
+                                    hProd:Supplier := Pad("RS",8)
+                                    lRS := .T.
+                                 ELSE
+                                    cText1 += cPreText+" RS "+IF(lTME," und TME sind","ist")+" zu teuer"+IF(Tr_Getini(28)==9,"("+Str(nPrice,5,2)+")","")+";"
+                                    lStaffelOnly := .F.
+                                    lStaffelDown := .T.
+                                 ENDIF
+                              ELSE
+                                 cText1 += cPreText+" RS hat keinen Bestand"+IF(lTME," und TME ist zu teuer","")+";"
+                                 lStaffelOnly := .F.
+                                 lStaffelDown := .T.
                               ENDIF
                            ENDIF
-                           IF nPrice > 0 .AND. nPrice*1.3 <= hProd:VkPr / Currate( cMoney, "V" )
-                              DbgPrn("Kaufen wir bei RS")
-                              hProd:nEK := nPrice
-                              hProd:Margin :=  (hProd:VkPr / Currate( cMoney, "V" ) - nPrice) /  (hProd:VkPr / Currate( cMoney, "V" ))
-                              hProd:Supplier := Pad("RS",8)
-                              lRS := .T.
-                           ELSE
-                              cText1 += cPreText+" RS "+IF(lTME," und TME sind","ist")+" zu teuer"+IF(Tr_Getini(28)==9,"("+Str(nPrice,5,2)+")","")+";"
-                              lStaffelOnly := .F.
-                              lStaffelDown := .T.
+                        ENDIF
+                        IF ! lRs  //we cannot buy it from RS
+                           IF lUnderMOQ .AND. nVPE != 0
+                              cText1 += cPreText+" VPE ("+Ltrim(Str(nVPE))+") unterschritten;"
                            ENDIF
-                        ELSE
-                           cText1 += cPreText+" RS hat keinen Bestand"+IF(lTME," und TME ist zu teuer","")+";"
                            lStaffelOnly := .F.
                            lStaffelDown := .T.
+                           IF nLevel > 2
+                              nLevel := 2
+                           ENDIF
                         ENDIF
-                     ENDIF
-                     IF ! lRs  //we cannot buy it from RS
-                         IF lUnderMOQ
-                           cText1 += cPreText+" VPE ("+Ltrim(Str(nVPE))+") unterschritten;"
-                         ENDIF
-                         lStaffelOnly := .F.
-                         lStaffelDown := .T.
-                         IF nLevel > 2
-                            nLevel := 2
-                         ENDIF
                      ENDIF
                   ENDIF
                ENDIF
             ENDIF
          ENDIF
-          //ENDIF
-       ENDIF
-
+      ENDIF
       //IF Tr_Getini(28) == 9
 //         Alert(hProd:Matchcode+" "+IF(lStaffelVor,"Staffelvorlauf",IF(lStaffel,"Staffel","Außerhalb Staffel"))+LTrim(Str(Round(hProd:Margin,2))))
          //DbgPrn("EK: "+Str(hProd:nEk)+IF(hProd:Artikel:Bezug >= 5,"manufactured","-"))
@@ -405,6 +414,7 @@ FOR EACH hProd IN aProducts
             (! lStaffel .AND. Round(hProd:Margin,2) < 0.3) .OR.;  //Auáerhalb der Staffel (auch kein Vorlauf)
             (lStaffelVor .AND. Round(hProd:Margin,2) < _GetMinMargin(hProd:Artikel:Matchcode));
          );
+            .AND. hProd:Artikel:LagerArt;
          .AND. Left(hProd:Artikel:Matchcode,4) != "TEXT" //mehr als eine Staffel vorlauf 30% Marge, bei Staffelvorlauf min. 20%
          cText1 += cPreText+" Margin:"+Str(hProd:Margin*100,6,1)+"% zu niedrig ("+Trim(hProd:Supplier)+" - "+IF(HB_HHasKey(hProd,"NEK"),LTrim(Str(hProd:nEk,12,2)),"")+");"
          IF hProd:Margin <= 0.2
@@ -448,13 +458,16 @@ IF ! Empty(cText1)
    IF lDbg
       Alert("Level: "+Str(nLevel)+";"+cText1)
    ENDIF
+ELSE
+   nLevel := 4
+ENDIF
    aUsers := {}
    FOR nX := nLevel TO 1 STEP -1
       AEval(aLevels[nX],{|x| Aadd(aUsers,x) })
    NEXT
    RETURN {cText1,aUsers}
-ENDIF
-RETURN {"",{TR_getini(28)}}
+//ENDIF
+//RETURN {"",{TR_getini(28)}}
 
 
 #include 'X:\run\margin.prg'

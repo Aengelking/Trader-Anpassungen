@@ -114,6 +114,13 @@ IF oAddress:GROUP == "K" //nur Bei Kunden
       oExtra:OnlineKauf := .T.
       oExtra:Save()
    ENDIF   
+
+   IF ku->Money != "E"
+      Tr_MsgBox("W„hrung wurde wieder auf EURO eingestellt")
+      ku->(Rec_Lock(0))
+      ku->Money := "E"
+      ku->(dbUnLock())
+   ENDIF
 ENDIF
 
 
@@ -142,6 +149,7 @@ IF oAddress:Group $ {"K","L"} .AND. (lNew .OR. oAddress:FieldUpdatedLastSave("NA
    oCustom := AgorumCustomApi():New()
    IF ! oCustom:SaveAddress(oAddress)
       SendMail({{"amos.engelking@engelking.de","Amos"}},"Fehler beim Speichern der Adresse in Agorum Core","Adresse: "+LTrim(Str(oAddress:Nummer))+Chr(10)+Chr(13)+oCustom:cErrorText)
+      
       //Tr_MsgBox({"Fehler beim Speichern der Adresse in Agorum Core.",oCustom:cErrorText})
    ENDIF
    TxtClear()

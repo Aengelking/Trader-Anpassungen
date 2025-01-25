@@ -1,4 +1,4 @@
-FUNCTION Before_Print_auftrag(oAuftrag,hEmailData)
+FUNCTION Before_Print_auftrag(oAuftrag,hEmailData,hSettings)
    LOCAL lSend := .T.,aAvail
    LOCAL lCheck := .F.
    LOCAL hArtikel := {=>}
@@ -6,6 +6,8 @@ FUNCTION Before_Print_auftrag(oAuftrag,hEmailData)
    IF Trim(oAuftrag:Kundma) == "RAFIELTE"  //bei RAFI schicken wir die AB erst wenn wir uns bzgl. des Liefertermins sicher sind.   
       lCheck := .T.
    ENDIF
+
+   //hSettings["change_from"] := .F.
    
    IF lCheck .OR. Empty(oAuftrag:LastPrint)
       TxtBox("BestÑtigungen werden geprÅft...")

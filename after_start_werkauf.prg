@@ -1,5 +1,6 @@
 PROC HOOK_AFTER_START_WERKAUF( nWnr )
-   LOCAL lFremdOnly
+   LOCAL lFremdOnly,oExtra
+   MEMVAR mirpt,mibesnr
 
 wer->(dbSetOrder(1))
 wer->(dbSeek( str(nWnr,6) ))
@@ -39,14 +40,15 @@ ELSE //interne Fertigung
 
    art->(dbSetOrder(2))
    art->(dbSeek( Str(wer->Artno,6) ))
-   IF art->Gruppe == "SWPM"
+   oExtra := art->(ExtraData():New(art->Artikelnr))
+   IF art->Gruppe == "SWPM" .AND. ! oExtra:ManualTest
       rst->(dbSetOrder( 1 ))
       rst->(dbSeek( "WA "+Str(wer->Aufno) ))   
       DO WHILE rst->Type == "WA " .AND. rst->No == nWnr
          job->(dbSeek( Str(rst->Job,6) ))
          
          IF AT("PRFEN",Upper(job->Name)) > 0
-            SendMail({{"samuel.engelking@engelking.de","Samuel"}},"SD-Karte fr FA "+LTrim(Str(nWnr))+" vorbereiten")            
+            SendMail({{"chris.chertes@engelking.de","Chris"}},"SD-Karte fr FA "+LTrim(Str(nWnr))+" vorbereiten","Matchcode: "+art->Matchcode)            
             EXIT
          ENDIF
          rst->(dbSkip())

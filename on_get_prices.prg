@@ -5,7 +5,8 @@ LOCAL nX,nManu
 LOCAL lSubDistiGBP := .F.,lPackOnly
 LOCAL nVPE
 LOCAL oArt,nWeight
-
+LOCAL lFound,nPrice,nPausch,nSubArt,hPrice
+LOCAL nSecs := Seconds()
 /*df
    SETTINGS FOR SUB DISTIS
 
@@ -22,13 +23,26 @@ LOCAL nSubSpecial   := 0.2
 LOCAL aSubSpecial := {"MONACOR"} //{"ALDERS"}
 LOCAL oExtra
 LOCAL cMatch
-LOCAL nEx,nFixRate,aSkonto
+LOCAL nEx,nFixRate,aSkonto,nTable
+LOCAL aAddPriceTab
+LOCAL aPartPriceTabs
+LOCAL nAddPrice
 
 
 NetUse("engkund","ku")
 IF ! Empty(cKundma)
    ku->(dbSeek( cKundma+"K" ))
    oExtra := ku->(ExtraData():New( ku->Nummer ))
+ENDIF
+
+IF AT("CMI57",art->Matchcode) == 1   
+   NetUse("parts","part")
+   nTable := art->Table
+   art->(dbSetOrder( 1 ))
+   IF art->(dbSeek( "p"+LTrim(Str(art->Artikelnr))+".SWITCH" ))      
+      aPriceTabs := GetPrices(art->Artikelnr,nTable,dDate,cKundma)
+      RETURN aPriceTabs
+   ENDIF
 ENDIF
 
 IF art->Manufactur == 9 .AND. (AT("/PB",art->Matchcode) != 0 .OR. Left(art->Matchcode,2) == "KS") .AND. art->Gruppe == "KONK"
@@ -44,7 +58,7 @@ IF art->Manufactur == 9 .AND. (AT("/PB",art->Matchcode) != 0 .OR. Left(art->Matc
       ELSEIF AT("NZ/",art->Matchcode) == 1
          cMatch := art->Matchcode
       ELSE
-         Alert(art->Matchcode)
+         //Alert(art->Matchcode)
          lPackOnly := .F.
       ENDIF
       part->(dbSkip())
@@ -67,11 +81,14 @@ IF nTab == 1 .AND. art->Manufactur $ {1,10} //Bulgin, check if we can buy direct
    ku->(dbSeek( Str(manu->Address,6) ))
 
    NetUse( "buyprice", "bpr", .F., 0 )
+   //IF Tr_GetIni(28)==9;Alert("Starting search");ENDIF
    bpr->( dbSetOrder( 1 ) )   // liefma+artikelnr+qty
    bpr->(dbSetFilter({|| bpr->StartDate <= Date() .AND. (bpr->Enddate >= Date() .OR. Empty( bpr->EndDate )) },"StartDate <= Date() .AND. (Enddate >= Date() .OR. Empty( EndDate ))"))
-   IF ! bpr->( dbSeek( ku->Kunde + Str( art->Artikelnr, 6 ) ) ) //no prices found we hae to buy from Waldom
+   IF ! bpr->( dbSeek( ku->Kunde + Str( art->Artikelnr, 6 ) ) ) //no prices found we have to buy from Waldom
+      //IF Tr_GetIni(28)==9;Alert("Waldom");ENDIF
       RETURN GetPrices(art->Artikelnr,30,dDate,cKundma)   
    ENDIF
+   //IF Tr_GetIni(28)==9;Alert("NO WALDOM");ENDIF
 ELSEIF nTab == 12 .OR. nTab == 29
 
    oArt := Artikel():New()
@@ -144,9 +161,11 @@ ELSEIF oExtra != NIL .AND. Len(oExtra:SubDisti) > 0 //HHasKey(aSubDistis,Trim(cK
          bpr->(dbClearFilter())
       ENDIF
    ENDIF
-ELSEIF nTab == 44
-   aPriceTabs := MBaseRun(Trim(Tr_Getini(1))+"\run\prices\pricetabs",{nArtnr,dDate})
-ELSEIF nTab == 13
+ELSEIF nTab == 44   
+
+   aPriceTabs := MBaseRun(Trim(Tr_Getini(1))+"\run\prices\pricetabs",{nArtnr,dDate})   
+   nTabSecs := Seconds()-nSecs
+ELSEIF nTab == 13 //Kabelkonfektion
    IF art->Bezug == 5
       cLiefMa := Pad("SELF",8)
    ELSE
@@ -158,12 +177,15 @@ ELSEIF nTab == 13
    IF bpr->( dbSeek( cLiefma + Str( nArtnr, 6 ) ) ) // found entry in supplier db
       DO WHILE bpr->Liefma == cLiefma .AND. bpr->Artikelnr == nArtnr
          IF ( bpr->StartDate <= Date() .AND. (bpr->Enddate >= Date() .OR. Empty( bpr->EndDate ))  )
-            Aadd(aPriceTabs,{bpr->Qty,(bpr->Price / Max( bpr->Pe, 1 )+nPausch/bpr->Qty)*1.35*art->VkPe})
+            Aadd(aPriceTabs,{bpr->Qty,(bpr->Price / Max( bpr->Pe, 1 )+nPausch/bpr->Qty)*stpr->Proz1/100*art->VkPe})
          ENDIF
          bpr->( dbSkip() )
       ENDDO
    ENDIF
-ELSEIF nTab == 14
+   IF Len(aPriceTabs) == 0
+      aPriceTabs := {{1,9999.99}}
+   ENDIF
+ELSEIF nTab == 14 //Gessmann
    NetUSe("manufact","manu")
    NetUse( "buyprice", "bpr", .F., 0 )
 
@@ -184,6 +206,198 @@ ELSEIF nTab == 14
       ENDDO
    ENDIF
 
+ELSEIF nTab == 15 //Value-Add
+   IF art->Bezug == 5
+      
+
+      NetUse("parts","part")
+      NetUSe("manufact","manu")
+      NetUse( "buyprice", "bpr" )
+      NetUse( "engkund", "ku" )
+      art->(dbSetOrder( 2 ))
+
+      IF ! part->(dbSeek( Str(nArtnr,6) ))      
+         Alert("No partlist")
+      ENDIF
+      nSubArt := 0
+      nAddPrice := 0
+      lFound := .F.
+      DO WHILE part->Listart == nArtnr .AND. ! part->(EOF())
+         art->(dbSetORder(2))
+         art->(dbSeek( Str(part->Partart,6) ))    
+         manu->(dbSeek( Str(art->Manufactur,5) ))
+         IF part->Pos == 0 .OR. part->Qty+part->AddQty == 0 //header or part with no qty, ignore
+         ELSEIF part->Pos == -1 //Konfektionsposition
+            IF part->Qty == 1
+               nSubArt := art->Artikelnr
+            ELSEIF Tr_Getini(28) == 9
+               Tr_MsgBox("Konfektionsposition mit mehr als einem StÅck;"+art->Matchcode)
+            ENDIF
+         ELSEIF Trim(art->Type) == "VERP" //Left(art->Matchcode,6) == "KARTON" //nur Verpackung
+            oArt := Artikel():New()
+            nAddPrice += oArt:GetAvgBuyPrice()*part->Qty*part->Factor
+         ELSE //IF /*! lFound .AND. manu->Principal .AND. art->Table != 15*/ //we have not found a part on the part list yet this is a part we can buy from a manufacturer and it does not have table 15 (non recursive)           
+            
+            aPartPriceTabs := GetPrices(art->Artikelnr,art->Table,dDate,cKundma)
+            nX := 1
+            DO WHILE nX <= Len(aPartPriceTabs)
+               IF aPartPriceTabs[nX,2] == 0
+                  HB_ADel(aPartPriceTabs,nX,.T.)
+               ELSE
+                  aPartPriceTabs[nX,2] /= part->Qty
+                  nX++
+               ENDIF               
+            ENDDO
+            
+            lFound := .T.
+            IF Len(aPartPriceTabs) == 0 .AND. ! GetConfigValue("BATCHMODE")
+               aPriceTabs := {}
+               lFound := .F.
+               Tr_MsgBox({"Keine Preisstaffel fÅr "+trim(art->Matchcode)})
+               EXIT
+            ELSEIF Len(aPriceTabs) == 0
+               aPriceTabs := aPartPriceTabs
+            ELSE
+               nX := 1
+               DO WHILE nX <= Len(aPriceTabs)
+                  nY := AScan(aPartPriceTabs,{|aTab| aTab[1] <= aPriceTabs[nX,1] })
+                  IF nY == 0
+                    HB_ADel(aPriceTabs,nX,.T.)
+                  ELSE
+                     aPriceTabs[nX,2] += aPartPriceTabs[nY,2]
+                     HB_ADel(aPartPriceTabs,nY,.T.)
+                     nX++
+                  ENDIF
+               ENDDO
+            ENDIF
+         
+         /*ELSE //we have more than one part on the part list
+            IF ! GetConfigValue("BATCHMODE")
+               IF lFound
+                  Tr_MsgBox({"Zu viele Artikel auf der StÅckliste",art->Matchcode})
+               //ELSEIF ! manu->Principal
+               //   Tr_MsgBox({"Preisstaffel funktioniert nur fÅr PrimÑrlieferanten"})
+               //ELSEIF art->Table != 15                             
+               //   Tr_MsgBox({Trim(art->Matchcode)+" hat die falsche Preisstaffel"})
+               ELSE
+                  IF Tr_Getini(28) == 9;Tr_MsgBox({"Too many parts on the part list",art->Matchcode,art->Type,Str(part->Pos)});ENDIF
+               ENDIF
+            ENDIF
+
+            aPriceTabs := {}
+            EXIT */           
+         ENDIF
+         part->(dbSkip())
+      ENDDO
+      
+      IF lFound .AND. nSubArt != 0     //we have found a part on the part list	    
+         //IF Tr_Getini(28) == 9;Tr_MsgBox({"Subartikel gefunden",Str(nSubArt),ValToPrg(aPriceTabs)});ENDIF
+         bpr->( dbSetOrder( 2 ) )  
+         ku->(dbsetOrder( 1 ))
+         hPrice := {=>}
+         IF bpr->( dbSeek( Str( nSubArt, 6 ) ) ) // found entry in supplier db            
+            DO WHILE bpr->Artikelnr == nSubArt
+               IF bpr->StartDate <= dDate .AND. (bpr->Enddate >= dDate .OR. Empty( bpr->EndDate ))
+                  ku->(dbSeek( bpr->Liefma+"L" ))                  
+                  nPrice := (bpr->Price / Max( bpr->Pe, 1 ))*Currate( ku->Money, "E" )                  
+                  IF ! HHasKey(hPrice,bpr->Qty) .OR. hPrice[bpr->Qty] > nPrice
+                     hPrice[bpr->Qty] := nPrice
+                  ENDIF
+                  //cSupplier := bpr->Liefma               
+               ENDIF
+               bpr->( dbSkip() )
+            ENDDO
+         ENDIF
+         
+         nPausch := 60
+         DO WHILE  Len(aPriceTabs) >= 1 .AND. Len(hPrice) >= 1 .AND. HGetKeyAt(hPrice,1) > aPriceTabs[1,1] //remove all pricetabs which are too small
+            IF Len(aPriceTabs) >= 2 .AND. HGetKeyAt(hPrice,1) < aPriceTabs[2,1] //the next one is big enough, then we change the quantity on this one
+               aPriceTabs[1,1] := HGetKeyAt(hPrice,1)
+               nX := 2
+               DO WHILE nX <= Len(hPrice) .AND. HGetKeyAt(hPrice,nX) <= aPriceTabs[nX,1] 
+                  HB_AIns(aPriceTabs,nX,{HGetKeyAt(hPrice,nX),aPriceTabs[1,2]},.T.) 
+                  nX++
+               ENDDO    
+            ELSE
+               HB_ADel(aPriceTabs,1,.T.)
+            ENDIF
+         ENDDO
+         FOR nX := 1 TO Len(aPriceTabs)            
+            nY := 1
+            nPrice := 0
+            DO WHILE nY <= Len(hPrice) .AND. HGetKeyAt(hPrice,nY) <= aPriceTabs[nX,1]         
+               nPrice := HGetValueAt(hPrice,nY)
+               nY++
+            ENDDO
+            IF nPrice != 0 .AND. aPriceTabs[nX,2] != 0
+               aPriceTabs[nX,2] += (nPrice+nAddPrice)*stpr->Proz1/100+nPausch/aPriceTabs[nX,1]
+            ELSE
+               aPriceTabs[nX,2] := 9999.99
+            ENDIF
+         NEXT
+         
+
+      ELSE       
+         //IF Tr_Getini(28) == 9;Tr_MsgBox("No part found on the part list;"+art->Matchcode);ENDIF  
+         aPriceTabs := {}
+      ENDIF
+   ELSE
+      NetUse("folgeart","fol")
+      IF fol->(dbSeek(Str(art->Artikelnr,6)))         
+         DO WHILE fol->Artikelnr == art->Artikelnr 
+            oArt := Artikel():New() 
+            oArt:Load(fol->Folgeart)
+            aAddPriceTab := GetPrices(fol->Folgeart,oArt:Table,dDate,cKundma)
+            IF Len(aPriceTabs) == 0
+               aPriceTabs := aAddPriceTab
+            ELSE
+               FOR nX := 1 TO LEN(aPriceTabs)
+                  nY := AScan(aAddPriceTab,{|aTab| aTab[1] <= aPriceTabs[nX,1] })
+                  IF nY == 0
+                     HB_ADel(aPriceTabs,nX,.T.)
+                  ELSE
+                     aPriceTabs[nX,2] += aAddPriceTab[nY,2]
+                  ENDIF
+               NEXT
+            ENDIF
+            //? fol->Folgeart
+            fol->(dbSkip())
+         ENDDO         
+      ENDIF
+   ENDIF
+ELSEIF nTab == 75 .AND. art->Bezug == 5 //Engelking China if it is repacked
+   
+      NetUse("parts","part")
+      NetUSe("manufact","manu")
+      NetUse( "buyprice", "bpr" )
+      NetUse( "engkund", "ku" )
+      art->(dbSetOrder( 2 ))
+
+      IF ! part->(dbSeek( Str(nArtnr,6) ))      
+         Alert("No partlist")
+      ENDIF
+      nSubArt := 0
+      lFound := .F.
+      DO WHILE part->Listart == nArtnr .AND. ! part->(EOF())
+         art->(dbSeek( Str(part->Partart,6) ))    
+         manu->(dbSeek( Str(art->Manufactur,5) ))
+         IF part->Pos == 0 //header, ignore
+//         ELSEIF part->Pos == -1 //Konfektionsposition
+//            nSubArt := art->Artikelnr
+         ELSEIF Left(art->Matchcode,6) == "KARTON"
+
+         ELSEIF ! lFound  //we have not found a part on the part list yet this is a part we can buy from a manufacturer and it does not have table 15 (non recursive)           
+            
+            aPriceTabs := GetPrices(art->Artikelnr,75,dDate,cKundma)
+            lFound := .T.
+         
+         ELSE //we have more than one part on the part list
+            IF Tr_Getini(28) == 9;Tr_MsgBox("Too many parts on the part list;"+art->Matchcode);ENDIF
+            aPriceTabs := {}
+            EXIT            
+         ENDIF
+         part->(dbSkip())
+      ENDDO
 ELSEIF nTab == 26   
    NetUse("artlief","ali")
    ali->(dbSetOrder( 5 ))
@@ -263,7 +477,8 @@ ELSE //Frachtkosten einrechnen, bei vielen gibt der Hook jedoch 0 zurÅck //IF ar
    ENDIF   
 ENDIF
 
-IF Tr_GetIni(28) == 9
+IF Tr_GetIni(28) == 9 //.AND. nTab == 44
+   //Alert("Table "+LTrim(Str(nTab))+" finished in "+LTrim(Str(Seconds()-nSecs))+" seconds") //; Pricetabs took "+Ltrim(Str(nTabSecs))+" seconds")
    //Alert(cKundma)
 ENDIF
 

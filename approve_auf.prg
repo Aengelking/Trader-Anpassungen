@@ -221,7 +221,9 @@ FOR nX := 1 TO Len(aProducts)
          nVK := 0
          hProd:Margin := 0
       ELSE         
-         nVK -= Hook("get_supplier_ship_cost",{Pad(IF(hProd:Artikel:Manufactur == 16,"SIGNAL","ELCOM"),8),hProd:Artikel:Gewicht/1000*hProd:Qty})/hProd:Qty
+         IF hProd:Qty != 0
+            nVK -= Hook("get_supplier_ship_cost",{Pad(IF(hProd:Artikel:Manufactur == 16,"SIGNAL","ELCOM"),8),hProd:Artikel:Gewicht/1000*hProd:Qty})/hProd:Qty
+         ENDIF
       ENDIF   
    ENDIF   
    
@@ -241,8 +243,9 @@ FOR nX := 1 TO Len(aProducts)
       //nLevel := IF(lHoliday,2,1)
       //cText1 += Trim(hProd:Artikel:Matchcode)+" "+t(" kein EK errechenbar.;")
    ENDIF
-   IF Tr_getini(28) == 9
-      ? hProd:Artikel:Matchcode,"EK",nEK,"VK",nVk
+   IF Tr_getini(28) == 9      
+      //? hProd:Artikel:Matchcode,"EK",nEK,"VK",nVk
+      //? hProd:Qty,hProd:Add,oAuftrag:Besda,hProd:KW
    ENDIF
    
    IF Tr_Getini(28) == 9

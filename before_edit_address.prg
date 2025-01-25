@@ -1,5 +1,5 @@
 //#include 'y:\harbour\trader\source\include\trget.ch'
-#command @ <top>, <left>, <bottom>, <right> GET <v> LISTBOX ALIAS <alias> [ORDER <order> SEEK <seek>] WHILE <while> TEXT <text> VALUE <value>;
+/*#command @ <top>, <left>, <bottom>, <right> GET <v> LISTBOX ALIAS <alias> [ORDER <order> SEEK <seek>] WHILE <while> TEXT <text> VALUE <value>;
                   [VALID <valid>] [WHEN <when>] ;
                   [COLOR <clr>] ;
                   [FOCUS <fb>] [STATE <sb>] [<dd:DROPDOWN>] [<sbar:SCROLLBAR>] ;
@@ -23,37 +23,42 @@
 	[COLOR <color>];
 ;
 => GET_AssociativeListBox(getlist,<top>,<left>,<bottom>,<right>,{|v| If(v==NIL,<var>,<var>:=v)},<hash>,<{valid}>, <{when}>,<color>)
-
+*/
 FUNC HOOK_BEFORE_EDIT_ADDRESS(oAddress)
+   LOCAL cID
+   LOCAL aTokens,cName1,cName2,lName1,oRegCity,cGer,oLegal,cLegal,oMisc
+   LOCAL oSOAP,oReport,oBasic,cName
 
+   /*
 LOCAL aOpts,oSOAP,oCtr,oSearch
 LOCAL aCompanies,oNode,oCompany
 LOCAL cName := Space(25),cGericht := Space(20),cCompNo := Space(20)
 LOCAL nMenu,aEnv := SaveEnv()
 LOCAL getlist := {}
 LOCAL oXML,oName,oCity,nCompany,nX,oReport,oBasic
-LOCAL aTokens,cName1,cName2,lName1,oRegCity,cGer,oLegal,cLegal,oMisc
+
 LOCAL cCountryIso
 LOCAL hCountries := {"DE"=>"Deutschland","AT"=>"™sterreich"}
 
 MEMVAR c_four,c_four_list
 
-IF Tr_Getini(28) == 9   
+//IF Tr_Getini(28) == 9   
    hCountries["FR"] := "Frankreich"
    hCountries["LI"] := "Liechtenstein"
-ENDIF
-
+   hCountries["HR"] := "Kroatien"
+//ENDIF
+*/
 
 
 IF oAddress:lNew
-   aOpts := Array(3)
+   /*aOpts := Array(3)
    aOpts[1] := "manuelle Eingabe"
    aOpts[2] := "Suche nach Registernummer (nur D)"
-   aOpts[3] := "Suche nach Name (nur D und AT)"
+   aOpts[3] := "Suche nach Name (nur D,AT,FR,LI)"
 
-
+*/
    DO WHILE .T.
-      SetColor( c_four )
+  /*    SetColor( c_four )
       @ 01,02 CLEAR TO 26,78
 	   @ 01,02 TO       26,78 DOUBLE
 
@@ -89,7 +94,7 @@ IF oAddress:lNew
          IF LastKey() == 27
             LOOP
          ENDIF
-         oSearch:CreateChild("Name",StrTran(cName,"&","&amp;"),{"MatchType"=>IF(cCountryIso${"FR","LI"},"ClosestKeywords","MatchWords")},"http://www.creditsafe.com/globaldata/datatypes")
+         oSearch:CreateChild("Name",StrTran(cName,"&","&amp;"),{"MatchType"=>IF(cCountryIso${"FR","LI"},"ClosestKeywords",IF(cCountryIso=="HR","MatchBlockOrWords","MatchWords"))},"http://www.creditsafe.com/globaldata/datatypes")
       ELSEIF nMenu == 2
          NetUse("gerichte","ger")
 
@@ -131,7 +136,7 @@ IF oAddress:lNew
                oName := TXmlIteratorScan():New(oNode):Find("Name")
                oCity := TXmlIteratorScan():New(oNode):Find("City")
                
-               Aadd(aCompanies,IF(oName!=NIl,oName:cData,"??")+" - "+IF(oCity!=NIL,oCity:cData,"??")+IF(Tr_Getini(28)==9,oNode:GetAttribute("Id"),""))
+               Aadd(aCompanies,IF(oName!=NIl,oName:cData,"??")+" - "+IF(oCity!=NIL,oCity:cData,"??")+IF(Tr_Getini(28)==9," "+oNode:GetAttribute("Id"),""))
                oNode := oNode:oNext
             ENDDO
             @ 05,04 SAY "Gefundene Unternehmen:"
@@ -144,18 +149,27 @@ IF oAddress:lNew
                oNode := oNode:oNext
             NEXT
             //oCompany := oNode
-            oAddress:SetCargo("id",oNode:GetAttribute("Id"))
+            //oAddress:SetCargo("id",oNode:GetAttribute("Id"))
+            */
+            cId := CS_Search()
+            IF Empty(cID)
+               IF LastKey() == 27
+                  RETURN .F.
+               ENDIF
+               IF cID == NIL //manuell
+                  RETURN .T.
+               ENDIF
+               LOOP
+            ENDIF
+            oAddress:SetCargo("id",cID)
+
+            
             TxtBox("Daten werden abgerufen...")
             oSOAP := CreditSafe()
             oReport := CS_GetCompanyReport(oSoap,oAddress:GetCargo("id"),3)
             TxtClear()
             IF oReport != NIL
                oAddress:SetCargo("report",oReport)
-               /*IF oAddress:HasCargo("report")
-                  Alert(oAddress:GetCargo("report"))
-               ELSE
-                  Alert("NO REPORT")
-               ENDIF*/
                oBasic := TXMLIteratorScan():New(oReport:oRoot):Find("BasicInformation")
                IF oBasic != NIL
                   cName := TXMLIteratorScan():New(oBasic):Find("BusinessName"):cData
@@ -204,22 +218,21 @@ IF oAddress:lNew
                   oLegal := TXMLIteratorScan():New(oBasic):Find("LegalForm")
                   IF oLegal != NIL
                      cLegal := oLegal:cData
-                     IF Tr_Getini(28) == 9
-                        //Alert(cLegal)
-                     ENDIF
-                     IF cLegal == "Private limited company" .OR. cLegal == HB_AnsiToOem("Gesellschaft mit beschränkter Haftung")
-                        oAddress:CompForm := "GMBH"
-                     ELSEIF cLegal == "Public limited company" .OR. cLegal == HB_AnsiToOem("Aktiengesellschaft")
-                        oAddress:CompForm := "AG"
-                     ELSEIF AT("General partnership",cLegal) == 1 .OR. cLegal == HB_AnsiToOem("Offene Handelsgesellschaft")
-                        oAddress:CompForm := "OHG"
-                     ELSEIF cLegal == "Registered merchant" .OR. cLegal == HB_AnsiToOem("Eingetragener Kaufmann")
-                        oAddress:CompForm := "EK"
-                     ELSEIF AT("Limited partnership",cLegal) == 1 ;
-                        .OR. cLegal == HB_AnsiToOem("Kommanditgesellschaft");
-                        .OR. cLegal == HB_AnsiToOem("UG (haftungsbeschränkt) & Co. KG");
-                        .OR. cLegal == HB_AnsiToOem("Gesellschaft mit beschränkter Haftung & Co. KG")
-                        oAddress:CompForm := "KG"
+                     IF ValType(cLegal) == "C" 
+                        IF cLegal == "Private limited company" .OR. cLegal == HB_AnsiToOem("Gesellschaft mit beschränkter Haftung")
+                           oAddress:CompForm := "GMBH"
+                        ELSEIF cLegal == "Public limited company" .OR. cLegal == HB_AnsiToOem("Aktiengesellschaft")
+                           oAddress:CompForm := "AG"
+                        ELSEIF AT("General partnership",cLegal) == 1 .OR. cLegal == HB_AnsiToOem("Offene Handelsgesellschaft")
+                           oAddress:CompForm := "OHG"
+                        ELSEIF cLegal == "Registered merchant" .OR. cLegal == HB_AnsiToOem("Eingetragener Kaufmann")
+                           oAddress:CompForm := "EK"
+                        ELSEIF AT("Limited partnership",cLegal) == 1 ;
+                           .OR. cLegal == HB_AnsiToOem("Kommanditgesellschaft");
+                           .OR. cLegal == HB_AnsiToOem("UG (haftungsbeschränkt) & Co. KG");
+                           .OR. cLegal == HB_AnsiToOem("Gesellschaft mit beschränkter Haftung & Co. KG")
+                           oAddress:CompForm := "KG"
+                        ENDIF
                      ENDIF
                   ENDIF 
 
@@ -241,9 +254,7 @@ IF oAddress:lNew
 //               gtSetClipboard(oReport:toString(1))
                EXIT
             ENDIF
-
-         //ENDIF
-      ENDIF
+      //ENDIF
    ENDDO
 ELSE
    NetUse("viewlog","vlog")
@@ -257,7 +268,7 @@ ELSE
    vlog->(dbUnLock())
 ENDIF
 
-RestEnv(aEnv,.T.)
+//RestEnv(aEnv,.T.)
 RETURN .T.
 
 STATIC FUNCTION _SetValue(oAddress,cName,oRoot,cSearch)

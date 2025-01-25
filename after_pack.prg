@@ -10,7 +10,7 @@ HB_SYMBOL_UNUSED( aGewichte )
 IF lRech //Rechnung
 
    IF Len(aPakete) > 1
-      StickPrint("BOXES",Len(aPakete))
+      StickPrint("BOXES",Len(aPakete))      
    ENDIF
    
    NetUse("engslre","re")

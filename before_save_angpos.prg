@@ -5,9 +5,10 @@ FUNCTION HOOK_BEFORE_SAVE_ANGPOS(oPos)
       RETURN .T.
    ENDIF
 
-   IF oPos:lNew .AND. Left(art->Matchcode,3) == "57M"
-      Tr_MsgBox("Artikel aktuell nicht erh„ltlich - auf CM(I)57 ausweichen.")
-      RETURN .F.
+   IF oPos:lNew .AND. Left(art->Matchcode,3) == "57M"  .AND. Trim(art->Matchcode) != "57M-112B."
+      IF Tr_MsgBox("Prfen ob Artikel aktuell erh„ltlich ansonsten auf CM(I)57 ausweichen.",,{"abbrechen","fortfahren"}) != 2      
+         RETURN .F.
+      ENDIF
    ENDIF
    
    ku->(dbSetOrder( 1 ))  //on a new quote we are not siting on the correct record

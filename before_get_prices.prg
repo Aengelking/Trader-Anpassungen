@@ -1,7 +1,7 @@
 PARAMETERS nArtnr,nTab,dDate,cKundma
 LOCAL oExtra
 
-IF Trim(cKundma) == "GESSMANN" .AND. ! nTab $ {13,14}
+IF Trim(cKundma) == "GESSMANN" .AND. AT("/59-",art->Matchcode) != 0 //! nTab $ {13,14,75}
    RETURN 14
 ENDIF
 

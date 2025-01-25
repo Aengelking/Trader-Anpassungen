@@ -1,5 +1,6 @@
 PROC HOOK_AFTER_SAVE_CONTACT(lNew,oContact)
    LOCAL oAddress,oCustom
+   LOCAL cNumber
 //Alert("Contact has been edited "+IF(lNew,"NEW",""))
 
 NetUse("phonebook","pbk")
@@ -10,6 +11,8 @@ If At("-",conts->Telephone) == 1
    cNumber := SubStr(ku->Telefon,0,RAt("-",ku->Telefon)-1)+conts->Telephone
 Elseif ! Empty(conts->Telephone)
    cNumber := conts->Telephone
+ELSEIF ! Empty(conts->Mobile)
+   cNumber := conts->Mobile
 EndiF
 IF ! pbk->(dbSeek( Str(conts->Address,6)+Str(conts->Number,4) ))   
    pbk->(Add_Rec(0))
@@ -20,6 +23,9 @@ ELSE
 ENDIF
 pbk->Number := NormalizeTelNo(cNumber)
 pbk->(dbUnLock())
+IF SystemUSer():ID == 9
+   //Alert(pbk->Number)
+ENDIF
 
 IF lNew .OR. oContact:FieldUpdatedLastSave("EMAIL")
    oAddress := Adresse():New()   

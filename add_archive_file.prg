@@ -20,7 +20,7 @@ cDir := GetArchiveDir(hTypes[cTyp],dDate)
 CreateArchiveDir(cDir)
 
 IF (nPos := AT(cPrefix,cNewFileName)) != 0
-   cNewFileName := SubStr(cNewFileName,nPos+Len(cPrefix))
+   cNewFileName := SubStr(cNewFileName,nPos+Len(cPrefix)-1)
 ENDIF
 
 IF cTyp == "ER" //in this case we always want a revision
@@ -33,7 +33,7 @@ DO WHILE /*cSaveFileName == NIL .OR.*/ File(HB_FNameMerge(cDir,cPrefix+cAdd)+"*"
    cAdd := "_"+LTrim(Str(nAdd))+"_"
 ENDDO
 
-IF Empty(cAdd )
+IF Empty(cAdd ) .AND. ! Empty(cNewFileName)
    cAdd := "_"
 ENDIF
 
@@ -44,7 +44,7 @@ COPY FILE (cFileName) TO (cSaveFileName)
 IF ! SetFDaTi(cSaveFileName,dDate,FileTime(cFileName))
 ENDIF
 
-IF ! lAttached .AND. Tr_getini(28) $ {9,45}  .AND. ! GetConfigValue("BATCHMODE")
+IF ! lAttached .AND. (Tr_getini(28) $ {9,45} .OR. cTyp $ {"RE"}) // .AND. ! GetConfigValue("BATCHMODE")
    //IF Type("AGORUMCUSTOMAPI") == "U"; MBaseRun(Path("run\agorum")); ENDIF
    oAgorum := AgorumCustomApi():New()
    TxtBox("Archivierung...")

@@ -60,14 +60,11 @@ FUNC HOOK_AFTER_MOVE_STOCK(nArtnr,cVonLager,cNachLager,nMenge,cCharge)
       ELSE
          cGrund := ""
       ENDIF
+      
+      //NetUse("parts","part")
 
-      IF Date() >= GetValue("HOLIDAY-AMOS-START") .AND. Date() <= GetValue("HOLIDAY-AMOS-END")
-         aTo := {{"joel.engelking@engelking.de","Joel"}}
-      ELSE
-         aTo := {{"amos.engelking@engelking.de","Amos"}}
-      ENDIF 
-
-
+      aTo := {{"amos.engelking@engelking.de","Amos"}}
+      
       SendMail(aTo,Trim(art->Matchcode)+" wurde "+IF(lFromSperr,"ent","ge")+"sperrt","Von Lager: "+cVonLager+CRLF+"Nach Lager:"+cNachLager+CRLF+"Menge: "+Transform(nMenge,Me(art->Me))+CRLF+cGrund)   
    ENDIF
          

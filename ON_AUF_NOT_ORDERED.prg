@@ -11,11 +11,16 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
    LOCAL nContrPos := 0
    LOCAL nSupArt   
    LOCAL oExtra,lUnderMoq := .F.
-   LOCAL cPrevMatch := ""
-   LOCAL lOrdered := .F.,lManu := .F.,lFrei := .F.,lVorzug := .F.,lToBeOrdered := .F.,lToBeChecked := .F.
+   //LOCAL cPrevMatch := ""
+   LOCAL lOrdered := .F.,lManu := .F.,lFrei := .F.,lFreiWait := .F.,lVorzug := .F.,lToBeOrdered := .F.,lToBeChecked := .F.
    LOCAL lMOQ := .F.
    LOCAL cMsgManu,cComment,cMsgLine
    LOCAL cMsgFrei,cNotes   
+   LOCAL cCheapestSupplier
+   LOCAL nRec,nInd
+   LOCAL lSampleFound,nSampleWeek,lSampleShipped,dSampleDate
+   LOCAL aTo
+
    MEMVAR mcNoBesPos
    
    NetUse("artlief","ali")
@@ -40,7 +45,9 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
       IF ! auf->(dbSeek( Str(nAbnr,6)+Str(aOrderList[nX]["POS"],3) ))      
          cMsg += "Auftrag nicht gefunden?!"
       ENDIF
-      cMsgLine := IF(art->Matchcode!=cPrevMatch,art->Matchcode,Space(25))+" #"+Pad(LTrim(Str(aOrderList[nX]["ARTNR"],6)),6)+" "+Pad(Transform(aOrderList[nX]["QTY"],Me(art->Me))+" "+art->Me,17)+" "+Pad(NiceWeek(aOrderList[nX]["WEEK"]),11)+" "
+      
+      //cMsgLine := IF(art->Matchcode!=cPrevMatch,art->Matchcode,Space(25))+" #"+Pad(LTrim(Str(aOrderList[nX]["ARTNR"],6)),6)+" "+Pad(Transform(aOrderList[nX]["QTY"],Me(art->Me))+" "+art->Me,17)+" "+Pad(NiceWeek(aOrderList[nX]["WEEK"]),11)+" "
+      cMsgLine := art->Matchcode+" #"+Pad(LTrim(Str(aOrderList[nX]["ARTNR"],6)),6)+" "+Pad(Transform(aOrderList[nX]["QTY"],Me(art->Me))+" "+art->Me,17)+" "+Pad(NiceWeek(aOrderList[nX]["WEEK"]),11)+" "
       cMsg += cMsgLine
       cPrevMatch := art->Matchcode
       IF art->Sperren
@@ -50,8 +57,15 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
          cMsg += "Wegen Inventur gesperrt"
          lToBeChecked := .T.
       ELSEIF Right(Str(aOrderList[nX]["WEEK"],4),2) == "99" //Rahmen
-         cMsg += "Meldebestand"
-         lToBeOrdered := .T.
+         cMsg += "Meldebestand"         
+         IF art->Bezug >= 5 .AND. ! part->(dbSeek( Str(art->Artikelnr,6)+Str(-1,4) )) //StÅckliste ohne Lohnposition - wird intern gefertigt und Åber Frepple
+            cMsg += " - Fertigung muss noch geplant werden"
+            cMsgManu += cMsgLine
+            cMsgManu += CRLF
+            lManu := .T. //Meldung an Fertigungplanung
+         ELSE
+            lToBeOrdered := .T.
+         ENDIF
       ELSEIF HHasKey(aOrderList[nX],"MOVEWEEK") .AND. aOrderList[nX]["MOVEWEEK"] != 0
          cMsg += "Liefervorzug prÅfen - verfÅgbar in KW "+NiceWeek(aOrderList[nX]["MOVEWEEK"])
          lVorzug := .T.
@@ -80,9 +94,14 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
             IF ali->Artikelnr == nSupArt .AND. ali->Priority != 9 //we have a second supplier     
                ku->(dbSetOrder( 8 ))                         
                IF man->(dbSeek( Str(art->Manufactur,5) )) .AND. man->Principal .AND. ku->(dbSeek( Str(man->Address,6) ))
+                  IF art->manufactur $ {1,10}
+                     GetLowestBuyPrice(nSupArt,aOrderList[nX]["QTY"],Date(),@cCheapestSupplier)                     
+                  ELSE
+                     cCheapestSupplier := ""
+                  ENDIF
                   //oExtra := ku->(ExtraData():New(ku->Nummer))
                   ali->(dbSetOrder( 1 ))
-                  IF ali->(dbSeek( ku->Kunde+Str(nSupArt,6) )) .AND. ali->Priority <= 8 .AND. (Right(Str(aOrderList[nX]["WEEK"],4),2)=="97" .OR. AddWeeks(Cweek(Date()),IF(ali->LZ==0,nStdLZ,ali->LZ)) <= aOrderList[nX]["WEEK"]) .AND. ali->Min <= aOrderList[nX]["QTY"] //we can purchase directly                  
+                  IF (! art->manufactur $ {1,10} .OR. cCheapestSupplier != cWaldMatch) .AND. ali->(dbSeek( ku->Kunde+Str(nSupArt,6) )) .AND. ali->Priority <= 8 .AND. (Right(Str(aOrderList[nX]["WEEK"],4),2)=="97" .OR. AddWeeks(Cweek(Date()),IF(ali->LZ==0,nStdLZ,ali->LZ)) <= aOrderList[nX]["WEEK"]) .AND. ali->Min <= aOrderList[nX]["QTY"] //we can purchase directly                  
                      //should we add oExtra:RecvTime?                                          
                      cSupplier := ku->Kunde
                   ELSEIF art->manufactur $ {1,10} .AND. ali->(dbSeek( cWaldMatch+Str(art->Artikelnr,6) )) .AND. ali->Priority <= 8 .AND. ali->Min <= aOrderList[nX]["QTY"] //in case of Bulgin we can purchase from Waldom too
@@ -118,11 +137,59 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
                   nIncome := bes->(LETO_SUM("beqty-gelqty",'released .AND. (bestat <= 2 .OR. (bestat >= 6 .AND. bestat <= 8))',cSupplier+art->Matchcode,cSupplier+art->Matchcode))
       
                   IF hFreigabe:nMaxQty < aOrderList[nX]["QTY"]+nIncome
+                     NetUSe("englsre","re")
+                     re->(dbSetOrder(10))
+   
+                     nRec := auf->(Recno())
+                     nInd := auf->(IndexOrd())
+                     auf->(dbSetOrder( 13 ))
+                     auf->(dbSeek( Str(art->Artikelnr,6) ))
+
+                     lSampleFound := .F.
+                     lSampleShipped := .F.
+                     nSampleWeek := CWeek(Date())
+                     DO WHILE ! lSampleFound .AND. auf->Artikelnr == art->Artikelnr .AND. (auf->Bestat <= 3 .OR. (auf->Bestat >= 4 .AND. auf->Bestat <= 6))
+                        IF auf->VkQty <= hFreigabe:nMaxQty
+                           lSampleFound := .T.
+                           lSampleShipped := auf->GelQty > 0
+                           nSampleWeek := auf->DTerm
+                           IF lSampleShipped
+                              re->(dbSetFilter( {|| re->AoQty != 0 },"aoqty != 0"))
+                              IF re->(dbSeek( Str(auf->Abnr,6)+Str(auf->itmnr,3) ))         
+                                 dSampleDate := re->Rechdat
+                              ELSE
+                                 dSampleDate := Date()
+                              ENDIF
+                              re->(dbClearFilter())
+                           ENDIF
+                        ENDIF         
+                        auf->(dbSkip())
+                     ENDDO
+                     auf->(dbGoto(nRec))
+                     auf->(dbSetOrder(nInd))
+
                      cComment := "Maximale Menge von "+LTrim(Transform(hFreigabe:nMaxQty,Me(art->Me)))+" "+art->Me+" bei "+Trim(cSupplier)+" Åberschritten - Nur Materialfreigabe mîglich!"
-                     cMsgFrei += cMsgLine+cComment+CRLF
+                     cMsgFrei += cMsgLine
+                     IF lSampleFound
+                        IF lSampleShipped
+                           cMsgFrei += "Muster wurde am "+DToC(dSampleDate)+" geliefert. "
+                        ELSE
+                           cMsgFrei += "Muster wurde noch nicht geliefert (geplant fÅr KW "+NiceWeek(nSampleWeek)+"). "
+                        ENDIF
+                     ELSE
+                        cMsgFrei += "Kein Muster in diesem Auftrag gefunden. "
+                     ENDIF
+                     cMsgFrei += cComment+CRLF
                      cMsg += cComment 
                      cSupplier := ""
                      lFrei := .T.
+                     IF ! lSampleFound .OR. ;
+                        (! lSampleShipped .AND. nSampleWeek < CWeek(Date())) .OR. ;
+                        (lSampleShipped .AND. dSampleDate+7 <= Date()) //Muster wurde nicht versendet oder wurde vor mehr als 7 Tagen versendet
+                        //this will send a reminder
+                     ELSE
+                        lFreiWait := .T.
+                     ENDIF
                   ELSE
                      cMsg += "Freigabe ok - "
                      lToBeOrdered := .T.
@@ -204,7 +271,7 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
                ENDIF
             ENDIF
 
-            IF Trim(cSupplier) $ {"ONPOW","WALDOM","TECHNO","EDAC","SCOLMORE","BULGIN","ITW"}               
+            IF Trim(cSupplier) $ {"ONPOW","WALDOM","TECHNO","EDAC","SCOLMORE","BULGIN","ITW","SIGNAL"}               
                ku->(dbSetOrder( 1 ))
                ku->(dbSeek( cSupplier+"L "))
 
@@ -245,23 +312,35 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
       
    ENDIF
 
-   IF lOrdered .OR. (lVorzug .AND. nReminderCount == 0) .OR. lToBeOrdered .OR. lToBeChecked
+   IF /*lOrdered .OR.*/ (lVorzug .AND. nReminderCount == 0) .OR. lToBeOrdered .OR. lToBeChecked
       SendMail(GetConfigEMail("SO-ORDERPARTS"),"AB "+LTrim(Str(nAbnr,6)),cMsg)      
+      //SendMail({{"amos.engelking@engelking.de","Amos"}},"AB "+LTrim(Str(nAbnr,6)),cMsg)      
       IF lMOQ
-         SendMail({{"amos.engelking@engelking.de","Amos"}},"AB "+LTrim(Str(nAbnr,6))+" mit MMZ",cMsg)      
+         //SendMail({{"amos.engelking@engelking.de","Amos"}},"AB "+LTrim(Str(nAbnr,6))+" mit MMZ",cMsg)      
       ENDIF
+      RETURN .F.
+   ENDIF
+   IF lOrdered //we do not send a message to the buyer if we have ordered the parts
+      RETURN .F.
    ENDIF
    IF lManu
-      SendMail({{"samuel.engelking@engelking.de","Samuel"}},"AB "+LTrim(Str(nAbnr,6))+" Fertigung planen",cMsgManu)
+      SendMail({{"yannick.matthaeus@engelking.de","Yannick"}},"AB "+LTrim(Str(nAbnr,6))+" Fertigung planen",cMsgManu)
+      RETURN .F.
    ENDIF
    IF lFrei
-      SendMail({{"chris.chertes@engelking.de","Chris"}},"AB "+LTrim(Str(nAbnr,6))+" Freigabe prÅfen",cMsgFrei)
-   ENDIF
-   IF lOrdered .OR. lManu .OR. lFrei .OR. lVorzug .OR. lToBeOrdered .OR. lToBeChecked
-      RETURN .F. //do not send standard message
+      IF ! lFreiWait
+         aTo := {{"chris.chertes@engelking.de","Chris"}}
+         IF ! (GetValue("HOLIDAY-AMOS-START") <= Date() .AND. GetValue("HOLIDAY-AMOS-END") >= Date())
+            Aadd(aTo,{"amos.engelking@engelking.de","Amos"})
+         ENDIF
+         SendMail(aTo,"AB "+LTrim(Str(nAbnr,6))+" Freigabe prÅfen",cMsgFrei)
+      ELSE
+         // SendMail({{"amos.engelking@engelking.de","Amos"}},"AB "+LTrim(Str(nAbnr,6))+" Freigabe prÅfen (geht nicht an Chris)",cMsgFrei)
+      ENDIF
+      RETURN .F.
    ENDIF
    
-   SendMail({{"amos.engelking@engelking.de","Amos"}},"AB "+LTrim(Str(nAbnr,6))+IF(nReminderCount!=NIL .AND. nReminderCount != 0," - "+Str(nReminderCount)+". Erinnerung ",""),IF(lVorzug .AND. nReminderCount != 0,"VORZUG NICHT VERSENDET"+CRLF,"")+cMsg)
+   SendMail({{"amos.engelking@engelking.de","Amos"}},"AB "+LTrim(Str(nAbnr,6))+IF(nReminderCount!=NIL .AND. nReminderCount != 0," - "+LTrim(Str(nReminderCount))+". Erinnerung","")+" (Standardmitteilung wird verschickt)",IF(lVorzug .AND. nReminderCount != 0,"VORZUG NICHT VERSENDET"+CRLF,"")+cMsg)
 
 RETURN .T. //send standard message
 
@@ -292,14 +371,17 @@ STATIC Function __AddToWaitList(nQty,nEkPr,nPe,nContract,nContrPos,nDelWeeks)
       "MONEY"=>ku->Money;
    }
    
-   oBesPos:WTerm    := Max(CWeek(Date()),AddWeeks(auf->WTerm,nShipWeeks*-1))
-   oBesPos:LTerm    := AddWeeks(CWeek(DATE()),nDelWeeks+nShipWeeks)
+   oBesPos:WTerm    := Max(CWeek(Date()),AddWeeks(auf->WTerm,nShipWeeks*-1-1))
+   oBesPos:LTerm    := Max(oBesPos:Wterm,AddWeeks(CWeek(DATE()),nDelWeeks))
+   IF auf->DTerm >= AddWeeks(oBesPos:LTerm,-2) .AND. auf->DTerm <= oBesPos:LTerm 
+      oBesPos:LTerm := Max(oBesPos:Wterm,AddWeeks(auf->DTerm,nShipWeeks*-1))
+   ENDIF
 
    oBesPos:Released := .T. //standard is released
    oBesPos:Pe       := nPe
    oBesPos:EkPr     := nEkPr
    oBesPos:BeQty    := nQty
-   oBesPos:ShipTime := 1
+   oBesPos:ShipTime := nShipWeeks
    oBesPos:Artikelnr := art->Artikelnr
    oBesPos:Matchcode := art->Matchcode
 

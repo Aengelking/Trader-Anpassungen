@@ -1,6 +1,8 @@
 FUNC HOOK_GET_FREIGABE_FIELDS(cState)
-
-   If cState $ {"UNT","ZNG"}
+   
+   IF cState == "VMU"
+      RETURN {"user","ignore"}
+   ELSEIf cState $ {"UNT","ZNG"}
       Return {"user"}
    ELSEIF cState == "MUS"
       RETURN {"user","ignore","forcesonderonignore"}

@@ -38,9 +38,11 @@ IF Tr_Getini(28) == 9
    //Alert(cState+" -> "+cNextLevel+IF(lFrei,""," nicht")+" freigegeben")
 ENDIF
 
-IF cNextLevel == "MUS" .OR. (nSupplier == 0 .AND. cNextLevel == "KU") .OR. (cState == "KU" .AND. cNextLevel == "KU") //das letzte ist der Fall, wenn der Kunde die Muster ablehnt
+IF cNextLevel == "MUS" .OR. ;
+   (nSupplier == 0 .AND. cNextLevel == "KU") .OR.; //Interne Produktion
+   (cState == "KU" .AND. cNextLevel == "KU") //das ist der Fall, wenn der Kunde die Muster ablehnt
 	hRet:lBes        := .T.
-   hRet:nMaxQty     := 4 //restrict everthing to two pieces, except the expections below 
+   hRet:nMaxQty     := 4 //restrict everthing to four pieces, except the expections below 
 
    IF art->Gruppe == "KONK" ; //Netzkabel
       .OR. art->Gruppe == "KOSO" .AND. Left(art->Matchcode,3) == "pL/" //Litzen fÅr die Produktion
@@ -76,8 +78,11 @@ IF cNextLevel == "MUS" .OR. (nSupplier == 0 .AND. cNextLevel == "KU") .OR. (cSta
          hRet:nMaxQty := Max(Round( nMaxCost/nPrice, GetMeDecimals( oArt:Me )),2)
       ELSE
          //hRet:nMaxQty := 10 //nMaxCost
-      ENDIF
+      ENDIF      
 	ENDIF
+ELSEIF cState == "" //Freigabe noch nicht begonnen, Vorserien Muster
+   hRet:lBes        := .T.
+   hRet:nMaxQty     := 2  //1 for the customer and one for us
 ELSEIF cNextLevel == "ZNG" .AND. (Left(oArt:Matchcode,2) == "BA" .OR. Trim(oArt:Matchcode) $ {"KS28074/1"})  //Beschaffungsartikel
    hRet:lBes        := .T.
 ELSEIF cState == "DONE"
@@ -105,11 +110,16 @@ ELSEIF cState == "DONE"
 	Endif
 ENDIF
 
-IF Tr_Getini(28) == 9 .AND. ! hRet:lBes //for returns
-   IF nSupplier == 31330
-      hRet:lBes := .T.
-      hRet:nMaxQty := 1
-      RETURN hRet
+IF Tr_Getini(28) == 9 
+   /*Alert("Next: "+cNextLevel+";"+ValToPrg(hRet))
+   hRet:lBes := .T.
+   hRet:nMaxQty := 7*/
+   IF ! hRet:lBes //for returns
+      IF nSupplier == 31330
+         hRet:lBes := .T.
+         hRet:nMaxQty := 1
+         RETURN hRet
+      ENDIF
    ENDIF
 ENDIF
 

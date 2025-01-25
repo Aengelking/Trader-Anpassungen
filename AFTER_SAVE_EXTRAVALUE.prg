@@ -1,4 +1,5 @@
 Function AFTER_SAVE_EXTRAVALUE(cName,oExtra)
+   LOCAL oArt
    IF oExtra:cDBID == "KU"
       IF oExtra:WerksBesch .AND. Empty(oExtra:ShpNtfyTo)
          Tr_MsgBox("EmpfÑnger fÅr Versandmitteilung hinterlegen, Werkbescheinigung wird dorthin gesendet.")
@@ -9,10 +10,20 @@ Function AFTER_SAVE_EXTRAVALUE(cName,oExtra)
          Tr_MsgBox("Versandmitteilung wurde fÅr Werksbescheinigung aktiviert.")
       ENDIF
    ELSEIF oExtra:cDBID == "ART"
+      IF oExtra:Gef_H225 .AND. ! oExtra:Gefahr
+         oExtra:Gefahr := .T.
+         oExtra:Save()
+         //Tr_MsgBox("Gefahrstoffe mÅssen als solche gekennzeichnet werden")
+      ENDIF
       IF oExtra:Gefahr .AND. ! oExtra:SDS
          oExtra:SDS := .T.
          oExtra:Save()
          Tr_MsgBox("Sicherheitsdatenblatt ist bei Gefahrstoffen notwendig")
+      ELSEIF oExtra:Critical .AND. ! art->Charge
+         oArt := Artikel():New()
+         oArt:Charge := .T.
+         oArt:Save()
+         Tr_MsgBox("Chargenverwaltung fÅr kritische Komponente aktiviert")
       ENDIF
    ENDIF
 RETURN .T.

@@ -7,8 +7,21 @@ LOCAL oAddress
 MEMVAR mcNoBesPos 
 PUBLIC mcNoBesPos := ""
 
+
+IF oBesPos:BeQty < 0 //Rcksendung   
+   oBesPos:AbNr := GetBox(IF(oBesPos:lNew,Space(10),oBesPos:AbNr),"RMA Nr.")
+ENDIF
+
 IF ! oBesPos:lNew
    RETURN .T.
+ENDIF
+
+IF oBesPos:oArtikel:Bezug >= 5
+   IF ! GetConfigValue("BATCHMODE")
+      IF TR_MsgBox("Artikel "+Trim(oBesPos:oArtikel:Matchcode)+" ist ein Fertigungsteil. Wirklich bestellen?",,{"Nein","Ja"}) != 2
+         RETURN .F.
+      ENDIF
+   ENDIF
 ENDIF
 
 NetUse("buyprice","bpr")
@@ -31,13 +44,13 @@ ENDIF*/
    ENDIF
 ENDIF*/
 
-IF oBesPos:lNew .AND. Left(art->Matchcode,3) == "57M"
+/*IF oBesPos:lNew .AND. Left(art->Matchcode,3) == "57M"
    mcNoBesPos :="Artikel aktuell nicht erh„ltlich" 
    IF ! GetConfigValue("BATCHMODE")
       Tr_MsgBox(mcNoBesPos)
    ENDIF
    RETURN .F.
-ENDIF
+ENDIF*/
 
 
 IF Empty(art->Kncode) .AND. art->Lagerart
@@ -131,7 +144,7 @@ ENDIF
 
 IF oBesPos:oArtikel:Manufactur == 11 //Techno
    nQty := QtyProducible(oBesPos:oArtikel:Artikelnr,,!GetConfigValue("BATCHMODE"),.T.)
-   IF nQty > 0
+   IF ValType(nQty) == "N" .AND. nQty > 0
       IF GetConfigValue("BATCHMODE")
          mcNoBesPos := Transform(nQty,oBesPos:oArtikel:cPicture)+" "+oBesPos:oArtikel:Me+" k”nnen gefertigt werden."
          RETURN .F.
@@ -184,6 +197,7 @@ ENDIF*/
 
    ENDIF
 
+   
 
 RETURN .T.
 

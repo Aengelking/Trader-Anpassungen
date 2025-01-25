@@ -15,11 +15,13 @@ FUNCTION __DownLoadPage(cUrl,hPost,lModAgent)
    ENDIF
    cCommand += ' -L'
    IF lModAgent
-      cCommand += ' --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.186 Safari/537.36"'
+      //cCommand += ' --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.186 Safari/537.36"'
+      cCommand += ' -H@x:\run\prices\farnell_header.txt'
    ENDIF
    cCommand += ' "'+cUrl+'"'
    
-   
+   gtSetClipboard(cCommand)
+
    IF HB_IsHash(hPost)
       cCommand += ' -X POST -d"'
       FOR EACH cValue IN hPost

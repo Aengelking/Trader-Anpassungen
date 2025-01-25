@@ -1,7 +1,7 @@
 FUNCTION RUN_PRICES_RS(nArtnr,cArtlief,cMatch,lSub)
 
 LOCAL nX
-LOCAL lDbg := Tr_Getini(28) == 9 .AND. ! GetConfigValue("BATCHMODE")
+LOCAL lDbg := .F. //Tr_Getini(28) == 9 .AND. ! GetConfigValue("BATCHMODE")
 LOCAL lPriceDbg := .F.
 LOCAL cChr
 LOCAL hPrices,cUrl,nPe,aRegex

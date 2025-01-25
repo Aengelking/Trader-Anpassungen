@@ -38,9 +38,11 @@ PROCEDURE RUN_LEX_WAEHRUNGSDIFF
       hCur := {"U"=>Round(1/1.2275,4),"P"=>Round(1/0.89955,4)}
    ELSEIF nYear == 2021
       hCur := {"U"=>Round(1/1.1320,4),"P"=>Round(1/0.84000,4),"Y"=>Round(1/130.32,4)}
+   ELSEIF nYear == 2022
+      hCur := {"U"=>Round(1/1.0676,4),"P"=>Round(1/0.88680,4),"Y"=>Round(1/140.68,4)}
    
    ELSE
-      Alert("Bitte Wechselkurs in der PRG hinterlegen. Devisenmittelkur z.B. von der Commerzbank")
+      Alert("Bitte Wechselkurs in lex_wahrungsdiff.prg hinterlegen. Devisenmittelkur z.B. von der Commerzbank")
       //https://www.commerzbank.de/rates/do.rates
       RETURN
    ENDIF
@@ -50,9 +52,11 @@ PROCEDURE RUN_LEX_WAEHRUNGSDIFF
 
    //Devisenkonten (manuelle Liste)
    Aadd(aKonten,{1235,1236,"U","Sparkasse USD"})
-   Aadd(aKonten,{1231,1232,"P","Spaskasse GBP"})
+   Aadd(aKonten,{1231,1232,"P","Spaskasse GBP"})  
+
    Aadd(aKonten,{1237,1238,"U","Volksbank USD"})
    Aadd(aKonten,{1222,1223,"P","Volksbank GBP"})
+   Aadd(aKonten,{1226,1227,"Y","Volksbank JPY"})
 
    //Alle verwendeten W„hrungsdifferenzkonten (Kreditoren) suchen
    rech->(dbSetOrder( 3 ))

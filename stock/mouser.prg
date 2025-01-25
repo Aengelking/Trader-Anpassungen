@@ -20,7 +20,7 @@ If oHttp:open()
 	If lD
 	//	MemoEdit(cData)
 	Endif
-	//If ValType(cData) == "C"
+	If ValType(cData) == "C"
 	lFound := .T.
 		cQty := ""
 		//If aSites[nX] != "fr"
@@ -57,7 +57,7 @@ If oHttp:open()
 
 		Endif
 		nQty += Val(cQty)
-	//Endif
+	Endif
 Endif
 
 oHttp:close()

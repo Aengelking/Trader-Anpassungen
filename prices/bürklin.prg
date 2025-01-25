@@ -2,7 +2,7 @@ PARAMETERS nArtnr,cArtlief,cMatch
 
 LOCAL nX,hData,hPrice,hPrices := {=>},oHttp,oHttp2
 LOCAL nPos,cPrices,cDomain := "https://www.buerklin.com"
-LOCAL lDbg := .F. // Tr_Getini(28) == 9 .AND. ! GetConfigValue("BATCHMODE")
+LOCAL lDbg := .F. //Tr_Getini(28) == 9 .AND. ! GetConfigValue("BATCHMODE")
 LOCAL hCookies := {=>},cValue
 LOCAL cScreen
    

@@ -305,6 +305,11 @@ Do While nShipment <= If(lMultiShip,Len(aWeights),1)
 		nB++
 	Enddo
 
+   FWrite(nF,TAB+TAB+'<InternationalDocumentation>'+NL)
+   FWrite(nF,TAB+TAB+TAB+'<CreateAnInvoice>0</CreateAnInvoice>'+NL)
+   //FWrite(nF,TAB+TAB+TAB+'<Currency>USD</Currency>'+NL)
+   FWrite(nF,TAB+TAB+'</InternationalDocumentation>'+NL)
+
 
 	FWrite(nF,TAB+'</OpenShipment>'+NL)
 	//end of shipment

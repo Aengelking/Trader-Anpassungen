@@ -29,7 +29,7 @@ CLASS CreditSafeApi FROM RestAPI
 END CLASS
 
 METHOD New()
-   ::cBaseUrl := "https://connect.creditsafe.com/v1/" //GetValue("CS_URL","https://egl.teufels-werk.de/api/","URL of the Shopware installation")
+   ::cBaseUrl := "https://connect.creditsafe.com/v1/"
 RETURN ::Super:New()
 
 METHOD SyncMonitoringPortfolio(nPortfolio,cFile,cEmail)

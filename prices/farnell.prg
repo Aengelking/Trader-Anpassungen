@@ -26,6 +26,9 @@ PUBLIC cPriceError := ""
    cData := __DownLoadPage(cUrl)
    lSuccess := .T.
 
+   IF lDbg
+      gtSetClipboard(cData)
+   ENDIF
 
    /*DO WHILE ! lSuccess .AND. nCount < 10
       oHttp := TIpClientHttp():new( cUrl )

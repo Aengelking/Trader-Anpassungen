@@ -163,7 +163,7 @@ hKontoGenehm[76157] := P_SIGRID  //Conrad - Webhelp
 hKontoGenehm[70423] := P_DANIEL
 hKontoGenehm[76167] := P_DANIEL  //Amazon Marketplace
 
-hLiefPerson[35279] := P_AMOS //Softcom
+//hLiefPerson[35279] := P_AMOS //Softcom
 
 aList := {;
    {"EMAIL"=>"@techno\.it$","MATCH"=>"TECHNO"},;
@@ -231,9 +231,9 @@ IF ! Empty(cMsgPath)  //email
    NEXT
    IF lOneDocOnly .AND. (cType == "SCAN" .OR. Tr_MsgBox(t("Email enthält nur ein Dokument, soll lediglich dieses archiviert werden?"),,{"Nein","Ja"}) == 2)
       cTempPath := GetEnv("temp")
-      oAtt := oMsg:Attachments:Item(nDocAtt)
-      oAtt:CopyOut(cTempPath,oAtt:FileName)
-      cFileName := cTempPath+"\"+oAtt:FileName
+      oAtt := oMsg:Attachments:Item(nDocAtt)      
+      oAtt:CopyOut(cTempPath,StrTran(oAtt:FileName,"?",""))
+      cFileName := cTempPath+"\"+StrTran(oAtt:FileName,"?","")
    ENDIF
    FOR EACH hEntry IN aList      
       IF HB_RegexMatch(hEntry["EMAIL"],Lower(oMsg:Fields("SRFrom"):Value)) .AND. (! HHasKey(hEntry,"BETREFF") .OR. HB_RegexMatch(hEntry["BETREFF"],Lower(oMsg:Fields("Subject"):Value)))

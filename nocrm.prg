@@ -474,9 +474,11 @@ RETURN nPipeLine
 METHOD GetStdPipeLineName()
 RETURN GetValue("NOCRM_PIPELINE","Angebote","Name der Pipeline fÅr neue Leads")
 
-METHOD GetStepId(cStep,nPipeline)
-   LOCAL aSteps := ::Execute("steps","GET")   
+METHOD GetStepId(cStep,nPipeline,aSteps)   
    LOCAL nX,nStep := 0
+   IF aSteps == NIL
+      aSteps := ::Execute("steps","GET")   
+   ENDIF
    nX := AScan(aSteps,{|x| x["name"] == cStep .AND. x["pipeline_id"] == nPipeline })
    IF nX != 0
       nStep := aSteps[nX]["id"]

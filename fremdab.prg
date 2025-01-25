@@ -26,6 +26,7 @@ hFremdRahmen[27538] := 23697 //TRIPS => Seidenad
 hFremdRahmen[36117] := 23697 //KOERBERU => Seidenad
 hFremdRahmen[35780] := 23697 //KOSTWEIN => Seidenad
 hFremdRahmen[32997] := 23697 //BIRCHER => Seidenad
+hFremdRahmen[37363] := 23697 //KOSTWEKR => Seidenad
 
 
 //IF HHasKey(hFremdRahmen,Trim(oAufPos:Auftrag:Kundma))

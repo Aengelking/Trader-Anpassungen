@@ -16,7 +16,7 @@ NetUse("artlief","ali")
 
 IF ! cmpr-> (dbSeek( Str(art->Artikelnr,6) )) .OR. cmpr->Datum < Date()-3
    //IF Tr_Getini(28) == 9; Alert("Here"); ENDIF
-   IF ! MBaseRun(Trim(Tr_getini(1))+"\run\prices\updcompet",,.T.)
+   IF ! MBaseRun(Trim(Tr_getini(1))+"\run\prices\updcompet")
       RETURN {}
    ENDIF
 ENDIF

@@ -474,9 +474,17 @@ FUNCTION RUN_FREPPLE_EXPORT()
       art->(dbSeek( Str(aRoutingItems[nI],6) ))
       pjob->(dbSetOrder( 2 ))
 
-      IF lIntern                 
+      IF lIntern    
+         IF bom->(dbSeek( Str(aRoutingItems[nI],6) )) .AND. bom->Lot != 0
+            nVPE := bom->Lot
+         ELSEIF art->VPE == 0
+            nVPE := 1
+         ELSE
+            nVPE := art->VPE
+         ENDIF
 
-         nVPE := CeilingMe(IF(art->VPE==0,1,art->VPE)/(1-_GetScrapRate(aRoutingItems[nI])),Me(art->Me)) //we need to add the scrap to the min/mult to get the quantity without the scrap
+         nVPE := CeilingMe(nVPE/(1-_GetScrapRate(aRoutingItems[nI])),Me(art->Me)) //we need to add the scrap to the min/mult to get the quantity without the scrap
+
          //nVPE := IF(art->VPE==0,1,art->VPE)/(1-_GetScrapRate(aRoutingItems[nI]))
 
          Aadd(aOperations,{Trim(art->Matchcode), cMatch,0,0,"routing","",20,cDefaultLocation,nVPE,nVPE,0,0 })
@@ -647,7 +655,13 @@ FUNCTION RUN_FREPPLE_EXPORT()
                   ? auf->Abnr
                   DO WHILE auf->Abnr == oRec:Abnr .AND. ! auf->(EOF()) //Abrufe are alway after the frame position, no need to search                                          
                      IF auf->ContrPos == oRec:Itmnr                        
-                        nDWeek := IF(ku->JustinTime,CWeek(auf->BDatum),auf->Dterm)                        
+                        IF ku->JustinTime
+                           nDWeek := CWeek(auf->BDatum)
+                        ELSEIF Right(Str(auf->Dterm,4),2)${"97","98"}
+                           nDWeek := Max(nDelWeek,auf->WTerm)
+                        ELSE                           
+                           nDWeek := auf->Dterm
+                        ENDIF
                         IF auf->GelQty > 0  //if shipped we take this as the starting point                                                                              
                            nKW := Max(nDWeek,nKW)
                         ELSEIF auf->Bestat < 3 .AND. ! nDWeek $ aWeeks
@@ -808,9 +822,10 @@ FUNCTION RUN_FREPPLE_EXPORT()
    wer->(dbGotop())
    DO WHILE ! wer->(EOF())     
       oWerExtra := wer->(ExtraData():New(wer->Aufno))
-      nDays := GetValue("FREPPLE_APPROVE_MO_DAYS",4,"Approve MO days ahead (0=off)")
-      IF nDays > 0 .AND. wer->StartDate < Date()+nDays .AND. Trim(oWerExtra:FreppleSta) != "confirmed"         
-         oWerExtra:FreppleSta := "approved"
+
+      nDays := GetValue("FREPPLE_CONFIRM_MO_DAYS",4,"Confirm MO days ahead (0=off)")
+      IF Empty(wer->Liefma) .AND. nDays > 0 .AND. wer->StartDate < Date()+nDays .AND. Trim(oWerExtra:FreppleSta) != "confirmed"         
+         oWerExtra:FreppleSta := "confirmed"
          oWerExtra:Save()
       ENDIF
 
@@ -934,8 +949,8 @@ FUNCTION RUN_FREPPLE_EXPORT()
                         ENDDO
                         rst->(dbSkip(-1))
 
-                        IF ! lHasResource .AND. ATail(aManuSubOrders)[6] != "completed" //if there is no resource we always leave it on confirmed so it is adjusted automatically
-                           ATail(aManuSubOrders)[6] := "confirmed"
+                        IF ! lHasResource .AND. ATail(aManuSubOrders)[6] != "completed" //if there is no resource we always leave it on approved so it is adjusted automatically
+                           ATail(aManuSubOrders)[6] := "approved"
                         ENDIF
                      ENDIF
                      rst->(dbSkip())

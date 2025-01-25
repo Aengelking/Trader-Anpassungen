@@ -65,6 +65,6 @@ PROC RUN_LEX_DEBITOR_SALDEN
 
    //Alert(ValToPRg(aData))
  
-   //SaveAsCSV(Wvt_GetOpenFileName( 0,"" , "CSV Datei", { {"Comma separated file (*.csv)","*.csv"},{"Alle Dateien (*.*)","*.*"} }, , Trim(Tr_getini(1))+"\export\" ),aData)
+   SaveAsCSV(Wvt_GetOpenFileName( 0,"" , "CSV Datei", { {"Comma separated file (*.csv)","*.csv"},{"Alle Dateien (*.*)","*.*"} }, , Trim(Tr_getini(1))+"\export\" ),aData)
 
 RETURN

@@ -16,6 +16,7 @@ LOCAL nRec,nTotal,cText
 
 #include "noworking.ch"
 
+
 NetUse("post","post")
 NetUse("englsre","re")
 NetUse("engkund","ku")
@@ -61,10 +62,11 @@ DO WHILE ! re->(Eof()) .AND. re->RechDat <= Date() //-1
             ENDIF
 
             //IF ku->Re_Via == "EMAI" //temp only send emails
-   
+
    			engrepr("",0,re->Rechnr,.F.,ku->Re,0)  //original
-   			SetPrinterMethodType(0)
+            SetPrinterMethodType(0)
       		TxtClear()
+         
    
             //ENDIF
 

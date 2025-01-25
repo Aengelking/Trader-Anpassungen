@@ -5,13 +5,16 @@ PROC RUN_ANGEBOTE_WON_NOCRM
    LOCAL hQuotes := {=>}
    LOCAL hOrders := {=>}
    LOCAL nValue,hQuote,hMatchcode,aQuotes := {}
-   LOCAL hLead,aClose,nAng,cMatchcode,cFilter
+   LOCAL hLead,aClose := {},nAng,cMatchcode,cFilter
    LOCAL aPipelines,nStdPipeLine,nPipeLine,nStep
    LOCAL hQuoteOrders,cContent,hLeadData
    LOCAL aExcludeMatchcode := {"@","FREIGHT","PORTO"}
+   LOCAL nFrist := 60
    LOCAL oUser
-   
+   LOCAL hLeads,aGetData,nOff,aSteps
+   LOCAL aRequests,nX
 
+   CLS
    //Check if connection is working
    IF ! oNoCRM:Connect()
       oErr := ErrorNew()
@@ -28,6 +31,31 @@ PROC RUN_ANGEBOTE_WON_NOCRM
    //get pipeline id
    nStdPipeLine := oNoCrm:GetPipeLineId( oNoCrm:GetStdPipeLineName(), @aPipelines)   
 
+   ? "Leads werden eingelesen..."
+   nRow := Row()
+   nCol := Col()
+   hLeads := {=>} 
+   aRequests := {{"status"=>"todo,standby"},{"date_range_type"=>"update","start_date"=>Date()-365*5,"status"=>{"lost,won,cancelled"}}}
+   FOR nX := 1 TO Len(aRequests)
+      nOff := 0
+      DO WHILE .T.
+         //"status"=>"todo,standby",
+         //zuerst alle die noch offen sind
+            aGetData := oNoCrm:Execute("leads","GET",HMerge({"include_unassigned"=>"true","limit"=>"100","offset"=>LTrim(Str(nOff))},aRequests[nX]))
+            IF ValType(aGetData) != "A"
+               Alert(Str(nX)+ValToPrg(aGetData))
+            ENDIF
+            AEval(aGetData,{|x| hLeads[x["id"]] := x })
+            nOff := Len(hLeads)
+            @ nRow,nCol+1 SAY nOff
+            IF Len(aGetData) < 100
+               EXIT
+            ENDIF
+      ENDDO
+   NEXT
+      ?? Len(hLeads)
+   //Alert("Leads: "+Str(Len(hLeads)))
+   
    NetUse("engauf","auf")
    NetUse("angebot","ang")
    NetUse("nocrm","nocrm")
@@ -37,7 +65,7 @@ PROC RUN_ANGEBOTE_WON_NOCRM
    auf->(dbSetOrder( 6 ))
    
    ang->(dbSeek( Str(1,1) ))
-   CLS
+   
    DO WHILE ang->Bestat < 3 .AND. ! ang->(EOF())
       IF Trim(ang->Matchcode) $ aExcludeMatchcode //diese werden ignoriert
       ELSEIF nocrm->(dbSeek( Str(ang->angnr,6) )) //nur Angebote ÅberprÅfen die auch in noCRM gepflegt werden
@@ -82,6 +110,8 @@ PROC RUN_ANGEBOTE_WON_NOCRM
          auf->(dbClearFilter())
          auf->(OrdScope(0,""))
          auf->(OrdScope(1,""))
+      ELSEIF ang->Besda+nFrist <= Date() //abgelaufen
+         Aadd(aClose,ang->Angnr)
       ENDIF
    
       ang->(dbSkip())      
@@ -89,24 +119,34 @@ PROC RUN_ANGEBOTE_WON_NOCRM
 
    ang->(dbSetOrder( 1 ))
 
-   aClose := {}
+   
 
    //Letztendlich wurde beschlossen diese Angebote nicht zu schlie·en - siehe Fragen
-   /*FOR EACH nAng IN aQuotes  //Angebote ohne Auftrag suchen und prÅfen      
+   //dies verursacht auch sehr viele Abfragen an noCRM was zu einer Sperre fÅhrt
+   FOR EACH nAng IN aQuotes  //Angebote ohne Auftrag suchen und prÅfen      
       IF ! nAng $ hQuotes //Es wurde kein Auftrag gefunden
-         nocrm->(dbSeek( Str(nAng,6) ))
+         
          ang->(dbSeek( Str(nAng,6) ))
-         hLead := oNoCRM:Execute("leads/"+Ltrim(Str(nocrm->Lead)),"GET")
-         IF hLead == NIL //Lead nicht gefunden, Angebot bleibt offen bis die Frist anbgelaufen ist
+         //hLead := oNoCRM:Execute("leads/"+Ltrim(Str(nocrm->Lead)),"GET")
+         //IF hLead == NIL //Lead nicht gefunden, Angebot bleibt offen bis die Frist anbgelaufen ist
+         IF ! nocrm->(dbSeek( Str(nAng,6) )) .OR. ! HHasKey(hLeads,nocrm->Lead) //Lead nicht gefunden, Angebot bleibt offen bis die Frist anbgelaufen ist
             ? nAng,"Lead nicht gefunden",ang->Besda
-         ELSEIF hLead["status"] == "won" //als gewonnen markiert, wir konnten aber keine AuftrÑge finden, das wird als Fehler ausgegeben
-            ? nAng,"Lead gewonnen, kein (neuen) Auftrag gefunden"
-         ELSEIF hLead["status"] $ {"lost","cancelled"} //ander weitig geschlossen, Angebot bleibt offen bis Frist abgelaufen 
-            ? nAng,"Verloren oder Geschlossen"
-            //Aadd(aClose,nAng)
+            IF ang->Besda+nFrist <= Date() //abgelaufen
+               ?? " Angebot abgelaufen"
+               Aadd(aClose,nAng)
+            ENDIF
+         ELSE
+            hLead := hLeads[nocrm->Lead]
+            IF hLead["status"] == "won" //als gewonnen markiert, wir konnten aber keine AuftrÑge finden, dann kann das Angebot auch geschlossen werden
+               ? nAng,nocrm->Lead,"Lead gewonnen, kein (neuen) Auftrag gefunden"
+               Aadd(aClose,nAng)
+            ELSEIF hLead["status"] $ {"lost","cancelled"} //ander weitig geschlossen, Angebot bleibt offen bis Frist abgelaufen 
+               ? nAng,"Verloren oder Geschlossen"
+               Aadd(aClose,nAng)
+            ENDIF
          ENDIF
       ENDIF
-   NEXT*/
+   NEXT
 
    auf->(dbSetOrder( 15 ))
    
@@ -134,7 +174,12 @@ PROC RUN_ANGEBOTE_WON_NOCRM
          ENDDO
       NEXT
       nocrm->(dbSeek( Str(nAng,6) ))
-      hLead := oNoCRM:Execute("leads/"+Ltrim(Str(nocrm->Lead)),"GET")
+      //hLead := oNoCRM:Execute("leads/"+Ltrim(Str(nocrm->Lead)),"GET")
+      IF HHasKey(hLeads,nocrm->Lead)
+         hLead := hLeads[nocrm->Lead]
+      ELSE
+         hLead := NIL
+      ENDIF
       ? nAng,nValue,""
       IF hLead==NIL
          ?? "Lead not found "+LTrim(Str(nocrm->Lead))
@@ -154,7 +199,7 @@ PROC RUN_ANGEBOTE_WON_NOCRM
 
          IF nPipeLine != 0
             //now get the step id in the pipeline
-            nStep := oNoCRM:GetStepId( GetValue("NOCRM_STEP_SALE","Auftrag","Phase in der Pipeline fÅr AuftrÑge") ,nPipeLine)
+            nStep := oNoCRM:GetStepId( GetValue("NOCRM_STEP_SALE","Auftrag","Phase in der Pipeline fÅr AuftrÑge") ,nPipeLine,@aSteps)
             IF nStep != 0 //Step was found in this pipeline
                hLeadData["step"] := nStep
             ELSE
@@ -210,7 +255,7 @@ RETURN
 -  Nur Angebotspipeline als gewonnen
 - Aber wie stellen wir dann sicher das es nicht beim nÑchsten Lauf wieder aufgenommen wird?
 
-- Angebote auf erledigt setzen? Nur gewonne Artikel, auch bei "lost"
+- Angebote auf erledigt setzen? Nur gewonne Artikel, auch bei "lost" //16.12.23 geÑndert das auch verlorene geschlossen werden
 - Nicht alle Positionen bestellt - Lead gewonnen? Nur wenn alle gewonnen.
 
 - Mehrere Angebote an einen Kunden z.b. 37087 und 37089 - Angebot beom Auftrag speichern und dann kann der Auftrag nicht nochmal gewonnen werden

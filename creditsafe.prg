@@ -379,6 +379,14 @@ FUNCTION EditCSNumber()
       cCSNr := Space(7)
       cPic := "9999999"
       cCSPre := "AT025/X/"
+   ELSEIF ku->CountryIso == "FR"
+      cCSNr := Space(19)
+      cPic := Replicate("9",19)      
+      cCSPre := "FR002/X/"
+   ELSEIF ku->CountryIso == "LI"
+      cCSNr := Space(7)
+      cPic := Replicate("9",7)      
+      cCSPre := "LI006/X/"
    ELSE
       Tr_MsgBox("Land nicht unterstÅtzt")
       RETURN .T.

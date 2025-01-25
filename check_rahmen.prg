@@ -1,5 +1,11 @@
 PROCEDURE RUN_CHECK_RAHMEN
-LOCAL aCustomers := {;   
+LOCAL aCustomers   
+LOCAL hCustomer,cFremd,aABs
+LOCAL cText,cSubText,lOpen
+LOCAL nX,nFRQty,bPosBlock
+LOCAL cMatch
+
+/*aCustomers := {;   
    {"MATCH"=>{"BACHMANG","BACHMANR"},;
    "FREMD"=>{"BACHMANR"},;
    "BESTAND"=>.F.,;
@@ -13,20 +19,26 @@ LOCAL aCustomers := {;
    "NAME"=>"Joel Engelking",;
    "ANREDE"=>"Sehr geehrte Damen und Herren,";
    };
-}
+  }*/
 
-/*,{"MATCH"=>{"GESSMANN"},;
-   "FREMD"=>{},;
-   "BESTAND"=>.T.,;
-   "EMAILS"=>{{"amos.engelking@engelking.de","Amos"}},;
-   "SENDER"=>"sabid.pehlic@engelking.de",;
-   "NAME"=>"Sabid Pehlic",;
-   "ANREDE"=>"Sehr geehrter Herr B„chtle,";
-   };*/
-LOCAL hCustomer,cFremd,aABs
-LOCAL cText,cSubText,lOpen
-LOCAL nX,nFRQty,bPosBlock
-LOCAL cMatch
+   aCustomers := {{"MATCH"=>{"SEIDENAD"},;
+      "FREMD"=>{"K™RBERM","F.EE","TRIPSSOL","TRIPS","KOERBERU","KOSTWEIN","BIRCHER","KOSTWEKR"},;
+      "BESTAND"=>.F.,;
+      "EMAILS"=>{{"amos.engelking@engelking.de","Amos"}},;
+         "SENDER"=>"mara.henzler@engelking.de",;
+            "NAME"=>"Mara Henzler",;
+               "ANREDE"=>"Sehr geehrte Damen und Herren,";
+      }};
+   
+   
+   /*,{"MATCH"=>{"GESSMANN"},;
+      "FREMD"=>{},;
+      "BESTAND"=>.T.,;
+      "EMAILS"=>{{"amos.engelking@engelking.de","Amos"}},;
+      "SENDER"=>"sabid.pehlic@engelking.de",;
+      "NAME"=>"Sabid Pehlic",;
+      "ANREDE"=>"Sehr geehrter Herr B„chtle,";
+      };*/
 
 /*IF ! GetConfigValue("BATCHMODE") .AND. Tr_MsgBox("Testmodus?",,{"Ja","Nein"}) != 2
    aCustomers[1]["EMAILS"] := {{"amos.engelking@engelking.de","Amos"}}
@@ -53,17 +65,21 @@ FOR EACH hCustomer IN aCustomers
    cText += "</tr>"
    FOR EACH cMatch IN hCustomer["MATCH"]
       aABs := {}
-      IF ku->(dbSeek( Pad(cMatch,8)+"K" ))
-         cText += "<tr><td colspan='8'>Auftr„ge von: "+Trim(Trim(ku->Name1)+" "+ku->Name2)+"</td></tr>"
+      IF ku->(dbSeek( Pad(cMatch,8)+"K" ))         
          auf->(dbSetOrder( 2 ))
          auf->(dbSetFilter({|| Right(Str(auf->DTerm,4),2) == "99" },'Right(Str(DTerm,4),2) == "99"'))
-         auf->(dbSeek( Pad(cMatch,8)+Str(0,1) ))
-         DO WHILE Trim(auf->Kundma) == cMatch
+         auf->(dbSeek( Pad(cMatch,8) )) //+Str(0,1) ))
+         ? auf->Abnr
+         DO WHILE Trim(auf->Kundma) == cMatch .AND. ! auf->(EOF())
+            ? auf->Abnr
             art->(dbSeek( Str(auf->Artikelnr,6) ))
             Aadd(aABs,{auf->Abnr,auf->Itmnr,Me(art->Me),art->Me})
             auf->(dbSkip())
          ENDDO
          auf->(dbClearFilter())
+         IF Len(aABs) > 0
+            cText += "<tr><td colspan='8'>Auftr„ge von: "+Trim(Trim(ku->Name1)+" "+ku->Name2)+"</td></tr>"
+         ENDIF
          FOR nX := 1 TO Len(aABs)
             cSubText := ""
             lOpen := .F.
@@ -131,6 +147,7 @@ FOR EACH hCustomer IN aCustomers
       ENDIF
    NEXT
    cText += "</pre>"
+   
    SendMail(hCustomer["EMAILS"],HB_AnsiToOem("Aufstellung Rahmenverträge"),cText,,,,.T.,hCustomer["SENDER"])
    //SendMail({{"amos.engelking@engelking.de","Hans-Peter Hollenbach"}},HB_AnsiToOem("Aufstellung Rahmenverträge"),cText,,,,.T.,"thimo.hamma@engelking.de")
 NEXT

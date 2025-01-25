@@ -6,6 +6,7 @@ PROC RUN_FIND_BATCH
    NetUse("lagrech","lagr")
    NetUse("lagent","lage")
    NetUse("lagerne","lne")
+   NetUSe("artikel","art")
 
    Head("Chargennummer suchen")
 
@@ -19,17 +20,17 @@ PROC RUN_FIND_BATCH
       ENDIF
 
       
-      Eval({||NetUse("rma","rma"),rma->(dbSeek(PadL(mipar,6))),IF(!Empty(rma->BBNr),"Ihre Nummer: "+rma->BBNr,"")})
+      //Eval({||NetUse("rma","rma"),rma->(dbSeek(PadL(mipar,6))),IF(!Empty(rma->BBNr),"Ihre Nummer: "+rma->BBNr,"")})
 
       @ 02,00 CLEAR
-      @ 02,00 SAY "Rechnr Pos Ent.Nr. Pos"
+      @ 02,00 SAY "Rechnr Pos Ent.Nr. Pos Menge"
       
       bRechnungen := {|cBatch|
          cFilter := 'Trim(batch) == "'+Trim(cBatch)+'"'
          lagr->(dbSetFilter({|| lagr->(&(cFilter)) },cFilter))
          lagr->(dbGoTop())
          DO WHILE ! lagr->(EOF())
-            ? lagr->Rechnr,lagr->RePosnr
+            ? lagr->Rechnr,lagr->RePosnr,Space(6),Space(3),Transform(lagr->LagerMenge,"9999")
             lagr->(dbSkip())
          ENDDO
          lagr->(dbClearFilter())

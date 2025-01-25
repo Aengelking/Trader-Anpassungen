@@ -10,6 +10,7 @@ LOCAL nPole,aMatch,cInlet
 LOCAL cMatch,nPe := 1
 LOCAL nY,nX
 LOCAL lDbg := .F. //Tr_Getini(28) == 9
+LOCAL lBuerklin := .F.
 //LOCAL aEnv := SaveEnv()
 
 MEMVAR c_five
@@ -23,7 +24,7 @@ Default(@lForce,.F.)
 IF .F. //Tr_Getini(28) == 9
    aCompet := {"BšRKLIN"}
 ELSE
-   aCompet := {"RS","Schukat","ARROW","Farnell",HB_AnsiToOem("BÜRKLIN") } //HB_AnsiToOem("BÜRKLIN") //Brklin hat alle Preise von Bulgin deaktiviert //"Conrad", "Reichelt","Mouser" does not work
+   aCompet := {"BšRKLIN","RS","ARROW","FARNELL" } //"Schukat","Conrad", "Reichelt","Mouser" does not work
 ENDIF
 
 IF lDisp
@@ -120,48 +121,27 @@ IF Len(aMatch) > 0
 ENDIF
 
 FOR nX := 1 TO Len(aCompet)
-   ku->(dbSetOrder( 1 ))
+   ku->(dbSetOrder( 1 ))   
    ku->(dbSeek( Pad(Upper(aCompet[nX]),8)+"L" ))
 
-   IF (ali->(dbSeek(Pad(Upper(aCompet[nX]),8)+Str(art->Artikelnr,6))) .AND. ! Empty(ali->artlief)) .OR. aCompet[nX] $ "Schukat TME"
+   IF aCompet[nX] == "FARNELL" .AND. lBuerklin  //we only get prices from Farnell (for speed reasons) if there are no Brklin prices
+   ELSEIF (ali->(dbSeek(Pad(Upper(aCompet[nX]),8)+Str(art->Artikelnr,6))) .AND. ! Empty(ali->artlief)) .OR. aCompet[nX] $ "Schukat TME"
       
-      cPriceError := ""
-      IF ! cmp2->(dbSeek( Str(art->Artikelnr,6)+Str(ku->Nummer,6) )) .OR. cmp2->Datum < Date() .OR. lForce //avoids calling off the prices several times if one failes         
-         IF lDisp
-            @ MaxRow()/2-2,MaxCol()/2-15 SAY PadC("["+aCompet[nX]+"]",30,Chr(196)) COLOR c_five
-         ENDIF
-
-         hPrices := MBaseRun(Trim(Tr_Getini(1))+"\run\prices\"+aCompet[nX],{art->Artikelnr,ali->Artlief,art->Matchcode,@nError})
-         IF ValType(hPrices) == "H" .AND. Len(hPrices) != 0
-            IF ! cmp2->(dbSeek( Str(art->Artikelnr,6)+Str(ku->Nummer,6) ))
-               cmp2->(Add_Rec(0))
-               cmp2->Artikelnr := art->Artikelnr
-               cmp2->Lieferant := ku->Nummer
-            ELSE
-               cmp2->(Rec_Lock())
-            ENDIF
-            cmp2->Datum := Date()
-            cmp2->Daten := HB_Serialize(hPrices)
-            cmp2->(dbUnLock())
-         ELSEIF cmp2->(Found()) .AND. cmp2->Datum >= Date()-15 //nicht „lter als 15 Tage
-            nError := 0
-            hPrices := HB_DeSerialize(cmp2->Daten)
-            SendMail({{"amos.engelking@engelking.de","Amos"}},"Preise von "+aCompet[nX]+" konnten fuer "+Trim(art->Matchcode)+" nicht geladen werden","Es wurden jedoch historische Daten vom "+DtoC(cmp2->Datum)+" benutzt. "+chr(13)+Chr(10)+cPriceError)
-         ENDIF
-      ELSE
-         nError := 0
-         hPrices := HB_DeSerialize(cmp2->Daten)
+      IF lDisp
+         @ MaxRow()/2-2,MaxCol()/2-15 SAY PadC("["+aCompet[nX]+"]",30,Chr(196)) COLOR c_five
       ENDIF
+      
+      hPrices := GetPricesCompet(aCompet[nX],lForce,@nError)
+      
 
-//      hPrices := MBaseRun(Trim(Tr_Getini(1))+"\run\prices\"+HB_OemToAnsi(aCompet[nX]),{art->Artikelnr,ali->Artlief,art->Matchcode,@nError})
       IF Inkey() == 27  //cancel update
          RETURN .F.
       ENDIF
       IF ValType(hPrices) != "H" .OR. Len(hPrices) == 0 .OR. HGetValueAt(hPrices,1) == 0
          IF ! aCompet[nX] $ "Schukat TME" .AND. (aCompet[nX] != "Mouser" .OR. ValType(hPrices) != "H" .OR. Len(hPrices) != 2)
             IF lDisp
-               IF  ValType(hPrices) == "H"  //NIL is used for connection errors
-                  SendMail({{"amos.engelking@engelking.de","Amos"}},"Preise von "+aCompet[nX]+" konnten fuer "+Trim(art->Matchcode)+" nicht geladen werden",cPriceError)
+               IF  ValType(hPrices) == "H" //NIL is used for connection errors
+                  SendMail({{"amos.engelking@engelking.de","Amos"}},"Preise von "+aCompet[nX]+" konnten fuer "+Trim(art->Matchcode)+" nicht geladen werden")
                ENDIF
                TxtBox("Preise von "+aCompet[nX]+" konnten nicht geladen werden!","FEHLER")
                Inkey(5,128)
@@ -171,6 +151,9 @@ FOR nX := 1 TO Len(aCompet)
             RETURN .F.
          ENDIF
       ELSE
+         IF aCompet[nX] == "BšRKLIN"
+            lBuerklin := .T.
+         ENDIF
          aPriceList[nX] := hPrices
       ENDIF
    ENDIF
@@ -259,3 +242,5 @@ ELSE
 //   Inkey(5,128)
 //   TxtClear()
 ENDIF
+
+#include 'x:\run\prices\getprices.prg'

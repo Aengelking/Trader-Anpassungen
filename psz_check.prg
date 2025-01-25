@@ -66,7 +66,7 @@ FOR EACH nKdId IN aCustomers
                   cText += "Tel: +49-(0)7464-9865-0<br/>"
                   cText += "Fax: +49-(0)7464-9865-71<br/><br/>"
                   cText += "Amtsgericht Freiburg (HRB 602241)<br/>"
-                  cText += "Geschäftsführer: Amos Engelking, Hans-Peter Schweiß<br/>"
+                  cText += "Geschäftsführer: Amos Engelking<br/>"
 
 //                  SendMail({{hContact["email"],hContact["name"]},{"amos.engelking@engelking.de","Amos","BCC"}},HB_AnsiToOem("Auftrag "+Trim(auf->Aufnr)+" (AB "+LTrim(Str(auf->Abnr))+"/"+LTrim(Str(auf->Itmnr))+")"),HB_AnsiToOem(cText),,,,.T.,"info@engelking.de")
                   SendMail({{"amos.engelking@engelking.de","Amos"}},HB_AnsiToOem("Auftrag "+Trim(auf->Aufnr)+" (AB "+LTrim(Str(auf->Abnr))+"/"+LTrim(Str(auf->Itmnr))+")"),HB_AnsiToOem(cText),,,,.T.,"info@engelking.de")

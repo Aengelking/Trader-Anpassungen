@@ -14,7 +14,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
    LOCAL cDefaultLocation := GetValue("FREPPLE_DEFAULT-LOCATION","Engelking","Location used when not a supplier")
    LOCAL aNotSupplier := {"SELF"}
    LOCAL aOnlineSupplier := {} //"FARNELL","RS","MOUSER","DIGIKEY","ARROW","AVNET","ARROWUS","SCHUKAT","DISTRELE","TME","CONRAD","REICHELT","FUTURE","BšRKLIN","TTI","TTIUSA","SCHURICH"}
-   LOCAL cUnkownSupplier := "UNKOWNSUPPLIER"
+   LOCAL cUnkownSupplier := "UNKNOWNSUPPLIER"
    LOCAL cOnlineSupplier := "ANYWHEREONLINE"
    LOCAL lIncludeSales := .T.
    LOCAL cOpSeparator := "|"
@@ -30,7 +30,6 @@ FUNCTION RUN_FREPPLE_EXPORT()
    LOCAL aItems := {{"Item-ID","Name","Description"}}   
    LOCAL aBuffers := {{"Item-ID","Item","Location","Onhand","Minimum","Min_Interval"}}
    LOCAL aItemDistr := {{"Item","Location","Origin","Lead Time"}}
-   //LOCAL aUsedBoms   := {{"Item-ID","Item","Sales order"}}
    LOCAL aErrors := {{"Item-ID","Item","Error level","Error code","Description"}}
    LOCAL aOperationResources := {{"Operation","Resource","Quantity","Skill","Search Mode"}}
    LOCAL aPurchaseOrders := {{"Reference","Supplier","Ordering Date",/*"Item-ID",*/"Item","Quantity","Receipt Date","Status","Location"}}
@@ -88,16 +87,22 @@ FUNCTION RUN_FREPPLE_EXPORT()
    }
 
    LOCAL bAddOpResources :=  {|nJob,cMain|
+      LOCAL lFromJob := .F.
       res->(dbSetOrder( 1 ))
       IF pjore->(dbSeek( Str(art->Artikelnr,6)+Str(nJob,6) ))
          DO WHILE pjore->Job == nJob .AND. pjore->Artikelnr == art->Artikelnr .AND. ! pjore->(EOF())               
-            
-            res->(dbSeek( Str(pjore->Resource,6) ))
-            Aadd(aOperationResources,{cMain,res->Name,1,"Any","MINCOSTPENALTY"})
-            
+            IF pjore->Resource == 0
+               lFromJob := .T.
+            ELSE
+               res->(dbSeek( Str(pjore->Resource,6) ))
+               Aadd(aOperationResources,{cMain,res->Name,1,"Any","MINCOSTPENALTY"})
+            ENDIF
             pjore->(dbSkip())
          ENDDO
       ELSE
+         lFromJob := .T.
+      ENDIF 
+      IF lFromJob  
          jore->(dbSeek( Str(nJob,6) ))               
          DO WHILE jore->Job == nJob .AND. ! jore->(EOF())               
          
@@ -388,18 +393,12 @@ FUNCTION RUN_FREPPLE_EXPORT()
       IF ART_NEEDS_QS
          cMatch += "_UNCHECKED"
       ENDIF
-
-      /*IF auf->(dbSeek( art->Matchcode )) .AND. auf->Matchcode == art->Matchcode .AND. auf->Bestat < 3 .AND. auf->VkQty-auf->GelQty > 0
-         Aadd(aUsedBoms,{aRoutingItems[nI],art->Matchcode,auf->Abnr})
-         lUsedBom := .T.
-      ELSEIF AScan(aUsedBoms,{|x| x[1] == aRoutingItems[nI] },2) != 0
-         lUsedBom := .T.
-      ELSE
-         lUsedBom := .F.  
-      ENDIF          */
-  
+ 
       IF ! part->(dbSeek( Str(aRoutingItems[nI],6) ))  //no bom found, then this cannot be produced
          LOOP
+      ENDIF
+      IF part->Pos == 0 //skip old header
+         part->(dbSkip())
       ENDIF
 
       lDummy := .F.  
@@ -422,15 +421,21 @@ FUNCTION RUN_FREPPLE_EXPORT()
                ENDIF
                pjob->(dbSkip())
             ENDDO
-            IF Empty(cJobName)  //no valid job found, we will output via the DUMMY
-               lDummy := .T.  //remember that we are using a DUMMY operation 
-            ENDIF
-
-            Eval(bAddItem)              
-
-            //now we add the output position to the BOM list, we only need this if we can produce internally
-            Aadd(aBom,{cMatch,1*(1-_GetScrapRate(aRoutingItems[nI])),0,Trim(art->Matchcode)+cOpSeparator+IF(!Empty(cJobName),Trim(cJobName),"DUMMY"),"end"})
          ENDIF
+      ENDIF
+      IF ! lIntern .AND. part->Pos != -1 //this cannot be produced externaly either
+         lIntern := .T.         
+      ENDIF
+
+      IF lIntern
+         IF Empty(cJobName)  //no valid job found, we will output via the DUMMY
+            lDummy := .T.  //remember that we are using a DUMMY operation 
+         ENDIF
+
+         Eval(bAddItem)              
+
+         //now we add the output position to the BOM list, we only need this if we can produce internally
+         Aadd(aBom,{cMatch,1*(1-_GetScrapRate(aRoutingItems[nI])),0,Trim(art->Matchcode)+cOpSeparator+IF(!lDummy,Trim(cJobName),"DUMMY"),"end"})         
       ENDIF
 
       nLohnArt := 0
@@ -449,9 +454,6 @@ FUNCTION RUN_FREPPLE_EXPORT()
             ENDIF
             
             Eval(bAddItem)
-            /*IF art->Bezug == 5 .AND. lUsedBom
-               Aadd(aUsedBoms,{part->Partart,Trim(art->Matchcode),auf->Abnr})
-            ENDIF*/
             pjob->(dbSetOrder( 1 ))
             IF ! pjob->(dbSeek( Str(aRoutingItems[nI],6)+Str(part->Job,6) )) //is this a valid job on this part list?
                lDummy := .T.
@@ -626,8 +628,8 @@ FUNCTION RUN_FREPPLE_EXPORT()
                //dDate := auf->SDatum
                   //look for last call off
                   nKW := AddWeeks(CWeek(auf->Besda),IF(art->LZ==0,nDefaultLZ,art->LZ)+nAddWeeks)
-                  nRestockWeeks := GetValue("FREPPLE_RESTOCK_WEEKS",2,"Time it takes to restock frame contracts")
-                  nGap := Max(nRestockWeeks,GetValue("FREPPLE_MIN_GAP",4,"Minium gap to plan restocking"))
+                  nRestockWeeks := GetValue("FREPPLE_RESTOCK_WEEKS",2,"Weeks it takes to restock frame contracts")
+                  nGap := Max(nRestockWeeks,GetValue("FREPPLE_MIN_GAP",4,"Minium gap to plan restocking (weeks)"))
                   
                   oRec := auf->(Record():New()) //remember record               
                   cFilter := auf->(dbFilter()) //clear and save the filter
@@ -655,9 +657,9 @@ FUNCTION RUN_FREPPLE_EXPORT()
                   ? auf->Abnr
                   DO WHILE auf->Abnr == oRec:Abnr .AND. ! auf->(EOF()) //Abrufe are alway after the frame position, no need to search                                          
                      IF auf->ContrPos == oRec:Itmnr                        
-                        IF ku->JustinTime
+                        IF ku->JustinTime .AND. ! Empty(auf->BDatum)
                            nDWeek := CWeek(auf->BDatum)
-                        ELSEIF Right(Str(auf->Dterm,4),2)${"97","98"}
+                        ELSEIF Right(Str(auf->Dterm,4),2)${"97","98"} .OR. Empty(auf->BDatum)
                            nDWeek := Max(nDelWeek,auf->WTerm)
                         ELSE                           
                            nDWeek := auf->Dterm
@@ -681,7 +683,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
                      nKW := aWeeks[nX]
                   NEXT
                   
-                  IF art->Bezug == 5
+                  IF art->Bezug == 5  //manufacturing
                      dDate := CalWd(AddWeeks(nKW,nRestockWeeks))+5
                   ELSE
                      dDate := CalWd(AddWeeks(nKW,IF(art->LZ==0,nDefaultLZ,art->LZ)))+5
@@ -693,26 +695,39 @@ FUNCTION RUN_FREPPLE_EXPORT()
                   
                   Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"MIN",Trim(auf->Kundma),auf->Matchcode,Min(auf->Meldstock,auf->VkQty),Min(auf->Meldstock,auf->VkQty),Frep_DtoC(IF(dDate<=Date().AND.auf->Meldstock <=art->Bestand,Date()+1,dDate),"10:00"),10,cDefaultLocation,"open"})                                 
 
-                  IF auf->VkQty-auf->GelQty > auf->Meldstock //Add an order for the remaining quantiy at the end date of the frame contract
-                     Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"END",Trim(auf->Kundma),auf->Matchcode,auf->VkQty-auf->GelQty-auf->Meldstock,Min(auf->VkQty-auf->GelQty-auf->Meldstock,auf->MeldStock*2),Frep_DtoC(CalWd(Max(nDelWeek,auf->Wterm)),"10:00"),20,cDefaultLocation,"open"})
+                  IF auf->VkQty-auf->GelQty > auf->Meldstock //Add orders (broken into MinStock) for the remaining quantity at the end date of the frame contract
+                     //Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"END",Trim(auf->Kundma),auf->Matchcode,auf->VkQty-auf->GelQty-auf->Meldstock,Min(auf->VkQty-auf->GelQty-auf->Meldstock,auf->MeldStock*2),Frep_DtoC(CalWd(Max(nDelWeek,auf->Wterm)),"10:00"),20,cDefaultLocation,"open"})
+                     nQty := auf->VkQty-auf->GelQty-auf->Meldstock
+                     nX := 1
+                     DO WHILE nQty > 0
+                        ? nQty
+                        IF nQty < auf->Meldstock*2 .OR. auf->MeldStock == 0 //we have less than two Minstock left, we plan the rest
+                           Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"END"+LTrim(Str(nX)),Trim(auf->Kundma),auf->Matchcode,nQty,nQty,Frep_DtoC(CalWd(Max(nDelWeek,auf->Wterm)),"10:00"),20,cDefaultLocation,"open"})   
+                           nQty := 0
+                        ELSE
+                           Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"END"+LTrim(Str(nX)),Trim(auf->Kundma),auf->Matchcode,auf->Meldstock,auf->MeldStock,Frep_DtoC(CalWd(Max(nDelWeek,auf->Wterm)),"10:00"),20,cDefaultLocation,"open"})   
+                           nQty -= auf->MeldStock
+                        ENDIF
+                        nX++
+                     ENDDO
                   ENDIF
                ENDIF
             ELSE   
                nPrio := 5
-               /*IF ku->JustinTime
-                  nPrio := 5    
-               ELSEIF auf->ContrPos != 0
-                  nPrio := 7    
-               ELSEIF auf->FolgeTo != 0
-                  nRec := auf->(Recno())
-                  auf->(dbSeek( Str(auf->Abnr,6)+Str(auf->FolgeTo,3) ))
-                  IF auf->ContrPos != 0
-                     nPrio := 7
-                  ENDIF
-                  auf->(dbGoto(nRec))
-               ENDIF*/
+               //IF ku->JustinTime
+               //   nPrio := 5    
+               //ELSEIF auf->ContrPos != 0
+               //   nPrio := 7    
+               //ELSEIF auf->FolgeTo != 0
+               //   nRec := auf->(Recno())
+               //   auf->(dbSeek( Str(auf->Abnr,6)+Str(auf->FolgeTo,3) ))
+               //   IF auf->ContrPos != 0
+               //      nPrio := 7
+               //   ENDIF
+               //   auf->(dbGoto(nRec))
+               //ENDIF
                Aadd(aSalesOrders,{Ltrim((Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)),Trim(auf->Kundma),auf->Matchcode,auf->VkQty-auf->GelQty,auf->VkQty-auf->GelQty,;
-                                 Frep_DtoC(IF(ku->JustinTime,GetJITLiefertag(auf->BDatum,ku->JIT_LZ),CalWD(IF(Right(Str(auf->Dterm,4),2)${"97","98"},Max(nDelWeek,auf->WTerm),auf->Dterm))+4),"15:00"),;
+                                 Frep_DtoC(IF(ku->JustinTime.AND.!Empty(auf->BDatum),GetJITLiefertag(auf->BDatum,ku->JIT_LZ),CalWD(IF(Right(Str(auf->Dterm,4),2)${"97","98"}.OR.Empty(auf->BDatum),Max(nDelWeek,auf->WTerm),auf->Dterm))+4),"15:00"),;
                                  nPrio,cDefaultLocation,"open"})
             ENDIF
          ENDIF
@@ -732,6 +747,38 @@ FUNCTION RUN_FREPPLE_EXPORT()
    NEXT
    
 
+   TxtClear()
+
+   TxtBox("Sample orders")
+   art->(dbSetOrder( 2 )) 
+
+   NetUse("muster","mus")
+   mus->(dbSetOrder( 6 ))
+   mus->(dbGoTop())  
+   
+   DO WHILE mus->Status < 3 .AND. ! mus->(EOF())
+      @ MaxRow()/2+2,MaxCol()/2-4 SAY "["+Str(mus->Nummer,6)+"]" COLOR c_five
+      IF lIncludeSales .OR. mus->Artikelnr $ aRoutingItems .OR. mus->Artikelnr $ aMaterials 
+         art->(dbSeek( Str(mus->Artikelnr,6) )) 
+         nDelWeek := AddWeeks(Cweek(mus->Datum),IF(art->LZ==0,nDefaultLZ,art->LZ)+nAddWeeks)
+         
+         IF art->Lagerart      
+            cKunde := IF(mus->Gruppe!="K".AND. Val(mus->Gruppe) == 0,mus->Gruppe+"_","")+Trim(mus->Kunde)
+            Eval(bAddItem)
+            IF AScan(aCustomers,{|x| x[1] == cKunde }) == 0            
+               Aadd(aCustomers,{Trim(mus->Kunde)})
+            ENDIF   
+            ku->(dbSetOrder( 1 ))
+            ku->(dbSeek( mus->Kunde+mus->Gruppe ))    
+            nPrio := 5
+            Aadd(aSalesOrders,{"M"+Ltrim((Str(mus->Nummer))+"-"+StrZero(mus->Pos,3)),cKunde,mus->Matchcode,mus->Menge,mus->Menge,;
+                              Frep_DtoC(CalWD(nDelWeek)+4,"15:00"),;
+                              nPrio,cDefaultLocation,"open"})
+         ENDIF
+      ENDIF
+      mus->(dbSkip())
+   ENDDO      
+   
    TxtClear()
 
    TxtBox("Purchase orders")
@@ -756,7 +803,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
          IF art->Lagerart      
             cMatch := Trim(bes->Matchcode)
             
-            cArriveTime := IF(Right(Str(bes->Lterm,4),2)=="98","",Frep_DtoC( CalWD( Max( AddWeeks(CWeek(Date()),-1),bes->Lterm ) )  +4+bes->Shiptime*7,"08:00"))
+            cArriveTime := IF(Right(Str(bes->Lterm,4),2)${"97","98"},"",Frep_DtoC( CalWD( Max( AddWeeks(CWeek(Date()),-1),bes->Lterm ) )  +4+bes->Shiptime*7,"08:00"))
 
             IF ART_NEEDS_QS  //external parts are also checked when there is a drawing
                cMatch += "_UNCHECKED"
@@ -824,12 +871,13 @@ FUNCTION RUN_FREPPLE_EXPORT()
       oWerExtra := wer->(ExtraData():New(wer->Aufno))
 
       nDays := GetValue("FREPPLE_CONFIRM_MO_DAYS",4,"Confirm MO days ahead (0=off)")
-      IF Empty(wer->Liefma) .AND. nDays > 0 .AND. wer->StartDate < Date()+nDays .AND. Trim(oWerExtra:FreppleSta) != "confirmed"         
+      
+      /*IF Empty(wer->Liefma) .AND. nDays > 0 .AND. wer->StartDate < Date()+nDays .AND. Trim(oWerExtra:FreppleSta) != "confirmed"         
          oWerExtra:FreppleSta := "confirmed"
          oWerExtra:Save()
-      ENDIF
+      ENDIF*/
 
-      IF GetValue("FREPPLE_EXPORT_ALL_MO",.F.,"Export all existing MOs") .OR. wer->Status >= 1 .OR.  ! Empty(wer->Liefma) .OR. ! Empty(oWerExtra:FreppleSta)  //we only add orders which are in production or also can be purchased externaly
+      IF GetValue("FREPPLE_EXPORT_ALL_MO",.F.,"Export all existing MOs") .OR. wer->Status >= 1 .OR.  ! Empty(wer->Liefma) /*.OR. ! Empty(oWerExtra:FreppleSta)*/  //we only add orders which are in production or also can be purchased externaly
          @ MaxRow()/2+2,MaxCol()/2-4 SAY "["+Str(wer->Aufno,6)+"]" COLOR c_five     
          IF ! Empty(wer->Liefma)
             ku->(dbSetOrder( 1 ))   
@@ -842,7 +890,11 @@ FUNCTION RUN_FREPPLE_EXPORT()
             ELSE
                dStart := AddWorkingDays(CalWD(wer->termin)+IF(oExtra:WaDay>0,oExtra:WaDay-2,4),oExtra:ShipTime)
             ENDIF
-            dEnd   := CalWD(Max(CWeek(Date()),wer->End))-3 //Friday the week before, as Frepple adds RecvTime to this date through the distribution order
+            IF Right(Str(wer->End,4),2) == "97" 
+               dEnd := Date()+12*7
+            ELSE
+               dEnd   := CalWD(Max(CWeek(Date()),wer->End))-3 //Friday the week before, as Frepple adds RecvTime to this date through the distribution order
+            ENDIF
             IF Dow(Date()) >= 6 .AND. dEnd < Date() //on Friday, move it to the next week if necessary
                dEnd := Date()
             ENDIF                 
@@ -903,8 +955,8 @@ FUNCTION RUN_FREPPLE_EXPORT()
             tStart := StoT(DtoS(dStart)+"080000")
             tEnd   := StoT(DtoS(dEnd)+"170000")
 
-            IF lCurrentParts .OR. wer->status >= 1 //either the part liest ties up or goods have been supplied (then we do not need a part list in frepple)                           
-               cStatus := Trim(oWerExtra:FreppleSta)
+            IF lCurrentParts .OR. wer->status >= 1 //either the part list ties up or goods have been supplied (then we do not need a part list in frepple)                           
+               cStatus := "" //Trim(oWerExtra:FreppleSta)
                IF wer->status>=1 .OR. (!Empty(wer->Liefma).AND.bes->Confirmed=="Y")
                   cStatus := "confirmed"
                ELSEIF Empty(cStatus) .AND. (!Empty(wer->Liefma).AND. ! bes->Printed )

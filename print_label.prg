@@ -9,7 +9,12 @@ PROC print_label
          StickPrint("PAKET")
       ENDIF
    ELSEIF Alias()=="ART" .OR. ProcName(8) == "BROWSEARTIKEL" .OR. ProcName(7) == "BROWSEARTIKEL"
-      StickPrint("WARE")
+      /*IF MaxCol() > 100 .AND. Select("lag") != 0 .AND. ! Empty(lag->Batch) .AND. Tr_MsgBox("Aufkleber w„hlen",,{"Artikel","Charge"}) == 2
+      //this does not work
+         MBaseRun(Path("run\print_batch_labels"),{Trim(lag->Batch)})
+      ELSE*/
+         StickPrint("WARE")
+      //ENDIF
    ELSEIF  ProcName(8) == "PROJECT_BROWSE"      
       StickPrint("PROJEKT")
    ELSEIF Tr_Getini(28) == 9

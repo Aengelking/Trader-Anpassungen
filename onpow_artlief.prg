@@ -5,7 +5,7 @@ ali->(dbSetOrder( 1 ))
 
 CLS
 
-FOR EACH cPart IN {"CM","CI"}
+FOR EACH cPart IN {"CK","CM","CI"}
    art->(dbSeek( cPart,.T. ))
    
    DO WHILE AT(cPart,art->Matchcode) == 1

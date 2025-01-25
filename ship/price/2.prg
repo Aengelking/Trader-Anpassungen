@@ -3,11 +3,13 @@ PARAMETERS mPreis,GEWICHT,hPakData
 IF ku->CountryIso == "DE" //Deutschland
    GEWICHT := Round(GEWICHT,0)
    IF GEWICHT > 30
-      mPreis := 11.48
+      mPreis := 11.48+20.15
    ELSEIF GEWICHT > 28
-      mPreis := 9.69
+      mPreis := 9.69+20.15
    ELSEIF GEWICHT > 26
-      mPreis := 9.21
+      mPreis := 9.21+20.15
+   ELSEIF GEWICHT >= 25
+      mPreis := 8.70+20.15
    ELSEIF GEWICHT > 24
       mPreis := 8.70
    ELSEIF GEWICHT > 22

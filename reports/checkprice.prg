@@ -96,7 +96,7 @@ STATIC Function GetCompPrices(aCompet)
       ali->(dbSeek(Pad(Upper(aCompet[nX]),8)+Str(art->Artikelnr,6)))
       IF aCompet[nX] $ "TME Schukat" .OR. (ali->(Found()) .AND. ! Empty(ali->artlief))
          ?? "",aCompet[nX]
-         hPrices := MBaseRun(Trim(Tr_Getini(1))+"\run\prices\"+HB_OemToAnsi(aCompet[nX]),{art->Artikelnr,ali->Artlief,art->Matchcode})
+         hPrices := GetPricesCompet(aCompet[nX]) //MBaseRun(Trim(Tr_Getini(1))+"\run\prices\"+HB_OemToAnsi(aCompet[nX]),{art->Artikelnr,ali->Artlief,art->Matchcode})
          IF ValType(hPrices) != "H" .OR. Len(hPrices) == 0
             hPrices := {=>}
          ELSE
@@ -112,3 +112,5 @@ STATIC Function GetCompPrices(aCompet)
    ASort(aBrakes)
 
 RETURN {aBrakes,hPriceList}
+
+#include 'x:\run\prices\getprices.prg'

@@ -29,20 +29,28 @@ MEMVAR c_five,c_one
 
 /*** SETTINGS ***/
 LOCAL lCanApprove := Tr_Getini(28) $ GetValue("REB_APPROVER",{9,57},"Genehmiger (Benutzernummer)")
-LOCAL hApprKto    := /*GetValue("REB_APRACC",*/ {51=>{70887,74186,70062,70302,70141,70814,70911,70866,70995,76056,76236,76254,76239,76269},34=>{76126,76168,76019,74245,76218,74930,76157}} /*,"Konten fr Genehmiger")*/ //Value Editing programm needs working on
-LOCAL hPeople := {9=>"Amos",34=>"Sigrid",50=>"Daniela",57=>"Daniel",51=>"Celina"}
+LOCAL lPreApprove := Tr_Getini(28) $ GetValue("REB_PREAPPROVER",{64},"Vorprfer (Benutzernummer)")
+LOCAL hApprKto    := /*GetValue("REB_APRACC",*/ {34=>{72031,70171,71804,70887,74186,70062,70302,70141,70814,70911,70866,70995,76056,76236,76254,76239,76269,76393,76126,76168,76019,74245,76218,74930,76157}} /*,"Konten fr Genehmiger")*/ //Value Editing programm needs working on
 LOCAL nPersOnApprove := 34 //automatically assign to this person on approval
+LOCAL nPersOnPreApprove := 9 //automatically assign to this person on pre-approval
 LOCAL aAdmin      := {9}
 LOCAL nTolPaydate := GetValue("REB_TOLDATE",2,"Toleranz fr Zahldatum") //deduct from due date to compensate for Postal time etc.
 /***************/
 LOCAL lIsAdmin    := AScan(aAdmin,Tr_Getini(28)) != 0
+LOCAL hUsers
+LOCAL hPeople := {=>}
 
 IF Date() <= StoD("20200830") .AND. Tr_Getini(28) == 34 //Urlaub Daniel 
-   lCanApprove := .T.
+   //lCanApprove := .T.
    //hPeople[45] := "Joel"
 ENDIF
 
+hUsers := GetUsers("R","PURCHASEINVOICE_REB")
+HEval(hUsers,{|key,cName| hPeople[key] := SubStr(cName,1,AT(" ",cName)) })   
+hPeople[64] := "Lisa"
+
 IF ! Tr_Getini(28) $ hPeople
+   Tr_MsgBox("Keine Berechtigung")
    RETURN
 ENDIF
 
@@ -137,7 +145,7 @@ hPeople2 := HB_HClone(hPeople)
 hPeople2[0] := "alle"
 nPersSel := HGetPos(hPeople2,nPerson)
 @ 01,54 SAY "Person:"
-@ 01,61,10,72 GET nPersSel LISTBOX HGetValues(hPeople2) DROPDOWN WHEN ! oBooked:Buffer
+@ 01,61,Min(01+2+Len(hPeople)+1,MaxRow()),72 GET nPersSel LISTBOX HGetValues(hPeople2) DROPDOWN WHEN ! oBooked:Buffer
 oPerson := Atail(getlist); getlist := {}
 oPerson:Control:sBlock := {||   
    ReadKill(.T.)   
@@ -172,9 +180,10 @@ bTermin := {||
          aSkonto := skb->(GetSkonto(ku->Skonto,StoD(rebp->DateTime)))
          dDate := AddWorkingDays(StoD(rebp->DateTime)+IF(aSkonto[1,2]==0.AND.Len(aSkonto)>1,aSkonto[2,2],aSkonto[1,2]),nTolPaydate*-1,GetConfigValue("STATE"),.T.)
       ELSE
-         dDate := StoD(rebp->DateTime)+13 //nach 15 Tagen kommt die Meldung, dass die Rechnung fehlt
+         dDate := StoD(rebp->DateTime)+10 //nach 15 Tagen kommt die Meldung, dass die Rechnung fehlt
       ENDIF
-      RETURN dDate
+      
+      RETURN Min(dDate,StoD(rebp->DateTime)+10)
    ENDIF
    RETURN StoD(rebp->DateTime)+5
 }
@@ -440,7 +449,7 @@ oBrowse:AddKey(K_ENTER,{||
       Wapi_ShellExecute(,"open",cFile)
       RETURN NIL
    }
-   LOCAL nChoice,nTop
+   LOCAL nChoice,aChoices,nTop
    MEMVAR c_five,c_one
    ASort(aFiles,,,{|x,y| x[6] < y[6] }) //sort according to file name and not date
    /*IF Tr_Getini(28) == 9
@@ -476,42 +485,48 @@ oBrowse:AddKey(K_ENTER,{||
          ELSEIF nChoice == 5
             lChangeFirm := .T.
          ENDIF
-      ELSEIF (lCanApprove .OR. (Tr_Getini(28) $ hApprKto .AND. reb->Konto $ hApprKto[Tr_Getini(28)]) ) .AND. reb->Person == Tr_Getini(28)
+      ELSEIF (lCanApprove .OR. lPreApprove .OR. (Tr_Getini(28) $ hApprKto .AND. reb->Konto $ hApprKto[Tr_Getini(28)]) ) .AND. reb->Person == Tr_Getini(28)
          nChoice := 0
-         //Tr_MsgBox("Prfe wiederkehrende Rechnungen")
-         rerep->(dbSetORder( 1 ))
-         IF rerep->(dbSeek( Str(reb->Konto,6)+Str(reb->Betrag*100,14,0) )) 
-            rebp->(dbSetOrder( 1 ))
-            rebp->(dbSeek( Str(reb->ID,9), .T. ))
-            dDate := StoD(rebp->DateTime)
+         IF lCanApprove
             //Tr_MsgBox("Prfe wiederkehrende Rechnungen")
-            DO WHILE rerep->Konto == reb->Konto .AND. rerep->Betrag == reb->Betrag  //there can be multiple entries
-               IF Empty(rerep->End) .OR. rerep->End > dDate
-                  IF rerep->Intervall=="M" 
-                     dNext := AddMonth(rerep->Last,1)-5 //5 Tage Toleranz
-                  ELSEIF rerep->Intervall=="H" 
-                     dNext := AddMonth(rerep->Last,6)-15 //15 Tage Toleranz               
-                  ELSEIF rerep->Intervall=="J"
-                     dNext := AddMonth(rerep->Last,12)-30 //30 Tage Toleranz               
-                  ELSE
-                     dNext := StoD("")
-                  ENDIF               
-                  //Tr_MsgBox(rerep->Intervall+" "+DtoC(dNext))
-                  IF dNext <= dDate .OR. Tr_MsgBox("Intervall stimmt nicht. N„chste F„lligkeit: "+DtoC(dNext),,{"OK","Anpassen und freigeben"}) == 2
-                     nChoice := 2
-                     Tr_MsgBox("Automatisch freigegeben.")
-                     rerep->(Rec_Lock(0))
-                     rerep->Last := dDate
-                     rerep->(dbUnLock())       
-                     EXIT           
-                  ENDIF       
-               ENDIF     
-               rerep->(dbSkip())
-            ENDDO
+            rerep->(dbSetORder( 1 ))
+            IF rerep->(dbSeek( Str(reb->Konto,6)+Str(reb->Betrag*100,14,0) )) 
+               rebp->(dbSetOrder( 1 ))
+               rebp->(dbSeek( Str(reb->ID,9), .T. ))
+               dDate := StoD(rebp->DateTime)
+               //Tr_MsgBox("Prfe wiederkehrende Rechnungen")
+               DO WHILE rerep->Konto == reb->Konto .AND. rerep->Betrag == reb->Betrag  //there can be multiple entries
+                  IF Empty(rerep->End) .OR. rerep->End > dDate
+                     IF rerep->Intervall=="M" 
+                        dNext := AddMonth(rerep->Last,1)-5 //5 Tage Toleranz
+                     ELSEIF rerep->Intervall=="H" 
+                        dNext := AddMonth(rerep->Last,6)-15 //15 Tage Toleranz               
+                     ELSEIF rerep->Intervall=="J"
+                        dNext := AddMonth(rerep->Last,12)-30 //30 Tage Toleranz               
+                     ELSE
+                        dNext := StoD("")
+                     ENDIF               
+                     //Tr_MsgBox(rerep->Intervall+" "+DtoC(dNext))
+                     IF dNext <= dDate .OR. Tr_MsgBox({"Intervall stimmt nicht.","N„chste F„lligkeit: "+DtoC(dNext),"Letzte Rechung: "+DtoC(rerep->Last)},,{"OK","Anpassen und freigeben"}) == 2
+                        nChoice := 2
+                        Tr_MsgBox("Automatisch freigegeben.")
+                        rerep->(Rec_Lock(0))
+                        rerep->Last := dDate
+                        rerep->(dbUnLock())       
+                        EXIT           
+                     ENDIF       
+                  ENDIF     
+                  rerep->(dbSkip())
+               ENDDO
+            ENDIF
          ENDIF
          IF nChoice == 0
             Eval(bOpen,ATail(aFiles)[6])
-            nChoice := Tr_MsgBox("Freigeben?",,{"Nein","Ja",cZuText,cFirmText,"mit Intervall"})
+            aChoices := {"Nein","Ja",cZuText,cFirmText}
+            IF lCanApprove
+               Aadd(aChoices,"mit Intervall")
+            ENDIF
+            nChoice := Tr_MsgBox("Freigeben?",,aChoices)
          ENDIF
          IF nChoice == 5
             cScreen := SaveScreen(10,10,12,41)
@@ -537,9 +552,13 @@ oBrowse:AddKey(K_ENTER,{||
             
             LETO_BEGINTRANSACTION()
             BEGIN SEQUENCE
-               reb->(Rec_Lock())
-               reb->Status := 8
-               reb->Person := nPersOnApprove
+               reb->(Rec_Lock())               
+               IF ! lPreApprove
+                  reb->Person := nPersOnApprove
+                  reb->Status := 8
+               ELSE //is only pre approval
+                  reb->Person := nPersOnPreApprove
+               ENDIF
                rebp->(Add_Rec())
                rebp->ID := reb->ID
                rebp->DateTime := TtoS(DateTime())
@@ -547,7 +566,7 @@ oBrowse:AddKey(K_ENTER,{||
                rebp->Person   := Tr_Getini(28)
                rebp->Rev      := reb->Rev
                LETO_COMMITTRANSACTION()
-               IF nPersOnApprove != Tr_Getini(28)
+               IF IF(lCanApprove,nPersOnApprove,nPersOnPreApprove) != Tr_Getini(28)
                   //reb->(dbSkip())
                   Eval(bSkip)
                ENDIF
@@ -561,6 +580,9 @@ oBrowse:AddKey(K_ENTER,{||
          ENDIF
       ELSE
          nChoice := Tr_MsgBox("Beleg ist noch nicht zur Buchung freigegeben",,{"OK","anzeigen",cZuText,cFirmText})
+         IF Len(aFiles) == 0
+            SendMail({{"Amos","amos.engelking@engelking.de"}},"No files","invoice: "+Str(reb->ID,9)+" there are no files in the archive.")
+         ENDIF
          IF nChoice == 2
             Eval(bOpen,ATail(aFiles)[6])
          ELSEIF nChoice == 3

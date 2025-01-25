@@ -158,8 +158,8 @@ Do While nR <= Len(hReps)
    ENDIF
    IF nRep == 0 //.OR. RepGetEmail(nRep) != "thimo.hamma@engelking.de"
       Aadd(aTo,{"thimo.hamma@engelking.de","Thimo Hamma",If(Len(aTo)==0,"TO","CC")})
-   ENDIF
-   Aadd(aTo,{"amos.engelking@engelking.de","Amos Engelking",If(Len(aTo)==0,"TO","CC")})
+   ENDIF   
+   //Aadd(aTo,{"amos.engelking@engelking.de","Amos Engelking",If(Len(aTo)==0,"TO","CC")})
    SendMail(aTo,t("Information über Kunden "+DToC(dStart)+" bis "+DToC(dEnd)),cText,{},.F.,0,.T.)
    //SendMail({{"amos.engelking@engelking.de",Trim(cName)}},t("Information über Kunden "+DToC(dStart)+" bis "+DToC(dEnd)),cText,{},.F.,0,.T.)
    nR++

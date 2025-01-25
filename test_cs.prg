@@ -4,7 +4,7 @@ PROC Test_CS()
 
    oCS := CreditSafe()
    Aadd(aP,SOAPParameter():New("countries"))
-   ATail(aP):CreateChild("CountryCode","LI",,"http://schemas.datacontract.org/2004/07/Creditsafe.GlobalData")
+   ATail(aP):CreateChild("CountryCode","RO",,"http://schemas.datacontract.org/2004/07/Creditsafe.GlobalData")
    
    oXML := oCS:Call("GetPossibleSearchCriteria",aP)
 

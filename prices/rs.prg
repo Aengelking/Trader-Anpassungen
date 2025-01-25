@@ -18,7 +18,7 @@ LOCAL hGroups := {;
 MEMVAR cPriceError
 
 
-   IF lSub != .T. .AND. Right(Trim(Upper(cArtLief)),1) $ "PA"
+   IF (ValType(lSub) != "L" .OR. !lSub) .AND. Right(Trim(Upper(cArtLief)),1) $ "PA"
       cArtLief := SubStr(cArtLief,1,Len(Trim(cArtlief))-1)
    ENDIF
 
@@ -53,6 +53,10 @@ MEMVAR cPriceError
       RETURN NIL
    ELSEIF lDbg .AND. "Leider konnten wir die von Ihnen gesuchte Seite nicht finden" $ cData
       Alert("Part not found;"+cArtlief)
+   ELSEIF "Nicht mehr im Sortiment" $ cData
+      Tr_MsgBox("Artikel bei RS nicht mehr erh„tllich. Bitte Lieferant l”schen.")
+      cPriceError := "Part not available"
+      RETURN NIL
    Endif
 
    aRegex := HB_Regex("Preis pro.*?([0-9]*) StÃ¼ck([^\(][^0-9]*([0-9]+))?",cData) //

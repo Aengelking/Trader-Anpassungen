@@ -1,4 +1,5 @@
 #include 'y:\hb34\contrib\hbcurl\hbcurl.ch'
+//#include 'hbcurl.ch'
 #include 'hbclass.ch'
 
 FUNCTION RUN_FREPPLE_CURL
@@ -14,14 +15,14 @@ FUNCTION RUN_FREPPLE_CURL
    //? "Deleting calendar buckets "
    ? "Downloading existing calendar buckets "
    aOldBuckets := oFrepple:getCalendarBuckets()
-   IF Len(aOldBuckets) > 0
+   IF ValType(aOldBuckets) == "A" .AND. Len(aOldBuckets) > 0
       aBucket := {}
       FOR nX := 1 TO Len(aOldBuckets[1])         
          Aadd(aBucket,HGetKeyAT(aOldbUckets[1],nX))
       NEXT
       Aadd(aBuckets,aBucket)
       FOR EACH aOldBucket IN aOldBuckets
-         IF ":" $  aOldBucket["calendar"]
+         IF ":" $  aOldBucket["calendar"] //supplier buckets
             //@ Row(),27 SAY aOldBucket["id"]
             //oFrepple:deleteCalendarBucket(aOldBucket["id"])
          ELSE
@@ -75,6 +76,10 @@ FUNCTION RUN_FREPPLE_CURL
    cCmd += ' "'+oFrepple:cBaseUrl+'/execute/uploadtofolder/0/"'
    cData := ""
    nProc := HB_OpenProcess(cCmd,,@nStdOut,,.T.)
+   IF nProc <= 0
+      Alert("Failed to start process.;"+cCmd)
+      RETURN NIL
+   ENDIF
    DO WHILE HB_ProcessValue(nProc,.F.) == -1
       cLine := Space( 1000 )
       nBytes := Fread( nStdOUT, @cLine, Len(cLine) )
@@ -89,10 +94,11 @@ FUNCTION RUN_FREPPLE_CURL
    ENDIF
 
    ? "Executing plan. "
-   IF ! oFrepple:waitEndOfTask(oFrepple:RunPlan(),Row(),Col())
-      Alert("failed")
-      RETURN NIL
-   ENDIF
+   DO WHILE ! oFrepple:waitEndOfTask(oFrepple:RunPlan(),Row(),Col())
+      IF Tr_MsgBox("Executing plan failed",,{"try again","cancel"}) != 1
+         RETURN NIL
+      ENDIF
+   ENDDO
 
    /*? "Executing plan a second time (until the bug with the manufacturing orders is solved). "
    IF ! oFrepple:waitEndOfTask(oFrepple:RunPlan(),Row(),Col())

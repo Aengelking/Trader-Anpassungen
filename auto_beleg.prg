@@ -101,13 +101,14 @@ FUNCTION ProcessOCData(aData,cSup,cAbNr,nPO,cDate,caDateFormat,cIgnoreParts,lKom
             nPO := Val(hRow["PO"])
          ENDIF
          IF nPO == 0
-            IF ! "TOTAL" $ Upper(hRow["PO"])
+            //23.05.24 this causes an error and I do not understand what it does. Does not make any sense to me. Cannot find any referencce to "TOTAL" in the code
+            /*IF ! "TOTAL" $ Upper(hRow["PO"])
                Eval(bAddErr)
                IF DEBUG
                   cError += "NO TOTAL"+Chr(13)+Chr(10)
                ENDIF
             ENDIF
-            LOOP
+            LOOP*/
          ENDIF
 
          IF ! nPO $ aBes
@@ -197,7 +198,7 @@ FUNCTION ProcessOCData(aData,cSup,cAbNr,nPO,cDate,caDateFormat,cIgnoreParts,lKom
                      ENDDO
                      bes->(dbSkip(-1))
                   ELSE
-                     Tr_MsgBox({"Bestellung "+LTrim(Str(nPo)),"Artikel: "+hRow["PART"],"Menge: "+hRow["QTY"],"frher als der Wunschtermin ("+NiceWeek(bes->WTerm)+") best„tig ("+NiceWeek(nKW)+").","Position wurde nicht verbucht"},"Fehler")
+                     Tr_MsgBox({"Bestellung "+LTrim(Str(nPo)),"Artikel: "+hRow["PART"],"Menge: "+hRow["QTY"],"frher als der Wunschtermin ("+NiceWeek(bes->WTerm)+") best„tigt ("+NiceWeek(nKW)+").","Position wurde nicht verbucht"},"Fehler")
                      IF DEBUG
                         cError += "CONFIRMED DATE EARLIER THAN REQUESTED "+Chr(13)+Chr(10)
                      endif

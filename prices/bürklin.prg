@@ -2,33 +2,39 @@ PARAMETERS nArtnr,cArtlief,cMatch
 
 LOCAL nX,hData,hPrice,hPrices := {=>},oHttp,oHttp2
 LOCAL nPos,cPrices,cDomain := "https://www.buerklin.com"
-LOCAL lDbg := .F. //Tr_Getini(28) == 9 .AND. ! GetConfigValue("BATCHMODE")
+LOCAL lDbg := .F.  //Tr_Getini(28) == 9 .AND. ! GetConfigValue("BATCHMODE")
 LOCAL hCookies := {=>},cValue
 LOCAL cScreen
    
-   cUrl :=  cDomain+"/de/p/x/x/"+Lower(Trim(StrTran(cMatch,"/","-")))+"/"+StrTran(cArtLief," ","")+"/"
+   cUrl :=  cDomain+"/de/p/x/x/"+Lower(Trim(StrTran(StrTran(cMatch,"/","-"),"#MT","")))+"/"+StrTran(cArtLief," ","")+"/"
    IF lDBg
-      gtSetClipboard(cUrl)
+      //gtSetClipboard(cUrl)
       Alert(cUrl)
    ENDIF
    cData := __DownLoadPage(cUrl) //oHttp:readAll()
 
    IF ValType(cData) == "C"       
       IF lDbg
-         /*cScreen := SaveScreen()
-         MemoEdit(cData)*/
-         gtSetClipboard(cData)
-         //RestScreen(,,,,cScreen)
+         cScreen := SaveScreen()
+         MemoEdit(cData)
+         //gtSetClipboard(cData)
+         RestScreen(,,,,cScreen)
       ENDIF
       IF (nP := AT("crossselling",cData)) != 0
          cData := SubStr(cData,1,nP)  //cut off all crossselling products to avoid wrong information
       ENDIF            
-      IF AT("Dieser Artikel ist ein Auslaufartikel",cData) != 0  //keine Preise mehr verfgbar         
+      IF AT("Dieser Artikel ist ein Auslaufartikel",cData) != 0 .OR. AT("Entschuldigung, die Seite wurde nicht gefunden",cData) != 0 //keine Preise mehr verfgbar         
          IF lDbg
-            Alert("Auslauf")
+            Alert("Auslauf")            
          ENDIF
-         SendMail({{"amos.engelking@engelking.de","Amos"}},"Artikel nicht mehr bei Brklin erh„tlich "+Trim(art->Matchcode),"")
-         RETURN hPrices
+         IF ! GetConfigValue("BATCHMODE")
+            IF Tr_MsgBox({"Artikel nicht mehr bei Brklin erh„ltlich.","Bitte Lieferant l”schen - vorher ber Seite ”ffnen nochmals prfen"},,{"OK","Seite ”ffnen"}) == 2
+               WAPI_ShellExecute(,"open",cUrl)
+            ENDIF
+         ELSE
+            SendMail({{"amos.engelking@engelking.de","Amos"}},"Artikel nicht mehr bei Brklin erh„tlich "+Trim(art->Matchcode),cUrl)
+         ENDIF
+         RETURN NIL //hPrices
       ENDIF
       cData := SubStr(cData,AT("ScaleOfPricesComponent",cData)+22)
       IF AT('data-scale-of-price-sku="'+StrTran(cArtLief," ","")+'"',cData) > 0 //es gibt staffelpreise
@@ -63,9 +69,14 @@ LOCAL cScreen
            hPrices[1] := Val(aBreaks[1])/1.19
          ENDIF
       ENDIF
-
-   ELSEIF lDbg
-      Alert("No data received")
+      IF Len(hPrices) == 0
+         SendMail({{"amos.engelking@engelking.de","Amos"}},"Keine Preise bei Brklin gefunden fr: "+Trim(art->Matchcode),cData)
+      ENDIF
+   ELSE
+      IF lDbg
+         Alert("No data received")
+      ENDIF
+      SendMail({{"amos.engelking@engelking.de","Amos"}},"Preise von Brklin konnten fuer "+Trim(art->Matchcode)+" nicht geladen werden",cData)
    ENDIF
    IF lDbg
       Alert(ValToPrg(hPrices))

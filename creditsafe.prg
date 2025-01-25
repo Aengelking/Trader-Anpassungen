@@ -107,7 +107,7 @@ FUNCTION CS_GetCompanyReport(oSoap,cID,nReason)
 
    Aadd(aP,SOAPParameter():New("companyId",cId))
    Aadd(aP,SOAPParameter():New("reportType","Full"))
-   Aadd(aP,SOAPParameter():New("language","DE"))
+   Aadd(aP,SOAPParameter():New("language",IF(Left(cID,2)${"DE","AT"},"DE","EN")))
    Aadd(aP,SOAPParameter():New("customData"))
    oEntries := ATail(aP):CreateChild("Entries",,,"http://www.creditsafe.com/globaldata/datatypes")
    IF AT("DE",cID) == 1
@@ -387,6 +387,10 @@ FUNCTION EditCSNumber()
       cCSNr := Space(7)
       cPic := Replicate("9",7)      
       cCSPre := "LI006/X/"
+   ELSEIF ku->CountryIso == "HR"
+      cCSNr := Space(9)
+      cPic := Replicate("9",9)      
+      cCSPre := "HR024/X/"
    ELSE
       Tr_MsgBox("Land nicht unterstÅtzt")
       RETURN .T.
@@ -429,3 +433,5 @@ FUNCTION EditCSNumber()
    ENDDO   
       
 RETURN NIL 
+
+#include "x:\run\creditsafe_search.prg"

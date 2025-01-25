@@ -19,6 +19,7 @@ LOCAl nCount,lSetup := .T.,hLang := {"DE"=>"Deutsch","EN"=>"Englisch"}
 LOCAL oMonthGet
 LOCAL oExtra,dYtdDate,nY,cKunde,cMarket,oXml,oMainActivity,oActivityCode,cCode,cMatch,cCountry,hCountry,bPrint
 LOCAL aData,hData :=  {=>}
+LOCAL lExternal
 
 
 Default(@nType,2)
@@ -90,23 +91,7 @@ oMonthGet := ATail(getlist)
 @ 06,00 SAY "Hersteller "
 @ 06,12,23,40 GET nManu LISTBOX aManu[2] DROPDOWN
 @ 07,00 SAY "Ziel"
-@ 07,12,10,20 GET nArt LISTBOX {"extern","intern"} STATE {|| 
-   /*LOCAL oGet := GetActive()
-   LOCAL nVal := nArt
-   IF oGet != NIL .AND. oGet:Name =="nArt"
-      nVal := oGet:Control:Buffer
-   ENDIF
-   IF nVal == 1
-      cLang := "EN"
-   ELSE
-      cLang := "DE"
-   ENDIF
-   Alert(Str(Len(getlist)))
-   IF Len(getlist) >= 6      
-      getlist[6]:VarPut(cLang)  
-      getlist[6]:Control:Display()
-   ENDIF*/
-}
+@ 07,12,10,30 GET nArt LISTBOX {"extern mit Kundennmen","intern","extern anonymisiert"}
 @ 11,00 SAY "Sprache"
 @ 11,12,15,20 GET cLang LISTBOX hLang ASSOCIATIVE
 READ
@@ -115,6 +100,11 @@ ENDIF
 IF LastKey() == 27
  RETURN NIL
 ENDIF
+
+lExternal := nArt == 1 .OR. nArt == 3
+IF lExternal
+   nData := 1
+ENDIF   
 
 dYtdDate := Date()
 IF nType == 1 .AND. nMonth != 0
@@ -149,8 +139,8 @@ DO WHILE IF(nType==1,Year(re->Rechdat) >= nYear,Year(re->Rechdat) == nYear .AND.
    ENDIF
    //IF re->reposnr != 0 .AND. re->AoQty != 0 .AND. ! re->Folge
       art->(dbSeek( re->Matchcode ))
-      IF (aManu[1,nManu] == 0 .OR. art->Manufactur == aManu[1,nManu]) //.AND. (nArt == 2 .OR. art->LagerArt)  //this also excludes parts with folgeartikel (e.g. KS14696/59-xxx)
-         IF nArt == 1 .AND. aManu[1,nManu] != 0 .AND. ali->(dbSeek( cManuMatch+Str(art->Artikelnr,6) )) .AND. ! Empty(ali->Artlief)
+      IF (aManu[1,nManu] == 0 .OR. art->Manufactur == aManu[1,nManu])  //this also excludes parts with folgeartikel (e.g. KS14696/59-xxx)
+         IF lExternal .AND. aManu[1,nManu] != 0 .AND. ali->(dbSeek( cManuMatch+Str(art->Artikelnr,6) )) .AND. ! Empty(ali->Artlief)
             cMatchcode := Trim(ali->Artlief)
          ELSE
             cMatchcode := Trim(re->Matchcode)
@@ -252,30 +242,36 @@ IF nData == 0 .OR. nData == 1
    //SET PRINTER TO (Trim(Tr_Getini(1))+"\export\POS_"+Trim(aManu[2][nManu])+"_"+Str(nYear,4)+IF(nType==1,"","-"+StrZero(nMonth,2))+".csv")
    //SET PRINTER ON
    aData := {{}}
-   IF nArt == 2
+   IF ! lExternal
       //?? "Matchcode;"
       Aadd(aData[1],"Matchcode")
    ELSE
       IF cLang == "DE"
          Aadd(aData[1],"Kunde")
-         Aadd(aData[1],"Nummer")
+         IF nArt != 3
+            Aadd(aData[1],"Nummer")
+         ENDIF
       ELSE
          Aadd(aData[1],"Company")
-         Aadd(aData[1],"No")
+         IF nArt != 3   
+            Aadd(aData[1],"No")
+         ENDIF
       ENDIF
       
    ENDIF
    IF cLang == "DE"
       //?? "Kunde;Nummer;Land;Branche;Artikel"      
-      
-      Aadd(aData[1],"Land")
-      Aadd(aData[1],"Branche")
+      IF nArt != 3
+         Aadd(aData[1],"Land")
+      ENDIF
+      //Aadd(aData[1],"Branche")
       Aadd(aData[1],"Artikel")
    ELSE
       //?? "Company;No;Country;Sector;Part"      
-      
-      Aadd(aData[1],"Country")
-      Aadd(aData[1],"Sector")
+      IF nArt != 3
+         Aadd(aData[1],"Country")
+      ENDIF
+      //Aadd(aData[1],"Sector")
       Aadd(aData[1],"Part")
    ENDIF
    IF aManu[1,nManu] == 0
@@ -339,7 +335,7 @@ IF nData == 0 .OR. nData == 1
       ENDIF
       
 
-      IF cLang != "DE"
+      /*IF cLang != "DE"
          oXML := CS_GetCompanyReportFromArchive(ku->Nummer)
          IF oXml != NIL
          cMarket := "CS"
@@ -362,7 +358,7 @@ IF nData == 0 .OR. nData == 1
                ENDIF
             ENDIF
          ENDIF
-      ENDIF
+      ENDIF*/
 
       FOR EACH hArt IN hCust["ART"]
          cMatch := hArt:__enumKey()
@@ -370,33 +366,40 @@ IF nData == 0 .OR. nData == 1
          IF cLang == "DE"
             cCountry := GetCountryName(ku->CountryIso)
          ELSE
-         hCountry := {;
-            "DE"=>"Germany",;
-            "AT"=>"Austria",;
-            "CH"=>"Switzerland";
-         }
-         IF HHasKey(hCountry,ku->CountryIso)
-            cCountry := hCountry[ku->CountryIso]
-         ELSE
-            cCountry := GetCountryName(ku->CountryIso)
-         ENDIF
-
-         ENDIF
-         //? IF(nArt==2,HB_OemToAnsi(Trim(ku->Kunde))+";","")+IF(nArt==1 .AND. (Trim(ku->CompForm)  $ "GBR EINZE EK PRIVA" .OR. oExtra:Nda),"NDA ENGELKING;",HB_OemToAnsi(Trim(Trim(ku->Name1)+" "+ku->Name2))+";"+LTrim(Str(ku->Nummer)))+";"+HB_OemToAnsi(cCountry)+";"+HB_OemToAnsi(Trim(cMarket))+";"+Trim(cMatch)
-         Aadd(aData,{})
-         IF nArt==2
-            Aadd(Atail(aData),HB_OemToAnsi(Trim(ku->Kunde)))
-         ELSEIF nArt == 1
-            IF (Trim(ku->CompForm)  $ "GBR EINZE EK PRIVA" .OR. oExtra:Nda)
-               Aadd(Atail(aData),"NDA ENGELKING")
-               Aadd(Atail(aData),0)
+            hCountry := {;
+               "DE"=>"Germany",;
+               "AT"=>"Austria",;
+               "CH"=>"Switzerland",;
+               "GB"=>"United Kingdom";
+            }
+            IF HHasKey(hCountry,ku->CountryIso)
+               cCountry := hCountry[ku->CountryIso]
             ELSE
-               Aadd(Atail(aData),StrTran(Trim(Trim(ku->Name1)+" "+ku->Name2),'"',""))
+               cCountry := GetCountryName(ku->CountryIso)
+            ENDIF
+         ENDIF
+         
+         Aadd(aData,{})
+         IF ! lExternal
+            Aadd(Atail(aData),HB_OemToAnsi(Trim(ku->Kunde)))
+         ELSE
+            //IF nArt == 1
+            IF (Trim(ku->CompForm)  $ "GBR EINZE EK PRIVA" .OR. oExtra:Nda)
+               IF nArt == 1
+                  Aadd(Atail(aData),"NDA ENGELKING")
+               ENDIF
+               Aadd(Atail(aData),100)
+            ELSE
+               IF nArt == 1
+                  Aadd(Atail(aData),StrTran(Trim(Trim(ku->Name1)+" "+ku->Name2),'"',""))
+               ENDIF
                Aadd(Atail(aData),ku->Nummer)
             ENDIF
-         ENDIF            
-         Aadd(Atail(aData),(cCountry))
-         Aadd(Atail(aData),StrTran(Trim(cMarket),";",""))
+         ENDIF    
+         IF nArt != 3        
+            Aadd(Atail(aData),(cCountry))
+         ENDIF
+         //Aadd(Atail(aData),StrTran(Trim(cMarket),";",""))
          Aadd(Atail(aData),StrTran(Trim(cMatch),";",""))
          IF aManu[1,nManu] == 0
             //?? ";"+aManu[2,art->Manufactur+1]
@@ -438,7 +441,7 @@ IF nData == 0 .OR. nData == 1
    IF lCSV
       SaveAsCSV((Trim(Tr_Getini(1))+"\export\POS_"+Trim(aManu[2][nManu])+"_"+Str(nYear,4)+IF(nType==1,"","-"+StrZero(nMonth,2))+".csv"),aData)
    ENDIF
-   IF nData == 2
+   IF nData == 1
       nManu--
       RETURN aData
    ENDIF

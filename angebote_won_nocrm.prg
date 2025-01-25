@@ -43,7 +43,7 @@ PROC RUN_ANGEBOTE_WON_NOCRM
          //zuerst alle die noch offen sind
             aGetData := oNoCrm:Execute("leads","GET",HMerge({"include_unassigned"=>"true","limit"=>"100","offset"=>LTrim(Str(nOff))},aRequests[nX]))
             IF ValType(aGetData) != "A"
-               Alert(Str(nX)+ValToPrg(aGetData))
+               //Alert(Str(nX)+ValToPrg(aGetData))
             ENDIF
             AEval(aGetData,{|x| hLeads[x["id"]] := x })
             nOff := Len(hLeads)
@@ -82,11 +82,13 @@ PROC RUN_ANGEBOTE_WON_NOCRM
             nQty := 0
             nAb := 0
             DO WHILE ! auf->(EOF())
+               IF Tr_Getini(28) == 9 .AND. ang->Angnr == 45587;? nAb;ENDIF
                IF nAB != auf->AbNr
                   nAb := auf->Abnr
                   nQty := 0
                ENDIF
                IF ! nAB $ hOrders .OR. hOrders[nAB] == ang->Angnr
+                  IF Tr_Getini(28) == 9 .AND. ang->Angnr == 45587;?? nqty;ENDIF
                   nQty += IF(auf->bestat<3 .OR. (auf->Bestat>=4 .AND. auf->Bestat<=6),auf->VkQty,auf->GelQty)
                ENDIF
                auf->(dbSkip())
@@ -113,7 +115,10 @@ PROC RUN_ANGEBOTE_WON_NOCRM
       ELSEIF ang->Besda+nFrist <= Date() //abgelaufen
          Aadd(aClose,ang->Angnr)
       ENDIF
-   
+      IF Tr_Getini(28) == 9 .AND. ang->Angnr == 45587
+         SInkey(0)
+      ENDIF
+         
       ang->(dbSkip())      
    ENDDO
 

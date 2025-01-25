@@ -4,13 +4,14 @@
    LOCAL cFilter 
    LOCAL hUser := {=>},aOrders,nX
    LOCAL nLastAB,cText,oUser
+   LOCAL aTo,dLastDate,nLevel
 
    NetUse("artikel","art")
    NetUse("engauf","auf")
    auf->(dbSetOrder( 14 ))
    art->(dbSetOrder( 2 ))
       
-   cFilter := 'Right(Str(dterm,4),2) $ {"97","98"} .AND. ! Trim(Matchcode) $ {"PORTO","FREIGHT"} .AND. bestat != 3'
+   cFilter := 'Right(Str(dterm,4),2) $ {"97","98"} .AND. ! Trim(Matchcode) $ {"PORTO","FREIGHT","EXPRESSZUSCHLAG"} .AND. bestat != 3'
    auf->(dbSetFilter({|| auf->(&(cFilter))},cFilter))
    auf->(dbGoTop())
 
@@ -29,6 +30,7 @@
 
    CLS
 
+
    auf->(dbSetOrder( 1 ))
 
    
@@ -39,7 +41,7 @@
       oUser:Load((aOrders:__eNumKey))
       nLastAB := 0
       cText := "Hallo "+SubStr(oUser:Name,1,AT(" ",oUser:Name)-1)+","+CRLF+CRLF+"folgende Auftr„ge stehen noch auf 'Termin folgt' oder 'Unbekannt':<pre>"   
-      cText += "AB-Nr. Pos "+Pad("Artikel",25)+PadL("Menge",12)+" "+Space(4)+" "+"Datum"+" "+"m”glicher Termin"+CRLF
+      cText += "AB-Nr. Pos "+Pad("Artikel",25)+PadL("Menge",12)+" "+Space(4)+" "+"Datum   "+" "+"m”glicher Termin"+CRLF
       FOR nX := 1 TO Len(aOrders)
          auf->(dbSeek( Str(aOrders[nX,1],6)+Str(aOrders[nX,2]) ))
 
@@ -50,10 +52,27 @@
          ENDIF
          art->(dbSeek( Str(auf->Artikelnr,6) ))
          cText += " "+Str(auf->Itmnr)+" "+auf->Matchcode+PadL(Transform(auf->VkQty,Me(art->Me)),12)+" "+art->Me+" "+DtoC(auf->Besda)+" "+IF(!Empty(aOrders[nX,3]),NiceWeek(aOrders[nX,3]),"-")+CRLF
+         dLastDate := IF(Empty(auf->LastPrint),auf->Besda,auf->LastPrint)
+         IF AddWeeks(CWeek(dLastDate),4) <= CWeek(Date())
+            nLevel := 1
+         ENDIF
+         IF AddWeeks(CWeek(dLastDate),8) <= CWeek(Date())
+            nLevel := 2
+         ENDIF
          nLastAB := auf->Abnr
       NEXT
-      
-      SendMail({{oUser:Email,oUser:Name}/*,{"amos.engelking@engelking.de","Amos","CC"}*/},"Auftr„ge mit 'Termin folgt'/'Unbekannt'",cText) //,,,,.T.)
+
+      aTo := {{oUser:Email,oUser:Name}}
+
+      IF nLevel >= 1
+         Aadd(aTo,{"thimo.hamma@engelking.de","Thimo","CC"})         
+      ENDIF
+      IF nLevel >= 2
+         Aadd(aTo,{"amos.engelking@engelking.de","Amos","CC"})
+      ENDIF
+      IF Len(aTo) > 0
+         SendMail(aTo,"Auftr„ge mit 'Termin folgt'/'Unbekannt'",cText) //,,,,.T.)
+      ENDIF
    NEXT
 
    ? "Done"

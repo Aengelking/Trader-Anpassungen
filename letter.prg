@@ -33,7 +33,10 @@ Do While nType < 2
       	cCmd := '"C:\Program Files (x86)\WinSCP\WinSCP.com"'
       	cOpt := ""
          cOpt := '/command "option batch on" "option confirm off"'
-      	cOpt += ' "open sftp://amos.engelking@engelking.de:loving16@api.onlinebrief24.de -hostkey=""ssh-rsa 2048 5b:d1:29:17:cb:5e:17:b9:e2:29:4e:1e:aa:c7:d9:b2"""'         //cOpt += ' '
+      	cOpt += ' "open sftp://amos.engelking@engelking.de:loving16@api.onlinebrief24.de '
+         //cOpt += '-hostkey=""ssh-rsa 2048 5b:d1:29:17:cb:5e:17:b9:e2:29:4e:1e:aa:c7:d9:b2""'
+         cOpt += '-hostkey=""ssh-rsa 3072 cno3q2GVL0HdDTA1sbvlcIv4TKvJGPIafyTlVQk76S0""'
+         cOpt += '"'         
       	cOpt += ' "put ""'+oPrinter:Data:Filename+'"" ""/upload/api/1000'+If(nType==4,"1","0")+'00000000-'+hb_strToUtf8(SubStr(oPrinter:Data:Filename,RAT("\",oPrinter:Data:Filename)+1))+'"" -nopermissions -nopreservetime" "exit"'
 
          lError := .T.
@@ -60,10 +63,11 @@ Do While nType < 2
          IF lError
             IF ! GetConfigValue("batchmode")
                Tr_MsgBox(t("Fehler beim Versenden des Briefs!"))
-               IF Tr_Getini(28) == 9
-                  //Alert(cCmd+" "+cOpt)
+               //IF Tr_Getini(28) == 9
+               //gtSetClipboard(cCmd+" "+cOpt)
+                 // Alert(cCmd+" "+cOpt)
                   //MemoEdit(cData)
-               ENDIF
+               //ENDIF
             ELSE
                SendMail({{"amos.engelking@engelking.de","Amos"}},"Fehler beim Briefversand","")
             ENDIF

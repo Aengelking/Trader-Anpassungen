@@ -1,10 +1,11 @@
 PROCEDURE Phone
    LOCAL aParam := HB_AParams()
    LOCAL cPhone
+   LOCAL lFound := .F.,nX
    LOCAL cPhoneShort
    LOCAL cFilter
    LOCAL hContact
-   LOCAL lD := .F. // Tr_Getini(28) == 9
+   LOCAL lD :=  Tr_Getini(28) == 9
 
    IF AT("#",aParam[1]) == 1
       aParam[1] := Substr(aParam[1],2)      
@@ -14,20 +15,31 @@ PROCEDURE Phone
       NetUse("phonebook","pbk")
       pbk->(dbSetOrder(1))
       //Alert(NormalizeTelno(Substr(aParam[1],2)))
-      cPhone := NormalizeTelno(Substr(aParam[1],2))
+      IF Left(aParam[1],2) == "00" .AND. SubStr(aParam[1],3,1) != "0" //not a country code
+         cPhone := NormalizeTelno(Substr(aParam[1],2))
+      ELSE
+         cPhone := NormalizeTelno(aParam[1])
+      ENDIF
+      
       IF lD
          Alert(cPhone)
       ENDIF
       IF pbk->(dbSeek( cPhone ))
          _ShowInfo()
+         lFound := .T.
       ELSE //number mot found, we will attempt finding the main number
          FOR nX := 1 TO 3 //max 3 digit extension
             cPhone := SubStr(cPhone,1,Len(cPhone)-IF(nX==1,1,2))+"0"
             IF pbk->(dbSeek( cPhone ))
                _ShowInfo()
+               lFound := .T.
                EXIT
             ENDIF
          NEXT
+      ENDIF
+      IF ! lFound .AND. SystemUser():Id == 9
+         //CreateMainWindow(48,166)
+         //Alert("Number "+cPhone+"not found in phonebook")
       ENDIF
       /*IF AT("0",aParam[1]) != 1 //using this for testing         
          cPhoneShort := "074649865"
@@ -57,7 +69,7 @@ PROCEDURE Phone
       
    ENDIF
 
-STATIC FUNCTION _ShowInfo(nContact)
+STATIC FUNCTION _ShowInfo()
    LOCAL cGroup
 
    NetUse("engkund","ku")

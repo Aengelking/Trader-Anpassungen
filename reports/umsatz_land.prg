@@ -6,6 +6,11 @@ LOCAL nPrePay := 0
 LOCAL getList := {}
 LOCAL nTotD := 0,nTotUSCA := 0,nTotRest := 0,nTotEU := 0,nKFZ := 0
 LOCAL oExtra
+LOCAL hEU := {=>},hRest := {=>},nCountryTot
+LOCAL nValue
+LOCAL nDACH,nRow
+LOCAL nEuropa
+
 
 Head("Umsätze nach Regionen + KFZ")
 
@@ -30,20 +35,29 @@ DO WHILE Year(re->Rechdat) == nYear
    @ 02,00 SAY re->Rechnr
    ku->(dbSeek( re->Kunde+"K" ))
    oExtra := ku->(Extradata():New(ku->Nummer))
+   nValue := re->PosWt-re->Preis //netto
    IF ku->CountryIso == "DE"
-      nTotD += re->PosWt-re->Preis
+      nTotD += nValue
    ELSEIF ku->CountryIso $ {"US","CA"}
-      nTotUSCA += re->PosWt-re->Preis
+      nTotUSCA += nValue
    ELSEIF ct2->(dbSeek( ku->CountryIso )) .AND. ct2->EG
-      nTotEU += re->PosWt-re->Preis
+      nTotEU += nValue
+      IF ! HHasKey(hEU,ku->CountryIso)
+         hEU[ku->CountryIso] := 0
+      ENDIF
+      hEU[ku->CountryIso] += nValue
    ELSE
-      nTotRest += re->Poswt-re->Preis
+      nTotRest += nValue
+      IF ! HHasKey(hRest,ku->CountryIso)
+         hRest[ku->CountryIso] := 0
+      ENDIF
+      hRest[ku->CountryIso] += nValue
    ENDIF
    IF oExtra:KFZ
-      nKFZ += re->Poswt-re->Preis
+      nKFZ += nValue
    ENDIF
 
-   nTotal += re->PosWt
+   nTotal += nValue
    IF sk->(IsPrePay(re->Skonto))
       nPrePay += re->Poswt
    ELSEIF re->State == "FINA"
@@ -52,13 +66,43 @@ DO WHILE Year(re->Rechdat) == nYear
    re->(dbSkip())
 ENDDO
 @ 02,00 CLEAR
-@ 03,00 SAY "Deutschland  : "+Transform(nTotD,"@E 9,999,999.99")
-@ 04,00 SAY "Ausland      : "+Transform(nTotEU+nTotUSCA+nTotRest,"@E 9,999,999.99")
-@ 05,00 SAY "Ausland o.USA: "+Transform(nTotEU+nTotRest,"@E 9,999,999.99")
-@ 06,00 SAY "  EU         : "+Transform(nTotEU,"@E 9,999,999.99")
-@ 07,00 SAY "  USA/Kanada : "+Transform(nTotUSCA,"@E 9,999,999.99")
-@ 08,00 SAY "  Rest       : "+Transform(nTotRest,"@E 9,999,999.99")
-@ 09,00 SAY "KFZ          : "+Transform(nKFZ,"@E 9,999,999.99")
+
+@ 03,00 SAY "Gesant       : "+Transform(nTotal,"@E 9,999,999.99")
+@ 04,00 SAY "  ohne USA/CA: "+Transform(nTotD+nTotEU+nTotRest,"@E 9,999,999.99")
+@ 05,00 SAY "Deutschland  : "+Transform(nTotD,"@E 9,999,999.99")+" "+Str(nTotD/nTotal*100,6,2)+"%"
+nDACH := nTotD
+IF HHasKey(hEU,"AT")
+   nDACH += hEU["AT"]
+ENDIF
+IF HHasKey(hRest,"CH")
+   nDACH += hRest["CH"]
+ENDIF
+@ 06,00 SAY "DACH         : "+Transform(nDach,"@E 9,999,999.99")+" "+Str((nDach)/nTotal*100,6,2)+"%"
+@ 07,00 SAY "Ausland      : "+Transform(nTotEU+nTotUSCA+nTotRest,"@E 9,999,999.99")
+@ 08,00 SAY "Ausland o.USA: "+Transform(nTotEU+nTotRest,"@E 9,999,999.99")
+
+nEuropa := nTotEU
+IF HHasKey(hRest,"CH")
+   nEuropa += hRest["CH"]
+ENDIF
+IF HHasKey(hRest,"GB")
+   nEuropa += hRest["GB"]
+ENDIF
+nRow := 09
+
+@ nRow++,00 SAY "  EUROPA     : "+Transform(nEuropa,"@E 9,999,999.99")+" "+Str(nEuropa/nTotal*100,6,2)+"%"
+
+@ nRow++,00 SAY "  EU         : "+Transform(nTotEU,"@E 9,999,999.99")+" "+Str(nTotEU/nTotal*100,6,2)+"%"
+
+FOR EACH nCountryTot IN hEU
+   @ nRow++,00 SAY "   "+nCountryTot:__eNumKey()+"        : "+Transform(nCountryTot,"@E 9,999,999.99")+" "+Str(nCountryTot/nTotal*100,6,2)+"%"
+NEXT
+@ nRow++,00 SAY "  USA/Kanada : "+Transform(nTotUSCA,"@E 9,999,999.99")+" "+Str(nTotUSCA/nTotal*100,6,2)+"%"
+@ nRow++,00 SAY "  Rest       : "+Transform(nTotRest,"@E 9,999,999.99")+" "+Str(nTotRest/nTotal*100,6,2)+"%"
+FOR EACH nCountryTot IN hRest
+   @ nRow++,00 SAY "   "+nCountryTot:__eNumKey()+"        : "+Transform(nCountryTot,"@E 9,999,999.99")+" "+Str(nCountryTot/nTotal*100,6,2)+"%"
+NEXT
+@ nRow,00 SAY "KFZ          : "+Transform(nKFZ,"@E 9,999,999.99")
 
 
 

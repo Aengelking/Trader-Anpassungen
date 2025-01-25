@@ -87,7 +87,9 @@ Do While ! art->(Eof())
          Enddo
          abg->(dbClearFilter())
          IF dZug <= Date()-365*nYearsZug .AND. dAbg <= Date()-365*nYearsAbg .AND. dZug >= Date()-365*nYears2Zug .AND. dAbg >= Date()-365*nYears2Abg
-            nPreis := art->avpreis/art->Pe
+            //oArt := Artikel():New()
+            //nPreis := oArt:GetAvgBuyPrice()
+            nPreis := art->avpreis //art->Pe
             /*If art->Bezug >= 5
                nPreis := StCalc(art->artikelnr,5,99,.T.)
             Endif*/

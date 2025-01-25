@@ -31,6 +31,8 @@ LOCAL cLang,aCSV,nH
 LOCAL cStart := "20210101"
 LOCAL dStart := StoD(cStart)
 LOCAL cWeek  := CalWeek(dStart)
+LOCAL nPerson
+LOCAL hTurnOver
 
 Head("Ansprechpartner mit Email Adressen exportieren")
 
@@ -42,8 +44,8 @@ Head("Ansprechpartner mit Email Adressen exportieren")
 @ 08,27 GET lAuftrag CHECKBOX
 @ 09,00 SAY "Alle Kontakte"
 @ 09,27 GET lAllContacts CHECKBOX
-@ 10,00 SAY "Allgemeine ausschlieáen"
-@ 10,27 GET lNoGeneral CHECKBOX
+//@ 10,00 SAY "Allgemeine ausschlieáen"
+//@ 10,27 GET lNoGeneral CHECKBOX
 READ
 
 
@@ -68,7 +70,10 @@ NetUse("angebot","ang")
 NetUse("contacts","conts")
 NetUse("anrede","an")   
 NetUse("manufact","manu")   
-
+NetUse("groupmain","grm")
+NetUse("plzbl","plzbl")
+NetUse( "bundesl" , "bl" )
+NetUse("parts","part")
 
 
 SET CURSOR OFF
@@ -84,7 +89,8 @@ IF lAuftrag
       art->(dbSeek( Str(auf->Artikelnr,6) ))
 
       @ 23,14 SAY Str(auf->Abnr,6)+" ("+LTrim(Str(nCount))+")"
-      __AddEntry(hPos,"order",CalWD(auf->Dterm),auf->Kundma,auf->person)
+      //__AddEntry(hPos,"order",CalWD(auf->Dterm),auf->Kundma,auf->person)
+      __AddEntry(hPos,"order",auf->Besda,auf->Kundma,auf->person)
 
       auf->(dbSkip())
    Enddo
@@ -143,6 +149,7 @@ Aadd(hData[cLang][1],"Firma")
 Aadd(hData[cLang][1],"Straáe")
 Aadd(hData[cLang][1],"PLZ")
 Aadd(hData[cLang][1],"Stadt")
+Aadd(hData[cLang][1],"Bundesland")
 Aadd(hData[cLang][1],"Land")
 
 Aadd(hData[cLang][1],"Letzte Bestellung")
@@ -153,29 +160,46 @@ Aadd(hData[cLang][1],"Letzte pers”nliche Bestellung")
 Aadd(hData[cLang][1],"Letztes pers”nliches Muster")
 Aadd(hData[cLang][1],"Letztes pers”nliches Angebot")
 
+Aadd(hData[cLang][1],"Umsatz "+Str(Year(Date()),4))
+Aadd(hData[cLang][1],"Umsatz "+Str(Year(Date())-1,4))
+
+Aadd(hData[cLang][1],"Allgemeine Adresse")
+
 Aadd(hData[cLang][1],"Hersteller")
+Aadd(hData[cLang][1],"Produktgruppen")
 Aadd(hData[cLang][1],"Artikel")
+
+
 
 aku->(dbSetOrder( 3 ))
 nX := 1
 Do While nX <= Len(hPos)
    @ 26,11 SAY Str(nX,10)
-   cKunde := HGetKeyAt(hPos,nX)
+   cKunde := HGetKeyAt(hPos,nX)   
    If ! Trim(cKunde) $ "SELF TEST"      
+      hTurnOver := GetCustomerTurnOver(cKunde)
 		ku->(dbSeek( cKunde+"K" ))
       nP := 1
       IF lAllContacts
          aPeople := GetAddressContacts(.F.)[2]
       ELSE
-         aPeople := HGetKeys(hPos[cKunde]["people"])
+         aPeople := {}
+         FOR EACH nPerson IN GetAddressContacts(.T.)[2]
+            IF nPerson $ HGetKeys(hPos[cKunde]["people"])
+               Aadd(aPeople,nPerson)
+            ENDIF
+         NEXT
+         //aPeople := 
       ENDIF
       conts->(dbSetOrder(2))
-      Do While nP <= Len(aPeople)
-         IF aPeople[nP] != 0 .OR. Len(aPeople) == 1
-            
+      conts->(dbSeek( Str(ku->Nummer,6) ))
+      //Do While nP <= Len(aPeople)
+      DO WHILE conts->Address == ku->Nummer .AND. ! conts->(EOF())
+         //IF aPeople[nP] != 0 .OR. Len(aPeople) == 1
+         IF lAllContacts .OR. conts->Number $ hPos[cKunde]["people"]           
             cLang := ku->Language
 
-            IF conts->(dbSeek( Str(ku->Nummer,6)+Str(aPeople[nP],4) )) .AND. conts->Anrede > 0
+            IF /*conts->(dbSeek( Str(ku->Nummer,6)+Str(aPeople[nP],4) )) .AND.*/ conts->Anrede > 0
                an->(dbGoto(conts->Anrede))               
                cAnrede := Trim(an->Anrede)
                cName := Trim(conts->Name)
@@ -185,17 +209,21 @@ Do While nX <= Len(hPos)
                   cLang := "E"
                ELSEIF cLang == "E" .AND. conts->Anrede != 3
                   cLang := "D"
-               ENDIF
+               ENDIF               
             ELSEIF lNoGeneral
-               nP++
+               /*nP++
                IF nP > Len(aPeople)
                   EXIT
                ENDIF
-               LOOP
+               LOOP*/
+               cEmail := "" //this will cause it to jump to the next record
             ELSE
                cAnrede := IF(ku->Language=="D","Sehr geehrte Damen und Herren","Dear Sir or Madam")  
                cName   := ""          
                cEmail  := Trim(conts->email)               
+            ENDIF
+            IF ! conts->Active
+               cLang := "INAKTIV"
             ENDIF
 			
 				IF ! Empty(cEmail)
@@ -208,24 +236,45 @@ Do While nX <= Len(hPos)
                AAdd(aRec,Trim(ku->Street))
                AAdd(aRec,Trim(ku->Plz))
                AAdd(aRec,Trim(ku->Town))
+               IF ku->CountryIso == "DE" .AND. plzbl->( dbSeek( StrZero( Val( StrTran( ku->PLZ, "D-" ) ), 5 ) ) ) .AND. bl->( dbSeek( plzbl->BL ) )
+                  AAdd(aRec,Trim(bl->Short))
+               ELSE
+                  Aadd(aRec,"")
+               ENDIF
                AAdd(aRec,Trim(GetCountryname(ku->CountryIso)))
                Aadd(aRec,IF(Empty(hPos[cKunde]["lastorder"]),"",DToC(hPos[cKunde]["lastorder"])))
                Aadd(aRec,IF(Empty(hPos[cKunde]["lastsample"]),"",DToC(hPos[cKunde]["lastsample"])))
                Aadd(aRec,IF(Empty(hPos[cKunde]["lastquote"]),"",DToC(hPos[cKunde]["lastquote"])))
 
-               IF HHasKey(hPos[cKunde]["people"],aPeople[nP])
-                  Aadd(aRec,"") //DToC(hPos[cKunde]["people"][aPeople[nP]]["lastorder"]))
+               IF HHasKey(hPos[cKunde]["people"],conts->Number) //HHasKey(hPos[cKunde]["people"],aPeople[nP])
+                  /*Aadd(aRec,"") //DToC(hPos[cKunde]["people"][aPeople[nP]]["lastorder"]))
                   Aadd(aRec,"") //DToC(hPos[cKunde]["people"][aPeople[nP]]["lastsample"]))
-                  Aadd(aRec,"") //DToC(hPos[cKunde]["people"][aPeople[nP]]["lastquote"]))
+                  Aadd(aRec,"") //DToC(hPos[cKunde]["people"][aPeople[nP]]["lastquote"]))*/
+                  Aadd(aRec,DToC(hPos[cKunde]["people"][conts->Number]["lastorder"]))
+                  Aadd(aRec,DToC(hPos[cKunde]["people"][conts->Number]["lastsample"]))
+                  Aadd(aRec,DToC(hPos[cKunde]["people"][conts->Number]["lastquote"]))
                ELSE
                   FOR nZ := 1 To 3
                      Aadd(aRec,DtoC(StoD("")))
                   NEXT                  
                ENDIF
+               
+               Aadd(aRec,hTurnover["current"])
+               Aadd(aRec,hTurnover["last"])          
+               
+               Aadd(aRec,IF(conts->Anrede==0,"Ja","Nein"))
 
                cString := ""
                AEval(hPos[cKunde]["manufacturers"],{|cManu|                   
                   cString+="|"+Trim(cManu)
+                  RETURN .T.
+               })
+               cString += "|"
+               Aadd(aRec,cString)
+
+               cString := ""
+               AEval(hPos[cKunde]["groups"],{|cGroup|                   
+                  cString+="|"+Trim(cGroup)
                   RETURN .T.
                })
                cString += "|"
@@ -254,9 +303,11 @@ Do While nX <= Len(hPos)
                ENDIF
    
                Aadd(hData[cLang],aRec)
+               
             ENDIF
-			Endif
-			nP++
+			ENDIF
+			//nP++
+         conts->(dbSkip())
 		Enddo
 	Endif
 	nX++
@@ -282,14 +333,22 @@ SET CURSOR ON
 TR_MsgBox("Export abgeschlossen")
 
 STATIC Function __AddEntry(hPos,cType,dDate,cKunde,nPerson)
+   LOCAL cGroup
+
    IF ! HHasKey(hPos,cKunde)
-      hPos[cKunde] := {"kunde"=>cKunde,"artikel"=>{},"people"=>{=>},"manufacturers"=>{},"groups"=>{},"lastorder"=>StoD(""),"lastsample"=>StoD(""),"lastquote"=>StoD("")}
+      hPos[cKunde] := {"kunde"=>cKunde,"artikel"=>{},"groups"=>{},"people"=>{=>},"manufacturers"=>{},"groups"=>{},"lastorder"=>StoD(""),"lastsample"=>StoD(""),"lastquote"=>StoD("")}
    ENDIF
    
    hPos[cKunde]["last"+cType] := Max(hPos[cKunde]["last"+cType],dDate)
 
    IF Ascan(hPos[cKunde]["artikel"],art->Matchcode) == 0
       Aadd(hPos[cKunde]["artikel"],art->Matchcode)
+   ENDIF
+
+   grm->(dbSeek(Left(art->Gruppe,2)))
+   cGroup := Trim(grm->Name)
+   IF AScan(hPos[cKunde]["groups"],cGroup) == 0
+      Aadd(hPos[cKunde]["groups"],cGroup)
    ENDIF
    
 
@@ -302,7 +361,10 @@ STATIC Function __AddEntry(hPos,cType,dDate,cKunde,nPerson)
    IF Ascan(hPos[cKunde]["manufacturers"],manu->Short) == 0
       Aadd(hPos[cKunde]["manufacturers"],manu->Short)
    ENDIF
-   IF Ascan(hPos[cKunde]["groups"],art->Gruppe) == 0
-      Aadd(hPos[cKunde]["groups"],art->Gruppe)
-   ENDIF
+
+   /*IF art->Bezug == 5 //Fertigungsartikel
+      part->(dbSeek( Str(art->Artikelnr,6) ))
+      DO WHILE part->Partart == art->Artikelnr
+
+   ENDIF*/
 RETURN NIL

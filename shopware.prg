@@ -164,8 +164,11 @@ PROC ShopWare_Update_Partno
             cPN := Trim(hParentData["data"][1]["attributes"]["productNumber"])
 
             lError := .F.
-
-            IF ! HHAsKey(hParentData["data"][1]["attributes"]["customFields"],SW_BASIS_FIELD) .OR. Empty(hParentData["data"][1]["attributes"]["customFields"][SW_BASIS_FIELD])
+            IF ! HHAsKey(hParentData["data"][1],"attributes")
+               ? 'Fehler: Keine Attribute; Artikelnummer: '+cPN
+            ELSEIF ! HHAsKey(hParentData["data"][1]["attributes"],"customFields") .OR. ValtYpe(hParentData["data"][1]["attributes"]["customFields"]) != "H"
+               ? 'Fehler: Keine CustomFields; Artikelnummer: '+cPN
+            ELSEIF ! HHAsKey(hParentData["data"][1]["attributes"]["customFields"],SW_BASIS_FIELD) .OR. Empty(hParentData["data"][1]["attributes"]["customFields"][SW_BASIS_FIELD])
                ? 'Fehler: Kein Feld "'+SW_BASIS_FIELD+'"; Artikelnummer: '+cPN
             ELSEIF ! HHAsKey(hParentData["data"][1]["attributes"]["customFields"],SW_CAT_TITLE_FIELD) .OR. Empty(hParentData["data"][1]["attributes"]["customFields"][SW_CAT_TITLE_FIELD])
                ? 'Fehler: Kein Feld "'+SW_CAT_TITLE_FIELD+'"; Artikelnummer: '+cPN
@@ -309,7 +312,7 @@ PROC ShopWare_Update_Partno
                         oTable:oKeys:Each({|oKey|                         
                            IF (Empty(cDescription) .AND. Empty(oKey:Descript)) .OR.;
                               (! Empty(cDescription) .AND. _DeUpper(Trim(oKey:Descript)) $ {cDescription,hProductOptions[hPropGroupNames[aFunktion[1]]]}) //also match against the unkombined description of the first one
-                              cPN += Pad(oKey:TabKey,nLength)                           
+                              cPN += Trim(Pad(oKey:TabKey,nLength))
                               FOR EACH cFunktion IN aFunktion
                                  nSt := AT("%"+cFunktion+"%",_DeUpper(cTitle))
                                  IF nSt > 0
@@ -423,8 +426,13 @@ CLASS ShopWareAPI FROM RestAPI
 
 ENDCLASS
 
-METHOD New()
+METHOD New(lLive)   
    ::cBaseUrl := GetValue("SW_URL","https://egl.teufels-werk.de/api/","URL of the Shopware installation")
+   IF ! GetConfigValue("BATCHMODE")
+      IF (ValType(lLive) == "L" .AND. ! lLive) .OR. (ValType(lLive) != "L" .AND. Tr_MsgBox("Bitte w„hle die Umgebung aus, von der die Daten heruntergeladen werden sollen.",,{"Live","Staging"}) == 2)      
+         ::cBaseUrl := GetValue("SW_STAGING_URL","https://engelking.dev.intocommerce.de/api/","URL of the Shopware Staging Environment")
+      ENDIF
+   ENDIF
 RETURN ::Super:New()
 
 METHOD Auth(lRefresh)

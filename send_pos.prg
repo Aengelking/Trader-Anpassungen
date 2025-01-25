@@ -4,8 +4,9 @@ FUNCTION RUN_SEND_POS()
    LOCAL cPW,cFile,cDir
    LOCAL cLang,cText
    LOCAL lBatch
-   
-   
+   LOCAL hPos,aPos
+
+   NetUse("manufact","manu")
 
    IF nMonth > 1
       nMonth := nMonth-1
@@ -13,34 +14,51 @@ FUNCTION RUN_SEND_POS()
       nMonth := 12
       nYear -= 1
    ENDIF
-   
+
+   //make sure OO us running
+   Wapi_ShellExecute(NIL,"open","C:\Program Files\LibreOffice\program\soffice.exe") //,"--invisible")
+/**/
+      
+   aPOS := {;
+      ;//ITW
+      {"DIR"=>"\\EK-Server4\data\Dokumente und Einstellungen\Amos\Documents\ITW\POS\",;
+      "PW"=>.T.,;
+      "ANREDE"=>"Dear Steve",;
+      "MANUFACTURER"=>3,;
+      "TYPE"=>1},;
+      ;//BULGIN
+      {"DIR"=>"\\EK-Server4\data\Dokumente und Einstellungen\Amos\Documents\Lieferanten\Bulgin\POS\",;
+      "PW"=>.F.,;
+      "ANREDE"=>"Hello",;
+      "MANUFACTURER"=>1,;
+      "TYPE"=>3};
+   }
+
    //ITW
-   cDir := "\\EK-Server4\data\Dokumente und Einstellungen\Amos\Documents\ITW\POS\"
-   cFile := cDir+"POS_ITW_"+Str(nYear,4)+"-"+StrZero(nMonth,2)+".xls"
    lBatch := GetConfigValue("BATCHMODE")
    SetConfigValue("BATCHMODE",.T.)
-   aData := Bericht_Pos(2,nYear,nMonth,3,1,"EN") 
-   
+   FOR EACH hPos IN aPos
+      manu->(dbSeek( Str(hPos:Manufacturer,5) ))
 
-   SetConfigValue("BATCHMODE",lBatch)
-   cPW := MemoRead(cDir+"pw.txt")
-   SaveToOO(cFile,aData,cPW,"XLS") //we use XLS as the Password does not work with XSLX
+      aData := Bericht_Pos(2,nYear,nMonth,hPos:Manufacturer,hPos:Type,"EN")       
 
-   cLang := HB_LangSelect("EN")
-   cText := "Dear Steve,<p>Please find the current POS data attached.</p>Best Regards<br />Amos"
+      SetConfigValue("BATCHMODE",lBatch)
+      IF hPos:PW
+         cPW := MemoRead(hPos:Dir+"pw.txt")
+      ELSE
+         cPW := ""
+      ENDIF
 
-   cText += "<br /><br /><b>Engelking Elektronik GmbH</b><br />"
-   cText += "Albstrasse 16<br />"
-   cText += "D-78609 Tuningen<br />"
-   cText += "Germany<br />"
-   cText += "http://www.engelking.de<br /><br />"
-   cText += "eMail: amos.engelking@engelking.de<br />"
-   cText += "Tel: +49-7464-9865-15<br />"
-   cText += "Fax: +49-7464-986571<br /><br />"
-   cText += "Amtsgericht Freiburg (HRB 602241)<br />"
-   cText += "Gesch„ftsfhrer: Amos Engelking, Hans-Peter Schweiá"
-   SendMail({{"amos.engelking@engelking.de","Amos"}},"POS "+CMonth(StoD(Str(nYear,4)+StrZero(nMonth,2)+"01"))+" "+Str(nYear,4),cText,{cFile},,,.T.,"amos.engelking@engelking.de")
-   
+      cFile := hPos:Dir+"POS_"+Trim(manu->Short)+"_"+Str(nYear,4)+"-"+StrZero(nMonth,2)+".xls"
+      SaveToOO(cFile,aData,cPW,"XLS") //we use XLS as the Password does not work with XSLX
+
+      cLang := HB_LangSelect("EN")
+      cText := hPos:Anrede+"<p>Please find the current POS data attached.</p>Best Regards<br />Amos"
+
+      cText := LoadEmailConfigFile("header")+cText+LoadEmailConfigFile("footer")
+      
+      SendMail({{"amos.engelking@engelking.de","Amos"}},"POS "+Trim(manu->Short)+" "+CMonth(StoD(Str(nYear,4)+StrZero(nMonth,2)+"01"))+" "+Str(nYear,4),cText,{cFile},,,.T.,"amos.engelking@engelking.de")
+   NEXT
    HB_LangSelect(cLang)
 RETURN .T.
 

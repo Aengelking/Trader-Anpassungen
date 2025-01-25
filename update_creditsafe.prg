@@ -5,6 +5,7 @@ LOCAL aFiles
 LOCAL aList := {},cList
 LOCAL oCS,cStart,tLast,hList,hEntry,oSOAP,oReport
 LOCAL lPrePay
+LOCAl lNotFound := .F.
 
 
 NetUse("creditsafe","cs")
@@ -89,24 +90,27 @@ IF oCS:Auth()
       ? ValToPrg(hEntry["company"]) //["safeNumber"]
       ? hEntry["company"]["safeNumber"]
       cs->(dbSetOrder( 2 ))
-      IF cs->(dbSeek( "DE001/0/"+hEntry["company"]["safeNumber"] )) .AND. cs->LastCheck <= Date()-1
-         oSOAP := CreditSafe()
-         oReport := CS_GetCompanyReport(oSoap,cs->ID,3)
-         cList += " "+Str(cs->Kunde,6)
-         IF oReport != NIL            
-            CS_SaveReport(cs->Kunde,oReport)
-            cList += " gespeichert"
-         ELSE
-            cList += " Download fehlgeschlagen"
+      IF cs->(dbSeek( "DE001/0/"+hEntry["company"]["safeNumber"] )) 
+         IF cs->LastCheck <= Date()-1
+            oSOAP := CreditSafe()
+            oReport := CS_GetCompanyReport(oSoap,cs->ID,3)
+            cList += " "+Str(cs->Kunde,6)
+            IF oReport != NIL            
+               CS_SaveReport(cs->Kunde,oReport)
+               cList += " gespeichert"
+            ELSE
+               cList += " Download fehlgeschlagen"
+            ENDIF
          ENDIF
       ELSE
          ? "nicht gefunden"
          cList += " nicht gefunden"
+         lNotFound := .T.
       ENDIF
       cList += Chr(13)+Chr(10)
    NEXT
    SetValue("CS_LSTUPD",TtoS(DateTime()))
-   IF ! Empty(cList)
+   IF ! Empty(cList) .AND. lNotFound
       SendMail({{"amos.engelking@engelking.de","Amos"}},"Creditsafe Aktualisierung",cList)
    ENDIF
 ELSE   

@@ -72,7 +72,7 @@ Endif
 
 oExtra := ku->(ExtraData():New( ku->Nummer ))
 
-IF oExtra:UpsContact != 0
+IF oExtra:HasField("UPSCONTACT") .AND. oExtra:UpsContact != 0
    nContact := oExtra:UpsContact
 ENDIF
 
@@ -127,24 +127,30 @@ Endif
 
 cCustAccount := Space(6)
 If lBillCustomer
-
-   IF Empty(oExtra:SpedKonto)  //get it out of the old database
-      NetUse("upsaccou","upsac",.F.,0)
-      cCustAccount := Space(6)
-      If upsac->(dbSeek( Str(ku->Nummer,6) ))
-         cCustAccount := upsac->Ups
-      Endif
+   
+   IF oExtra:HasField("SPEDKONTO") 
+      IF Empty(oExtra:SpedKonto)  //get it out of the old database
+         NetUse("upsaccou","upsac",.F.,0)
+         cCustAccount := Space(6)
+         If upsac->(dbSeek( Str(ku->Nummer,6) ))
+            cCustAccount := upsac->Ups
+         Endif
+      ELSE
+         cCustAccount := oExtra:SpedKonto
+      ENDIF
    ELSE
-      cCustAccount := oExtra:SpedKonto
+      cCustAccount := Space(6)
    ENDIF
 
    Do While Len(Trim(cCustAccount)) < 6
       cCustAccount := GetBox(cCustAccount,t("UPS Kundennummer des Empfängers"),"NNNNNN")
    Enddo
    
-   IF cCustAccount != oExtra:SpedKonto .AND. (Empty(oExtra:SpedKonto) .OR. Tr_MsgBox(t("UPS Kundennummer aktualisieren?"),,{t("Ja"),t("Nein")}) == 1)
-      oExtra:SpedKonto := cCustAccount
-      oExtra:Save()
+   IF oExtra:HasField("SPEDKONTO") 
+      IF cCustAccount != oExtra:SpedKonto .AND. (Empty(oExtra:SpedKonto) .OR. Tr_MsgBox(t("UPS Kundennummer aktualisieren?"),,{t("Ja"),t("Nein")}) == 1)
+         oExtra:SpedKonto := cCustAccount
+         oExtra:Save()
+      ENDIF
    ENDIF
 
 /*	If upsac->(dbSeek( Str(ku->Nummer,6) ))
@@ -388,7 +394,7 @@ Else  //Read Tracking numbers
 			If oSubNode == NIL
 				lIter := .F.
 			Else
-				Aadd(aNummer,{"NUMMER"=>oSubNode:cData})
+				Aadd(aNummer,{"NUMMER"=>oSubNode:cData,"PREIS"=>0})
 			Endif
 		Enddo
 		oNode := oXml:findNext()
@@ -402,7 +408,7 @@ Else  //Read Tracking numbers
 	nX := 1
 	Do While oNode != NIL
       oCost := oNode:oChild:oChild:oNext
-      IF nX <= Len(aNummer) .AND. ku->CountryIso != "DE" //.AND. aNummer[nX]["PREIS"] == 0
+      IF nX <= Len(aNummer) //.AND. ku->CountryIso != "DE" //.AND. aNummer[nX]["PREIS"] == 0
       	aNummer[nX]["PREIS"] := Val(StrTran(oCost:cData,",","."))
       ENDIF
       oNode := oXml:FindNext()

@@ -1,16 +1,19 @@
+#define CRLF Chr(13)+Chr(10)
+
 PROCEDURE Check_Invoices
 
    /** SETTINGS **/
    LOCAL aExclude := {"CONNECTS","HECK"} //{"BULGIN","CONNECTS","HOPA","HECK","WETEC","EUROCIRC","FARNELL","GUDECO","RS","RGR","RATIOFOR","TECHNO"}
    LOCAL aSammel := {"RS","BSLASER","SIGNAL","BEHINDER"}
    LOCAL lDue //:= AddWorkingDays(Date(),-5,GetConfigValue("state"),.F.) //StoD("20201231")
-   LOCAL nDaysBeforePayment := 5
+   LOCAL nDaysBeforePayment := GetValue("REB_TOLDATE",2,"Toleranz fr Zahldatum")+3   
    /****/   
 
    LOCAL cLiefma,hDelNotes := {=>},hMissing := {=>},hDels,hDel
    LOCAL cKey,nPosnr,nBesnr,nRec,dLastDel,nQty,nX,cBeleg,cMiskey,nMenge,oPrinter,oPdf
    LOCAL aErl := {}
    LOCAL aSkonto
+   LOCAL hBes
    
    LOCAL cText 
 
@@ -23,6 +26,7 @@ PROCEDURE Check_Invoices
    NetUse("engkund","ku")
    NetUse("reb","reb")
    NetUse("rebnotes","rebn")
+   NetUse("rebprot","rebp")
    NetUse("skontob","skb")
 
 CLS
@@ -77,9 +81,7 @@ DO WHILE ! abg->(EOF())
             ENDIF
          ENDIF
          nRec := NIL
-         //IF AScan(aExclude,Trim(bes->Liefma)) != 0
-            //ignore these
-         //ELSE
+
          IF bes->GelQty > 0 .AND. bes->GelQty <= 10 .AND. bes->EkPr == 0  .AND. bes->Besda <= Date()-120 //wahrscheinlich Muster, werden auf erledigt gesetzt
             ? "Bestellung erledigt",bes->Besnr,bes->Posnr
             Aadd(aErl,Str(bes->Besnr,6)+" - "+Str(bes->posnr,3))
@@ -110,8 +112,7 @@ DO WHILE ! abg->(EOF())
                ENDIF
 
                
-               IF (! Trim(cLiefma) $ aSammel .OR. Month(dLastDel) < Month(Date())) .AND. lDue//ignore positions where there has been a delivery in the last 5 days, and by RS only if it is from the last month (Sammelrechnung)
-                  //FOR EACH hDel IN hDelNotes[cKey]
+               IF (! Trim(cLiefma) $ aSammel .OR. Month(dLastDel) < Month(Date())) .AND. lDue//ignore positions where there has been a delivery in the last 5 days, and by RS only if it is from the last month (Sammelrechnung)                  
                   nQty := bes->ZoQty
                   FOR nX := Len(hDelNotes[cKey]) TO 1 STEP -1
                      hDel := HGetValueAt(hDelNotes[cKey],nX)
@@ -136,8 +137,7 @@ DO WHILE ! abg->(EOF())
                   ? "Zahlung noch nicht bald f„llig"                  
                ENDIF
             ELSE
-               cBeleg := Replicate("-",15)
-               //cMisKey := bes->Liefma+cBeleg
+               cBeleg := Replicate("-",15)               
                cMisKey := bes->Liefma+"B"+LTrim(Str(bes->Besnr))+"/"+Ltrim(Str(bes->Posnr))
                nMenge := IF(!art->Lagerart.AND.bes->BeQty<0,bes->BeQty,bes->GelQty)
                IF ! HHasKey(hMissing,cMisKey)
@@ -157,90 +157,60 @@ DO WHILE ! abg->(EOF())
    ENDIF
 ENDDO
 
-//IF Len(hMissing) > 0
-  SetConfigValue("BATCHMODE",.T.)
-  SetPrinterMethodType(3)
-  StartPrint(,,"PDF")
-  oPrinter := GetCurrentPrinterObject()
-  oPrinter:Email := "amos.engelking@engelking.de"
-  oPrinter:Subject := "Nicht gebuchte Rechnungen"
-  oPdf := oPrinter:Data
-  oPdf:SetFont("COURIER")
-  IF Len(aErl) > 0
-      oPdf:NewPage()
-      oPdf:AtSay("Erledigte Bestellungen")
-      oPdf:NewLine()
-      //oPdf:NewLine()
-      FOR nX := 1 TO Len(aErl)
-         oPdf:NewLine()
-         oPdf:AtSay(aErl[nX])
-      NEXT
-  ENDIF
   cLiefma := ""
+  hBes := {}
   FOR nX := 1 TO 2
-     oPdf:NewPage()
-     oPdf:AtSay(IF(nX==1,"Fehlende Gutschriften","Nicht gebuchte Rechnungen"))
-     oPdf:NewLine()
-     oPdf:NewLine()
-     FOR EACH hDels IN hMissing
+      ? IF(nX==1,"Fehlende Gutschriften","Nicht gebuchte Rechnungen")
+
+      FOR EACH hDels IN hMissing
         art->(dbSetOrder( 1 ))
-        //IF AT("MUSTER",Upper(hDel[1]["beleg"])) == 0 .AND. AT("SAMPLES",Upper(hDel[1]["beleg"])) == 0
-           IF AScan(hDels,{|hDel| IF(nX==1,hDel["menge"]<0,hDel["menge"]>0)}) > 0
-              IF hDels:__eNumIndex() > 1
-               oPdf:NewLine()
-              ENDIF
-              oPdf:AtSay( hDels[1]["liefma"]+" "+Pad(hDels[1]["beleg"],15),,,"R" )
-              FOR EACH hDel IN hDels //nX := 1 TO Len(hDel)
-                  IF (nX == 1 .AND. hDel["menge"] < 0) .OR. (nX == 2 .AND. hDel["menge"] > 0)                     
-                    art->(dbSeek( hDel["matchcode"] ))
-                    IF hDel:__eNumIndex() > 1
-                     oPdf:NewLine()
-                    ENDIF
-                    oPdf:AtSay( IF(hDel:__eNumIndex() > 1,Space(8+1+15),"")+Str(hDel["besnr"],6)+" "+DToC(hDel["date"])+" "+Pad(Transform(hDel["menge"],Me(art->me)),12)+" "+hDel["matchcode"]+IF(nX==1,hDel["AB"],""),,,"R" )
+        
+         IF AScan(hDels,{|hDel| IF(nX==1,hDel["menge"]<0,hDel["menge"]>0)}) > 0
+            ? hDels[1]["liefma"]+" "+Pad(hDels[1]["beleg"],15)
 
-                    IF nX == 2
-                        IF cLiefma != hDel["liefma"]
-                              IF ! Empty(cLiefma) .AND. ! Empty(cText)
-                                 //Would be good to add information about unbooked invoices
-                                 SendMail({{"amos.engelking@engelking.de","Amos"}},"Rechnungen fehlen von "+cLiefma,cText)
-                              ENDIF
-                              cText := "Bes.Nr"+" "+Pad("Datum")+" "+Pad("Menge",12)+" "+Pad("Artikel",25)+"AB-Nr."
-                              cLiefma := hDel["liefma"]
-                        ENDIF
-                        IF ! Empty(cText)
-                              cText += Chr(13)+Chr(10)
-                        ENDIF
-                        cText += Str(hDel["besnr"],6)+" "+DToC(hDel["date"])+" "+Pad(Transform(hDel["menge"],Me(art->me)),12)+" "+hDel["matchcode"]+IF(nX==1,hDel["AB"],"")
+            FOR EACH hDel IN hDels //nX := 1 TO Len(hDel)
+               ? Str(hDel["besnr"],6)
+               IF ! hDel["besnr"] $ hBes
+                  Aadd(hBes,hDel["besnr"])
+               ENDIF
+               IF (nX == 1 .AND. hDel["menge"] < 0) .OR. (nX == 2 .AND. hDel["menge"] > 0)                     
+                  art->(dbSeek( hDel["matchcode"] ))
+                     IF cLiefma != hDel["liefma"]
+                           IF ! Empty(cLiefma) .AND. ! Empty(cText)
+                              ku->(dbSeek( cLiefma+"L" ))
+
+                              reb->(dbSetOrder( 6 ))
+                              reb->(dbSeek( Str(ku->Nummer,6) ))
+                              rebp->(dbSetOrder( 1 ))
+                              cText += "<br><h3>Nicht verbuchte Rechnungen:</h3>"
+                              cText += Pad("Beleg.nr.",30)+" "+"Eingangsdat."
+                              DO WHILE reb->Liefnr == ku->Nummer .AND. ! reb->(Eof())
+                                 IF reb->Status < 8                                    
+                                    rebp->(dbSeek( Str(reb->ID,9), .T. ))
+                                    cText += CRLF+reb->Beleg+" "+DtoC(Stot(rebp->DateTime))
+                                 ENDIF   
+                                 reb->(dbSkip())                                 
+                              ENDDO
+                              FOR EACH nBesnr IN hBes
+                                 cText += GetNotesForEmail("BES",nBesnr,.T.)
+                              NEXT
+                                                               
+                              SendMail({{"amos.engelking@engelking.de","Amos"}},IF(nX==1,"Gutschriften","Rechnungen")+" fehlen von "+cLiefma,cText)
+                              hBes := {}
+                           ENDIF
+                           cText := "Bes.Nr"+" "+Pad("Datum",8)+" "+Pad("Menge",12)+" "+Pad("Artikel",25)+"AB-Nr."
+                           cLiefma := hDel["liefma"]
                      ENDIF
-
-                  ENDIF
-              NEXT
-            ENDIF
-        //ENDIF
+                     IF ! Empty(cText)
+                           cText += Chr(13)+Chr(10)
+                     ENDIF
+                     cText += Str(hDel["besnr"],6)+" "+DToC(hDel["date"])+" "+Pad(Transform(hDel["menge"],Me(art->me)),12)+" "+hDel["matchcode"]+IF(nX==1,hDel["AB"],"")
+               ENDIF
+            NEXT
+         ENDIF
      NEXT
   NEXT
-  oPdf:NewPage()
-  oPdf:AtSay("Nicht übertragene Rechnungen")
-  oPdf:NewLine()
-  oPdf:NewLine()
 
-  rech->(dbSetOrder( 3 ))
-  rech->(dbSetFilter({|| ! rech->Transfer .AND. Trim(rech->Liefma) != "CONNECTS"},"! transfer .AND. Trim(liefma) != 'CONNECTS'"))
-  rech->(dbSeek( "20120101", .T. ))
-  reb->(dbSetOrder( 2 ))
-
-  DO WHILE Year(rech->Rechdat) >= 2012 .AND. ! rech->(Eof())
-      ku->(dbSeek( rech->Liefma+"L" ))
-      oPdf:NewLine()
-      oPdf:AtSay( rech->Liefma+" "+rech->Rechnr+" "+DToC(rech->Rechdat)+" "+Str(rech->Gramt,8,2)+" "+IF(rech->Booked,"abgeschlossen","offen") )
-      IF reb->(dbSeek( Str(ku->Nummer,6)+rech->Rechnr )) .AND. rebn->(dbSeek(Str(reb->Id,9)))
-         oPdf:AtSay( " "+HB_OemToAnsi(StrTran(StrTran(rebn->Notes,Chr(13)," "),Chr(10)," ")) )
-      ENDIF
-      rech->(dbSkip())
-  ENDDO
-  
   rech->(dbClearFilter())
 
-  CopyPrint()
-  SetPrinterMethodType(0)
-  SetConfigValue("BATCHMODE",.F.)
+RETURN

@@ -213,7 +213,7 @@ If ! pkart->(dbSeek( Str(ups->Nr) ,.T.))
 				art->(dbSeek( aArt[nP][nX]["matchcode"] ))
 				pkart->(Add_Rec(0))
 				pkart->Nr        := ups->Nr
-				pkart->PakNum    := pnum->Nummer
+				pkart->PakNum    := pnum->Nummer  //pnum->Nummer is not unique
 				pkart->Artikelnr := art->Artikelnr
 				pkart->Menge     := aArt[nP][nX]["menge"]
 				pkart->(dbUnLock())
@@ -232,6 +232,7 @@ Endif*/
 pnum->(dbSeek(ups->Nr))
 If lRech
 	re->(dbSeek(STR(nRechnr,6)))
+
 Endif
 
 art->(dbSetOrder( 2 ))

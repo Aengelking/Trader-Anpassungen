@@ -3,29 +3,58 @@
 #include 'inkey.ch'
 #include 'set.ch'
 
+#command @ <top>,<left>,<bottom>,<right> GET <var> LISTBOX <hash> ASSOCIATIVE ;
+	[VALID <valid>];
+	[WHEN <when>];
+	[COLOR <color>];
+;
+=> GET_AssociativeListBox(getlist,<top>,<left>,<bottom>,<right>,{|v| If(v==NIL,<var>,<var>:=v)},<hash>,<{valid}>, <{when}>,<color>)
+
 #define CRLF Chr(13)+Chr(10)
 
-FUNCTION NOCRM_Edit()
-   LOCAL nAngNr := 0
+FUNCTION NOCRM_Edit(cType)
+   LOCAL nNummer := 0
    LOCAL getlist := {}
 
-   NetUse("angebot","ang")
+   noCRM_Setup()
+
+   Default(@cType,"ANG")
+   
    NetUse("engkund","ku")
    NetUse("buyer","buy")
-
-   Head("Wiedervorlage Angebot bearbeiten")
-
-   @ 01,00 SAY "Angebot" GET nAngnr VALID ang->(dbSeek( Str(nAngnr,6) )) PICTURE "999999"
+   IF cType == "ANG"      
+      Head("Wiedervorlage Angebot bearbeiten")
+      NetUse("angebot","ang")
+      @ 01,00 SAY "Angebot" GET nNummer VALID ang->(dbSeek( Str(nNummer,6) )) PICTURE "999999"
+   ELSE
+      Head("Wiedervorlage Muster bearbeiten")
+      NetUse("muster","mus")
+      @ 01,00 SAY "Muster" GET nNummer VALID mus->(dbSeek( nNummer )) PICTURE "999999"
+   ENDIF
    READ
 
    IF LastKey() == 27
       RETURN .F.
    ENDIF
 
-   noCRM_Interface(.F.)
+   noCRM_Interface(.F.,cType)
 RETURN NIL
 
-FUNCTION noCRM_Interface(lComment)
+FUNCTION noCRM_Setup()
+   //this will setup the values and their defaults
+   GetValue("NOCRM_MINVALUE",500,"Wert ab dem eine Wiedervorlage Pflicht ist (0=aus)")
+   GetValue("NOCRM_ACTIVITY","Angebot","Name der Aktivit„t fr Angebote")
+   GetValue("NOCRM_ACTIVITY_SAMPLE","Muster","Name der Aktivit„t fr Muster")
+   GetValue("NOCRM_ACTIVITY_SAMPSHIP","Musterversand","Name der Aktivit„t bei Musterversand")
+   GetValue("NOCRM_REM_DAYS",2,"Vorschlag Wiedervorlage in Werktagen")
+   GetValue("NOCRM_REM_WARN",5,"Warnung wenn WV ber diesen Wert in Werktagen ist")
+   GetValue("NOCRM_STEP","Angebot","Phase in der Pipeline")
+   GetValue("NOCRM_URL","https://engelking.nocrm.io/api/v2/","URL der noCRM Instanz")
+   GetValue("NOCRM_PIPELINE_LOST","Lost Business","Name der Pipeline fr Lost Business Leads")
+   GetValue("NOCRM_STEP_LOST","Erfasst","Phase in der Lost Business Pipeline")
+RETURN NIL
+
+FUNCTION noCRM_Interface(lComment,cType)
    LOCAL nLeadId
    LOCAL oRec
    LOCAL hLead,aValues
@@ -42,18 +71,35 @@ FUNCTION noCRM_Interface(lComment)
    LOCAL cDescription
    LOCAL cUsrEmail
    LOCAL nRemindDays := 0
-   LOCAL nMinValue := GetValue("NOCRM_MINVALUE",500,"Wert ab dem eine Wiedervorlage Pflicht ist (0=aus)")
+   LOCAL nMinValue
    LOCAL oExtra,nWeekDay := 1,bCheckWeekday
+   LOCAL hUsers 
+   LOCAL cTypeName,nNummer,cKunde
 
    Default(@lComment,.T.)
+   Default(@cType,"ANG")
 
-   Head("Wiedervorlage Angebot")
+   noCRM_Setup()
+
+   nMinValue := GetValue("NOCRM_MINVALUE") //,500,"Wert ab dem eine Wiedervorlage Pflicht ist (0=aus)")
+
+   IF cType == "MUS"
+      cTypeName := "Muster"
+      nNummer := mus->Nummer
+      cKunde  := mus->Kunde
+   ELSEIF cType == "ANG"
+      cTypeName := "Angebot"
+      nNummer := ang->Angnr
+      cKunde  := ang->Kundma
+   ENDIF
+
+   Head("Wiedervorlage "+cTypeName+" "+LTrim(Str(nNummer)))
 
    NetUse("nocrm","nocrm")
 
-   buy->(dbGoto( ang->Buyer ))
-   cUsrEmail := buy->Email
-   //cUsrEmail := "amos.engelking@engelking.de"
+   //buy->(dbGoto( ang->Buyer ))
+   buy->(dbGoto( 55 ))
+   cUsrEmail := Trim(buy->Email)
 
    //Check if connection is working
    IF ! oNoCrm:Connect()
@@ -64,26 +110,51 @@ FUNCTION noCRM_Interface(lComment)
    //Basic Setup
 
    //get activity Id
-   nActivity := oNoCrm:GetActivityId( GetValue("NOCRM_ACTIVITY","Angebot","Name der Aktivit„t fr Angebote") )
+   IF cType == "MUS"
+      nActivity := oNoCrm:GetActivityId( GetValue("NOCRM_ACTIVITY_SAMPLE") )  //,"Muster","Name der Aktivit„t fr Muster") )
+   ELSE
+      nActivity := oNoCrm:GetActivityId( GetValue("NOCRM_ACTIVITY") ) //,"Angebot","Name der Aktivit„t fr Angebote") )
+   ENDIF
 
    //get pipeline id
    nPipeLine := oNoCrm:GetPipeLineId( oNoCrm:GetStdPipeLineName(), @aPipelines)
 
-   aValues := EnquiryAddUp(ang->Angnr,.T.)  
+   //get noCRM users
+   hUsers := oNoCRM:GetUsers()
+
+   IF cType == "ANG"
+      aValues := EnquiryAddUp(ang->Angnr,.T.)  
+   ENDIF
    
-   IF nocrm->(dbSeek( Str(ang->Angnr,6) ))
+   IF cType == "MUS"
+      nocrm->(dbSetOrder( 3 ))
+   ELSE
+      nocrm->(dbSetOrder( 1 ))
+   ENDIF
+
+   IF nocrm->(dbSeek( Str(nNummer,6) ))
       oRec := nocrm->(Record():New())
    ELSE
       oRec := nocrm->(Record():New(.T.))
-      oRec:Angebot := ang->Angnr
+      IF cType == "MUS"
+         oRec:Muster := mus->Nummer
+      ELSE
+         oRec:Angebot := ang->Angnr
+      ENDIF      
    ENDIF   
  
-   bExit := {||     
-      IF nMinValue != 0 .AND. (aValues[2] >= nMinValue .OR. Tr_MsgBox("Erstellen der Wiedervorlage abbrechen",,{"Nein","Ja"}) != 2)
+   IF cType == "ANG"      
+      bExit := {||     
+         IF nMinValue != 0 .AND. (aValues[2] >= nMinValue .OR. Tr_MsgBox("Erstellen der Wiedervorlage abbrechen",,{"Nein","Ja"}) != 2)
+            RETURN .F.
+         ENDIF
+         RETURN .T.
+      } 
+   ELSE
+      bExit := {||
          RETURN .F.
-      ENDIF
-      RETURN .T.
-   } 
+      }
+   ENDIF
 
    bCheckWeekday := {||
       LOCAL lAdded := .F.
@@ -98,8 +169,9 @@ FUNCTION noCRM_Interface(lComment)
    }
 
    DO WHILE .T.
-
-      @ 01,00 SAY "Angebotswert: "+LTrim(Transform(aValues[2],"9999999.99"))+IF(aValues[2]<nMinValue," (Wiedervorlage nicht verpflichtend)","")
+      IF cType == "ANG"
+         @ 01,00 SAY "Angebotswert: "+LTrim(Transform(aValues[2],"9999999.99"))+IF(aValues[2]<nMinValue," (Wiedervorlage nicht verpflichtend)","")
+      ENDIF
 
       @ 22,00 SAY "Wiedervorlage in Werktagen" GET nRemindDays PICTURE "999" VALID {||
          IF nRemindDays <= 0
@@ -134,7 +206,7 @@ FUNCTION noCRM_Interface(lComment)
             nWeekDay    := DoW(dRemindDate)-1
             getlist[2]:Control:Display()
             IF ! LastKey() $ {K_UP,K_SH_TAB}
-               IF nRemindDays > GetValue("NOCRM_REM_WARN",5,"Warnung wenn WV diesen Wert in Werktagen berschreitet") .AND.  Tr_MsgBox("Bist Du sicher, dass die Wiedervorlage erst so sp„t erfolgen soll?",,{"Nein","Ja"}) != 2
+               IF nRemindDays > GetValue("NOCRM_REM_WARN") .AND.  Tr_MsgBox("Bist Du sicher, dass die Wiedervorlage erst so sp„t erfolgen soll?",,{"Nein","Ja"}) != 2
                   RETURN .F.
                ENDIF
             ENDIF
@@ -143,9 +215,11 @@ FUNCTION noCRM_Interface(lComment)
          RETURN .F.
       }      
 
+      @ 25,00 SAY "Besitzer"
+      @ 25,27,35,60 GET cUsrEmail LISTBOX hUsers ASSOCIATIVE
 
       //Choose a lead        
-      nLeadId := onocrm:ChooseLead(03,00,20,60,oRec:Lead,.T.)   
+      nLeadId := onocrm:ChooseLead(03,00,20,60,oRec:Lead,.T.,cKunde)   
       IF LastKey() == 27 .OR. nLeadId == 0
          IF ! Eval(bExit)
             getlist := {}
@@ -155,7 +229,7 @@ FUNCTION noCRM_Interface(lComment)
       ENDIF
       
       //go to the customer
-      ku->(dbSeek( ang->Kundma+"K" ))      
+      ku->(dbSeek( cKunde+"K" ))      
 
       //get the extradata
       oExtra := ku->(ExtraData():New(ku->Nummer))
@@ -184,8 +258,9 @@ FUNCTION noCRM_Interface(lComment)
             nRemindDays := CountWorkingDays(Date(),dRemindDate,GetConfigValue("STATE"),.T.)-1
             nWeekDay    := DoW(dRemindDate)-1
          ENDIF
-      ELSE
-         hLead := oNoCRM:Execute("leads/"+Ltrim(Str(nLeadId)),"GET")      
+      ELSE         
+         hLead := oNoCRM:Execute("leads/"+Ltrim(Str(nLeadId)),"GET")        
+
          IF HHasKey(hLead,"remind_date") .AND. hLead["remind_date"] != NIL
             dRemindDate := noCRM_DateConv(hLead["remind_date"])
          ELSE
@@ -197,16 +272,29 @@ FUNCTION noCRM_Interface(lComment)
             nRemindDays := 0
          ENDIF
          nWeekDay    := DoW(dRemindDate)-1
+         IF HHasKey(hLead,"extended_info") .AND. HHasKey(hLead["extended_info"],"user") .AND. ValType(hLead["extended_info"]["user"]) == "H" .AND. HHasKey(hLead["extended_info"]["user"],"email")
+            cUsrEmail := hLead["extended_info"]["user"]["email"]
+         ELSE
+            //leave it with the default
+         ENDIF
          IF ! Empty(hLead["pipeline"]) //if this lead has already been assigned to a pipeline we use this one and not the default one
             nX := AScan(aPipelines,{|x| x["name"] == hLead["pipeline"] })
             IF nX != 0
                nPipeline := aPipelines[nX]["id"]
             ENDIF
          ENDIF
+         
       ENDIF
-
-      getlist[2]:Control:Display()
-      getlist[3]:Display()
+      FOR nX := 1 TO Len(getlist)            
+         IF getlist[nX]:Control != NIL               
+            getlist[nX]:Control:Select( getlist[nX]:varGet() )
+            getlist[nX]:Control:Display()
+         ELSE
+            getlist[nX]:Display()
+         ENDIF
+      NEXT
+      //getlist[2]:Control:Display()
+      //getlist[3]:Display()
 
       READ
       IF LastKey() == 27
@@ -238,8 +326,11 @@ FUNCTION noCRM_Interface(lComment)
 
       
       
-
-      aContact := GetContact(ang->Person)
+      IF cType == "ANG"
+         aContact := GetContact(ang->Person)
+      ELSE
+         aContact := GetContact(mus->Person)
+      ENDIF
 
       //create lead and/or save lead id
       IF nLeadId == -1                           
@@ -254,9 +345,9 @@ FUNCTION noCRM_Interface(lComment)
          ELSE            
             oRec:Lead := hLead["id"]
             oRec:Save()
-            hLeadData["title"] := hb_strToUtf8(Trim(Trim(ku->Name1)+" "+ku->Name2))+" - Angebot "+LTrim(Str(ang->Angnr))+" #"+LTrim(Str(hLead["id"]))
+            hLeadData["title"] := hb_strToUtf8(Trim(Trim(ku->Name1)+" "+ku->Name2))+" - "+cTypeName+" "+LTrim(Str(nNummer))+" #"+LTrim(Str(hLead["id"]))
          ENDIF
-      ELSE
+      ELSE         
          oRec:Lead := nLeadId
          oRec:Save()
       ENDIF     
@@ -268,9 +359,12 @@ FUNCTION noCRM_Interface(lComment)
 
       IF lComment
          //Save quote as a comment on an existing lead
-         cContent := 'Angebot Nr. '+LTrim(Str(ang->Angnr))+' gedruckt'+CRLF      
+         
+         cContent := cTypeName+' Nr. '+LTrim(Str(nNummer))+IF(cType=="MUS",' angelegt',' gedruckt')+CRLF      
          cContent += "Ansprechpartner: "+hb_strtoutf8(aContact["name"])+CRLF
-         cContent += "Wert: "+LTrim(Str(aValues[2],12,2))
+         IF cType == "ANG"            
+            cContent += "Wert: "+LTrim(Str(aValues[2],12,2))
+         ENDIF
 
          oNoCrm:Execute("leads/"+LTrim(Str(oRec:Lead))+"/comments","POST",{"lead_id"=>oRec:Lead,"content"=>cContent,"activity_id"=>nActivity,"user_id"=>SystemUser():Email})
       ENDIF
@@ -294,6 +388,7 @@ CLASS NoCrmAPi FROM RestApi
    METHOD GetPipeLineId
    METHOD GetStdPipeLineName
    METHOD GetStepId
+   METHOD GetUsers
 
    DATA cApiKey
    DATA cUsrToken
@@ -309,105 +404,147 @@ METHOD New
    ::cBaseUrl := GetValue("NOCRM_URL","https://engelking.nocrm.io/api/v2/","URL of the noCRM instance")
 RETURN ::Super:New()
 
-METHOD ChooseLead(nTop,nLeft,nBottom,nRight,nLeadId,lNew)
+METHOD ChooseLead(nTop,nLeft,nBottom,nRight,nLeadId,lNew,cKunde)
    LOCAL oBrowse
-   LOCAL aData := {},aGetData,aList := {},hJson,cSearch,nOff
+   LOCAL aData := {},aGetData,aList := {},hJson,cSearch,nOff,lAllLeads := .F.
+   LOCAL lLoop := .T.
+   LOCAL aFields
    LOCAL nX,nY
    Default(@lNew,.F.)
    Default(@nLeadId,0)
-   TxtBox("Leadnamen werden eingelesen")
-   nOff := 1
-   DO WHILE .T.
-      aGetData := ::Execute("leads","GET",{"status"=>"todo,standby","include_unassigned"=>"true","limit"=>"100","offset"=>LTrim(Str(nOff))})
-      AEval(aGetData,{|x| Aadd(aData,x) })
-      nOff := Len(aData)
-      IF Len(aGetData) < 100
-         EXIT
-      ENDIF
-   ENDDO
-   TxtClear()
-   IF aData == NIL
-      Tr_MsgBox("Fehler: "+::cErrorText)
-   ELSE      
-      FOR EACH hJson IN aData
-         Aadd(aList,hb_utf8tostr(hJson["title"]))
-      NEXT
-      aList := ASort(aList,,,{|x,y| Upper(x) < Upper(y) })
-      IF lNew
-         HB_AIns(aList,1,"- Neuen Lead erzeugen -",.T.)
-      ENDIF
-      cSearch := ""
-      @ nTop,nLeft TO nBottom,nRight
-      @ nTop,nLeft+1 SAY " Lead: "
+   
+   nOff := 0
+   aFields := {"status"=>"todo,standby","include_unassigned"=>"true","limit"=>"100","offset"=>0}
+   IF ValType(cKunde) == "C" //.AND. nLeadId == 0
+      aFields["field_key"] := "Kunde (Matchcode)"
+      aFields["field_value"] := HB_StrToUtf8(Trim(cKunde))
+   ELSE
+      lAllLeads := .T.
+      //cBut := "Leads auf Kunden einschr„nken"
+   ENDIF   
+   DO WHILE lLoop
+      TxtBox("Leadnamen werden eingelesen")
 
-      oBrowse := TABrowse():New(nTop+1,nLeft+1,nBottom-1,nRight-1)
-      oBrowse:lBox := .F.
-      oBrowse:aData := aList
-      oBrowse:NewColumn(NIL,{|| 
-         IF Len(oBrowse:aData) == 0 .OR. ! Eval(oBrowse:ForBlock)
-            RETURN Pad("Keine Eintr„ge ",oBrowse:nRight-oBrowse:nLeft+1)
+      lLoop := .F.
+      DO WHILE .T.
+         aFields["offset"] := LTrim(Str(nOff))
+         aGetData := ::Execute("leads","GET",aFields)
+         IF ValType(aGetData) != "A" .OR. Len(aGetData) == 0
+            EXIT
          ENDIF
-         RETURN Pad(oBrowse:CurrentDataRow(),oBrowse:nRight-oBrowse:nLeft+1)
-      })
-      oBrowse:AddKey(K_ESC,{|| .F. })
-      oBrowse:AddKey(K_ENTER,{||
-         LOCAL nX
-         IF Len(oBrowse:aData) != 0 .AND. Eval(oBrowse:ForBlock)
-            IF lNew .AND. oBrowse:CurrentRow() == 1
-               nLeadId := -1
-               RETURN .F.
-            ELSE
-               nX := AScan(aData,{|x| hb_utf8tostr(x["title"]) == oBrowse:CurrentDataRow() })
-               IF nX != 0
-                  nLeadId := aData[nX]["id"]
+         AEval(aGetData,{|x| Aadd(aData,x) })
+         nOff := Len(aData)
+         IF Len(aGetData) < 100
+            EXIT
+         ENDIF
+      ENDDO
+      
+      TxtClear()
+      IF aData == NIL
+         Tr_MsgBox("Fehler: "+::cErrorText)
+      ELSE      
+         FOR EACH hJson IN aData
+            Aadd(aList,hb_utf8tostr(hJson["title"]))
+         NEXT
+         aList := ASort(aList,,,{|x,y| Upper(x) < Upper(y) })
+         IF lNew
+            HB_AIns(aList,1,"- Neuen Lead erzeugen -",.T.)
+         ENDIF
+         cSearch := ""
+         @ nTop,nLeft TO nBottom,nRight
+         @ nTop,nLeft+1 SAY " Lead: "
+
+         IF ! lAllLeads
+            @ nBottom,nLeft+1 SAY "<Alle Leads anzeigen>"
+         ENDIF
+
+         oBrowse := TABrowse():New(nTop+1,nLeft+1,nBottom-1,nRight-1)
+         oBrowse:lBox := .F.
+         oBrowse:aData := aList
+         oBrowse:HeadSep := ""
+         oBrowse:NewColumn(NIL,{|| 
+            IF Len(oBrowse:aData) == 0 .OR. ! Eval(oBrowse:ForBlock)
+               RETURN Pad("Keine Eintr„ge ",oBrowse:nRight-oBrowse:nLeft+1)
+            ENDIF
+            RETURN Pad(oBrowse:CurrentDataRow(),oBrowse:nRight-oBrowse:nLeft+1)
+         })
+         oBrowse:AddKey(K_ESC,{|| .F. })
+         oBrowse:AddKey(K_ENTER,{||
+            LOCAL nX
+            IF Len(oBrowse:aData) != 0 .AND. Eval(oBrowse:ForBlock)
+               IF lNew .AND. oBrowse:CurrentRow() == 1
+                  nLeadId := -1
                   RETURN .F.
+               ELSE
+                  nX := AScan(aData,{|x| hb_utf8tostr(x["title"]) == oBrowse:CurrentDataRow() })
+                  IF nX != 0
+                     nLeadId := aData[nX]["id"]
+                     RETURN .F.
+                  ENDIF
                ENDIF
             ENDIF
-         ENDIF
-         RETURN .T.
-      })
-      oBrowse:ForBlock := {|| 
-         IF Empty(cSearch)
             RETURN .T.
+         })
+         oBrowse:ForBlock := {|| 
+            IF Empty(cSearch)
+               RETURN .T.
+            ENDIF
+            IF oBrowse:CurrentDataRow() == NIL
+               RETURN .F.
+            ENDIF
+            RETURN cSearch $ Upper(oBrowse:CurrentDataRow())
+         }
+         oBrowse:bRestFun := {|| 
+            LOCAL nKey := LastKey()
+            LOCAL lUpdate := .F.
+            IF nKey >= 32 .AND. nKey <= 255
+               cSearch += Upper(Chr(nKey))
+               lUpdate := .T.
+            ELSEIF nKey == K_BS
+               cSearch := Left(cSearch,Len(cSearch)-1)           
+               lUpdate := .T.
+            ENDIF         
+            IF lUpdate
+               oBrowse:goTop()
+               oBrowse:forceStable()
+               @ oBrowse:nBottom+1,obrowse:nLeft+1 TO oBrowse:nBottom+1,oBrowse:nRight   
+               IF ! Empty(cSearch)
+                  @ oBrowse:nBottom+1,obrowse:nLeft+1 SAY Left(cSearch,MaxCol()-4) COLOR HB_ColorIndex(SetColor(),1)         
+               ENDIF
+
+            ENDIF
+            RETURN .T.
+         }
+         IF nLeadId != 0
+            
+            nX := AScan(aData,{|x| x["id"] == nLeadId })
+            //Alert( aData[nX]["title"] )
+            IF nX != 0
+               nY := AScan(oBrowse:aData,{|x| x == aData[nX]["title"] })
+               //Alert(Str(nY)+oBrowse:aData[nY])            
+               oBrowse:GoTo(nY)
+            ELSE
+               Tr_MsgBox("Lead "+LTrim(Str(nLeadId))+" nicht gefunden")
+            ENDIF
          ENDIF
-         IF oBrowse:CurrentDataRow() == NIL
-            RETURN .F.
-         ENDIF
-         RETURN cSearch $ Upper(oBrowse:CurrentDataRow())
-      }
-      oBrowse:bRestFun := {|| 
-         LOCAL nKey := LastKey()
-         LOCAL lUpdate := .F.
-         IF nKey >= 32 .AND. nKey <= 255
-            cSearch += Upper(Chr(nKey))
-            lUpdate := .T.
-         ELSEIF nKey == K_BS
-            cSearch := Left(cSearch,Len(cSearch)-1)           
-            lUpdate := .T.
-         ENDIF         
-         IF lUpdate
-            oBrowse:goTop()
-            oBrowse:forceStable()
-            @ oBrowse:nBottom+1,obrowse:nLeft+1 TO oBrowse:nBottom+1,oBrowse:nRight   
-            IF ! Empty(cSearch)
-               @ oBrowse:nBottom+1,obrowse:nLeft+1 SAY Left(cSearch,MaxCol()-4) COLOR HB_ColorIndex(SetColor(),1)         
+
+         oBrowse:AddKey(K_LBUTTONDOWN,{|| 
+            
+            IF MRow() == nBottom .AND. MCol() >= 3 .AND. MCol() <= 22
+               HB_HDel(aFields,"field_key")
+               HB_HDel(aFields,"field_value")
+               lAllLeads := .T.
+               lLoop := .T.
+               RETURN .F.
             ENDIF
 
-         ENDIF
-         RETURN .T.
-      }
-      IF nLeadId != 0
-         nX := AScan(aData,{|x| x["id"] == nLeadId })
-         //Alert( aData[nX]["title"] )
-         IF nX != 0
-            nY := AScan(oBrowse:aData,{|x| x == aData[nX]["title"] })
-            //Alert(Str(nY)+oBrowse:aData[nY])            
-            oBrowse:GoTo(nY)
-         ENDIF
+            RETURN .T.
+         })
+
+         oBrowse:EventLoop()
+         oBrowse:Display()
       ENDIF
-      oBrowse:EventLoop()
-      oBrowse:Display()
-   ENDIF
+   ENDDO
 RETURN nLeadId
 
 METHOD Connect
@@ -429,6 +566,21 @@ METHOD Connect
    ENDIF
    
 RETURN .T.
+
+METHOD GetUsers()
+   LOCAL hUsers := {=>}
+   LOCAL nX
+   LOCAL aData
+
+   aData := ::Execute("users","GET",,,.F.)
+   
+   IF aData != NIL
+      FOR nX := 1 TO Len(aData)
+         hUsers[aData[nX]["email"]] := aData[nX]["firstname"] + " " + aData[nX]["lastname"]
+      NEXT
+   ENDIF
+   
+RETURN hUsers
 
 METHOD GetActivityId(cActivity)
    LOCAL aActivities,nActivity

@@ -1,12 +1,18 @@
 LOCAL aLief := {} // {"WALDOM","TECHNO","BULGIN","ITW","EDAC"}
+LOCAL oExtra
 
 NetUse("engbes","bes")
+NetUse("engkund","ku")
 
 bes->(dbSetOrder( 1 ))
 bes->(dbSeek( Str(-1,6) ))
 DO WHILE bes->Besnr == -1
    IF ! bes->Liefma $ aLief
-      SendMail({{"daniel.becker@engelking.de","Daniel"}},"Warteliste "+trim(bes->Liefma),"Es befinden sich noch Positionen auf der Warteliste von "+ Trim(bes->Liefma),,.F.)
+      ku->(dbSeek( bes->Liefma+"L" ))
+      oExtra := ku->(ExtraData():New(ku->Nummer))
+      IF oExtra:Wait_Day == Dow(Date())
+         SendMail({{"daniel.becker@engelking.de","Daniel"}},"Warteliste "+trim(bes->Liefma),"Es befinden sich noch Positionen auf der Warteliste von "+ Trim(bes->Liefma),,.F.)
+      ENDIF
       Aadd(aLief,bes->Liefma)
    ENDIF
    bes->(dbSkip())

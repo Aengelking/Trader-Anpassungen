@@ -4,6 +4,7 @@ PROCEDURE WunschterminList
    LOCAL cFilter
    LOCAL cText
    LOCAL cBL,oArt
+   LOCAL aTo
 
    NetUse("engauf","auf")
    NetUse( "plzbl"   , "plzbl", .F., 0 )
@@ -39,5 +40,7 @@ PROCEDURE WunschterminList
    ENDDO
    cText += "</pre>"
 
-   SendMail({{"sabid.pehlic@engelking.de","Sabid"},{"amos.engelking@engelking.de","Amos","CC"}},"Abweichende Wunschtermine",cText,,,,.T.)
+   aTo := {{"sabid.pehlic@engelking.de","Sabid"}}
+
+   SendMail(aTo,"Abweichende Wunschtermine",cText,,,,.T.)
 RETURN

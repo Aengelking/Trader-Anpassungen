@@ -81,7 +81,7 @@ FUNCTION QtyProducible(nArtnr,nEndStep,lBuy,lManu,nPart)
 Return nTot
 
 STATIC Function _QtyProducable(nArtnr,nEndStep,nStep,nFactor,lBuy,lManu,nPart)
-   LOCAL nProducible,nStock,nRec := part->(Recno())
+   LOCAL nProducible,nStock := 0,nRec := part->(Recno())
 
 
    part->(dbSetOrder(1))

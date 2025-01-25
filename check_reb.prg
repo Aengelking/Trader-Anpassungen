@@ -64,7 +64,7 @@ FOR EACH hData IN hUsers
       Sendmail({{GetUserEmail(nUser),cUser}},LTrim(Str(nCount))+IF(hData["over"] > 0," ("+LTrim(Str(hData["over"]))+" f„llige)","")+" Rechnung"+IF(nCount>1,"en","")+" im Eingangsbuch",hData["list"])
    ENDIF
    IF hData["over"] > 0 .AND. nUser != 9
-      Sendmail({{GetUserEmail(9),Buy(9,.T.)}},LTrim(Str(hData["over"]))+" f„llige Rechnung"+IF(nCount>1,"en","")+" in "+Left(cUser,AT(" ",cUser)-1)+IF(Right(Left(cUser,AT(" ",cUser)-1),1)=="s","'","s")+" Eingangsbuch",hData["list"])      
+      //Sendmail({{GetUserEmail(9),Buy(9,.T.)}},LTrim(Str(hData["over"]))+" f„llige Rechnung"+IF(nCount>1,"en","")+" in "+Left(cUser,AT(" ",cUser)-1)+IF(Right(Left(cUser,AT(" ",cUser)-1),1)=="s","'","s")+" Eingangsbuch",hData["list"])      
       IF nUser == 50
          SendSMS({"+4915779388510"},"Bitte dringend Rechnungen verbuchen! Du hast "+LTrim(Str(hData["over"]))+" f„llige Rechnung"+IF(nCount>1,"en","")+" in Deinem Eingangsbuch")
       ENDIF

@@ -1,14 +1,27 @@
 #ifndef __XHARBOUR__
 	#xtranslate HexToStr([<c,...>])      => HB_HexToStr(<c>)
 #endif
-FUNCTION RUN_BERICHT
-PARAMETERS cOut
+FUNCTION RUN_BERICHT(cOut)
 
-LOCAL oDB
-LOCAL cErrorClass, cErrorMsg, nType
-LOCAL lStream := ValType(cOut) == "C"
+   LOCAL lStream := ValType(cOut) == "C"
+   LOCAL nPrinter
+   LOCAL hTurnover
+   LOCAL oPdf
+   LOCAL bSchusterJunge
+   LOCAL hContacts
+   LOCAL nX
+   LOCAL hContact
+   LOCAL oPrinter
+   LOCAL nMaxPayTime,nKSRow,nYear
+   LOCAL nFirstYear,nYears
+   LOCAL nHeight,nWidth,nBottom,nLeft,nBigest,nCol,nROw,nColu,nBBot,nBTop,nLastLine,nEndLastLine,nPage
+   LOCAL aColours,cColour
+   LOCAL lQtyOnly,hBought,nQty,lNewLine
+   LOCAL hYear,hMonth
 
-LOCAL aEnv := SaveEnv()
+   LOCAL aEnv := SaveEnv()
+
+   MEMVAR SYS_LAN
 
 IF ! SystemUser():CheckPermission("READ","ADR_CUSTOMER_REPORT")
    RETURN NIl
@@ -193,7 +206,20 @@ If auf->Kundma == ku->Kunde
 	oPdf:ReportLine := nRow
 Endif
 
-If ku->Group == "K"
+IF ku->Group == "L"
+   hTurnover["years"] := {=>}
+
+   FOR EACH hYear IN hTurnover["months"]
+      nYear := hYear:__eNumKey()
+      FOR EACH hMonth IN hYear
+         IF ! HHasKey(hTurnover["years"],nYear)
+            hTurnover["years"][nYear] := 0
+         ENDIF
+         hTurnover["years"][nYear] += hMonth["billings"]
+      NEXT
+   NEXT
+   Alert(hTurnover["years"])
+ENDIF
 ASort(hTurnover["years"])
 nBigest := 0
 
@@ -203,8 +229,10 @@ nWidth := 250
 nHeight := 100
 
 If Len(hTurnover["years"]) > 0
-	nFirstYear := HGetKeyAt(hTurnover["years"],1)
-	nYears := Max(HGetKeyAt(hTurnover["years"],Len(hTurnover["years"]))-nFirstYear+1,5)
+	nFirstYear := Year(Date())-9 //HGetKeyAt(hTurnover["years"],1)
+	//nYears := Max(HGetKeyAt(hTurnover["years"],Len(hTurnover["years"]))-nFirstYear+1,10)
+   nYears := 10 //HGetKeyAt(hTurnover["years"],Len(hTurnover["years"]))-nFirstYear+1
+   
 
 	nX := 1
 	Do While nX <= Len(hTurnover["years"])
@@ -249,6 +277,7 @@ Endif
 oPdf:REPORTLINE := oPdf:PDFBOTTOM-oPdf:D2R(nBottom+nHeight)             // nBottom+nHeight
 oPdf:AtSAy(Chr(253)+HexToStr("000000")) //black
 
+If ku->Group == "K"
 oPdf:NewLine(2)
 oPdf:Bold()
 oPdf:AtSay("Offene Posten",,0,'R')

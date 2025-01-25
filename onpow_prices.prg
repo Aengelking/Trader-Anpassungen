@@ -1,7 +1,7 @@
 PROC RUN_ONPOW_PRICES(lNewAli)
 //#define TEST
 //#define DEBUG
-LOCAL cMainPath := "Y:\Dokumente und Einstellungen\All Users\Dokumente\Onpow\Preise\dbf\"
+LOCAL cMainPath := "Y:\Dokumente und Einstellungen\All Users\Dokumente\Lieferanten\Onpow\Preise\dbf\"
 LOCAL cPath
 LOCAL aMatches
 LOCAL cSup := Pad("ONPOW",8)
@@ -56,13 +56,14 @@ Aadd(aSeries,{;
    "ADDCOSTLED"=>{31=>0.9,32=>0.9,2=>0.35},;
    "IP"=>6,;
    "COSTIP"=>0.2,;
-   "COSTNOIP"=>0;
+   "COSTNOIP"=>0,;
+   "VPE"=>50;
    };
 )
 
 Aadd(aSeries,{;
    "FILE"=>"gq16",;
-   "SEARCH"=>"GQ16",;
+   "SEARCH"=>"GQ16",; 
    "REGEX"=>"^(GQ16)P?([F,H,B]-[^\/]*)(\/[JL])?\/(.{1,5})\/.{2,4}(\/.)",;
    "MATCH"=>{|aMatch,aCompare|
       IF AT("ET",aMatch[3]) != 0
@@ -78,28 +79,33 @@ Aadd(aSeries,{;
       RETURN Len(aCompare) >= 2 .AND. aMatch[2]+aMatch[3] == aCompare[2]
    },;
    "LED"=>5,;
-   "ADDCOSTLED"=>{41=>1.5,42=>1.5,31=>0.9,32=>0.9,2=>0.35};
+   "ADDCOSTLED"=>{41=>1.5,42=>1.5,31=>0.9,32=>0.9,2=>0.35},;
+   "VPE"=>40;
    };
 )
 
 Aadd(aSeries,{;
    "FILE"=>"gq19",;
    "SEARCH"=>"GQ19",;
-   "REGEX"=>"^(GQ19S?)P?([F,H]-10[D,E])\/(.{1,5})\/.{2,4}(\/[A-Z])",;
-   "MATCH"=>{|aMatch,aCompare| aMatch[2]+aMatch[3]+aMatch[5] == aCompare[1] },;
+   "REGEX"=>"^(GQ19S?)P?([F,H]-10[D,E])(\/J)?\/(.{1,3})\/.{2,4}(\/[A-Z])",;
+   "MATCH"=>{|aMatch,aCompare| aMatch[2]+aMatch[3]+aMatch[5]+aMatch[6] == aCompare[1]  },;
    "REGEXNOLED"=>"^(GQ19S?)P?([F,H,B]-.[^\/]*)(\/J)?(\/.)",;
-   "MATCHNOLED"=>{|aMatch,aCompare| aMatch[2]+aMatch[3]+aMatch[5] == aCompare[1] },;
+   "MATCHNOLED"=>{|aMatch,aCompare| aMatch[2]+aMatch[3]+IF(aMatch[5]=="A","S",aMatch[5]) == aCompare[1] },;
    "LED"=>4,;
-   "ADDCOSTLED"=>{31=>0.9,32=>0.9,2=>0.35};
+   "ADDCOSTLED"=>{31=>0.9,32=>0.9,2=>0.35},;
+   "MATERIAL"=>6,; 
+   "MATERIALADDCOST"=>{"A"=>0.43},;
+   "VPE"=>40;      
    };
 )
+   //"MATERIALNOLED"=>4,;
 
 FOR EACH cSearch IN {"GQ2","GQ30"}
    Aadd(aSeries,{;
       "FILE"=>"gq2",;
       "SEARCH"=>cSearch,;
-      "REGEX"=>"^(GQ(?:2[2,5,8]|30))P?F?(-.{2}Z?)([D,E,T]{0,2})\/([^\/]{1,5})\/[^\/]{2,4}\/[A-Z](\/FP)?",;
-      "MATCH"=>{|aMatch,aCompare|
+      "REGEX"=>"^(GQ(?:2[2,5,8]|30))P?F?(-.{2}Z?)([D,E,T]{0,2})\/([^\/]{1,5})\/[^\/]{2,4}\/[A-Z](\/FP)?",; 
+      "MATCH"=>{|aMatch,aCompare| 
          IF AT("T/",aCompare[2]) != 0 .OR. AT("T",aMatch[4]) != 0
             RETURN aMatch[2]+aMatch[3]+aMatch[4] == aCompare[2]
          ENDIF
@@ -115,7 +121,8 @@ FOR EACH cSearch IN {"GQ2","GQ30"}
       "IP"=>6,;
       "IPNOLED"=>4,;
       "COSTIP"=>0,;
-      "COSTNOIP"=>-0.2;
+      "COSTNOIP"=>-0.2,;
+      "VPE"=>IF(cSearch=="GQ2",20,10);
       };
    )
 NEXT
@@ -144,7 +151,8 @@ Aadd(aSeries,{;
    "MATERIALNOLED"=>4,;
    "MATERIALADDCOST"=>{"N"=>-0.4},;
    "LEDTYPE"=>4,;
-   "POWERADDCOST"=>0.35;
+   "POWERADDCOST"=>0.35,;
+   "VPE"=>40;
    };
 )
 
@@ -166,7 +174,8 @@ Aadd(aSeries,{;
    "IPNOLED"=>6,;
    "COSTIP"=>0,;
    "COSTNOIP"=>-0.2,;
-   "LEDTYPE"=>4;
+   "LEDTYPE"=>4,;
+      "VPE"=>40;
    };
 )
 
@@ -200,14 +209,15 @@ Aadd(aSeries,{;
    "COSTIP"=>0,;
    "COSTNOIP"=>0,;
    "LEDTYPE"=>4,;
-   "POWERADDCOST"=>0.35;
+   "POWERADDCOST"=>0.35,;
+      "VPE"=>40;
    };
 )
 
 Aadd(aSeries,{;
    "FILE"=>"ts",;
    "SEARCH"=>"TS",;
-   "REGEX"=>"^(TS(?:19|22|25))([A-Z])(\/[0-9,Z,T,C]{2,5})\/Y\/SS\/([^\/]{2,5})\/[0-9]{1,2}V",;
+   "REGEX"=>"^(TS(?:19|22|25))([A-Z])(\/[0-9,Z,T,C]{2,5})\/Y\/SS\/([^\/]{2,5})\/[0-9]{1,2}V(-[3,5]W)?",;
    "MATCH"=>{|aMatch,aCompare|
       RETURN aMatch[2]+aMatch[4] == Trim(aCompare[1])
    },;
@@ -480,6 +490,12 @@ FOR EACH hSeries IN aSeries
                   #else
                   @ 02,37 SAY ali->Artlief
                   #endif
+
+                  IF HHasKey(hSeries,"VPE") 
+                     art->(Rec_Lock(0))
+                     art->VPE := hSeries:VPE
+                     art->(dbUnLock())
+                  ENDIF
 
                   AddPrices(nPrice+nAddPrice,hRabatte,cPath,cSup,dStart)
 

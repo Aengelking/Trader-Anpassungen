@@ -22,7 +22,8 @@ PROC RUN_GESSMANN_DYN(nKunde,lDisplay,lUpdateMelde)
    LOCAL nThisYear := Year(Date()) 
    LOCAL dEoY := Stod(Str(nThisYear,4)+"1231")
    LOCAL dBoY := Stod(Str(nThisYear,4)+"0101")
-   LOCAL dBoNY := Stod(Str(nThisYear+1,4)+"0101")
+   //LOCAL dBoNY := Stod(Str(nThisYear+1,4)+"0101")
+   LOCAL dBoNY
    LOCAL dEnd
    LOCAL nMelde
 
@@ -38,6 +39,12 @@ PROC RUN_GESSMANN_DYN(nKunde,lDisplay,lUpdateMelde)
    
    Default(@lDisplay,.T.)
    Default(@lUpdateMelde,.F.)
+
+   IF Month(Date()) < 6
+      dBoNY := Stod(Str(nThisYear,4)+"0601")
+   ELSE
+      dBoNY := Stod(Str(nThisYear+1,4)+"0601")  
+   ENDIF
    
    IF lDisplay
       cCol := SetColor(c_one)
@@ -309,6 +316,7 @@ PROC RUN_GESSMANN_DYN(nKunde,lDisplay,lUpdateMelde)
       ? "Anmerkungen:"
       ? "- Die Hochrechung kann niedriger sein als die tats„chlichen Abrufe in einem Jahr, wenn bereits Abrufe fr das folgende Jahre erteilt wurden."
       ? "- Die offene Menge beinhaltet auch Best„nde die ber die aktuellen Rahmen hinausgehen"
+      ? "- Die Rahmenlaufzeit beginnt am "+DtoC(dBONY)+" und endet am "+DtoC(dBONY+365)
       ?   
       IF ku->Nummer == 14696 
          ? ">E< erzeugt Email fr Kunde"

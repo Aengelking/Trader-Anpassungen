@@ -144,12 +144,12 @@ Aadd(aAutoOC,{;
       ENDIF
 
       aRegex := HB_Regex("[^0-9]*([0-9]{5,})\s*[^#]*#\s*([0-9]{1,})",oMsg:SubJect)
-
-      IF Len(aRegex) >= 3 .OR. Len(oHTML:getNodes("table")) >= 9
+      aTables := oHTML:getNodes("table")
+      IF Len(aRegex) >= 3 .OR. Len(aTables) >= 9
          nPO := Val(aRegex[2])
          cAB := aRegex[3]
 
-         oTable := oHTML:getNodes("table")[9]
+         oTable := aTables[9]
 
          aData := GetDataFromHTMLTable(oTable,{"PART"=>"(Artikelnummer|Part\s*Number)","QTY"=>"(Bestellmenge|Order\s*Quantity)","PRICE"=>"(St.ckpreis|Unit\s*Cost)","DATE"=>"Expected\s*Ship\s*Date"},2)
 

@@ -30,6 +30,8 @@ PROC RUN_SHOPWARE_PRODUCTS  //donwload product ID's from website (this will run 
    
    Head("Downloading product ID's from Shopware")
 
+   
+
    @ 01,00 SAY "Downloaded:"
    @ 02,00 SAY "Found:"
    @ 03,00 SAY "Waldom:"
@@ -56,7 +58,7 @@ PROC RUN_SHOPWARE_PRODUCTS  //donwload product ID's from website (this will run 
 
       AEval(hProdData["data"],{|aData| 
          LOCAL nArtnr := 0
-
+         LOCAL lFound,nRec
          
          IF art->(dbSeek( aData["attributes"]["productNumber"] ))            
             nArtnr := art->Artikelnr
@@ -65,15 +67,37 @@ PROC RUN_SHOPWARE_PRODUCTS  //donwload product ID's from website (this will run 
 
          //save in DB, if no part is found then for future use, e.g. when the product is created
          //lSave := .F.
-         IF shop->(dbSeek( aData["id"] ))
+         IF nArtnr != 0
+            shop->(dbSetOrder( 1 ))
+            lFound := shop->(dbSeek( Str(nArtnr,6) ))
+            IF lFound
+               nRec := shop->(Recno())
+
+               //check for duplicates and delete them
+               shop->(dbSkip(1))
+               DO WHILE ! shop->(Eof()) .AND. shop->Artikelnr == nArtnr
+                  shop->(Rec_Lock(0))
+                  shop->(dbDelete())
+                  shop->(dbDelete())
+                  shop->(dbSkip(1))
+               ENDDO
+               shop->(dbGoto(nRec))
+            ENDIF
+         ELSE
+            shop->(dbSetOrder( 2 ))
+            lFound := shop->(dbSeek( aData["id"] ))
+         ENDIF
+
+         IF lFound
             shop->(Rec_Lock(0))
             //lSave := .T.            
          ELSE
             shop->(Add_Rec(0))
-            shop->UUID := aData["id"]  
+             
             //lSave := .T.
          ENDIF
-         //IF lSave            
+         //IF lSave    
+         shop->UUID := aData["id"]         
             IF nArtnr != shop->Artikelnr
                shop->Bestand   := 0
             ENDIF

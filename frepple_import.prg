@@ -13,7 +13,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
    LOCAL cJob
    LOCAL nOrder,hJob,dStart,dEnd
    LOCAL bAddJobs,oRec   
-   LOCAL oExtra
+   LOCAL oExtra,oArtExtra
    LOCAL aList,oBrowse
    LOCAL dOldEnd,dOldStart,lChange
    LOCAL bAddRowData,oWerk
@@ -22,6 +22,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
    LOCAL nRowCount := MaxRow()+1
    LOCAL nD
    LOCAL aText,nChoice
+   LOCAL oBes,nBesnr
 
    LOCAL cQSStart := Trim(GetValue("FREPPLE_QS_JOBST","QS","QS job names start with"))   
 
@@ -43,7 +44,9 @@ PROCEDURE RUN_FREPPLE_IMPORT()
    NetUse("werkauf","wer")
    NetUse("restime","rst")
    NetUse("jobs","job") 
-   NetUse("resource","res")
+   NetUse("resource","res")   
+   
+   NetUse("frepjobs","fjob")
 
    ? "Downloading manufacturing orders... "
 
@@ -77,58 +80,61 @@ PROCEDURE RUN_FREPPLE_IMPORT()
             cMatch := aData[nX]["operation"]
          ENDIF
          art->(dbSeek(cMatch))
+         oArtExtra := art->(ExtraData():New(art->Artikelnr))
          //? aData[nX]["reference"],cMatch,cJob,cSupplier,aData[nX]["operation"],aData[nX]["owner"],aData[nX]["owner"]=="FA8820",aData[nX]["reference"]=="FA8820"         
          hRow := {"ID"=>aData[nX]["reference"],"STATUS"=>aData[nX]["status"],"QTY"=>Round(Val(aData[nX]["quantity"]),GetMeDecimals(art->me)),"BADQTY"=>0,"START"=>Frep_StoT(aData[nX]["startdate"]),"END"=>Frep_StoT(aData[nX]["enddate"]),"SUPPLIER"=>cSupplier,"JOBS"=>{},"DELAY"=>aData[nX]["delay"]}         
          IF AT("QS",cJob) == 1 
              //ignore QS
-         ELSEIF ! Empty(cJob) .AND. ! Empty(aData[nX]["owner"])
+         ELSEIF hRow["STATUS"] == "closed" //closed orders are not imported
+            //? "closed"
+         ELSEIF ! Empty(cJob) .AND. ! Empty(aData[nX]["owner"]) //internal (has a job) and not routing operation
                
-               //scan for owner 
-               nAufno := 0   
-               nOrder := 0             
-               IF AT("FA",aData[nX]["owner"]) == 1
-                  nAufno := Val(SubStr(aData[nX]["reference"],3))
-                  IF ! HHasKey(hOrders,nAufno)
-                     nAufno := 0                     
-                  ENDIF
-               ELSEIF HHasKey(hItems,cMatch)
-                  nOrder := Ascan(hItems[cMatch],{|x| Trim(x["ID"]) == Trim(aData[nX]["owner"]) })
-                  //?? nOrder
-               ENDIF   
-
-               IF cJob != "DUMMY" //do not import DUMMY operations as jobs
-                  IF Len(aData[nX]["resources"]) == 0 //No resource planed, e.g. it is completed or the task does not require a resource
-                     Aadd(aData[nX]["resources"],{"resource"=>""}) //add a blank record, which  is used in the for loop below
-                  ENDIF
-                                          
-                  FOR nY := 1 TO Len(aData[nX]["resources"])
-                     aJob := {"START"=>hRow["START"],"END"=>hRow["END"],"JOB"=>cJob,"RESOURCE"=>aData[nX]["resources"][nY]["resource"],"STATUS"=>aData[nX]["status"]}
-                     IF nAufno != 0
-                        Aadd(hOrders[nAufno]["JOBS"],aJob)
-                     ELSEIF nOrder != 0
-                        Aadd(hItems[cMatch][nOrder]["JOBS"],aJob)
-                     ELSE
-                        IF ! HHasKey(hJobs,aData[nX]["owner"])
-                           hJobs[aData[nX]["owner"]] := {}
-                        ENDIF
-                        Aadd(hJobs[aData[nX]["owner"]],aJob)                  
-                     ENDIF
-                  NEXT
+            //scan for owner 
+            nAufno := 0   
+            nOrder := 0             
+            IF AT("FA",aData[nX]["owner"]) == 1
+               nAufno := Val(SubStr(aData[nX]["reference"],3))
+               IF ! HHasKey(hOrders,nAufno)
+                  nAufno := 0                     
                ENDIF
+            ELSEIF HHasKey(hItems,cMatch)
+               nOrder := Ascan(hItems[cMatch],{|x| Trim(x["ID"]) == Trim(aData[nX]["owner"]) })
+               //?? nOrder
+            ENDIF   
 
-               FOR nY := 1 TO Len(aData[nX]["materials"]) //look through the BOM to find the output position
-                  IF StrTran(aData[nX]["materials"][nY]["item"],"_UNCHECKED","") == Trim(cMatch)                     
-                     IF nAufno != 0
-                        hOrders[nAufno]["BADQTY"] := Round(hOrders[nAufno]["QTY"]-Val(aData[nX]["materials"][nY]["quantity"]),GetMeDecimals(art->me))                        
-                     ELSEIF nOrder != 0
-                        hItems[cMatch][nOrder]["BADQTY"] := Round(hItems[cMatch][nOrder]["QTY"]-Val(aData[nX]["materials"][nY]["quantity"]),GetMeDecimals(art->me))
-                     ELSE
-                        hRealQty[aData[nX]["owner"]] := Val(aData[nX]["materials"][nY]["quantity"])                        
+            IF cJob != "DUMMY" //do not import DUMMY operations as jobs
+               IF Len(aData[nX]["resources"]) == 0 //No resource planed, e.g. it is completed or the task does not require a resource
+                  Aadd(aData[nX]["resources"],{"resource"=>""}) //add a blank record, which  is used in the for loop below
+               ENDIF
+                                       
+               FOR nY := 1 TO Len(aData[nX]["resources"])
+                  //? hRow["ID"]
+                  aJob := {"ID"=>hRow["ID"],"START"=>hRow["START"],"END"=>hRow["END"],"JOB"=>cJob,"RESOURCE"=>aData[nX]["resources"][nY]["resource"],"STATUS"=>aData[nX]["status"]}
+                  IF nAufno != 0
+                     Aadd(hOrders[nAufno]["JOBS"],aJob)
+                  ELSEIF nOrder != 0
+                     Aadd(hItems[cMatch][nOrder]["JOBS"],aJob)
+                  ELSE
+                     IF ! HHasKey(hJobs,aData[nX]["owner"])
+                        hJobs[aData[nX]["owner"]] := {}
                      ENDIF
-                  ENDIF  
+                     Aadd(hJobs[aData[nX]["owner"]],aJob)                  
+                  ENDIF
                NEXT
-               
-         ELSE //IF AT("QS",cJob) != 1 //ignore the main QS operations
+            ENDIF
+
+            FOR nY := 1 TO Len(aData[nX]["materials"]) //look through the BOM to find the output position
+               IF StrTran(aData[nX]["materials"][nY]["item"],"_UNCHECKED","") == Trim(cMatch)                     
+                  IF nAufno != 0
+                     hOrders[nAufno]["BADQTY"] := Round(hOrders[nAufno]["QTY"]-Val(aData[nX]["materials"][nY]["quantity"]),GetMeDecimals(art->me))                        
+                  ELSEIF nOrder != 0
+                     hItems[cMatch][nOrder]["BADQTY"] := Round(hItems[cMatch][nOrder]["QTY"]-Val(aData[nX]["materials"][nY]["quantity"]),GetMeDecimals(art->me))
+                  ELSE
+                     hRealQty[aData[nX]["owner"]] := Val(aData[nX]["materials"][nY]["quantity"])                        
+                  ENDIF
+               ENDIF  
+            NEXT               
+         ELSE
             IF HHasKey(hJobs,aData[nX]["reference"])
                hRow["JOBS"] := AClone(hJobs[aData[nX]["reference"]])
                HDel(hJobs,aData[nX]["reference"]) // := {}
@@ -138,37 +144,41 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                HDel(hRealQty,aData[nX]["reference"])
             ENDIF
 
-            IF AT("FA",aData[nX]["reference"]) == 1 //This is a existing order, we check the dates and move accordingly
-               nAufno := Val(SubStr(aData[nX]["reference"],3))               
-               IF ! nAufno $ hOrders
-                  hOrders[nAufno] := hRow
-               ENDIF
-               wer->(dbSeek( Str(nAufno,6) ))
-               IF ! HHasKey(hItems,Trim(wer->Matchcode))
-                  hItems[cMatch] := {}
-               ENDIF               
-            ELSE //this is a newly proposed order              
-               IF nExt > 0
-                  //cSupplier := SubStr(aData[nX,hMap:Operation_Id],nExt+6)
-                  IF ! HHasKey(hSuppliers,cSupplier)
-                     hSuppliers[cSupplier] := {=>}
-                  ENDIF
-                  IF ! HHasKey(hSuppliers[cSupplier],cMatch)
-                     hSuppliers[cSupplier,cMatch] := {}
-                  ENDIF
-                  Aadd(hSuppliers[cSupplier,cMatch],hRow)
-               ELSE
-                  IF ! HHasKey(hItems,cMatch)
-                     hItems[cMatch] := {}
-                  ENDIF
-                  Aadd(hItems[cMatch],hRow)
+            IF nExt == 0 .OR. oArtExtra:Frep_Ext //internal order or part is marked to import Supplier orders too
+               IF AT("FA",aData[nX]["reference"]) == 1 //This is a existing order, we check the dates and move accordingly                  
+                  //IF nExt == 0 .OR. cSupplier == "LACKIERZ"
+                     nAufno := Val(SubStr(aData[nX]["reference"],3))               
+                     IF ! nAufno $ hOrders
+                        hOrders[nAufno] := hRow
+                     ENDIF
+                     wer->(dbSeek( Str(nAufno,6) ))
+                     IF ! HHasKey(hItems,Trim(wer->Matchcode))
+                        hItems[cMatch] := {}
+                     ENDIF               
+                  //ENDIF
+               ELSE //this is a newly proposed order              
+                  /*IF nExt > 0 .AND. cSupplier != "LACKIERZ" //this is a supplier order, we need to add it to the supplier list
+                     //cSupplier := SubStr(aData[nX,hMap:Operation_Id],nExt+6)
+                     IF ! HHasKey(hSuppliers,cSupplier)
+                        hSuppliers[cSupplier] := {=>}
+                     ENDIF
+                     IF ! HHasKey(hSuppliers[cSupplier],cMatch)
+                        hSuppliers[cSupplier,cMatch] := {}
+                     ENDIF
+                     Aadd(hSuppliers[cSupplier,cMatch],hRow)
+                  ELSE*/ //this is a internal order, we need to add it to the internal list*/                  
+                     IF ! HHasKey(hItems,cMatch)
+                        hItems[cMatch] := {}
+                     ENDIF
+                     Aadd(hItems[cMatch],hRow)
+                  //ENDIF
                ENDIF
             ENDIF
          ENDIF
          
       NEXT
       IF Len(hJobs) != 0 .OR. Len(hRealQty) != 0         
-         Alert("Error importing data")
+         Alert("Error importing data "+Str(Len(hJobs))+Str(Len(hRealQty)))
       ENDIF
    ENDIF
 
@@ -218,6 +228,15 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                rst->End      := TtoS(hJob["END"])               
                rst->Complete := hJob["STATUS"] == "completed"               
                rst->(dbUnLock())
+
+               IF fjob->(dbSeek( Str(rst->ID,12) ))
+                  fjob->(Rec_Lock(0))
+               ELSE
+                  fjob->(Add_Rec())
+                  fjob->RestimeId := rst->ID   
+               ENDIF
+               fjob->FreppleID := hb_utf8tostr(hJob["ID"])               
+               fjob->(dbUnLock())
             
          ELSEIF ! Empty(nWA)
             Aadd(aCSV,{"","neu",,,,,,,hJob["START"],,hJob["END"],hJob:Job,job->Nummer,hJob:Resource})
@@ -237,6 +256,11 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                oRec:Type := "WA"
                oRec:Complete := hJob["STATUS"] == "completed"
                oRec:Save()
+
+               fjob->(Add_Rec())
+               fjob->FreppleID := hb_utf8tostr(hJob["ID"])
+               fjob->RestimeId := oRec:ID
+               fjob->(dbUnLock())
             
 
          ENDIF
@@ -257,9 +281,16 @@ PROCEDURE RUN_FREPPLE_IMPORT()
             //IF AScan(aJobs,{|x| x:Job == Trim(job->Name) .AND. x:Resource == IF(rst->Resource==0,"",Trim(res->Name)) }) == 0
                Aadd(aCSV,{"","l”schen",,,,,,Stot(rst->Start),,Stot(rst->End),,job->Name,rst->Job,Trim(res->Name)})
                
+               IF fjob->(dbSeek( Str(rst->ID,12)))
+                  fjob->(Rec_Lock(0))
+                  fjob->(dbDelete())
+                  fjob->(dbUnLock())
+               ENDIF
                rst->(Rec_Lock())
                rst->(dbDelete())
                rst->(dbUnLock())
+
+               
                
             ENDIF
             rst->(dbSkip())
@@ -290,8 +321,10 @@ PROCEDURE RUN_FREPPLE_IMPORT()
 
       wer->(dbsetOrder( 2 ))
       Select("wer")
-      SET FILTER TO wer->Status <= 3 .AND. /* wer->Status >= 1 .AND.*/ Empty(wer->Liefma) .AND. wer->Qty-wer->PlanBad > 0 .AND. Right(Str(wer->TerminFrue,4),2) != "99"
+      SET FILTER TO wer->Status <= 3 .AND. /* wer->Status >= 1 .AND. (Empty(wer->Liefma) .OR. Trim(wer->Liefma) $ {"LACKIERZ"}) .AND.*/ wer->Qty-wer->PlanBad > 0 .AND. Right(Str(wer->TerminFrue,4),2) != "99"
    
+      //
+
       wer->(dbSeek( Str(art->Artikelnr,6) ))
      
       nX := 0
@@ -304,62 +337,51 @@ PROCEDURE RUN_FREPPLE_IMPORT()
          IF wer->Aufno $ hOrders
             
             oExtra := wer->(ExtraData():New(wer->Aufno))
-            IF (wer->Status >= 1 .AND. hOrders[wer->Aufno]:Status == "confirmed") .OR. (wer->Status == 0 .AND. Trim(oExtra:FreppleSta) == hOrders[wer->Aufno]:Status)
-               //Aadd(aCSV,{wer->Aufno,"bestehend",hOrders[wer->Aufno]:Id,hOrders[wer->Aufno]:Supplier,Trim(art->Matchcode),wer->Qty-wer->GelQty,Round(hOrders[wer->Aufno]:Qty,GetMeDecimals(art->me)),IF(Empty(wer->Liefma),wer->Startdate,CWeek(wer->Termin)),hOrders[wer->Aufno]:Start,IF(Empty(wer->Liefma),wer->Enddate,CWeek(wer->End)),hOrders[wer->Aufno]:End})
-               /*IF wer->Aufno == 10916
-                  aTExt := {}
-                  Aadd(aText,"Start: "+DtoC(wer->StartDate)+"->"+DtoC(StoD(TtoS(hOrders[wer->Aufno]:Start))))
-                  Aadd(aText,"End: "+DtoC(wer->EndDate)+"->"+DtoC(StoD(TtoS(hOrders[wer->Aufno]:End))) )
-                  Tr_MsgBox(aText)                  
-                  Alert("update")
-               ENDIF*/
+            IF (wer->Status >= 1 .AND. hOrders[wer->Aufno]:Status == "confirmed");
+               .OR. (wer->Status == 0) // .AND. Trim(oExtra:FreppleSta) == hOrders[wer->Aufno]:Status)
 
                //this is an existing order which was exported to frepple, here we just move the dates and tasks
-               IF wer->StartDate  != StoD(TtoS(hOrders[wer->Aufno]:Start)) .OR.  wer->EndDate  != StoD(TtoS(hOrders[wer->Aufno]:End)) .OR. wer->PlanBad != hOrders[wer->Aufno]:BadQty;
-                  .OR. (Trim(oExtra:FreppleSta) == "approved" .AND. wer->Status == 0 .AND. wer->Qty != hOrders[wer->Aufno]:Qty) 
+               IF wer->StartDate  != StoD(TtoS(hOrders[wer->Aufno]:Start)) ;
+                  .OR. wer->EndDate  != StoD(TtoS(hOrders[wer->Aufno]:End));
+                  .OR. wer->PlanBad != hOrders[wer->Aufno]:BadQty;
+                  .OR. (/*Trim(oExtra:FreppleSta) == "approved" .AND.*/ wer->Status == 0 .AND. wer->Qty != hOrders[wer->Aufno]:Qty) 
 
-                  aText := {"FA "+LTrim(Str(wer->Aufno))+" aktualisieren?"}; Aadd(aText,"Artikel: "+Trim(art->Matchcode))               
-                  Aadd(aText,"Start: "+DtoC(wer->StartDate)+"->"+DtoC(StoD(TtoS(hOrders[wer->Aufno]:Start))))
-                  Aadd(aText,"End: "+DtoC(wer->EndDate)+"->"+DtoC(StoD(TtoS(hOrders[wer->Aufno]:End))) )
-                  Aadd(aText,"Delay: "+ValToPrg(hOrders[wer->Aufno]:Delay ))
-                  IF Trim(oExtra:FreppleSta) == "approved" .AND. wer->Status == 0
-                     Aadd(aText,"Menge: "+Str(wer->Qty)+"->"+Str(hOrders[wer->Aufno]:Qty))
-                  ENDIF
-                  Aadd(aText,"Ausschuss:"+Str(wer->PlanBad)+"->"+Str(hOrders[wer->Aufno]:BadQty))
+                  IF hOrders[wer->Aufno]:Qty == 0
+                     Aadd(aCSV,{wer->Aufno,"bestehend","FEHLER",hOrders[wer->Aufno]:Status,wer->Status,oExtra:FreppleSta})
+                     Tr_MsgBox({"FA "+LtrIM(str(wer->Aufno))+" hat keine Menge"})
+                  ELSE
+                     Eval(bAddJobs,hOrders[wer->Aufno]:Jobs,wer->Aufno)
 
-                  Eval(bAddJobs,hOrders[wer->Aufno]:Jobs,wer->Aufno)
-                  nChoice := Tr_MsgBox(aText,"Best„tiger Auftrag",{"Nein","Ja","zurck"}) 
-                  IF nChoice == 2                     
-                     
+                     nOrder := wer->(IndexOrd())
+
                      oWerk := WA():New()
                      oWerk:Load(wer->Aufno)
 
                      
                      oWerk:StartDate  := StoD(TtoS(hOrders[wer->Aufno]:Start))
                      oWerk:EndDate    := StoD(TtoS(hOrders[wer->Aufno]:End))
-                     //oWerk:End := Val(CalWeek(oWerk:EndDate))
-                     //wer->Termin     := Val(CalWeek(wer->StartDate))
-                     //wer->TerminFrue := Val(CalWeek(AddWorkingDays(wer->StartDate,-1,GetConfigValue("STATE"),.T.))) //wer->Termin //Min(wer->TerminFrue,wer->Termin)
-                     //wer->End        := Val(CalWeek(wer->EndDate))
+
                      //DO NOT CHANGE QUANTITY ON CONFIRMED ORDERS, the quantity is always the remaining quantity
-                     IF Trim(oExtra:FreppleSta) == "approved" .AND. wer->Status == 0 //only change quantities on non confirmed orders
+                     IF /*Trim(oExtra:FreppleSta) == "approved" .AND.*/ wer->Status == 0 //only on non confirmed orders change quantities
                         oWerk:Qty := hOrders[wer->Aufno]:Qty
                      ENDIF   
                      oWerk:PlanBad := hOrders[wer->Aufno]:BadQty
                      oWerk:Save()
-      
-                    //wer->(dbUnLock())                  
-                  
-                  ELSEIF nChoice == 3
-                     __KeyBoard(Chr(K_SH_TAB))
                   ENDIF
+
+                  wer->(dbSetOrder(nOrder))
+                     
                ELSE
 
                   Eval(bAddJobs,hOrders[wer->Aufno]:Jobs,wer->Aufno)
                ENDIF
             ELSE
                Aadd(aCSV,{wer->Aufno,"bestehend","FEHLER",hOrders[wer->Aufno]:Status,wer->Status,oExtra:FreppleSta})
-               Tr_MsgBox("FA "+LtrIM(str(wer->Aufno))+" kann nicht ge„ndert werden")
+               aError := {"FA "+LtrIM(str(wer->Aufno))+" kann nicht ge„ndert werden"}
+               IF (wer->Status == 0 .AND. Trim(oExtra:FreppleSta) != hOrders[wer->Aufno]:Status)
+                  Aadd(aError,"Status in Frepple ("+hOrders[wer->Aufno]:Status+") weicht von Trader ab ("+Trim(oExtra:FreppleSta)+")")
+               ENDIF
+               Tr_MsgBox(aError)
             ENDIF
          ELSEIF wer->Status == 0            
             aRow := Array(9)
@@ -376,13 +398,15 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                aRow[9] := "„ndern"
                aRow[7] := aData[nX]
                lChange := .F.                              
-               IF dOldStart != StoD(TtoS(aData[nX]:Start))
+               IF Empty(wer->Liefma) .AND. dOldStart != StoD(TtoS(aData[nX]:Start));
+                   .OR. ! Empty(wer->Liefma) .AND. wer->Termin != Val(CalWeek(aData[nX]:Start))
                   lChange := .T.                  
                   aRow[4] := DtoC(dOldStart)+"->"+Dtoc(aData[nX]:Start)
                ELSE
                   aRow[4] := Dtoc(aData[nX]:Start) 
                ENDIF
-               IF dOldEnd != aData[nX]:End                  
+               IF Empty(wer->Liefma) .AND. dOldEnd != aData[nX]:End;
+                   .OR. ! Empty(wer->Liefma) .AND. wer->End != Val(CalWeek(aData[nX]:End))
                   aRow[5] := Dtoc(dOldEnd)+"->"+DtoC(aData[nX]:End)
                ELSE
                   aRow[5] := DtoC(aData[nX]:End)
@@ -406,15 +430,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                   ENDIF
                   aKWQty[nKW,5] -= wer->Qty-wer->PlanBad-wer->GelQty
                   
-                  /*FOR nY := nKW TO Len(aKWQty)
-                     aKWQTY[nY][6] -= wer->Qty-wer->PlanBad-wer->GelQty
-                     IF nY > 1
-                        aKWQTY[nY][6] += aKWQTY[nY-1,2]+aKWQTY[nY-1,4]
-                     ENDIF
-                  NEXT*/
-                  AEval(aKWQty,{|x| x[6] -= wer->Qty-wer->PlanBad-wer->GelQty },nKW)
-
-                  //Tr_MsgBox(aText,"Auftrag "+LTrim(Str(wer->Aufno))+" „ndern?")
+                  AEval(aKWQty,{|x| x[6] -= wer->Qty-wer->PlanBad-wer->GelQty },nKW)                  
                ELSE //no change, so just make sure the jobs are in-sync
                   Eval(bAddJobs,aData[nX]:Jobs,wer->Aufno)               
                ENDIF               
@@ -452,7 +468,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
          aRow[4] := Dtoc(aData[nX]:Start)
          aRow[5] := DtoC(aData[nX]:End)
          aRow[6] := .F.
-         aRow[7] := aData[nX]
+         aRow[7] := aData[nX]         
          Aadd(aList,aRow)
          //Aadd(aCSV,{,"neu",aData[nX]:Id,aData[nX]:Supplier,Trim(art->Matchcode),0,aData[nX]:Qty,"",aData[nX]:Start,"",aData[nX]:End})
          //Eval(bAddJobs,aData[nX]:Jobs)
@@ -463,7 +479,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
          SetColor(c_four)
          @ 05,00 CLEAR TO MaxRow(),MaxCol()
          @ 05,00 TO MaxRow(),MaxCol()
-         @ 05,03 SAY "[ "+cMatch+ "]"
+         @ 05,03 SAY "[ Artikel: "+cMatch+ "]"
          @ MaxRow()-9,01 SAY Replicate(Chr(196),MaxCol()-2)
          @ MaxRow()-9,03 SAY "[ Bedarf ]"
 
@@ -491,6 +507,27 @@ PROCEDURE RUN_FREPPLE_IMPORT()
          oBrowse:NewColumn("Ausschuá",{|| oBrowse:CurrentDataRow()[3] })
          oBrowse:NewColumn("Start",{|| oBrowse:CurrentDataRow()[4] })
          oBrowse:NewColumn("Ende",{|| oBrowse:CurrentDataRow()[5] })
+         oBrowse:NewColumn("Frepple ID",{|| 
+            LOCAL aData := oBrowse:CurrentDataRow()
+            IF Len(aData) >= 7.AND. ValType(aData[7]) == "H"
+               RETURN aData[7]["ID"]
+            ENDIF
+            RETURN Space(20)
+         })
+         oBrowse:NewColumn("",{|| 
+            LOCAL aData := oBrowse:CurrentDataRow()
+            LOCAL cText := ""
+            IF Len(aData) >= 7.AND. ValType(aData[7]) == "H"
+               IF HHasKey(aData[7],"SUPPLIER")               
+                  IF ! Empty(cText)
+                     cText += " "
+                  ENDIF
+                  cText += aData[7]["SUPPLIER"] 
+               ENDIF
+               RETURN cText
+            ENDIF
+            RETURN NIL
+         })
          
          oBrowse:AddKey(K_TAB,{|| .F. })
          oBrowse:AddKey(K_SH_TAB,{|| .F. })
@@ -519,8 +556,9 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                IF Alltrim(aList[nX,9]) == "l”schen"
                   oWerk := WA():New()
                   oWerk:Load(aList[nX,1])
-                  oWerk:Delete()
+                  oWerk:Delete()  //also deletes the PO if there is one
                ELSE
+                  oBes := NIL
                   IF AllTrim(aList[nX,9]) == "neu"
                      art->(dbSetOrder( 1 ))
                      art->(dbSeek( cMatch ))
@@ -530,29 +568,85 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                      /*Alert(Str(art->Artikelnr))
                      Alert(Str(oWerk:Artno))
                      Alert(oWerk:Artikel:Matchcode)*/
+                     IF ! Empty(aList[nX,7]:Supplier)
+                        NetUSe("engnr","nr")
+                        nBesnr := 0
+                        Do While nBesnr == 0 .OR. bes->(dbSeek( Str(nBesnr,6) ))
+                           nBesnr := nr->besnr + 1
+                  
+                           nr->(rec_lock(0))
+                           REPLACE nr->besnr WITH nBesnr
+                           nr->(dbUnLock())
+                        Enddo
+                        nr->(dbCloseArea())
+                  
+                        oBes := BestellungPos():New(.T.)
+                        oBes:Besda := Date()
+                        oBes:Liefma  := aList[nX,7]:Supplier
+                        oBes:Besnr := nBesnr 
+                        oBes:Posnr := 1
+                        oWerk:Liefma := aList[nX,7]:Supplier
+                        oWerk:Liefad := aList[nX,7]:Supplier
+                        oWerk:BesPos := 1
+                        oWerk:Besnr := nBesnr
+                     ENDIF
                   ELSE
                      IF ! LockEntity("WA",aList[nX,1]) 
                         LOOP
                      ENDIF
                      oWerk := WA():New()
                      oWerk:Load(aList[nX,1])
+                     IF oWerk:Besnr != 0  .AND. bes->(dbSeek( Str(oWerk:besnr,6)+Str(oWerk:bespos,3)))
+                        IF ! LockEntity("BES",oWerk:besnr) 
+                           LOOP
+                        ENDIF
+                        oBes := BestellungPos():New(.F.)
+                        oBes:Load(oWerk:Besnr)
+                     ENDIF
                   ENDIF
                   oWerk:StartDate := StoD(TtoS(aList[nX,7]:Start))
                   oWerk:EndDate := StoD(TtoS(aList[nX,7]:End))
                   IF oWerk:Status <= 1
                      oWerk:Qty := aList[nX,7]:Qty
                      oWerk:PlanBad := aList[nX,7]:BadQty
+                     IF oBes != NIL
+                        oBes:Qty := aList[nX,7]:Qty
+                     ENDIF
                   ENDIF
                   oWerk:Save()
+
                   IF Alltrim(aList[nX,9]) == "neu"
                      oWerk:CreatePartList()
                   ENDIF                  
+
+                  IF oBes != NIL
+                     we->(dbSetOrder(4))
+                     IF we->(dbSeek( Str(oWerk:Aufno,6)+Str(-1,4) )) //lohnfertigungsposition finden
+                        oBes:Matchcode := we->Matchcode
+                     ELSE
+                        //Alert("H„? "+Str(oWerk:Aufno,6)+Str(-1,3) )
+                     ENDIF
+                     oBes:ShipTime := 1
+                     oBes:Lterm    := oWerk:End-oBes:ShipTime
+                     oBes:Wterm    := oWerk:End-oBes:ShipTime
+                     oBes:Released := .T.
+
+                     GetBuyPrice(oBes:Liefma,oBes:Artikelnr,oBes:Qty,@oBes:EkPr,@oBes:Pe,.T.)
+                     IF oBes:Pe == 0
+                        oBes:Pe := 1
+                     ENDIF
+                     oBes:Save()
+                  ENDIF
+
                   //do not set the status to approved, otherwise Frepple cannot plan on the next import
                   /*oExtra := wer->(ExtraData():New(oWerk:Aufno))
                   oExtra:FreppleSta := "approved"
                   oExtra:Save()*/
                   IF Alltrim(aList[nX,9]) != "neu"
                      UnLockEntity("WA",aList[nX,1])
+                     IF oBes != NIL
+                        UnLockEntity("BES",oBes:besnr)
+                     ENDIF
                   ENDIF
                   Eval(bAddJobs,aList[nX,7]:Jobs,oWerk:Aufno)
                ENDIF

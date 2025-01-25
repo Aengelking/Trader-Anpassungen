@@ -266,8 +266,10 @@ IF ku->Language == "D"
 ELSE
    cEmail += "<p>Best Regards<br /></p>"
 ENDIF
-cEmail += "<p><b>Engelking Elektronik GmbH</b><br />Albstrasse 16<br />78609 Tuningen<br />Deutschland<br />Tel: 07464-9865-0<br />Fax: 07464-9865-71"
-cEmail += "<br />Email: info@engelking.de<br />Amtsgericht Freiburg (HRB 602241)<br />Gesch&auml;ftsf&uuml;hrer: Amos Engelking, Hans-Peter Schwei&szlig;</p>"
+//cEmail += "<p><b>Engelking Elektronik GmbH</b><br />Albstrasse 16<br />78609 Tuningen<br />Deutschland<br />Tel: 07464-9865-0<br />Fax: 07464-9865-71"
+//cEmail += "<br />Email: info@engelking.de<br />Amtsgericht Freiburg (HRB 602241)<br />Gesch&auml;ftsf&uuml;hrer: Amos Engelking, Hans-Peter Schwei&szlig;</p>"
+
+cEmail := LoadEmailConfigFile("header")+cEmail+LoadEmailConfigFile("footer")
 
 IF Len(aTo) == 0
    Aadd(aTo,{"amos.engelking@engelking.de","Amos Engelking","TO"})

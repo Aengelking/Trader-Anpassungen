@@ -7,20 +7,24 @@ FUNCTION __DownLoadPage(cUrl,hPost,lModAgent)
    LOCAL nBytes,cValue
    LOCAL nProc,cLine
    LOCAL cCommand
+   LOCAL lDbg := Tr_GetINi(28) == 9
    Default(@lModAgent,.T.)
    IF ! File(CURL)
       cCommand := CURL2
    ELSE      
       cCommand := CURL
    ENDIF
+   cCommand += " --compressed"
    cCommand += ' -L'
    IF lModAgent
       //cCommand += ' --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.186 Safari/537.36"'
       cCommand += ' -H@x:\run\prices\farnell_header.txt'
    ENDIF
    cCommand += ' "'+cUrl+'"'
-   
-   gtSetClipboard(cCommand)
+
+   IF lDbg
+      gtSetClipboard(cCommand)
+   ENDIF
 
    IF HB_IsHash(hPost)
       cCommand += ' -X POST -d"'

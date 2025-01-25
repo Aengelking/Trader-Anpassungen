@@ -1,3 +1,6 @@
+#define LX_CAT_DEBITOR          128
+#define LX_CAT_KREDITOR         256
+
 PROC RUN_LEXCHECK
 LOCAL hDebitoren := {=>}
 LOCAL nX
@@ -7,6 +10,10 @@ LOCAL getlist := {}
 LOCAL oPDF
 LOCAL aInvoices,nR,hOps,nSumme,nKonto,nLXSaldo,hSummen
 LOCAL nNummer,nSaldo
+LOCAL aKonten
+LOCAL lDebitor := .T.
+LOCAL lKreditor := .T.
+LOCAL lWD := .T.
 
 Head("Abstimmung Lexware")
 
@@ -23,7 +30,10 @@ IF LastKey() == 27
 	RETURN
 ENDIF
 
-@ 01,00 SAY "Jahr" GET nYear PICTURE "9999"
+@ 01,00 SAY "Jahr         " GET nYear PICTURE "9999"
+@ 02,00 SAY "Debitoren    " GET lDebitor PICTURE "Y"
+@ 03,00 SAY "Kreditoren   " GET lKreditor PICTURE "Y"
+@ 04,00 SAY "W„hrungsdiff." GET lWD PICTURE "Y"
 READ
 
 IF LastKey() == 27
@@ -34,92 +44,167 @@ dEoY := StoD(Str(nYear,4)+"1231")
 
 StartPrint(,,"PDF")
 oPdf := GetCurrentPrinterObject():Data
-oPdf:NewPage()
 
 
+IF lDebitor
+   oPdf:NewPage()
 
+   @ 09,00 SAY "Debitoren"
+   re->(dbSetOrder( 3 ))
+   re->(dbSetFilter({|| re->Reposnr == 0 .AND. re->Packed .AND. re->Code != 3 .AND. re->poswt != 0 .AND. re->RechDat <= dEoY },"Reposnr == 0 .AND. Packed .AND. Code != 3 .AND. poswt != 0 .AND. RechDat <= StoD("+DtoS(dEoY)+")"))
+   re->(dbGoTop())
+   ku->(dbSetOrder( 1 ))
+   DO WHILE re->Status < 3  .AND. ! re->(Eof())
+      //IF re->Reposnr == 0 .AND. re->Packed .AND. re->Code != 3 .AND. re->poswt != 0
+         @ 09,10 SAY re->Rechnr
+         ku->(dbSeek( re->Kunde+"K" ))
+         IF ! HHasKey(hDebitoren,ku->Nummer)
+            hDebitoren[ku->Nummer] := {"saldo"=>0,"lastdate"=>Date(),"invoices"=>{}}
+         ENDIF
+         hDebitoren[ku->Nummer]["saldo"] += re->PosWt-re->AoQty
+         hDebitoren[ku->Nummer]["lastdate"] := Min(hDebitoren[ku->Nummer]["lastdate"],re->Rechdat)
+         Aadd(hDebitoren[ku->Nummer]["invoices"],re->Rechnr)
+      //ENDIF
+      
+      re->(dbSkip())	
+   ENDDO
+   re->(dbClearFilter())
 
+   @ 10,00 SAY "Offeneposten"
 
-@ 09,00 SAY "Debitoren"
-re->(dbSetOrder( 3 ))
-re->(dbSetFilter({|| re->Reposnr == 0 .AND. re->Packed .AND. re->Code != 3 .AND. re->poswt != 0 .AND. re->RechDat <= dEoY },"Reposnr == 0 .AND. Packed .AND. Code != 3 .AND. poswt != 0 .AND. RechDat <= StoD("+DtoS(dEoY)+")"))
-re->(dbGoTop())
-ku->(dbSetOrder( 1 ))
-DO WHILE re->Status < 3  .AND. ! re->(Eof())
-	//IF re->Reposnr == 0 .AND. re->Packed .AND. re->Code != 3 .AND. re->poswt != 0
-		@ 09,10 SAY re->Rechnr
-		ku->(dbSeek( re->Kunde+"K" ))
-		IF ! HHasKey(hDebitoren,ku->Nummer)
-			hDebitoren[ku->Nummer] := {"saldo"=>0,"lastdate"=>Date(),"invoices"=>{}}
-		ENDIF
-		hDebitoren[ku->Nummer]["saldo"] += re->PosWt-re->AoQty
-		hDebitoren[ku->Nummer]["lastdate"] := Min(hDebitoren[ku->Nummer]["lastdate"],re->Rechdat)
-        Aadd(hDebitoren[ku->Nummer]["invoices"],re->Rechnr)
-	//ENDIF
-	//IF re->Reposnr == 0
-		re->(dbSkip())
-	/*ELSE
-		re->(dbSeeK( Str(re->Status+1) ))
-	ENDIF*/
-ENDDO
-re->(dbClearFilter())
+   oPdf:SetFont("Courier-Bold",0,14)
+   oPdf:AtSay("Differenzen zwischen OP und Debitorenkonto")
+   oPdf:SetFont("Courier",0,12)
+   oPdf:NewLine()
+   oPdf:AtSay(PadL("Konto",6)+" "+PadL("OP",10)+" "+PadL("Debitor",10))
 
-@ 10,00 SAY "Offeneposten"
+   hOps := LX_GetOffenePostenSummen(,nYear)
+   aKonten := LX_GetAccountsInCat(LX_CAT_DEBITOR,.F.)
+   //nSumme := 0
 
-oPdf:SetFont("Courier-Bold",0,14)
-oPdf:AtSay("Differenzen zwischen OP und Debitorenkonto")
-oPdf:SetFont("Courier",0,12)
-oPdf:NewLine()
-oPdf:AtSay(PadL("Konto",6)+" "+PadL("OP",10)+" "+PadL("Debitor",10))
+   //FOR EACH nSumme IN hOps
+   FOR EACH nKonto IN aKonten
+      //nKonto := nSumme:__eNumKey()
+      IF HHasKey(hOps,nKonto)
+            nSumme := hOps[nKonto]
+      ELSE
+            nSumme := 0
+      ENDIF   
+      
+      @ 10,13 SAY nKonto
+      nLXSaldo := LX_GetSaldo(nKonto,dEoY)
+      IF ! HHAsKey(hDebitoren,nKonto) .AND. nLxSaldo == 0 //.AND. nSumme > 0
 
-hOps := LX_GetOffenePostenSummen(,nYear)
-nSumme := 0
+      ELSEIF Round(nLxSaldo,2) != Round(nSumme,2)
+         oPdf:NewLine()
+         oPdf:AtSay(Str(nKonto,6)+" "+Str(nSumme,10,2)+" "+Str(nLxSaldo,10,2))
+      ENDIF
+   NEXT
 
-FOR EACH nSumme IN hOps
-	nKonto := nSumme:__eNumKey()
-	@ 10,13 SAY nKonto
-	nLXSaldo := LX_GetSaldo(nKonto,dEoY)
-	IF ! HHAsKey(hDebitoren,nKonto) .AND. nLxSaldo == 0 //.AND. nSumme > 0
-		/*Aadd(aReset,{nKonto,.T.,""})
-		aOps := LX_GetOffenePosten(nKonto)
-		hOp := NIL
-		FOR EACH hOp IN aOps
-			IF ! LX_ResetOffenerPosten(hOp:Nr)
-				ATail(aReset)[2] := .F.
-				ATail(aReset)[3] += LX_GetErrorMessage()+";"
-			ENDIF
-		NEXT*/
-	ELSEIF Round(nLxSaldo,2) != Round(nSumme,2)
-		oPdf:NewLine()
-		oPdf:AtSay(Str(nKonto,6)+" "+Str(nSumme,10,2)+" "+Str(nLxSaldo,10,2))
-	ENDIF
-NEXT
+   oPdf:NewPage()
+   oPdf:SetFont("Courier-Bold",0,14)
+   oPdf:AtSay("Debitoren-Konten mit Saldendifferenzen")
+   oPdf:SetFont("Courier",0,12)
+   oPdf:NewLine()
+   oPdf:AtSay(PadL("Konto",6)+" "+PadL("Trader",10)+" "+PadL("Lexware",10))
+   FOR nX := 1 TO Len(hDebitoren)
+      nNummer := HGetKeyAt(hDebitoren,nX)
+      nSaldo  := HGetValueAt(hDebitoren,nX)["saldo"]
+      nLxSaldo := LX_GetSaldo(HGetKeyAt(hDebitoren,nX),dEoY)
+      IF nLxSaldo == 0 .AND. nSaldo != 0 .AND. HGetValueAt(hDebitoren,nX)["lastdate"] <= Date()-(4*365)
+         aInvoices := HGetValueAt(hDebitoren,nX)["invoices"]
+         FOR nR := 1 TO Len(aInvoices)
+            re->(dbSetOrder( 12 ))
+            re->(dbSeek( Str(aInvoices[nR],6)+Str(0,3) ))
+            oPdf:NewLine()
+            oPdf:AtSay("Rechnung "+LTrim(Str(aInvoices[nR],6))+" vom "+DToC(re->Rechdat)+" auf erledigt gesetzt")
+            re->(Rec_Lock())
+            re->Status := 3 //auf erledigt setzten
+            re->(dbUnLOck())
+         NEXT
 
-fibu->(dbSetOrder( 3 ))
+      ELSEIF Round(nSaldo,2) != Round(nLXSaldo,2)
+         oPdf:NewLine()
+         oPdf:AtSay(Str(nNummer,6)+" "+Str(nSaldo,10,2)+" "+Str(nLXSaldo,10,2))
+      ENDIF
+   NEXT
+ENDIF
 
-oPdf:NewPage()
-oPdf:SetFont("Courier-Bold",0,14)
-oPdf:AtSay("Differenzen zwischen OP und Kreditorenkonto")
-oPdf:SetFont("Courier",0,12)
-oPdf:NewLine()
-oPdf:AtSay(PadL("Konto",6)+" "+Space(30)+" "+PadL("OP",10)+" "+PadL("Kreditor",10))
+IF lKreditor .OR. lWD
+   @ 09,00 SAY "Kreditoren"
+   aKonten := LX_GetAccountsInCat(LX_CAT_KREDITOR,.F.)
+ENDIF
 
-hOps := LX_GetOffenePostenSummen(.F.,nYear)
-nSumme := 0
+IF lKreditor
+   
+   fibu->(dbSetOrder( 3 ))
 
-FOR EACH nSumme IN hOps
-	nKonto := nSumme:__eNumKey()
-	@ 10,13 SAY nKonto
-	//IF ! fibu->(dbSeek( Str(nKonto,6) )) //Währungsdifferenzkonten ignorieren, da diese sowieso zum Monatsende abgelichen werden und dadurch auch Differenzen zwischen OP und Kreditorenkten entstehen können
-   	nLXSaldo := LX_GetSaldo(nKonto,dEoY)
-   	hSummen := LX_GetSummen(nKonto,StoD("20000101"),dEoY,.T.,.F.) //all bookings in the stapel
-   	nLXSaldo += hSummen:Haben-hSummen:Soll
-   	IF Abs(nLxSaldo-nSumme) > 0.03
-   		oPdf:NewLine()
-   		oPdf:AtSay(Str(nKonto,6)+" "+Pad(LX_GetAccountName(nKonto),30)+" "+Str(nSumme,10,2)+" "+Str(nLxSaldo,10,2))
-   	ENDIF
-   //ENDIF
-NEXT
+   oPdf:NewPage()
+   oPdf:SetFont("Courier-Bold",0,14)
+   oPdf:AtSay("Differenzen zwischen OP und Kreditorenkonto")
+   oPdf:SetFont("Courier",0,12)
+   oPdf:NewLine()
+   oPdf:AtSay(PadL("Konto",6)+" "+Space(30)+" "+PadL("OP",10)+" "+PadL("Kreditor",10))
+
+   hOps := LX_GetOffenePostenSummen(.F.,nYear)
+
+   @ 10,00 SAY "Offeneposten"
+
+   FOR EACH nKonto IN aKonten
+      //nKonto := nSumme:__eNumKey()
+      IF HHasKey(hOps,nKonto)
+         nSumme := hOps[nKonto]
+      ELSE
+         nSumme := 0
+      ENDIF
+      @ 10,13 SAY nKonto
+      //IF ! fibu->(dbSeek( Str(nKonto,6) )) //Währungsdifferenzkonten ignorieren, da diese sowieso zum Monatsende abgelichen werden und dadurch auch Differenzen zwischen OP und Kreditorenkten entstehen können
+         nLXSaldo := LX_GetSaldo(nKonto,dEoY)
+         hSummen := LX_GetSummen(nKonto,StoD("20000101"),dEoY,.T.,.F.) //all bookings in the stapel
+         nLXSaldo += hSummen:Haben-hSummen:Soll
+         IF Abs(nLxSaldo-nSumme) >  0.03 .OR.;
+            nLXSaldo == 0 .AND. nSumme != 0
+            oPdf:NewLine()
+            oPdf:AtSay(Str(nKonto,6)+" "+Pad(LX_GetAccountName(nKonto),30)+" "+Str(nSumme,10,2)+" "+Str(nLxSaldo,10,2))
+         ENDIF
+      //ENDIF
+   NEXT
+ENDIF
+
+IF lWD
+   @ 10,00 SAY "W„hrungsdiff."
+
+   oPdf:NewPage()
+   oPdf:SetFont("Courier-Bold",0,14)
+   oPdf:AtSay(HB_OemToAnsi("W„hrungsdifferenzkonten"))
+   oPdf:SetFont("Courier",0,12)
+   oPdf:NewLine()
+   oPdf:AtSay(PadL("Konto",6)+" "+Space(30)+" "+PadL("WD",10)+" "+PadL("Kreditor",10)+" "+Pad("Konto",5)+" "+"Aktuell")
+
+   fibu->(dbSetOrder(3))
+   
+   FOR EACH nKonto IN aKonten
+      @ 10,13 SAY nKonto
+      IF fibu->(dbSeek( Str(nKonto,6) )) //WD Konto gefunden
+         //Saldo WD
+         nSumme := LX_GetSaldo(nKonto,dEoY)
+         hSummen := LX_GetSummen(nKonto,StoD("20000101"),dEoY,.T.,.F.) //all bookings in the stapel
+         nSumme += hSummen:Haben-hSummen:Soll
+
+         //Saldo Konto
+         nLXSaldo := LX_GetSaldo(fibu->Konto,dEoY)
+         hSummen := LX_GetSummen(fibu->Konto,StoD("20000101"),dEoY,.T.,.F.) //all bookings in the stapel
+         nLXSaldo += hSummen:Haben-hSummen:Soll
+         IF nLXSaldo == 0 .AND. nSumme != 0 .OR.;
+            nLXSaldo != 0 .AND. nSumme == 0 .OR.;
+            (nLXSaldo != 0 .AND. ABS(Round((nSumme+nLXSaldo)/nLxSaldo-Currate(fibu->Currency,"E"),2)) > 0.05)
+
+            oPdf:NewLine()
+            oPdf:AtSay(Str(nKonto,6)+" "+Pad(HB_OemToAnsi(LX_GetAccountName(nKonto),30))+" "+Str(nSumme,10,2)+" "+Str(nLxSaldo,10,2)+" "+IF(nLXSaldo!=0,Str((nSumme+nLXSaldo)/nLxSaldo,5,2)+" "+Str(Currate(fibu->Currency,"E"),5,2),""))
+         ENDIF
+      ENDIF
+   NEXT
+ENDIF
 
 /*oPdf:NewPage()
 oPdf:SetFont("Courier-Bold",0,14)
@@ -142,34 +227,6 @@ FOR nX := 1 TO 2
 		ENDIF
 	NEXT
 NEXT */
-
-oPdf:NewPage()
-oPdf:SetFont("Courier-Bold",0,14)
-oPdf:AtSay("Konten mit Saldendifferenzen")
-oPdf:SetFont("Courier",0,12)
-oPdf:NewLine()
-oPdf:AtSay(PadL("Konto",6)+" "+PadL("Trader",10)+" "+PadL("Lexware",10))
-FOR nX := 1 TO Len(hDebitoren)
-	nNummer := HGetKeyAt(hDebitoren,nX)
-	nSaldo  := HGetValueAt(hDebitoren,nX)["saldo"]
-	nLxSaldo := LX_GetSaldo(HGetKeyAt(hDebitoren,nX),dEoY)
-	IF nLxSaldo == 0 .AND. nSaldo != 0 .AND. HGetValueAt(hDebitoren,nX)["lastdate"] <= Date()-(4*365)
-		aInvoices := HGetValueAt(hDebitoren,nX)["invoices"]
-		FOR nR := 1 TO Len(aInvoices)
-			re->(dbSetOrder( 12 ))
-			re->(dbSeek( Str(aInvoices[nR],6)+Str(0,3) ))
-			oPdf:NewLine()
-			oPdf:AtSay("Rechnung "+LTrim(Str(aInvoices[nR],6))+" vom "+DToC(re->Rechdat)+" auf erledigt gesetzt")
-			re->(Rec_Lock())
-			re->Status := 3 //auf erledigt setzten
-			re->(dbUnLOck())
-		NEXT
-
-	ELSEIF Round(nSaldo,2) != Round(nLXSaldo,2)
-		oPdf:NewLine()
-		oPdf:AtSay(Str(nNummer,6)+" "+Str(nSaldo,10,2)+" "+Str(nLXSaldo,10,2))
-    ENDIF
-NEXT
 
 CopyPrint()
 //Inkey(0,128)

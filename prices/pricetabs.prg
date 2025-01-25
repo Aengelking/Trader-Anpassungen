@@ -4,26 +4,20 @@ FUNCTION RUN_PRICES_PRICETABS( nArtnr,dDate )
 LOCAL nLast := 99999999,aPriceTabs := {},cSupplier,nMOQ
 LOCAL nMenge
 LOCAL cWald := Pad("WALDOM",8)
-LOCAL lDbg := .F. // Tr_Getini(28) == 9
+LOCAL lDbg := .F. //Tr_Getini(28) == 9
 LOCAL aBuy,nEK,nMarg,nVK,nX
 LOCAL aUseAvg := {"PX0686"}
 LOCAL oArtikel,nAvgBuy
+LOCAL nSecs := Seconds()
 
 NetUse("compprice","cmpr")
 NetUse("manufact","manu")
 netUse("engkund","ku")
 NetUse("artlief","ali")
 
-IF ! cmpr-> (dbSeek( Str(art->Artikelnr,6) )) .OR. cmpr->Datum < Date()-3
-   //IF Tr_Getini(28) == 9; Alert("Here"); ENDIF
-   IF ! MBaseRun(Trim(Tr_getini(1))+"\run\prices\updcompet")
-      RETURN {}
-   ENDIF
-ENDIF
 
-cmpr->(dbSeek( Str(art->Artikelnr,6) ))
+aPriceTabs := GetPrices(art->Artikelnr,IF(art->Manufactur == 14,77,IF(art->Manufactur==9,12,1)),dDate)
 
-aPriceTabs := GetPrices(art->Artikelnr,IF(art->Manufactur == 14,77,1),dDate)
 IF lDbg 
    Alert(ValToPrg(aPriceTabs))
 ENDIF
@@ -31,6 +25,8 @@ ENDIF
 manu->(dbSeek( Str(art->Manufactur,5) ))
 ku->(dbSetOrder( 8 ))
 ku->(dbSeek( Str(manu->Address,6) ))
+
+
 
 nEK := 0
 IF art->Manufactur == 1 .OR. art->Manufactur == 10     
@@ -48,6 +44,7 @@ aBuy := GetBuyPrice(ku->Kunde,art->Artikelnr,-1, , , ,dDate)
 IF nEK == 0     
    nEk := aBuy["price"]/aBuy["unit"]*Currate(ku->Money,"E")
 ENDIF
+  
 
 nMOQ := aBuy["qty"]
 IF ValType(nMOQ) == "U" //old bug in GetBuyPrice
@@ -75,8 +72,22 @@ IF nEk == 0
    RETURN {}
 ENDIF
 
-DO WHILE cmpr->Artikelnr == art->Artikelnr
+IF ! cmpr-> (dbSeek( Str(art->Artikelnr,6) )) .OR. cmpr->Datum < Date()-3
+   //IF Tr_Getini(28) == 9; Alert("Here"); ENDIF
+   IF ! MBaseRun(Trim(Tr_getini(1))+"\run\prices\updcompet")
+      RETURN {}
+   ENDIF
+ENDIF
 
+
+IF ! cmpr->(dbSeek( Str(art->Artikelnr,6) ))
+   IF lDbg
+      Alert("No competition")
+   ENDIF
+ENDIF
+
+DO WHILE cmpr->Artikelnr == art->Artikelnr
+   IF lDbg;Alert(Str(cmpr->Menge)+Str(cmpr->Preis));ENDIF
    IF cmpr->Menge > 0 .AND. cmpr->Preis > 0      
       IF ((art->Manufactur == 1 .OR. art->Manufactur == 10) .AND. cmpr->Menge < nMOQ .AND. art->Mindest == 0 ) //Bulgin or Arcolectric and under MOQ or
          IF lDbg
@@ -121,6 +132,7 @@ DO WHILE cmpr->Artikelnr == art->Artikelnr
          nLast := nVk
       ENDIF
    ENDIF
+   
    cmpr->(Rec_Lock())
    cmpr->LastReq := Date()
    cmpr->(dbUnLock())
@@ -132,7 +144,6 @@ ASort(aPriceTabs,,,{|x,y| x[1] < y[1] .OR. (x[1] == y[1] .AND. x[2] < y[2])})
 IF lDbg
    Alert(ValToPrg(aPriceTabs))
 ENDIF
-
 
 
 IF Len(aPriceTabs) > 1
@@ -149,6 +160,10 @@ IF Len(aPriceTabs) > 1
          EXIT
       ENDIF
    ENDDO
+ENDIF
+
+IF Tr_GetIni(28) == 9
+   //Alert("Step 1:"+LTrim(Str(nSecs1))+";Step 2:"+LTrim(Str(nSecs2))+";Run_Prices_PriceTabs: "+Str(Seconds()-nSecs))
 ENDIF
 
 RETURN aPriceTabs

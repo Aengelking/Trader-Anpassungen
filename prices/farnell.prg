@@ -3,7 +3,7 @@
 FUNCTION FARNELL(nArtnr,cArtlief)
 
 LOCAL oHttp,hData,hPrices,hPrice
-LOCAL lDbg := .F. // Tr_getini(28) == 9
+LOCAL lDbg :=  Tr_getini(28) == 9 .AND. ! GetConfigValue("BATCHMODE")
 LOCAL nPos 
 LOCAL cUrl := "https://de.farnell.com/x/x/x/dp/"+Trim(cArtlief)
 //LOCAL cUrl := "https://de.farnell.com/"
@@ -13,7 +13,7 @@ LOCAL nCount := 1
 LOCAL cLog := ""
 LOCAL cData,cJsonData,aData,aPrice
 LOCAL cPage
-LOCAL pCurl
+LOCAL pCurl,oFarnell
 
 MEMVAR cPriceError 
 PUBLIC cPriceError := ""
@@ -22,9 +22,65 @@ PUBLIC cPriceError := ""
 
    HB_SYMBOL_UNUSED(nArtnr)
 
+   IF .F. //lDbg
+      nSecs := Seconds()
+      cData := NIL
+      //HB_UnCompress(,cData,Len(cData),@cNewData)
+      oFarnell := RestApi():New()
+      oFarnell:cBaseUrl := "https://api.browse.ai/v2/robots/9bc466e8-2aab-43dc-9c7b-715ec4bf4aea/tasks"
+      
+      cData := oFarnell:Execute("","POST",{"inputParameters"=>{"originUrl"=>cUrl}},{"Authorization: Bearer 9ba19df2-a263-4251-8022-9d70ab149610:993b190c-2209-414c-8698-c50c50adbed7"},.T.)
+      
+      hData := HB_JsonDecode(cData)            
+      
+      IF ! HHasKey(hData,"result") .OR. ! HHasKey(hData["result"],"status")
+         IF HHasKey(hData,"statusCode") .AND. hData["statusCode"] == 403
+            SendMail({{"amos.engelking@engelking.de","Amos"}},"BrowseAI Abfrage Limit erreicht",cData)
+         ENDIF
+         RETURN {=>}
+      ELSE
+         DO WHILE hData["result"]["status"] != "successful"
+            Inkey(2,128)
+            cData := oFarnell:Execute("/"+hData["result"]["id"],"GET",{=>},{"Authorization: Bearer 9ba19df2-a263-4251-8022-9d70ab149610:993b190c-2209-414c-8698-c50c50adbed7"})
+            IF cData == NIL
+               EXIT
+            ELSE
+               hData := HB_JsonDecode(cData)
+            ENDIF
+            
+         ENDDO
+      ENDIF
+
+      IF lDbg
+         Alert("BrowseAI took: "+Str(Seconds()-nSecs)+"s")
+      ENDIF
+      
+      hPrices := {=>}
+      IF HHasKey(hData["result"]["capturedLists"],"Preise")           
+         FOR EACH hPrice IN hData["result"]["capturedLists"]["Preise"]
+            hPrices[Val(hPrice["Menge"])] := Val(StrTran(hPrice["Preis"],",","."))
+         NEXT
+         RETURN hPrices         
+      ENDIF
+   ENDIF
+
+
    //libcurl times out, the command line seems to work fine!
-   cData := __DownLoadPage(cUrl)
-   lSuccess := .T.
+   IF .F. //lDbg
+      oFarnell := RestApi():New()
+      oFarnell:cBaseUrl := "https://app.zenscrape.com/api/v1/get"
+      hParams := {"apikey"=>"41a78750-aa55-11ee-abc7-6960be9094de",;
+                  "url"=>"https://www.google.de",; //cUrl,;
+                  "location"=>"eu",;
+                     "render"=>.T.,"premium"=>.T.}
+                  //"url"=>"https%3A%2F%2Fde.farnell.com%2Fx%2Fx%2Fx%2Fdp%2F3841479",;
+      cData := oFarnell:Execute("","GET",hParams)
+      Alert(cData)
+      lSuccess := .T.
+   ELSE
+      cData := __DownLoadPage(cUrl)
+      lSuccess := .T.
+   ENDIF
 
    IF lDbg
       gtSetClipboard(cData)
@@ -90,6 +146,12 @@ PUBLIC cPriceError := ""
          IF AT("gesuchte Seite nicht gefunden",cData) != 0
             IF lDbg
                Alert("Produkt nicht gefunden")
+            ENDIF
+            RETURN NIL
+         ENDIF
+         IF AT("Access Denied",cData) != 0
+            IF lDbg
+               Alert("Access denied")
             ENDIF
             RETURN NIL
          ENDIF

@@ -13,8 +13,11 @@ LOCAL nX,cRegex
 LOCAL lExclude := .F.,cDriver
 LOCAL oErr
 LOCAL aFiles := {}
-LOCAL aEndings := {"DBF","FPT","CDX"},cEnd,cFileName
+LOCAL aEndings := {"DBF","FPT","CDX","JSON"},cEnd,cFileName
 LOCAL cServer := GetConfigValue("LETO_SERVER")
+LOCAL cStructure
+
+cStructure := MBaseRun(Path("run\getdbstructure"))
 
 IF ! Empty(cServer)
    IF Empty(Path(,"DB"))
@@ -110,6 +113,9 @@ FOR nX := 1 TO Len(aDir)
    ENDIF
 
 NEXT
+
+//cStructure := MBaseRun(Path("run\getdbstructure"))
+MemoWrit(cBackDir+"dbstructure.json",cStructure)
 
 HB_ZipFile(cBackDir+"trader_"+Left(TtoS(DateTime()),14)+".zip",aFiles,4,,.T.,.F.,.F.)
 

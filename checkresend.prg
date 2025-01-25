@@ -108,7 +108,9 @@ IF lError .OR. ! Empty(cList)
    ENDIF
    cText += "Folgende Rechnungen wurden versendet:"+Chr(13)+Chr(10)+cList
    //SendMail({{"GF","Geschäftsführung"},{"Buchhaltung","Buchhaltung"}},"Fehlender Rechnungsversand",cText,,,2)
-   SendMail({{"GF","Geschäftsführung"}},"Rechnungsversand"+IF(lError," FEHLERHAFT",""),cText,,,2)
+   IF lError
+      SendMail({{"GF","Geschäftsführung"}},"Rechnungsversand"+IF(lError," FEHLERHAFT",""),cText,,,2)
+   ENDIF
 ENDIF
 
 STATIC FUNCTION GetRechnungSumme()

@@ -6,7 +6,7 @@ PROC RUN_CHECK_ISO
    //LOCAL aTo := {{"amos.engelking@engelking.de","Amos"}}
    LOCAL hDocuments := {;
       "QISO9001"=>{"EXPIRE"=>.T.,"MIN_DATE"=>StoD(""),"NAME"=>"ISO Zertifikat","LEVEL_MISSING"=>8,"LEVEL_INVALID"=>0},;
-      "QREACH"=>{"EXPIRE"=>.F.,"MIN_DATE"=>StoD("20230614"),"NAME"=>"REACH Best„tigung","LEVEL_MISSING"=>9,"LEVEL_INVALID"=>9},;
+      "QREACH"=>{"EXPIRE"=>.F.,"MIN_DATE"=>GetValue("EK_REACHDATE",StoD("20240123"),"Datum ReACH-Stoffliste"),"NAME"=>"REACH Best„tigung","LEVEL_MISSING"=>9,"LEVEL_INVALID"=>9},;
       "QROHS"=>{"EXPIRE"=>.F.,"MIN_DATE"=>StoD("20190101"),"NAME"=>"RoHS Best„tigung","LEVEL_MISSING"=>9,"LEVEL_INVALID"=>9},;
       "QTSCA"=>{"EXPIRE"=>.F.,"MIN_DATE"=>StoD("20190101"),"NAME"=>"TSCA Best„tigung","LEVEL_MISSING"=>9,"LEVEL_INVALID"=>9};
    }

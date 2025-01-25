@@ -1,8 +1,10 @@
 PROC RUN_MAINTANCE_CLEAR_DATA
    LOCAL aDir,nX
-   LOCAL aExclude := {"FUNCTION","COUNTRI2","COMPFORM","KEY"}
+   //LOCAL aExclude := {"FUNCTION","COUNTRI2","COMPFORM","KEY"}   
+   LOCAL aExclude := {"firms","firmperm","buyer","plzbl","curhist","key","kn","gerichte","geoplz","countri2","compform","printer","print","function"}   
    LOCAL cFile
    LOCAL oRole,oUser,aRights,oPerm
+   LOCAL lKeepForms := .T.
 
    Head("Clear data")
 
@@ -14,16 +16,16 @@ PROC RUN_MAINTANCE_CLEAR_DATA
    IF Tr_MsgBox("This program will remove all data","WARNING!",{"cancel","OK"}) != 2
       RETURN
    ENDIF
-   IF Tr_MsgBox("Really remove all data?","Are you sure?",{"No","Yes"}) != 2
+   IF Tr_MsgBox("Really remove all data?","Path: "+GetConfigValue("FIRMPATH"),"Are you sure?",{"No","Yes"}) != 2
       RETURN
    ENDIF
 
    dbCloseAll()
 
-   aDir := LETO_Directory("*.dbf")
+   aDir := LETO_Directory(GetConfigValue("FIRMPATH")+"\*.dbf")
    FOR nX := 1 TO Len(aDir)
-      cFile := StrTran(Upper(aDir[nX,1]),".DBF")
-      IF ! cFile $ aExclude         
+      cFile := StrTran(Lower(aDir[nX,1]),".DBF")
+      IF ! cFile $ aExclude .AND. (! lKeepForms .OR. (AT("form",cFile) == 0 .AND. AT("trans",cFile) == 0))
          ? cFile,"clear"
          NetUse(cFile,cFile,.T.,0)
          (cFile)->(__dbZap())
@@ -39,11 +41,12 @@ PROC RUN_MAINTANCE_CLEAR_DATA
    ************/
 
    //Setup first user and role
-   NetUse("buyer","buy")
+   //the user should exist as this database is no longer in the firm directory
+   /*NetUse("buyer","buy")
    buy->(Add_Rec())
    buy->Buyer := "Administrator"
    buy->Aktive := .T.
-   buy->(dbUnlock())
+   buy->(dbUnlock())*/
 
    oRole := Role():New(.T.)
    oRole:Name := "Administrator"
@@ -54,7 +57,7 @@ PROC RUN_MAINTANCE_CLEAR_DATA
    oUser:AddRole(oRole:Id)
 
    //setup some initial permissions so that other ones can be set
-   aRights := {"RIGHTS","RIGHTS_ROLES","RIGHTS_USER"}
+   aRights := {"SYSTEM","RIGHTS","RIGHTS_ROLES","RIGHTS_USER"}
 
    FOR nX := 1 To Len(aRights)
 
@@ -74,7 +77,7 @@ PROC RUN_MAINTANCE_CLEAR_DATA
    NEXT
 
    //Create a record in engnr, do not need to set any values
-   NetUse("engnr")
+   NetUse("engnr","nr")
    nr->(Add_Rec(0))
    nr->(dbUnLock())
 

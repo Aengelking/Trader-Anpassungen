@@ -12,11 +12,12 @@
 #define ZBAR_EXE '"C:\Program Files (x86)\ZBar\bin\zbarimg.exe"'
 //#define GS_EXE '"C:\Program Files (x86)\gs\gs9.14\bin\gswin32c.exe"'
 
-#define P_CELINA 51
+//#define P_CELINA 51
 #define P_SIGRID 34
 #define P_DANIEL IF(Date()>=Stod("20220701").AND.Date()<=StoD("20220707"),9,57)
 #define P_DANIELA 50
 #define P_AMOS 9
+#define P_LISA 64
 
 PROCEDURE Run_Invoice_Beleg(cType,cMsgPath)
 
@@ -57,6 +58,7 @@ LOCAL nBetrag := 0
 LOCAL bDisplayButtons,nPage := 1
 LOCAL nPersOnApprove := P_SIGRID //automatically assign to this person on approval
 LOCAL dNext,lApprove,nRec
+LOCAL oExtra
 
 MEMVAR c_two,c_one
 
@@ -141,16 +143,21 @@ RETURN NIL
    RETURN .F.
 })*/
 
-hKontoGenehm[70062] := P_CELINA
-hKontoGenehm[70887] := P_CELINA
-hKontoGenehm[70814] := P_CELINA //Fedex
-hKontoGenehm[70911] := P_CELINA //FET
-hKontoGenehm[70302] := P_CELINA 
-hKontoGenehm[76236] := P_CELINA //Wackler
-hKontoGenehm[76056] := P_CELINA //Dachser
-hKontoGenehm[76254] := P_CELINA //ITC
-hKontoGenehm[76239] := P_CELINA //SchÑflein
-hKontoGenehm[76269] := P_CELINA //HBH Maghreb
+/************** FRACHT ***************/
+hKontoGenehm[70062] := P_SIGRID
+hKontoGenehm[70887] := P_SIGRID
+hKontoGenehm[70814] := P_SIGRID //Fedex
+hKontoGenehm[76393] := P_SIGRID //Fedex Deutschland
+hKontoGenehm[70911] := P_SIGRID //FET
+hKontoGenehm[70302] := P_SIGRID 
+hKontoGenehm[76236] := P_SIGRID //Wackler
+hKontoGenehm[76056] := P_SIGRID //Dachser
+hKontoGenehm[76254] := P_SIGRID //ITC
+hKontoGenehm[76239] := P_SIGRID //SchÑflein
+hKontoGenehm[76269] := P_SIGRID //HBH Maghreb
+hKontoGenehm[70866] := P_SIGRID //KÅhne+Nagel
+hKontoGenehm[71804] := P_SIGRID //Baar Express
+/************************************/
 
 hKontoGenehm[76126] := P_SIGRID
 hKontoGenehm[76168] := P_SIGRID  //Reisekosten Sammelkonto
@@ -159,9 +166,14 @@ hKontoGenehm[74245] := P_SIGRID  //Allianz
 hKontoGenehm[76218] := P_SIGRID  //LeasePlan
 hKontoGenehm[74930] := P_SIGRID  //Payrexx
 hKontoGenehm[76157] := P_SIGRID  //Conrad - Webhelp
+hKontoGenehm[72031] := P_SIGRID  //DKV
+hKontoGenehm[70171] := P_SIGRID  //EON (Strom Johannes)
 
 hKontoGenehm[70423] := P_DANIEL
 hKontoGenehm[76167] := P_DANIEL  //Amazon Marketplace
+hKontoGenehm[74222] := P_DANIEL  //Zisch Frisch
+
+hKontoGenehm[77511] := P_LISA  //intoCommerce
 
 //hLiefPerson[35279] := P_AMOS //Softcom
 
@@ -437,6 +449,31 @@ DO WHILE .T.
       RETURN
    ENDIF
 
+   IF ! Empty(cLiefma) //prÅfen ob dieser nur Åber Lexware gebucht wird
+      oExtra := ku->(ExtraData():New(ku->Nummer))
+      IF oExtra:NoPo //dieser Lieferant bekommt keine Bestellungen und daher muss dieser direkt in Lexware gebucht werden
+         fibu->(dbSetOrder( 1 ))
+         IF fibu->(dbSeek( Str(ku->Nummer,6) ))
+            nKonto := fibu->Konto
+            cLiefma := Space(8)
+         ELSE
+            Tr_MsgBox("Kein Fibukonto - bitte hinterlegen")
+            RETURN
+         ENDIF
+      ENDIF
+   ELSE
+      fibu->(dbSetOrder( 2 ))
+      ku->(dbSetOrder( 8 ))
+      IF fibu->(dbSeek( Str(nKonto,6) )) .AND. ku->(dbSeek( Str(fibu->adresse,6) ))
+         oExtra := ku->(ExtraData():New(ku->Nummer))
+         IF ! oExtra:NoPo //dieser Lieferant bekommt auch Bestellungen
+            cLiefma := ku->Kunde
+            nKonto  := 0
+         ENDIF
+      ENDIF
+   ENDIF
+
+
    lFound := .F.
    lBooked := .F.
    //aKontos := {}
@@ -476,6 +513,8 @@ DO WHILE .T.
                nID := reb->ID
             ENDIF
          ENDIF
+      ELSE
+         //Alert("Not Found")
       ENDIF
       IF ! Eval(bBelegLen,10)
          LOOP
@@ -526,7 +565,7 @@ DO WHILE .T.
    ENDIF*/
    IF lFound
       aChoice := {"OK"}
-      IF reb->Status < 9 .AND. cType != "SCAN" //noch nicht verbucht und es ist kein scan, dann kann das Dokument ersetzt werden
+      IF /*reb->Status < 9 .AND.**/ cType != "SCAN" //noch nicht verbucht und es ist kein scan, dann kann das Dokument ersetzt werden
          Aadd(aChoice,"Beleg ersetzen")
       ENDIF
       IF Tr_MsgBox("Beleg bereits vorhanden",,aChoice) != 2
@@ -651,7 +690,7 @@ DO WHILE .T.
             rebp->Person  := Tr_Getini(28)
             rebp->Rev     := nRev
          ENDIF
-
+nRec := reb->(Recno())
          reb->Betrag := nBetrag
 
          //reb->(dbUnLock()) //this causes it to crash
@@ -685,11 +724,12 @@ DO WHILE .T.
          ENDIF
          
          #ifndef TEST
-         AddFileToArchive("ER",nID,cFileName)
+         
          IF ! LETO_COMMITTRANSACTION() //this also unlocks the records
             LETO_ROLLBACK()
             lError := .T.
          ELSE                     
+            AddFileToArchive("ER",nID,cFileName)
             IF Empty(cLiefma) .AND. rerep->(dbSeek( Str(nKonto,6)+Str(nBetrag*100,14,0) )) 
                lApprove := .F.
                //check to see if this invoice is a reoccuring invoice which can be automatically released         
@@ -718,9 +758,14 @@ DO WHILE .T.
                      rerep->(Rec_Lock(0))
                      rerep->Last := dEingang    
 
+                     reb->(dbSetOrder( 1 ))
+                     reb->(dbSeek(Str(nID,9)))
+
+                     //reb->(dbGoto(nRec))
                      reb->(Rec_Lock())
                      reb->Status := 8
                      reb->Person := nPersOnApprove
+
                      rebp->(Add_Rec())
                      rebp->ID := nID
                      rebp->DateTime := TtoS(DateTime())
@@ -731,7 +776,11 @@ DO WHILE .T.
                   RECOVER
                      LETO_ROLLBACK()
                   END
-                  Sendmail({{"amos.engelking@engelking.de","Amos"}},"Wiederholungsrechnung gefunden",Str(nid)+Chr(13)+Chr(10)+Str(nKonto)+Chr(13)+Chr(10)+Str(nBetrag,14,2))  
+                  /*Sendmail({{"amos.engelking@engelking.de","Amos"}},"Wiederholungsrechnung gefunden",;
+                     "REB-ID: "+lTrim(Str(nid)+Chr(13))+Chr(10)+;
+                     "Konto:  "+LTrim(Str(nKonto))+Chr(13)+Chr(10)+;
+                     "Betrag: "+LTrim(Str(nBetrag,14,2));                     
+                  )*/ 
                ELSE
                   Sendmail({{"amos.engelking@engelking.de","Amos"}},"Keine Wiederholungsrechnung gefunden - EintrÑge stimmen nicht Åberein",Str(nid)+Chr(13)+Chr(10)+Str(nKonto)+Chr(13)+Chr(10)+Str(nBetrag,14,2))  
                ENDIF

@@ -10,7 +10,7 @@ LOCAL oArtExtra
 LOCAL cBez,cText,nX
 LOCAL oArt,hFreigabe,nMaxQty,lBes,oLief,hReq
 LOCAL oContrPos,cLine,nY,nStart,nF,cOldText,nLen,nPos,nOldValue
-LOCAL lExtern := .F.
+LOCAL lExtern := .F.,lSampleFound
 LOCAL bGetFreigabe := { |nLief|
    hFreigabe := GetFreigabeBesState(nLief)
    IF hFreigabe:lBes       
@@ -23,6 +23,26 @@ LOCAL bGetFreigabe := { |nLief|
    ENDIF
 }
 
+LOCAL hDrawingExceptions := {;
+   "KS28986"=>StoD("20231130"),;
+   "KS36903/HPG/36-5"=>StoD("20231130"),;
+   "KS36903/HPK/36-5"=>StoD("20231130"),;
+   "KS33434/4"=>StoD("20231130"),;
+   "KS21514/11"=>StoD("20231130"),;
+   "KS22322/8"=>StoD("20231230"),;
+   "KS22322/9"=>StoD("20231230"),;
+   "KS17489/30235240"=>StoD("20231215"),;
+   "KS17489/30235241"=>StoD("20231215"),;
+   "KS27732/LINCC00011.REWORK"=>StoD("20231215"),;
+   "KS27732/LINCC00012.REWORK"=>StoD("20231215"),;
+   "KS34717/1"=>StoD("20231215"),;
+   "KS26024/7"=>StoD("20231215"),;
+   "KS26024/5"=>StoD("20231215"),;
+   "KS26024/6"=>StoD("20231215"),;
+   "KS17489/30235260"=>StoD("20231230"),;
+   "KS20702/2"=>StoD("20231221");
+}
+
 MEMVAR c_five
 
 NetUse("engkund","ku")
@@ -33,8 +53,18 @@ NetUse("ppf","ppf")
 oExtra := ku->(ExtraData():New( oAufPos:Auftrag:Kunde:Nummer ))
 oArtExtra := art->(ExtraData():New(oAufpos:Artikelnr))
 
+IF oAufpos:lNew .AND. Left(oAufPos:Artikel:Matchcode,3) == "57M" .AND. Trim(art->Matchcode) != "57M-112B."
+   Tr_MsgBox("Artikel aktuell nicht erh„ltlich - auf CM(I)57 ausweichen.")
+   RETURN .F.
+ENDIF
+
 IF oExtra:WerksBesch .AND. ! oArtExtra:CoC .AND. ! (oAufPos:Auftrag:Kunde:Kunde == "RMWKABEL" .AND. Trim(art->Matchcode) == "PX0587")
    Tr_MsgBox({"Dieser Artikel hat keine Werksbescheinigungen (CoC).","Dieser Kunde m”chte nur Artikel mit CoC."})
+   RETURN .F.
+ENDIF
+
+IF oExtra:ChargeOnly .AND. ! oAufPos:Artikel:Charge
+   Tr_MsgBox("Es k”nnen nur Artikel mit Chargenverwaltung geliefert werden")
    RETURN .F.
 ENDIF
 
@@ -56,6 +86,14 @@ IF lExtern .AND. oArt:LagerArt .AND. ! ali->(dbSeek( Str(oArt:Artikelnr,6) ))
    IF oAufPos:lNew .AND. Tr_MsgBox("Kein Lieferant fr diesen Artikel vorhanden",,{"abbrechen","trotzdem einfgen"}) != 2
       RETURN .F.
    ENDIF
+ENDIF
+IF AT("KS",oAufPos:Artikel:Matchcode) == 1 .AND. Empty(oAufPos:Artikel:Zeichnung);
+   .AND. AT("KS14696/59",oAufPos:Artikel:Matchcode) != 1 ;
+   .AND. (! Trim(art->Matchcode) $ hDrawingExceptions .OR. hDrawingExceptions[Trim(art->Matchcode)] <= Date())
+
+   Tr_MsgBox("Bitte Zeichnung/Spezifikation hinterlegen")
+   RETURN .F.
+
 ELSEIF ! Empty(oAufPos:Artikel:Zeichnung) //Freigabe prfen
    hReq := GetProductRequirementAndIncoming(oAufPos:Artikel:Artikelnr)
    //oArt:GotoRec()
@@ -65,6 +103,7 @@ ELSEIF ! Empty(oAufPos:Artikel:Zeichnung) //Freigabe prfen
       Eval(bGetFreigabe,0)
    ELSE
       ali->(dbSeek( Str(oArt:Artikelnr,6) )) 
+         
       DO WHILE ali->Artikelnr == oArt:Artikelnr 
          oLief := Adresse():New()
          oLief:LoadMatchcode(ali->Kunde,"L")
@@ -72,11 +111,29 @@ ELSEIF ! Empty(oAufPos:Artikel:Zeichnung) //Freigabe prfen
          
          ali->(dbSkip())
       ENDDO
+      
    ENDIF
    //Alert(Str(nMaxQty)+";Incoming:"+Str(hReq["income"])+";Requirement:"+Str(hReq["requirement"])+";Qty:"+Str(oAufPos:VkQty-IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)))
    
    IF ! lBes .OR. (nMaxQty > 0 .AND. nMaxQty+hReq["income"] < oAufPos:VkQty-IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)+hReq["requirement"])
-      Tr_MsgBox("Freigabe nicht ausreichend, Artikel kann nicht bestellt werden.")
+      auf->(dbSetOrder( 13 ))
+      auf->(dbSeek( Str(oAufpos:Artikel:Artikelnr,6) ))
+      lSampleFound := .F.
+      DO WHILE auf->Artikelnr == oAufpos:Artikel:Artikelnr .AND. auf->Bestat < 3
+         IF auf->VkQty <= nMaxQty
+            lSampleFound := .T.
+         ENDIF         
+         auf->(dbSkip())
+      ENDDO
+      IF ! lSampleFound .AND. oAufPos:lNew
+         Tr_MsgBox("Zuerst Position mit Erstmuster anlegen. Maximal: "+LTrim(Transform(nMaxQty-1,oAufpos:Artikel:cPicture)))
+         RETURN .F.
+      ELSEIF Right(Str(oAufPos:DTerm,4),2) != "97"
+         Tr_MsgBox("Freigabe nicht ausreichend - Liefertermin auf 'folgt' (KWxx97) setzen")
+         RETURN .F.
+      ELSE
+         Tr_MsgBox("Freigabe nicht ausreichend, Artikel kann nicht bestellt werden.")
+      ENDIF
    ENDIF 
 ELSE
    //IF Tr_getini(28) == 9;Alert("alles ok")  ;ENDIF

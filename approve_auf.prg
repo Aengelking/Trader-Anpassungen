@@ -204,11 +204,11 @@ IF oAuftrag:AbNr == 42989 .AND. ValType(oLastPos) == "O"
 
 ENDIF
 
-
 FOR nX := 1 TO Len(aProducts)
    hProd := aProducts[nX]
 
    nVk := hProd:VkPr * Currate( oAuftrag:Money, "V" )
+   
    nEk := hProd:Artikel:getBuyPriceForMargin(hProd:Qty,hProd:Add,oAuftrag:Besda,hProd:KW,@cSupplier)
 
    IF hProd:Artikel:Manufactur $ {12} //Elcom Mindermenge

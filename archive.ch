@@ -1,6 +1,6 @@
 LOCAL hTypes  := { ;
    "AB"=>{"PREFIX"=>"AB","NAME"=>"Auftragsbestätigung","DIR"=>HB_AnsiToOem("Auftragsbestätigungen"),"KEEPFOR"=>6},;
-   "AUFMAHN"=>{"PREFIX"=>"AUFMAHN","NAME"=>"Mahhnung","DIR"=>HB_AnsiToOem("Auftragsmahnung"),"KEEPFOR"=>6},;
+   "AUFMAHN"=>{"PREFIX"=>"AUFMAHN","NAME"=>"Mahnung","DIR"=>HB_AnsiToOem("Auftragsmahnung"),"KEEPFOR"=>6},;
    "AUF"=>{"PREFIX"=>"AUF","NAME"=>"Auftrag","DIR"=>HB_AnsiToOem("Aufträge"),"KEEPFOR"=>6},;
    "ANG"=>{"PREFIX"=>"Angebot_","NAME"=>"Angebot","DIR"=>"Angebote","KEEPFOR"=>6},;
    "ANF"=>{"PREFIX"=>"ANF_","NAME"=>"Anfrage","DIR"=>"Anfragen","KEEPFOR"=>6},;

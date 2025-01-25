@@ -27,6 +27,7 @@ ENDIF
 
 NetUse("engauf","auf")
 NetUse("folgeart","fol")
+NetUse("projcost","pjcst")
 
 bes->(dbSetOrder( 1 ))
 art->(dbSetOrder( 2 ))
@@ -49,30 +50,32 @@ DO WHILE bes->Besnr == nBesnr .AND. ! bes->(Eof())
    IF bes->ContrNo == 0  //abrufe  müssen nicht überprüft werden (zumindest solange wir keine Termine prüfen)
       oArt := Artikel():New()
       oArt:Load(bes->Artikelnr)
+      
 
       cBaseText := "#"+LTrim(Str(bes->Posnr))+" "+Trim(oArt:Matchcode)
+      //? cBaseText
 
       //check to see if it has folgepositionen, if it is not stockable
       lHasFolge := .F.
       IF ! oArt:Lagerart
          nPosnr := bes->Posnr
+         pjcst->(dbSetOrder( 2 ))
          bes->(dbSkip(1))
          IF bes->Besnr == nBesnr .AND. bes->FolgeTo == nPosnr
             lHasFolge := .T.
          ENDIF
          bes->(dbSkip(-1))
+         ?? bes->Grund
          IF ! lHasFolge .AND. ! AT("WA",bes->Grund) == 1
             IF Trim(bes->Matchcode) == "PRšFBERICHT" .AND. bes->EKpr < 100
                nLevel := 3
             ELSEIF Trim(bes->Matchcode) == "WERKZEUGKOSTEN"
-               cText := cBaseText+" beim Lieferanten als @ bestellen"
+               cText += cBaseText+" beim Lieferanten als @ bestellen;"
                nLevel := 1
-            ELSE
+            ELSEIF Left(bes->Matchcode,1) != "@" .OR. ! pjcst->(dbSeek("BE"+Str(bes->Besnr,6)+Str(bes->Posnr,3)))
                nLevel := 1
-               cText := cBaseText+" Artikel nicht lagerf„hig"
+               cText += cBaseText+" Artikel nicht lagerf„hig;"
             ENDIF
-            
-            
          ENDIF
       ENDIF
 

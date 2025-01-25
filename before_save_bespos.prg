@@ -31,6 +31,15 @@ ENDIF*/
    ENDIF
 ENDIF*/
 
+IF oBesPos:lNew .AND. Left(art->Matchcode,3) == "57M"
+   mcNoBesPos :="Artikel aktuell nicht erh„ltlich" 
+   IF ! GetConfigValue("BATCHMODE")
+      Tr_MsgBox(mcNoBesPos)
+   ENDIF
+   RETURN .F.
+ENDIF
+
+
 IF Empty(art->Kncode) .AND. art->Lagerart
    oAddress := Adresse():New(.F.)
    oAddress:LoadMatchcode(oBesPos:oBestellung:Liefma,"L")
@@ -112,8 +121,16 @@ IF oBesPos:oArtikel:Manufactur == 1 .AND. oBesPos:BeQty > 0 .AND. oBesPos:WTerm 
    ENDIF
 ENDIF
 
+IF ! Trim(oBesPos:oBestellung:Liefma) $ {"ITW","KYNOPPE","FARNELL","RS"} .AND. oBesPos:oArtikel:Manufactur == 3
+   mcNoBesPos := "Dieser Artikel kann nur bei ITW bestellt werden"
+   IF ! GetConfigValue("BATCHMODE")
+      Tr_MsgBox(mcNoBesPos)
+   ENDIF
+   RETURN .F.
+ENDIF
+
 IF oBesPos:oArtikel:Manufactur == 11 //Techno
-   nQty := QtyProducible(oBesPos:oArtikel:Artikelnr,,.T.,.T.)
+   nQty := QtyProducible(oBesPos:oArtikel:Artikelnr,,!GetConfigValue("BATCHMODE"),.T.)
    IF nQty > 0
       IF GetConfigValue("BATCHMODE")
          mcNoBesPos := Transform(nQty,oBesPos:oArtikel:cPicture)+" "+oBesPos:oArtikel:Me+" k”nnen gefertigt werden."
@@ -124,7 +141,7 @@ IF oBesPos:oArtikel:Manufactur == 11 //Techno
    ENDIF
 ENDIF
 
-IF Trim(oBesPos:oBestellung:Liefma) $ {"WHTECH","SELT"} .AND. oBesPos:BeQty == 1
+IF Trim(oBesPos:oBestellung:Liefma) $ {"WHTECH","SELT"} .AND. oBesPos:BeQty == 1 .AND. oBesPos:oArtikel:Lagerart
    IF GetConfigValue("BATCHMODE") 
       SendMail({{"amos.engelking@engelking.de","Amos"}},"Erstmuster fr Artikel "+Trim(art->Matchcode)+" bestellen?")   
    ELSEIF Tr_MsgBox("Wirklich nur 1 Stck? Kein Erstmuster notwendig?",,{"Nein","Ja"}) != 2
@@ -153,7 +170,7 @@ ENDIF*/
       cText += "Zeichnung: "+oBesPos:oArtikel:Zeichnung+CRLF
       cText += "Artikel: "+oBesPos:oArtikel:Matchcode+" (eventuell noch weitere!)"+CRLF
       
-      SendMail({{"heike.scheckenburger@engelking.de","Heike"}},"Zeichnung prfen",cText)
+      SendMail({{"heike.scheckenburger@engelking.de","Heike"}},"Zeichnung prfen",cText,,,,,"amos.engelking@engelking.de")
       IF zeipr->(EOF())
          zeipr->(Add_Rec(0))
          zeipr->Zeichnung := oBesPos:oArtikel:Zeichnung

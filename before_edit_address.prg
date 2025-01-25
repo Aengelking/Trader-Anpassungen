@@ -38,8 +38,9 @@ LOCAL hCountries := {"DE"=>"Deutschland","AT"=>"™sterreich"}
 
 MEMVAR c_four,c_four_list
 
-IF Tr_Getini(28) != 9
-   //RETURN .T.
+IF Tr_Getini(28) == 9   
+   hCountries["FR"] := "Frankreich"
+   hCountries["LI"] := "Liechtenstein"
 ENDIF
 
 
@@ -88,7 +89,7 @@ IF oAddress:lNew
          IF LastKey() == 27
             LOOP
          ENDIF
-         oSearch:CreateChild("Name",StrTran(cName,"&","&amp;"),{"MatchType"=>"MatchWords"},"http://www.creditsafe.com/globaldata/datatypes")
+         oSearch:CreateChild("Name",StrTran(cName,"&","&amp;"),{"MatchType"=>IF(cCountryIso${"FR","LI"},"ClosestKeywords","MatchWords")},"http://www.creditsafe.com/globaldata/datatypes")
       ELSEIF nMenu == 2
          NetUse("gerichte","ger")
 
@@ -130,7 +131,7 @@ IF oAddress:lNew
                oName := TXmlIteratorScan():New(oNode):Find("Name")
                oCity := TXmlIteratorScan():New(oNode):Find("City")
                
-               Aadd(aCompanies,IF(oName!=NIl,oName:cData,"??")+" - "+IF(oCity!=NIL,oCity:cData,"??"))
+               Aadd(aCompanies,IF(oName!=NIl,oName:cData,"??")+" - "+IF(oCity!=NIL,oCity:cData,"??")+IF(Tr_Getini(28)==9,oNode:GetAttribute("Id"),""))
                oNode := oNode:oNext
             ENDDO
             @ 05,04 SAY "Gefundene Unternehmen:"

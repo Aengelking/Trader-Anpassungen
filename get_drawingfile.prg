@@ -6,7 +6,9 @@ LOCAl aDir,cFile := "",nX,nPos,cNr
 IF ValType(lAw) != "L"
    lAW := .F.
 ENDIF
-Default(@lKuZeichnung,art->KuZeichnun)
+IF Select("art") != 0
+   Default(@lKuZeichnung,art->KuZeichnun)
+ENDIF
 
 cDir := "\\EK-SERVER4\Data\Technik\Prozessdoku\"
 IF lAW 
@@ -15,7 +17,7 @@ ELSEIF lKuZeichnung
    cDir += "Kunden\"
 ENDIF
 
-IF ValType(cZeich) != "C"
+IF ValType(cZeich) != "C" .AND. Select("art") != 0
    IF lAW
       cZeich := art->Anweisung
       cInd := "" //art->AWIndex

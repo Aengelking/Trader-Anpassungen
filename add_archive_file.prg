@@ -49,9 +49,7 @@ IF ! lAttached .AND. Tr_getini(28) $ {9,45}  .AND. ! GetConfigValue("BATCHMODE")
    oAgorum := AgorumCustomApi():New()
    TxtBox("Archivierung...")
    IF ! oAgorum:AddFile(cTyp,cFilename,oObject)
-      Alert("Nicht in Agorum archiviert;"+oAgorum:cErrorText)
-   ELSE
-      //Alert("In Agorum erfolgreich archiviert")
+      SendMail({{"amos.engelking@engelking.de","Amos"}},"Dokument nicht in Agorum archiviert",cFileName+Chr(13)+Chr(10)+oAgorum:cErrorText)
    ENDIF
    TxtClear()
 ENDIF

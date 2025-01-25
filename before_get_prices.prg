@@ -1,6 +1,10 @@
 PARAMETERS nArtnr,nTab,dDate,cKundma
 LOCAL oExtra
 
+IF Trim(cKundma) == "GESSMANN" .AND. ! nTab $ {13,14}
+   RETURN 14
+ENDIF
+
 IF ! Empty(cKundma)
    NetUse("engkund","ku")
    ku->(dbSeek( cKundma+"K" ))

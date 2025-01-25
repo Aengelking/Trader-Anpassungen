@@ -123,7 +123,7 @@ ENDIF
    //hSpecial["SMARTCIT"]   := {"DATE"=>StoD("20220530"), "LIMIT"=>1500} //09.03.22 Keine Bewertung bei CS, zahlt mit Skonto
    //hSpecial["LORENTZ"] := {"DATE"=>StoD("20220331"), "LIMIT"=>3500} //14.03.22 Keine Bewertung durch CS, Umsatz in letzten 12 Monaten < 2000?, bisher aber mit Skonto bezahlt      
    hSpecial["JETWORX"] := {"DATE"=>StoD("20220422"), "LIMIT"=>1290} //07.04.22 Wg. Urlaub verl„ngert //23.03.22 Startup mit Rating von 3.6
-   hSpecial["GEHO"] := {"DATE"=>StoD("20231030"), "LIMIT"=>700} //19.09.23 Zahlt erst nach 2. Mahnung - Tina droht die Umstellung auf Vorkasse an //04.05.22 Zahlt weiterhin erst nach Mahnung. Verl„ngert //07.04.22 Wg. Urlaub verl„ngert //28.03.22 Rating 3.1, zahlt nach 1 od. 2 Mahnung. Steht bereits auf Automahn.
+   hSpecial["GEHO"] := {"DATE"=>StoD("20240228"), "LIMIT"=>700} //28.11.23 Hat letzte Rechnung pnktlich bezahlt //19.09.23 Zahlt erst nach 2. Mahnung - Tina droht die Umstellung auf Vorkasse an //04.05.22 Zahlt weiterhin erst nach Mahnung. Verl„ngert //07.04.22 Wg. Urlaub verl„ngert //28.03.22 Rating 3.1, zahlt nach 1 od. 2 Mahnung. Steht bereits auf Automahn.
    hSpecial["EMIKA"] := {"DATE"=>StoD("20220422"), "LIMIT"=>565} //07.04.22 Zahlt schleppend, dieses Limit liegt unter dem akutell offen Betrag. Neue Auftr„ge auf Rechnung werden erst akzeptiert wenn die Rechnung bezahlt ist
    hSpecial["MCSMEDIC"] := {"DATE"=>StoD("20220503"), "LIMIT"=>1330} //02.05.22 Hat schlechtes Rating (3,9) - bestehender Kunde, hatte frher mit Skonto bezahlt. Steht auf Automahnung
    hSpecial["SERRA"] := {"DATE"=>StoD("20220530"), "LIMIT"=>351} //06.05.22 Schlechtes Rating (3.2) zahlt aber bisher mit Skonto
@@ -156,9 +156,13 @@ ENDIF
    hSpecial["SEDLBAU"] :=  {"DATE"=>SToD("20231231"),"LIMIT"=>875} //13.06.23 20 und 21 war kein Limiterh”hung notwendig, da immer mit Skonto. Jetzt l„ngere Pause //05.11.19 schlechtes Rating (3.4), zahlt meistens mit Skonto
    hSpecial["KAERCHES"] :=  {"DATE"=>SToD("20231231"),"LIMIT"=>2900} //10.07. von 1150 auf 2900 erh”ht //04.07.23 letzte Rechnung erst nach 3. Mahnung bezahlt wahrscheinlich falscher Empf„nger
    hSpecial["AQUAMETR"] := {"DATE"=>StoD("20230930"), "LIMIT"=>600} //27.07.23 Neu eingetragen, da lange nchts bestellt //27.05.19 2017 sehr pnktlich bezahlt //09.05.17 bisher auf Vorkasse, ist aber bei CreditSafe nicht gelistet
-   hSpecial["STOTZ"] := {"DATE"=>StoD("20230930"), "LIMIT"=>200,"IGNORERATING"=>.T.} //05.09.23 Sanierungsverfahren in Eigenverwaltung
+   hSpecial["STOTZ"] := {"DATE"=>StoD("20231230"), "LIMIT"=>210,"IGNORERATING"=>.T.} //27.11.23 Verl„ngert und von 200? erh”ht //05.09.23 Sanierungsverfahren in Eigenverwaltung
    hSpecial["ELEVCO"] := {"DATE"=>StoD("20231030"), "LIMIT"=>2000} //18.09.23 Sonderwurst von Sammy
-   hSpecial["BATTERYD"] := {"DATE"=>StoD("20221130"), "LIMIT"=>1400} //26.09.23 seit 21 keine Lieferung, Rating jetzt 3.1 hatte aber in der Vergangenheit mit Skonto bezahlt //06.10.20 Zahlt immer mit Skonto
+   hSpecial["BATTERYD"] := {"DATE"=>StoD("20231130"), "LIMIT"=>1400} //26.09.23 seit 21 keine Lieferung, Rating jetzt 3.1 hatte aber in der Vergangenheit mit Skonto bezahlt //06.10.20 Zahlt immer mit Skonto
+   hSpecial["SIGNALSZ"] :=  {"DATE"=>SToD("20231230"),"LIMIT"=>550} //Weiterberechnung Messekosten
+   hSpecial["UPSFRITT"] :=  {"DATE"=>SToD("20231230"),"LIMIT"=>595} //Zuschuss Lagercontainer
+   hSpecial["STEINIGK"] :=  {"DATE"=>SToD("20231230"),"LIMIT"=>928} //14.12.23 erste Rechnung erst nach der ersten Mahnung bezahlt, die auch erst sp„t verschickt wurde. Auf automatische Mahnung umgestellt.
+
 
    //Auftragslimits fr groáe Kunden, diese gelten wenn der Kunde die volle Deckung bei der Versicherung haben
     
@@ -272,7 +276,7 @@ ENDIF
    //hSpecial["JMO"] :=  {"DATE"=>SToD("20200630"),"LIMIT"=>1999} //Hatte Anfang des Jahres Zahlungsschwierigkeiten, hat sich aber gemeldet und in Teilen gezahlt //09.12.19 Hat direkt nach der 1. Mahnung gezahlt (diese wurde sehr sp„t versendet)
    //hSpecial["FBI"] :=  {"DATE"=>SToD("20191231"),"LIMIT"=>659} //10.12.19 Letzte Rechnung wurde direkt nach der ersten Mahnung beglichen, hat kein Rating bei CS mehr da die GmbH (war zuvor OHG) zu jung
    //hSpecial["21UNITY"] :=  {"DATE"=>SToD("20200630"),"LIMIT"=>100} //17.12.19 Hat 2018 mit Skonto bezahlt, Rating liegt aber bei 4.6
-   //hSpecial["SIGNALSZ"] :=  {"DATE"=>SToD("20200630"),"LIMIT"=>200} //wird bei der PI abgezogen
+   
 
 
    //hSpecial["MIESEN"]   := {"DATE"=>SToD("20200630"),"LIMIT"=>1100} //17.04.20 um 100? erh”ht //25.03.20 Seit 2016 nicht notwendig. Erh”hung des KL von 750 auf 1000 //19.10.16 Kurzfristig angehoben um eine kleine Auslieferung mit 150€ vor zu nehmen und einen neune Auftrag einzugeben //Rating nun 3.4 weiterhin Mahnung nötig, Erhöhung um 260€ //18.05.16 wieder zwei Rechnungen nach erster bzw. zweiter Mahnung bezahlt, Erhöhung um 200€ //erste Rechnung zu spät bezahlt, werden in zukunft enger mahnen; letzten zwei Rechungen pktl. bezahlt (21.7.15)
@@ -961,7 +965,7 @@ IF HHAsKey(hSpecialWKV,Trim(cKunde))
 ENDIF
 
 IF nMaxDeckung < nCredLimit   
-   IF lAuftrag .AND. HHasKey(hBigCustomer,Trim(cKunde)) .AND. hSpecial[Trim(cKunde)]["DATE"] < Date()
+   IF lAuftrag .AND. HHasKey(hBigCustomer,Trim(cKunde)) //.AND. hSpecial[Trim(cKunde)]["DATE"] < Date()
       nCredLimit := Min(nCredLimit,hBigCustomer[Trim(cKunde)])
    ELSE
       IF lDbg
@@ -1024,11 +1028,14 @@ If lToLate //one invoice was paid to late
 	Endif
 	Return -6  //no credit
 Elseif ! lSimpleCountry .AND. ! lMoreCountry
-   IF Tr_Getini(28) == 9; Alert("Country: "+ku->CountryIso); Endif
+   //IF Tr_Getini(28) == 9; Alert("Country: "+ku->CountryIso); Endif
+   IF  HHasKey(hSpecial,Trim(cKunde)) .AND. hSpecial[Trim(cKunde)]:Date >= Date() 
+      RETURN Min(500,hSpecial[Trim(cKunde)]:Limit)
+   ENDIF
 	Return -5 //country has no protection
 Elseif lWKV
 	Return nCredLimit
-ELSEIF ku->CountryIso $ {"DE","AT"} //Abfrage Creditsafe
+ELSEIF ku->CountryIso $ {"DE","AT","LI","FR"} //Abfrage Creditsafe
    RETURN nCredLimit
 ELSEIF nTotalPaid < 2500 //unter selbstbehalt
 

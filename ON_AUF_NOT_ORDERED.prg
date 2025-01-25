@@ -5,7 +5,7 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
    LOCAL cSupplier,cWaldMatch := Pad("WALDOM",8)
    LOCAL hFreigabe
    LOCAL nStdLZ := GetConfigValue("DEFAULTS_SUPPLIER_DELTIME")
-   LOCAL nIncome,nEkPr,nPe,nVKPr
+   LOCAL nIncome,nEkPr,nPe,nVKPr,nMargin
    LOCAL lIsRahmen := .F.
    LOCAL nContract := 0
    LOCAL nContrPos := 0
@@ -13,6 +13,7 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
    LOCAL oExtra,lUnderMoq := .F.
    LOCAL cPrevMatch := ""
    LOCAL lOrdered := .F.,lManu := .F.,lFrei := .F.,lVorzug := .F.,lToBeOrdered := .F.,lToBeChecked := .F.
+   LOCAL lMOQ := .F.
    LOCAL cMsgManu,cComment,cMsgLine
    LOCAL cMsgFrei,cNotes   
    MEMVAR mcNoBesPos
@@ -93,6 +94,7 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
                ENDIF
                IF Empty(cSupplier)
                   cMsg += "wird nicht bestellt - Lieferant nicht eindeutig"
+                  lToBeChecked := .T.
                ENDIF
             ELSE               
                ali->(dbSkip(-1))
@@ -134,6 +136,7 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
             /** Preis ermitteln **/
             IF ! Empty(cSupplier)
                lUnderMoq := .F.
+               nEKPr := 0
 
                //check for blanket order
                bes->(dbSetOrder( 8 ))
@@ -160,32 +163,57 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
                ku->(dbSeek( cSupplier+"L"))
                oExtra := ku->(ExtraData():New(ku->Nummer))
 
-               IF nEkPr == 0 .AND. oExtra:MoqSurchar > 0
-                  lUnderMoq := .T.
-                  GetBuyPrice(cSupplier,nSupArt,-1,@nEkPr,@nPe,.T.) //find the first price break             
+               IF oExtra:MoqSurchar > 0 //Mindermengenzzuschlag prfen                  
+                  IF nEkPr == 0 .AND. oExtra:MoqSurchar > 0
+                     lMOQ := .T.
+                     GetBuyPrice(cSupplier,nSupArt,ali->MIN,@nEkPr,@nPe,.T.) //get the price of the MOQ quantity
+                     IF nEkPr != 0 .AND. (ali->Min-aOrderList[nX]["QTY"])*nEkPr/nPE <= oExtra:MoqSurchar //is it cheaper or just as expensive to order the MOQ then we do this
+                        aOrderList[nX]["QTY"] := ali->Min
+                     ELSE
+                        lUnderMoq := .T.
+                        GetBuyPrice(cSupplier,nSupArt,-1,@nEkPr,@nPe,.T.) //find the first price break             
+                     ENDIF
+                  ENDIF
+                  IF ! lUnderMoq .AND. oExtra:MOQNOVPE .AND. ali->VPE > 0 .AND. aOrderList[nX]["QTY"] % ali->VPE != 0
+                     lMOQ := .T.
+                     IF nEKPR != 0 .AND. aOrderList[nX]["QTY"] % ali->VPE * nEkPr/nPE <= oExtra:MoqSurchar //IF it is just as expensive to buy the PU then we increase the quantity
+                        aOrderList[nX]["QTY"] += aOrderList[nX]["QTY"] % ali->VPE
+                     ELSE
+                        lUnderMOQ := .T.
+                     ENDIF
+                  ENDIF
                ENDIF
+
                IF nEkPr == 0                  
                   cMsg += "EK fehlt bei "+Trim(cSupplier)
                   cSupplier := ""
+                  lToBeChecked := .T.
                ENDIF
 
                //Margin prfen
                nVKPr := (auf->VkPr/auf->Pe)*(1-auf->Rabatt/100)
-               IF nVKPr > 0 .AND. (nVkPr-(nEkPr+IF(lUnderMOQ,oExtra:MoqSurchar/aOrderList[nX]["QTY"],0))*currate(ku->Money,"E"))/nVkPr < 0.15
-                  cMsg += "Margin zu klein bei "+Trim(cSupplier)+" - EK ("+Ltrim(Str(nEkPr+IF(lUnderMOQ,oExtra:MoqSurchar,0)))+" EUR) und VK ("+Ltrim(Str(nVkPr))+") prfen"
+               IF nVKPr == 0
+                  nMargin := -999
+               ELSE
+                  nMargin := (nVkPr-(nEkPr+IF(lUnderMOQ,oExtra:MoqSurchar/aOrderList[nX]["QTY"],0))*currate(ku->Money,"E"))/nVkPr
+               ENDIF
+               IF nVKPr > 0 .AND. nMargin < 0.15
+                  cMsg += "Margin ("+LTrim(Str(nMargin,12,2))+"%) zu klein bei "+Trim(cSupplier)+" - EK ("+Ltrim(Str(nEkPr+IF(lUnderMOQ,oExtra:MoqSurchar/aOrderList[nX]["QTY"],0)))+" EUR) und VK ("+Ltrim(Str(nVkPr))+") prfen"
                   cSupplier := ""
+                  lToBeChecked := .T.
                ENDIF
             ENDIF
 
-            IF Trim(cSupplier) $ {"ONPOW","WALDOM","TECHNO","EDAC","SCOLMORE"}               
+            IF Trim(cSupplier) $ {"ONPOW","WALDOM","TECHNO","EDAC","SCOLMORE","BULGIN","ITW"}               
                ku->(dbSetOrder( 1 ))
                ku->(dbSeek( cSupplier+"L "))
 
                IF ! __AddToWaitList(aOrderList[nX]["QTY"],nEkPr,nPe,nContract,nContrPos,IF(Trim(cSupplier)=="WALDOM",0,ali->LZ))
                   cMsg += "Bestellung bei "+Trim(cSupplier)+" konnte nicht gespeichtert werden. "+mcNoBesPos   
+                  lToBeChecked := .T.
                ELSE
                   art->(dbSetOrder( 1 ))
-                  IF lUnderMoq .AND. oExtra:MoqSurchar .AND. art->(dbSeek(Pad("MINDERMENGENZUSCHLAG",25)))  //Mindermengenzuschlag hinzufgen
+                  IF lUnderMoq .AND. oExtra:MoqSurchar > 0 .AND. art->(dbSeek(Pad("MINDERMENGENZUSCHLAG",25)))  //Mindermengenzuschlag hinzufgen
                      IF ! __AddToWaitList(1,oExtra:MoqSurchar,1,0,0,auf->WTerm)
                         cMsg += "Mindermengezuschlag nicht hinzugefgt. "
                      ENDIF
@@ -196,8 +224,10 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
             ELSEIF ! Empty(cSupplier)              
                IF art->Bezug >= 5
                   cMsg += "Fertigung bei "+Trim(cSupplier)+" planen"   
+                  lToBeOrdered := .T.
                ELSE
                   cMsg += "bei "+Trim(cSupplier)+" bestellen"
+                  lToBeOrdered := .T.
                ENDIF
             ENDIF
 
@@ -212,11 +242,14 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
    cMsgManu += cNotes
 
    IF ! lOrdered
-      SendMail({{"amos.engelking@engelking.de","Amos"}},"AB "+LTrim(Str(nAbnr,6))+IF(nReminderCount!=NIL .AND. nReminderCount != 0," - "+Str(nReminderCount)+". Erinnerung ",""),IF(lVorzug .AND. nReminderCount != 0,"VORZUG NICHT VERSENDET"+CRLF,"")+cMsg)
+      
    ENDIF
 
    IF lOrdered .OR. (lVorzug .AND. nReminderCount == 0) .OR. lToBeOrdered .OR. lToBeChecked
       SendMail(GetConfigEMail("SO-ORDERPARTS"),"AB "+LTrim(Str(nAbnr,6)),cMsg)      
+      IF lMOQ
+         SendMail({{"amos.engelking@engelking.de","Amos"}},"AB "+LTrim(Str(nAbnr,6))+" mit MMZ",cMsg)      
+      ENDIF
    ENDIF
    IF lManu
       SendMail({{"samuel.engelking@engelking.de","Samuel"}},"AB "+LTrim(Str(nAbnr,6))+" Fertigung planen",cMsgManu)
@@ -227,6 +260,8 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
    IF lOrdered .OR. lManu .OR. lFrei .OR. lVorzug .OR. lToBeOrdered .OR. lToBeChecked
       RETURN .F. //do not send standard message
    ENDIF
+   
+   SendMail({{"amos.engelking@engelking.de","Amos"}},"AB "+LTrim(Str(nAbnr,6))+IF(nReminderCount!=NIL .AND. nReminderCount != 0," - "+Str(nReminderCount)+". Erinnerung ",""),IF(lVorzug .AND. nReminderCount != 0,"VORZUG NICHT VERSENDET"+CRLF,"")+cMsg)
 
 RETURN .T. //send standard message
 

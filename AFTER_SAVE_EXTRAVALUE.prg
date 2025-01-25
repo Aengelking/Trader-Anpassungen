@@ -8,5 +8,11 @@ Function AFTER_SAVE_EXTRAVALUE(cName,oExtra)
          oExtra:Save()
          Tr_MsgBox("Versandmitteilung wurde fÅr Werksbescheinigung aktiviert.")
       ENDIF
+   ELSEIF oExtra:cDBID == "ART"
+      IF oExtra:Gefahr .AND. ! oExtra:SDS
+         oExtra:SDS := .T.
+         oExtra:Save()
+         Tr_MsgBox("Sicherheitsdatenblatt ist bei Gefahrstoffen notwendig")
+      ENDIF
    ENDIF
 RETURN .T.

@@ -48,6 +48,7 @@ FOR EACH hProd IN aProducts
    nPrice := 0
    lStock := .F.
    lStaffel := .T.
+   lStaffelFound := .F.
    lStaffelVor := .F.
    lStaffelDown := .T. //Herabstufung bei der Marginprfung erlaubt   
 
@@ -83,9 +84,10 @@ FOR EACH hProd IN aProducts
        
        @ 20,31 SAY " "+hProd:Artikel:Matchcode+" " COLOR C_FIVE
 
-       DbgPrn(Trim(hProd:Artikel:Matchcode)+" Qty: "+Transform(hProd:Qty,ME(art->Me))+" EK: "+Ltrim(Str(hProd:nEk))) //+" "+Str(aPrices[nPrice,1])+Str(aPrices[nPrice,2]))
+       DbgPrn(Trim(hProd:Artikel:Matchcode)+" Qty: "+Transform(hProd:Qty,ME(art->Me))+" EK: "+Ltrim(Str(hProd:nEk))+" "+hProd:Supplier) //+" "+Str(aPrices[nPrice,1])+Str(aPrices[nPrice,2]))
        IF Len(aPrices) > 0 .AND. nPrice > 0 .AND. Round(hProd:VkPr / Currate( cMoney, "V" ),2) < Round(aPrices[nPrice,2] / hProd:Artikel:VkPe*IF(hProd:Artikel:Manufactur == 9,0.98,0.995),2) //nicht auf Staffelvorlauf mit 0,5% (2% beu Scolmore wg. W„hrungsdiff.) Abweichung wegen Rundungsdiff. etc.
-          //check to see if there has been a price increase in the last 12 months
+         lStaffelFound := .T.
+          //check to see if there has been a price increase in the last 12 months          
           nLowPrice := 999999.99
           dLowDate := Date()
 
@@ -183,10 +185,12 @@ FOR EACH hProd IN aProducts
          ENDIF
        ELSEIF Len(aPrices) > 0 .AND. nPrice > 0 .AND. Round(hProd:VkPr / Currate( cMoney, "V" ),2) >= Round(aPrices[nPrice,2] / hProd:Artikel:VkPe,2)  //Staffelvorlauf gewährt, 1cent Abweichung erlaubt
          lStaffelVor := .T.
+         lStaffelFound := .T.         
        ENDIF
 
        IF Len(aPrices) == 0 .OR. (nPrice > 0 .AND. Round(aPrices[nPrice,2] / hProd:Artikel:VkPe,2) == 0) .OR. hProd:VkPr == 0 //Keine Preise gefunden
           lStaffel := .F.
+          lStaffelFound := .F.
        ENDIF
 
        IF /*hProd:Artikel:LagerArt .AND.*/ hProd:Artikel:Mindest == 0
@@ -390,6 +394,11 @@ FOR EACH hProd IN aProducts
       IF hProd:nEk == 0 .AND. hProd:Artikel:Lagerart  //this should now be covered by nGewinn == 0
          nLevel := IF(lHoliday,2,1)
          cText1 += cPreText+" "+t(" kein EK errechenbar.;")
+      ENDIF
+
+      IF ! lStaffelFound
+         //nLevel := IF(lHoliday,2,1)
+         //cText1 += cPreText+" "+t("Keine Staffel vorhanden")
       ENDIF
 
       IF (;

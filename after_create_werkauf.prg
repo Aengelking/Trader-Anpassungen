@@ -5,7 +5,7 @@ FUNC HOOK_AFTER_CREATE_WERKAUF( nNr,lFehl,lChange,cMissing )
 LOCAL cDir  := "Y:\Technik\Prozessdoku\"
 LOCAL cText := ""
 //LOCAL aTo   := {{"GF","Geschäftsführung"}} 
-LOCAL aTO   := {{"chris.chertesp@engelking.de","Chris"}}
+LOCAL aTO   := {{"chris.chertes@engelking.de","Chris"}}
 LOCAl nW
 
 IF ValType(lChange) != "L"

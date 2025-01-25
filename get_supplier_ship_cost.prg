@@ -12,5 +12,11 @@ LOCAL nCost := 0
    ELSEIF Trim(cSupplier) == "ASCONNEC"
       nCost := 300/1000*nGramms/1000  //300? pro Tonne
    ENDIF
+
+   //Cost for special products
+   IF Trim(cSupplier) $ {"WHTECH","SELT","TTAF"}
+      nCost += 60
+   ENDIF
+
 RETURN nCost
 

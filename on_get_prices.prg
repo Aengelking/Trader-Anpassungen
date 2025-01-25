@@ -2,7 +2,7 @@ FUNC HOOK_ON_GET_PRICES( aPriceTabs,nArtnr,nTab,dDate,cKundma )
 
 LOCAL nRate,nMulti
 LOCAL nX,nManu
-LOCAL lSubDistiGBP := .F.
+LOCAL lSubDistiGBP := .F.,lPackOnly
 LOCAL nVPE
 LOCAL oArt,nWeight
 
@@ -24,19 +24,39 @@ LOCAL oExtra
 LOCAL cMatch
 LOCAL nEx,nFixRate,aSkonto
 
+
 NetUse("engkund","ku")
 IF ! Empty(cKundma)
    ku->(dbSeek( cKundma+"K" ))
    oExtra := ku->(ExtraData():New( ku->Nummer ))
 ENDIF
 
-IF art->Manufactur == 9 .AND. AT("/PB",art->Matchcode) != 0
-   cMatch := StrTran(art->Matchcode,"/PB","/BU")
-   art->(dbSetOrder( 1 ))
-   IF art->(dbSeek( cMatch ))
-      aPriceTabs := GetPrices(art->Artikelnr,art->Table,dDate,cKundma)
-      AEval(aPriceTabs,{|aTab| aTab[2] += 0.45 })
-      RETURN aPriceTabs
+IF art->Manufactur == 9 .AND. (AT("/PB",art->Matchcode) != 0 .OR. Left(art->Matchcode,2) == "KS") .AND. art->Gruppe == "KONK"
+   NetUse("parts","part")
+   art->(dbSetOrder( 2 ))
+
+   part->(dbSeek( Str(nArtnr,6) ))
+   lPackOnly := .T.
+   DO WHILE part->Listart == nArtnr .AND. lPackOnly
+      art->(dbSeek( Str(part->Partart,6) ))      
+      IF part->Pos <= 0 .OR. At("KARTON",art->Matchcode) == 1 .OR. AT("BEUTEL",art->Matchcode) == 1 //nur Verpackung in Beutel
+         //do nothing
+      ELSEIF AT("NZ/",art->Matchcode) == 1
+         cMatch := art->Matchcode
+      ELSE
+         Alert(art->Matchcode)
+         lPackOnly := .F.
+      ENDIF
+      part->(dbSkip())
+   ENDDO
+   //cMatch := StrTran(art->Matchcode,"/PB","/BU")
+   IF lPackOnly .AND. ! Empty(cMatch)
+      art->(dbSetOrder( 1 ))
+      IF art->(dbSeek( cMatch ))
+         aPriceTabs := GetPrices(art->Artikelnr,art->Table,dDate,cKundma)
+         AEval(aPriceTabs,{|aTab| aTab[2] += 0.45 })
+         RETURN aPriceTabs
+      ENDIF
    ENDIF
 ENDIF
 
@@ -61,9 +81,9 @@ ELSEIF nTab == 12 .OR. nTab == 29
 
       NetUse("artlief","ali")
       ali->(dbSetOrder( 5 ))        
-      IF ali->(dbSeek( Str( nArtnr, 6)+Pad("SCOLMORE",8) ))
-         IF nTab == 29 .AND. ali->MIN != 0 .AND. oArt:Mindest == 0
-            DO WHILE ali->MIN >= aPriceTabs[2,1]
+      IF ali->(dbSeek( Str( nArtnr, 6)+Pad("SCOLMORE",8) ))                  
+         IF nTab == 29 .AND. ali->MIN != 0 .AND. oArt:Mindest == 0                                    
+            DO WHILE ali->MIN >= aPriceTabs[2,1]               
                HB_ADel(aPriceTabs,2,.T.)
             ENDDO
             aPriceTabs[1,1] := ali->MIN         
@@ -126,18 +146,56 @@ ELSEIF oExtra != NIL .AND. Len(oExtra:SubDisti) > 0 //HHasKey(aSubDistis,Trim(cK
    ENDIF
 ELSEIF nTab == 44
    aPriceTabs := MBaseRun(Trim(Tr_Getini(1))+"\run\prices\pricetabs",{nArtnr,dDate})
-ELSEIF nTab == 26
+ELSEIF nTab == 13
+   IF art->Bezug == 5
+      cLiefMa := Pad("SELF",8)
+   ELSE
+      cLiefma := Pad("WHTECH",8)
+   ENDIF
+   nPausch := 60
+   NetUse( "buyprice", "bpr", .F., 0 )
+   bpr->( dbSetOrder( 1 ) )   // liefma+artikelnr+qty
+   IF bpr->( dbSeek( cLiefma + Str( nArtnr, 6 ) ) ) // found entry in supplier db
+      DO WHILE bpr->Liefma == cLiefma .AND. bpr->Artikelnr == nArtnr
+         IF ( bpr->StartDate <= Date() .AND. (bpr->Enddate >= Date() .OR. Empty( bpr->EndDate ))  )
+            Aadd(aPriceTabs,{bpr->Qty,(bpr->Price / Max( bpr->Pe, 1 )+nPausch/bpr->Qty)*1.35*art->VkPe})
+         ENDIF
+         bpr->( dbSkip() )
+      ENDDO
+   ENDIF
+ELSEIF nTab == 14
+   NetUSe("manufact","manu")
+   NetUse( "buyprice", "bpr", .F., 0 )
+
+   manu->(dbSeek( Str(art->Manufactur,5) ))
+   ku->(dbSetOrder( 8 ))
+   ku->(dbSeek( Str(manu->Address,6) ))
+
+   nEx := Currate(ku->Money,"E")
+
+   bpr->( dbSetOrder( 1 ) )   // liefma+artikelnr+qty
+
+   IF bpr->( dbSeek( ku->Kunde + Str( nArtnr, 6 ) ) ) // found entry in supplier db
+      DO WHILE bpr->Liefma == ku->Kunde .AND. bpr->Artikelnr == nArtnr
+         IF ( bpr->StartDate <= Date() .AND. (bpr->Enddate >= Date() .OR. Empty( bpr->EndDate )) .AND. bpr->Type == "LIST" )
+            Aadd(aPriceTabs,{bpr->Qty,bpr->Price / Max( bpr->Pe, 1 )*nEx*1.5*art->VkPe})
+         ENDIF
+         bpr->( dbSkip() )
+      ENDDO
+   ENDIF
+
+ELSEIF nTab == 26   
    NetUse("artlief","ali")
    ali->(dbSetOrder( 5 ))
    IF ali->(dbSeek( Str( nArtnr, 6)+Pad("TECHNO",8) ))
       nVPE := IF(ali->VPE==0,200,ali->VPE) //wenn keine VPE/MOQ vorhanden, dann von 200 ausgehen (wurde so von Techno best„tigt)
-      FOR nX := 1 TO Len(aPriceTabs)
+      FOR nX := 1 TO Len(aPriceTabs)         
          IF aPriceTabs[nX,1] < nVPE .AND. aPriceTabs[nX,2] != 0
-            aPriceTabs[nX,2]  += 25/aPriceTabs[nX,1] //Mindermengenzuschlag hinzurechnen
+            aPriceTabs[nX,2]  += 25/aPriceTabs[nX,1]*art->VKPE //Mindermengenzuschlag hinzurechnen
          ELSEIF ali->VPE != 0
             aPriceTabs[nX,1] := Int(aPriceTabs[nX,1]/nVPE)*nVPE //auf volle VPE „ndern
          ENDIF
-      NEXT
+      NEXT      
    ENDIF
 ENDIF
 
@@ -147,7 +205,7 @@ ENDIF
 //29 = Scolmore Disti
 //12 = Scolmore
 
-IF nTab == 29 .OR.  ((nTab == 12 .OR. lSubDistiGBP) .AND. oExtra != NIL .AND. oExtra:FixedEx) //fixed exchange rate
+IF nTab == 29 .OR. nTab == 14 .OR. ((nTab == 12 .OR. lSubDistiGBP) .AND. oExtra != NIL .AND. oExtra:FixedEx) //fixed exchange rate
    nEx := Currate("P","E")
    nFixRate := nEx
    IF Trim(cKundma) != "KASH"

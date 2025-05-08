@@ -12,10 +12,9 @@
 #define ZBAR_EXE '"C:\Program Files (x86)\ZBar\bin\zbarimg.exe"'
 //#define GS_EXE '"C:\Program Files (x86)\gs\gs9.14\bin\gswin32c.exe"'
 
-//#define P_CELINA 51
 #define P_SIGRID 34
 #define P_DANIEL IF(Date()>=Stod("20220701").AND.Date()<=StoD("20220707"),9,57)
-#define P_DANIELA 50
+#define P_DANIELA IF(Date()>=StoD("20251604"),66,50)
 #define P_AMOS 9
 #define P_LISA 64
 
@@ -57,7 +56,7 @@ LOCAL lAuto := .F.
 LOCAL nBetrag := 0
 LOCAL bDisplayButtons,nPage := 1
 LOCAL nPersOnApprove := P_SIGRID //automatically assign to this person on approval
-LOCAL dNext,lApprove,nRec
+LOCAL dNext,lApprove,lRepeat
 LOCAL oExtra
 
 MEMVAR c_two,c_one
@@ -690,7 +689,7 @@ DO WHILE .T.
             rebp->Person  := Tr_Getini(28)
             rebp->Rev     := nRev
          ENDIF
-nRec := reb->(Recno())
+         
          reb->Betrag := nBetrag
 
          //reb->(dbUnLock()) //this causes it to crash
@@ -728,10 +727,14 @@ nRec := reb->(Recno())
          IF ! LETO_COMMITTRANSACTION() //this also unlocks the records
             LETO_ROLLBACK()
             lError := .T.
-         ELSE                     
+         ELSE     
+            lApprove := .F. 
+            lRepeat  := .F.
+
             AddFileToArchive("ER",nID,cFileName)
-            IF Empty(cLiefma) .AND. rerep->(dbSeek( Str(nKonto,6)+Str(nBetrag*100,14,0) )) 
-               lApprove := .F.
+            IF nKonto == 70423 .AND. nBetrag <= 500  //special for Amazon
+               lApprove := .T.
+            ELSEIF Empty(cLiefma) .AND. rerep->(dbSeek( Str(nKonto,6)+Str(nBetrag*100,14,0) )) 
                //check to see if this invoice is a reoccuring invoice which can be automatically released         
                DO WHILE rerep->Konto == nKonto .AND. rerep->Betrag == nBetrag  //there can be multiple entries
                   IF Empty(rerep->End) .OR. rerep->End > dEingang
@@ -745,48 +748,50 @@ nRec := reb->(Recno())
                         dNext := StoD("")
                      ENDIF               
                      IF dNext <= dEingang 
-                        lApprove := .T.                  
+                        lApprove := .T.     
+                        lRepeat  := .T.             
                         EXIT           
                      ENDIF            
                   ENDIF
                   rerep->(dbSkip())
                ENDDO
-            
-               IF lApprove //invoice has been auto approved            
-                  LETO_BEGINTRANSACTION()
-                  BEGIN SEQUENCE
-                     rerep->(Rec_Lock(0))
-                     rerep->Last := dEingang    
-
-                     reb->(dbSetOrder( 1 ))
-                     reb->(dbSeek(Str(nID,9)))
-
-                     //reb->(dbGoto(nRec))
-                     reb->(Rec_Lock())
-                     reb->Status := 8
-                     reb->Person := nPersOnApprove
-
-                     rebp->(Add_Rec())
-                     rebp->ID := nID
-                     rebp->DateTime := TtoS(DateTime())
-                     rebp->Type     := "APR"
-                     rebp->Person   := -1  //we use -1 for automatic
-                     rebp->Rev      := nRev
-                     LETO_COMMITTRANSACTION()
-                  RECOVER
-                     LETO_ROLLBACK()
-                  END
-                  /*Sendmail({{"amos.engelking@engelking.de","Amos"}},"Wiederholungsrechnung gefunden",;
-                     "REB-ID: "+lTrim(Str(nid)+Chr(13))+Chr(10)+;
-                     "Konto:  "+LTrim(Str(nKonto))+Chr(13)+Chr(10)+;
-                     "Betrag: "+LTrim(Str(nBetrag,14,2));                     
-                  )*/ 
-               ELSE
+               IF ! lApprove
                   Sendmail({{"amos.engelking@engelking.de","Amos"}},"Keine Wiederholungsrechnung gefunden - Eintr„ge stimmen nicht berein",Str(nid)+Chr(13)+Chr(10)+Str(nKonto)+Chr(13)+Chr(10)+Str(nBetrag,14,2))  
                ENDIF
-            ELSEIF nKonto != 0
-               //Sendmail({{"amos.engelking@engelking.de","Amos"}},"Keine Wiederholungsrechnung gefunden","ID:"+Str(nid)+Chr(13)+Chr(10)+"Konto:"+Str(nKonto)+Chr(13)+Chr(10)+"Betrag:"+Str(nBetrag,14,2)+Chr(13)+Chr(10)+"Record:"+Str(reb->(Recno())))  
             ENDIF
+            
+            IF lApprove //invoice has been auto approved            
+               LETO_BEGINTRANSACTION()
+               BEGIN SEQUENCE
+                  IF lRepeat
+                     rerep->(Rec_Lock(0))
+                     rerep->Last := dEingang    
+                  ENDIF
+
+                  reb->(dbSetOrder( 1 ))
+                  reb->(dbSeek(Str(nID,9)))
+
+                  //reb->(dbGoto(nRec))
+                  reb->(Rec_Lock())
+                  reb->Status := 8
+                  reb->Person := nPersOnApprove
+
+                  rebp->(Add_Rec())
+                  rebp->ID := nID
+                  rebp->DateTime := TtoS(DateTime())
+                  rebp->Type     := "APR"
+                  rebp->Person   := -1  //we use -1 for automatic
+                  rebp->Rev      := nRev
+                  LETO_COMMITTRANSACTION()
+               RECOVER
+                  LETO_ROLLBACK()
+               END
+               /*Sendmail({{"amos.engelking@engelking.de","Amos"}},"Wiederholungsrechnung gefunden",;
+                  "REB-ID: "+lTrim(Str(nid)+Chr(13))+Chr(10)+;
+                  "Konto:  "+LTrim(Str(nKonto))+Chr(13)+Chr(10)+;
+                  "Betrag: "+LTrim(Str(nBetrag,14,2));                     
+               )*/ 
+            ENDIF    
             #endif
          ENDIF
       RECOVER

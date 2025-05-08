@@ -8,6 +8,10 @@ PROC RUN_CHANGE_FOLGE
 
    Head("Artikel von Folgeartikel in Stli umwandeln")
 
+   IF ! SystemUser():CheckPermission("U","ART_FOLTOBOM")
+      RETURN
+   ENDIF
+
    NetUse("artikel","art")
    NetUse("folgeart","fol")
    NetUse("parts","part")
@@ -15,7 +19,7 @@ PROC RUN_CHANGE_FOLGE
    NetUse("engbes","bes")
    NetUse("bom","bom")
 
-   lAuto := Tr_MsgBox("Automatische Umwandlung?",,{"Nein","Ja"}) == 2   
+   lAuto := .F. //Tr_MsgBox("Automatische Umwandlung?",,{"Nein","Ja"}) == 2   
 
    IF lAuto
       ? "Artikel werden eingelesen..."
@@ -77,6 +81,7 @@ PROC RUN_CHANGE_FOLGE
       lNoStock := .F.
       lOther := .T.
 
+      ? "Folgende Unterartikel sind noch auf Lager, prfe wie wir diese aufbrauchen k”nnen:"
       ? Pad("Artnr.",6),Pad("Matchcode",25),PadL("Bestand",12),Space(4),"Anzahl anderer Artikel mit Verwendung"
       DO WHILE fol->Artikelnr == oArt:Artikelnr .AND. ! fol->(EOF())
          art->(dbSeek( Str(fol->Folgeart,6) ))

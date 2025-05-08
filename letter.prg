@@ -1,5 +1,8 @@
-LOCAL nStdErr,nStdOut,nChild,nBytes,cData,cOut,lError
-//LOCAL cEmail := "amos.engelking@engelking.de"
+PROC RUN_Letter()
+   LOCAL nStdErr,nStdOut,nChild,nBytes,cData,cOut,lError
+   LOCAL cCmd,cOpt,cFile,nNr,cError
+   LOCAL oPrinter,nType
+
 #ifndef __XHARBOUR__
 	#xtranslate ShellExecute([<x,...>])        => Wapi_ShellExecute(<x>)
 #endif
@@ -8,34 +11,24 @@ NetUse("post","post")
 
 oPrinter := getCurrentPrinterObject()
 
-cDest := "world"
-If Trim(ku->CountryIso) == "DE"
-	cDest := "national"
-/*Elseif Trim(ku->CountryIso) $ "GB PL CH AT HU FR IT NL IR CZ SK SLO CR LU SE ES PT"
-	cDest := "european"*/
-Endif
-
 nType := 0
-cBetreff := "engelking#loving16#simplex#color#destination:"+cDest
+
 Do While nType < 2
 	SET DEVICE TO SCREEN
 	SET CONSOLE ON
-	SET PRINTER OFF
-	nType := 0
-	//If ! GetConfigValue("batchmode")
+	SET PRINTER OFF	
+	
 	If ! IsInHook("after_pack_from_list") .AND. ! GetConfigValue("batchmode")
 		nType := Tr_MsgBox("Brief versenden?",,{"Vorschau","Nein","Ja","Einschreiben"})
 	Else
 		nType := 3
 	Endif
 	If nType == 3 .OR. (nType == 4 .AND. (GetConfigValue("batchmode") .OR. Tr_MsgBox(HB_AnsiToOem("Durch den Versand als Einschreiben entstehen zusätzliche Kosten"),,{"abbrechen","versenden"}) == 2) )
-//      IF Tr_Getini(28) == 9 .AND. ! GetConfigValue("batchmode") .AND. Tr_MsgBox("Welcher Anbieter?",,{"online-poststelle","onlinebrief24"}) == 2
       	cCmd := '"C:\Program Files (x86)\WinSCP\WinSCP.com"'
       	cOpt := ""
          cOpt := '/command "option batch on" "option confirm off"'
-      	cOpt += ' "open sftp://amos.engelking@engelking.de:loving16@api.onlinebrief24.de '
-         //cOpt += '-hostkey=""ssh-rsa 2048 5b:d1:29:17:cb:5e:17:b9:e2:29:4e:1e:aa:c7:d9:b2""'
-         cOpt += '-hostkey=""ssh-rsa 3072 cno3q2GVL0HdDTA1sbvlcIv4TKvJGPIafyTlVQk76S0""'
+      	cOpt += ' "open sftp://amos.engelking@engelking.de:loving16@api.onlinebrief24.de '         
+         cOpt += '-hostkey=""ssh-rsa 3072 cno3q2GVL0HdDTA1sbvlcIv4TKvJGPIafyTlVQk76S0=""'         
          cOpt += '"'         
       	cOpt += ' "put ""'+oPrinter:Data:Filename+'"" ""/upload/api/1000'+If(nType==4,"1","0")+'00000000-'+hb_strToUtf8(SubStr(oPrinter:Data:Filename,RAT("\",oPrinter:Data:Filename)+1))+'"" -nopermissions -nopreservetime" "exit"'
 
@@ -54,23 +47,26 @@ Do While nType < 2
             ENDDO
             IF AT("100%",cOut) != 0 //File has been uploaded to 100%
                lError := .F.
+            ELSE
+               nBytes := 1
+               cError := ""
+               DO WHILE nBytes > 0
+                  cData := Space( 1000 )
+                  nBytes := Fread( nStdOUT, @cData, Len(cData) )
+                  cError += cData
+               ENDDO
             ENDIF
 
             HB_ProcessValue( nChild ) //wait for end
-//         IF (nCode := ShellExecute(NIL,"open",cCmd,cOpt,"",3)) > 32 //>32 = success
+//         
          ENDIF
 
          IF lError
             IF ! GetConfigValue("batchmode")
                Tr_MsgBox(t("Fehler beim Versenden des Briefs!"))
-               //IF Tr_Getini(28) == 9
-               //gtSetClipboard(cCmd+" "+cOpt)
-                 // Alert(cCmd+" "+cOpt)
-                  //MemoEdit(cData)
-               //ENDIF
-            ELSE
-               SendMail({{"amos.engelking@engelking.de","Amos"}},"Fehler beim Briefversand","")
             ENDIF
+            SendMail({{"amos.engelking@engelking.de","Amos"}},"Fehler beim Briefversand",cCmd+"<br>"+cOpt+"<br>"+cOut+"<br>"+cError)
+            
          ELSE
             cFile := NIL
             HB_FNameSplit(oPrinter:Data:Filename,NIL,@cFile)
@@ -88,9 +84,6 @@ Do While nType < 2
             ENDIF
 //            Tr_MsgBox(t("Brief erfolgreich hochgeladen"))
          ENDIF
-/*      ELSE
-         SendMail({{cEmail,""}},cBetreff+IF(nType==4,"#registered:R",""),"",{oPrinter:Data:Filename})
-      ENDIF*/
 	Elseif nType == 1
 		ShellExecute(NIL,"open",oPrinter:Data:Filename,"","",0)
 	Endif

@@ -2,7 +2,7 @@ PROC RUN_CHECK_ISO
    LOCAL aSupplier
    LOCAL nLief,oExtra
    LOCAL nWarnDays := 30
-   LOCAL aTo := {{"amos.engelking@engelking.de","Amos"},{"daniel.becker@engelking.de","Daniel"}}
+   LOCAL aTo := {{"daniel.becker@engelking.de","Daniel"}}
    //LOCAL aTo := {{"amos.engelking@engelking.de","Amos"}}
    LOCAL hDocuments := {;
       "QISO9001"=>{"EXPIRE"=>.T.,"MIN_DATE"=>StoD(""),"NAME"=>"ISO Zertifikat","LEVEL_MISSING"=>8,"LEVEL_INVALID"=>0},;
@@ -40,13 +40,11 @@ PROC RUN_CHECK_ISO
                      hDocs[nLief] += "<br />"
                   ENDIF
                   hDocs[nLief] += hDoc["NAME"]+" "+IF(oExtra:Get(cField)<Date(),"ist","l„uft")+" am "+DtoC(oExtra:Get(cField))+" ab"+IF(oExtra:Get(cField)<Date(),"gelaufen","")
-                  //SendMail(aTo,Trim(ku->Kunde)+" "+hDoc["NAME"]+" "+IF(oExtra:Get(cField)<Date(),"abgelaufen","l„uft ab"),hDoc["NAME"]+" "+IF(oExtra:Get(cField)<Date(),"ist","l„uft")+" am "+DtoC(oExtra:Get(cField))+" ab"+IF(oExtra:Get(cField)<Date(),"gelaufen",""))
                ELSEIF ! Empty(hDoc["MIN_DATE"]) .AND. oExtra:Get(cField) < hDoc["MIN_DATE"]
                   IF ! Empty(hDocs[nLief])
                      hDocs[nLief] += "<br />"
                   ENDIF
                   hDocs[nLief] += hDoc["NAME"]+" ist seit dem "+DtoC(hDoc["MIN_DATE"])+" veraltet"
-                  //SendMail(aTo,Trim(ku->Kunde)+" "+hDoc["NAME"]+" veraltet",hDoc["NAME"]+" ist seit dem "+DtoC(hDoc["MIN_DATE"])+" veraltet")   
                ENDIF
             ENDIF
          ENDIF
@@ -67,7 +65,6 @@ PROC RUN_CHECK_ISO
                   hDocs[nLief] += "<br />"
                ENDIF
                hDocs[nLief] += hDoc["NAME"]+" fehlt"
-               //SendMail(aTo,Trim(ku->Kunde)+" "+hDoc["NAME"]+" fehlt")
             ENDIF
          ENDIF
       NEXT
@@ -79,7 +76,7 @@ PROC RUN_CHECK_ISO
             cTable += "<tr><td>"+Trim(ku->Kunde)+"</td><td>"+cDocs+"</td></tr>"
          ENDIF
       NEXT
-      SendMail(aTo,"Fehlende/Abgelaufene Dokumente","<table border='1'>"+cTable+"</table>")
+      SendMessage("Einkauf | Fehlende Dokumente","Fehlende/Abgelaufene Dokumente","<table border='1'>"+cTable+"</table>")
    ENDIF
    ? "complete"
    //Sinkey(0)

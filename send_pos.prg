@@ -25,7 +25,7 @@ FUNCTION RUN_SEND_POS()
       "PW"=>.T.,;
       "ANREDE"=>"Dear Steve",;
       "MANUFACTURER"=>3,;
-      "TYPE"=>1},;
+      "TYPE"=>4},;
       ;//BULGIN
       {"DIR"=>"\\EK-Server4\data\Dokumente und Einstellungen\Amos\Documents\Lieferanten\Bulgin\POS\",;
       "PW"=>.F.,;

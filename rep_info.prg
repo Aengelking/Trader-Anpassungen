@@ -3,11 +3,17 @@ PROC RUN_REP_INFO
 //dStart := Date()-7  //one week
 LOCAL dStart := Date()-Dow(Date())-If(DoW(Date())>=6,0,7)  //last week
 LOCAL dEnd := dStart+7
-LOCAL hReps
+LOCAL hReps,aTo
+LOCAL hKunden := {=>},hKunde
+LOCAL cName
+LOCAL lF,cMe,lQtyOnly
+LOCAL hRep
+LOCAL aIDS,oExtra,nKunde,oUser
+LOCAL bNEwRep,cRep
+
+CLS
 
 NetUse("engkund","ku",.F.,0)
-ku->(dbSetOrder( 2 ))
-ku->(dbSeek( "K" ))
 
 NetUse("engauf","auf",.F.,0)
 auf->(dbSetOrder( 9 )) //kundma+dtos(besda)
@@ -24,42 +30,83 @@ NetUse("rep","rep",.F.,0)
 
 hReps := {=>}
 
-Select("ku")
-SET FILTER TO ! Empty(ku->Rep)
+bNewRep := {|cRep,cName,cEmail|
+IF ! HHaskEy(hReps,cRep)
+   cEmail := "amos.engelking@engelking.de"
+   hReps[cRep] := {"TEXT"=>"","TO"=>{cEmail,Trim(cName)},"NAME"=>cName}
+   hReps[cRep]:Text += "Hallo "+cName
+   hReps[cRep]:Text += t("<p>nachfolgend die Aktivitäten Deiner Kunden in der Zeit vom "+DToC(dStart)+" bis "+DToC(dEnd)+"<p>")
+ENDIF
+}
+
+
+ku->(dbSetFilter({|| ! Empty(ku->Rep)},"!Empty(rep)"))
+ku->(dbSetOrder( 2 ))
+ku->(dbSeek( "K" ))
 
 Do While ! ku->(Eof())
-   If ! Empty(ku->Rep)
-      ang->(dbSeek( ku->Kunde ))
-      lF := .T.
-      Do While ang->KundMA == ku->Kunde
-         If ang->Besda >= dStart .AND. ang->Besda <= dEnd
-            If ! HHasKey(hReps,ku->Rep)
-               hReps[ku->Rep] := {=>}
-            Endif
-            If ! HHasKey(hReps[ku->Rep],ku->Kunde)
-               hReps[ku->Rep][ku->Kunde] := ""
-            Endif
-            art->(dbSeek( ang->Matchcode ))
-            cMe := Me(art->me)
-            If lF
-               hReps[ku->Rep][ku->Kunde] += "<h3>"+t("Angebote")+"</h3>"
-               hReps[ku->Rep][ku->Kunde] += "<table border='1'><tr><th>Nr.</th><th>Menge</th><th>Artikel</th><th>Preis</th><th>Gesamt</th></tr>"
-               lF := .F.
-            Endif
+   ? ku->Kunde,ku->Rep
+   
+   rep->(dbSeek( Str(ku->Rep,2) ))
+   IF rep->Buyer != 0 //Nur interne Vertreter
+      IF ! HHasKey(hKunden,ku->Nummer)
+         hKunden[ku->Nummer] := {"TEXT"=>"","REPS"=>{}}
+      ENDIF  
+      cRep := "AD"+LTrim(Str(ku->Rep))
+      Aadd(hKunden[ku->Nummer]["REPS"],cRep)
+      Eval(bNewRep,cRep,RepGetName(ku->Rep),RepGetEmail(ku->Rep))
+   ENDIF   
+   ku->(dbSkip())
+ENDDO
+ku->(dbClearFilter())
+
+aIDS := GetIdsWithExtraField("KU","KAM")
+ku->(dbSetOrder( 8 ))
+FOR EACH nKunde IN aIDS
+   ? nKunde
+   oExtra := ku->(ExtraData():New(nKunde))
+   IF oExtra:KAM != 0 
+      ku->(dbSeek( Str(nKunde,6) ))
+      
+      oUser := User():New()
+      oUser:Load(oExtra:KAM)
+
+      IF ! HHasKey(hKunden,nKunde)
+         hKunden[nKunde] := {"TEXT"=>"","REPS"=>{}}
+      ENDIF  
+      cRep := "KAM"+LTrim(Str(oExtra:KAM))
+      Aadd(hKunden[nKunde]["REPS"],cRep)
+      Eval(bNewRep,cRep,oUser:FirstName,Trim(oUser:Email))
+   ENDIF
+NEXT
+
+ku->(dbSetOrder( 8 ))
+FOR EACH hKunde IN hKunden
+   ku->(dbSeek( Str(hKunde:__eNumKey(),6) ))      
+   ang->(dbSeek( ku->Kunde ))
+   lF := .T.
+   Do While ang->KundMA == ku->Kunde
+      If ang->Besda >= dStart .AND. ang->Besda <= dEnd
+         art->(dbSeek( ang->Matchcode ))
+         cMe := Me(art->me)
+         If lF
+            hKunde["TEXT"] += "<h3>"+t("Angebote")+"</h3>"
+            hKunde["TEXT"] += "<table border='1'><tr><th>Nr.</th><th>Menge</th><th>Artikel</th><th>Preis</th><th>Gesamt</th></tr>"
+            lF := .F.
+         Endif
             lQtyOnly := .F.
             If (ang->vkqty > 0 .OR. ang->vkpr > 0) .AND. (!art->prmatch .AND. empty(ang->artikel))
                lQtyOnly := .T.
             Endif
             If ang->VkPr > 0
-               hReps[ku->Rep][ku->Kunde] += "<tr><td>"+If(lQtyOnly,"",Str(ang->Angnr))+"</td><td>"+LTrim(Transform(ang->VkQty,cMe))+" "+art->Me+"</td><td>"+If(!lQtyOnly,Trim(ang->Matchcode),"")+"</td><td>"+Ltrim(Str(ang->VkPr,12,2))+" / "+LTrim(Str(ang->Pe))+"</td><td>"+If(lQtyOnly,"",Ltrim(Str(ang->VkQty*ang->vkPr*(1-ang->Rabatt/100)/ang->Pe,12,2)))+"</td></tr>"
+               hKunde["TEXT"] += "<tr><td>"+If(lQtyOnly,"",Str(ang->Angnr))+"</td><td>"+LTrim(Transform(ang->VkQty,cMe))+" "+art->Me+"</td><td>"+If(!lQtyOnly,Trim(ang->Matchcode),"")+"</td><td>"+Ltrim(Str(ang->VkPr,12,2))+" / "+LTrim(Str(ang->Pe))+"</td><td>"+If(lQtyOnly,"",Ltrim(Str(ang->VkQty*ang->vkPr*(1-ang->Rabatt/100)/ang->Pe,12,2)))+"</td></tr>"
             Endif
          Endif
          ang->(dbSkip())
       Enddo
       If ! lF
-         hReps[ku->Rep][ku->Kunde] += "</table>"
+         hKunde["TEXT"] += "</table>"
       Endif
-
 
       //? Trim(RepGetName(ku->Rep)),ku->Kunde
       auf->(dbSeek(ku->Kunde+Dtos(dStart),.T.))
@@ -69,100 +116,63 @@ Do While ! ku->(Eof())
       lF := .T.
       Do While auf->Kundma == ku->Kunde .AND. auf->Besda >= dStart
          If auf->VkPr*auf->VkQty > 0 .AND. auf->Besda <= dEnd
-            If ! HHasKey(hReps,ku->Rep)
-               hReps[ku->Rep] := {=>}
-            Endif
-            If ! HHasKey(hReps[ku->Rep],ku->Kunde)
-               hReps[ku->Rep][ku->Kunde] := ""
-            Else
-               //hReps[ku->Rep][ku->Kunde] += "<br>"
-            Endif
             art->(dbSeek( auf->Matchcode ))
             cMe := Me(art->me)
             If lF
-               hReps[ku->Rep][ku->Kunde] += "<h3>"+t("Aufträge")+"</h3>"
-               hReps[ku->Rep][ku->Kunde] += "<table border='1'><tr><th>Nr.</th><th>Menge</th><th>Artikel</th><th>Preis</th><th>Gesamt</th></tr>"
+               hKunde["TEXT"] += "<h3>"+t("Aufträge")+"</h3>"
+               hKunde["TEXT"] += "<table border='1'><tr><th>Nr.</th><th>Menge</th><th>Artikel</th><th>Preis</th><th>Gesamt</th></tr>"
                lF := .F.
             Endif
-            hReps[ku->Rep][ku->Kunde] += "<tr><td>"+Str(auf->Abnr)+"</td><td>"+LTrim(Transform(auf->VkQty,cMe))+" "+art->Me+"</td><td>"+Trim(auf->Matchcode)+"</td><td>"+Ltrim(Str(auf->VkPr,12,2))+" / "+LTrim(Str(auf->Pe))+"</td><td>"+Ltrim(Str(auf->VkQty*auf->vkPr*(1-auf->Rabatt/100)/auf->Pe,12,2))+"</td></tr>"
+            hKunde["TEXT"] += "<tr><td>"+Str(auf->Abnr)+"</td><td>"+LTrim(Transform(auf->VkQty,cMe))+" "+art->Me+"</td><td>"+Trim(auf->Matchcode)+"</td><td>"+Ltrim(Str(auf->VkPr,12,2))+" / "+LTrim(Str(auf->Pe))+"</td><td>"+Ltrim(Str(auf->VkQty*auf->vkPr*(1-auf->Rabatt/100)/auf->Pe,12,2))+"</td></tr>"
          Endif
          auf->(dbSkip())
       Enddo
       If ! lF
-         hReps[ku->Rep][ku->Kunde] += "</table>"
+         hKunde["TEXT"] += "</table>"
       Endif
-    Endif
+    
     
     nts->(dbSeek( ku->Kunde ))
    lF := .T.
    Do While nts->Matchcode == ku->Kunde .AND. nts->Date >= dStart
       If nts->Date <= dEnd
-         If ! HHasKey(hReps,ku->Rep)
-            hReps[ku->Rep] := {=>}
-         Endif
-         If ! HHasKey(hReps[ku->Rep],ku->Kunde)
-            hReps[ku->Rep][ku->Kunde] := ""
-         Endif
          If lF
-            hReps[ku->Rep][ku->Kunde] += "<h3>"+t("Notizen")+"</h3>"
-            hReps[ku->Rep][ku->Kunde] += "<table border='1'><tr><th>Datum</th><th>Art</th><th>Inhalt</th></tr>"
+            hKunde["TEXT"] += "<h3>"+t("Notizen")+"</h3>"
+            hKunde["TEXT"] += "<table border='1'><tr><th>Datum</th><th>Art</th><th>Inhalt</th></tr>"
             lF := .F.
          Endif
-         hReps[ku->Rep][ku->Kunde] += "<tr><td>"+DToC(nts->Date)+"</td><td>"
-         hReps[ku->Rep][ku->Kunde] += NoteType(nts->Type)
+         hKunde["TEXT"] += "<tr><td>"+DToC(nts->Date)+"</td><td>"
+         hKunde["TEXT"] += NoteType(nts->Type)
          If nts->Buyer != 0
-            hReps[ku->Rep][ku->Kunde] += "<br>"+Trim("von: "+Buy(nts->Buyer,.T.))
+            hKunde["TEXT"] += "<br>"+Trim("von: "+Buy(nts->Buyer,.T.))
          Endif
          If nts->Person != 0
-            hReps[ku->Rep][ku->Kunde] += "<br>"+Trim(If(nts->Type=="VISIT","bei","mit")+": "+PERSAY(nts->Person,.T.))
+            hKunde["TEXT"] += "<br>"+Trim(If(nts->Type=="VISIT","bei","mit")+": "+PERSAY(nts->Person,.T.))
          Endif
-         hReps[ku->Rep][ku->Kunde] += "</td><td>"+StrTran(nts->Note,Chr(13),"<br>")+"</td></tr>"
+         hKunde["TEXT"] += "</td><td>"+StrTran(nts->Note,Chr(13),"<br>")+"</td></tr>"
       Endif
 
       nts->(dbSkip())
    Enddo
    If ! lF
-      hReps[ku->Rep][ku->Kunde] += "</table>"
+      hKunde["TEXT"] += "</table>"
    Endif
 
-   ku->(dbSkip())
-Enddo
-nR := 1
-Do While nR <= Len(hReps)
-   nRep := HGetKEyAt(hReps,nR)
-   IF nRep != 0
-      ? Trim(RepGetName(nRep))
-   ELSE
-      ? "Allgemein"
-   ENDIF
-   cText := ""
-   hRep := HGetValueAt(hReps,nR)
-   nX := 1
-   Do While nX <= Len(hRep)
-      ku->(dbSeek( "K"+HGetKeyAt(hRep,nX) ))
-      cText += "<h2>"+Trim(Trim(ku->Name1)+" "+ku->Name2)+" ("+ku->Kunde+")"+"</h2>"
-      cText += hGetValueAt(hRep,nX)
-      cText += "<br>"
-      nX++
-   Enddo
-   cName := RepGetName(nRep)
-   cIntro := "Hallo "+cName
-   cIntro += t("<p>nachfolgend die Aktivitäten Deiner Kunden in der Zeit vom "+DToC(dStart)+" bis "+DToC(dEnd)+"<p>")
-   cText := cIntro+cText
-   aTo := {}   
-   IF nRep != 0
-      rep->(dbSeek( Str(nRep,2) ))
-      IF rep->Buyer != 0 //Nur interne Vertreter
-         Aadd(aTo,{RepGetEmail(nRep),Trim(cName)})   
-      ENDIF
-   ENDIF
-   IF nRep == 0 //.OR. RepGetEmail(nRep) != "thimo.hamma@engelking.de"
-      Aadd(aTo,{"thimo.hamma@engelking.de","Thimo Hamma",If(Len(aTo)==0,"TO","CC")})
-   ENDIF   
-   //Aadd(aTo,{"amos.engelking@engelking.de","Amos Engelking",If(Len(aTo)==0,"TO","CC")})
-   SendMail(aTo,t("Information über Kunden "+DToC(dStart)+" bis "+DToC(dEnd)),cText,{},.F.,0,.T.)
-   //SendMail({{"amos.engelking@engelking.de",Trim(cName)}},t("Information über Kunden "+DToC(dStart)+" bis "+DToC(dEnd)),cText,{},.F.,0,.T.)
-   nR++
-Enddo
+NEXT
 
-ku->(dbClearFilter())
+FOR EACH hKunde IN hKunden
+   ku->(dbSeek( Str(hKunde:__eNumKey(),6) ))
+   FOR EACH cRep IN hKunde:Reps
+      hReps[cRep]:Text += "<h2>"+Trim(Trim(ku->Name1)+" "+ku->Name2)+" ("+ku->Kunde+")"+"</h2>"
+      hReps[cRep]:Text += hKunde:Text
+      hReps[cRep]:Text += "<br>"
+
+   NEXT
+NEXT
+
+FOR EACH hRep IN hReps   
+   SendMail(hRep:To,t("Information über Kunden "+DToC(dStart)+" bis "+DToC(dEnd)),hRep:Text,{},.F.,0,.T.)
+NEXT
+
+? "Press any key..."
+Sinkey(0)

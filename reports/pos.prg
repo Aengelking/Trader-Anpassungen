@@ -91,7 +91,7 @@ oMonthGet := ATail(getlist)
 @ 06,00 SAY "Hersteller "
 @ 06,12,23,40 GET nManu LISTBOX aManu[2] DROPDOWN
 @ 07,00 SAY "Ziel"
-@ 07,12,10,30 GET nArt LISTBOX {"extern mit Kundennmen","intern","extern anonymisiert"}
+@ 07,12,10,30 GET nArt LISTBOX {"extern mit Kundennmen","intern","extern anonymisiert","extern m. Kunden / ohne Preise"}  DROPDOWN
 @ 11,00 SAY "Sprache"
 @ 11,12,15,20 GET cLang LISTBOX hLang ASSOCIATIVE
 READ
@@ -101,7 +101,7 @@ IF LastKey() == 27
  RETURN NIL
 ENDIF
 
-lExternal := nArt == 1 .OR. nArt == 3
+lExternal := nArt == 1 .OR. nArt == 3 .OR. nArt == 4
 IF lExternal
    nData := 1
 ENDIF   
@@ -248,12 +248,12 @@ IF nData == 0 .OR. nData == 1
    ELSE
       IF cLang == "DE"
          Aadd(aData[1],"Kunde")
-         IF nArt != 3
+         IF nArt != 3 
             Aadd(aData[1],"Nummer")
          ENDIF
       ELSE
          Aadd(aData[1],"Company")
-         IF nArt != 3   
+         IF nArt != 3 
             Aadd(aData[1],"No")
          ENDIF
       ENDIF
@@ -261,7 +261,7 @@ IF nData == 0 .OR. nData == 1
    ENDIF
    IF cLang == "DE"
       //?? "Kunde;Nummer;Land;Branche;Artikel"      
-      IF nArt != 3
+      IF nArt != 3 
          Aadd(aData[1],"Land")
       ENDIF
       //Aadd(aData[1],"Branche")
@@ -288,14 +288,18 @@ IF nData == 0 .OR. nData == 1
          ENDIF
          ///?? ";"+IF(cLang=="DE","Menge","QTY")+" "+cYear+";"+IF(cLang=="DE","VK","Price")+" "+cYear
          Aadd(aData[1],IF(cLang=="DE","Menge","QTY")+" "+cYear)
-         Aadd(aData[1],IF(cLang=="DE","VK","Price")+" "+cYear)
-         Aadd(aData[1],IF(cLang=="DE","Gesamt","Total")+" "+cYear)
+         IF nArt != 4
+            Aadd(aData[1],IF(cLang=="DE","VK","Price")+" "+cYear)
+            Aadd(aData[1],IF(cLang=="DE","Gesamt","Total")+" "+cYear)
+         ENDIF
       NEXT
    ELSE
       //?? ";"+IF(cLang=="DE","Menge","QTY")+";"+IF(cLang=="DE","VK","Price")
       Aadd(aData[1],IF(cLang=="DE","Menge","QTY"))
-      Aadd(aData[1],IF(cLang=="DE","VK","Price"))
-      Aadd(aData[1],IF(cLang=="DE","Gesamt","Total"))
+      IF nArt != 4
+         Aadd(aData[1],IF(cLang=="DE","VK","Price"))
+         Aadd(aData[1],IF(cLang=="DE","Gesamt","Total"))
+      ENDIF
    ENDIF
    FOR EACH hCust IN hCustomer
       cKunde := hCust:__enumKey()
@@ -385,18 +389,18 @@ IF nData == 0 .OR. nData == 1
          ELSE
             //IF nArt == 1
             IF (Trim(ku->CompForm)  $ "GBR EINZE EK PRIVA" .OR. oExtra:Nda)
-               IF nArt == 1
+               IF nArt == 1 .OR. nArt == 4
                   Aadd(Atail(aData),"NDA ENGELKING")
                ENDIF
                Aadd(Atail(aData),100)
             ELSE
-               IF nArt == 1
+               IF nArt == 1 .OR. nArt == 4
                   Aadd(Atail(aData),StrTran(Trim(Trim(ku->Name1)+" "+ku->Name2),'"',""))
                ENDIF
                Aadd(Atail(aData),ku->Nummer)
             ENDIF
          ENDIF    
-         IF nArt != 3        
+         IF nArt != 3
             Aadd(Atail(aData),(cCountry))
          ENDIF
          //Aadd(Atail(aData),StrTran(Trim(cMarket),";",""))
@@ -409,13 +413,17 @@ IF nData == 0 .OR. nData == 1
             IF HHasKey(hArt,cYear)
                //?? ";"+StrTran(Transform(hArt[cYear]:Qty,Me(art->me)),".",",")+";"+StrTran(Str(hArt[cYear]:Price),".",",")
                Aadd(Atail(aData),Val(Transform(hArt[cYear]:Qty,Me(art->me))))
-               Aadd(Atail(aData),Round(hArt[cYear]:Price,2))
-               Aadd(Atail(aData),Round(hArt[cYear]:Qty*hArt[cYear]:Price,2))
+               IF nArt != 4
+                  Aadd(Atail(aData),Round(hArt[cYear]:Price,2))
+                  Aadd(Atail(aData),Round(hArt[cYear]:Qty*hArt[cYear]:Price,2))
+               ENDIF
             ELSE
                //?? ";0;0"
                Aadd(Atail(aData),0)
-               Aadd(Atail(aData),0)
-               Aadd(Atail(aData),0)
+               IF nArt != 4
+                  Aadd(Atail(aData),0)
+                  Aadd(Atail(aData),0)
+               ENDIF
             ENDIF
             RETURN NIL
          }

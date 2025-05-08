@@ -63,7 +63,7 @@ FUNCTION RUN_REPORT_ELEKTROG
       oExtra := art->(ExtraData():New(art->Artikelnr))
       IF oExtra:ElektroG
          nGewicht := nMenge*art->Gewicht/1000
-         lIT := art->Gruppe!="KONK"
+         lIT := art->Gruppe!="KANK"
          IF AT("KS20989/3",art->Matchcode) == 1
             lIT := .F.
          ENDIF

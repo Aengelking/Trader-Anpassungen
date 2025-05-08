@@ -18,6 +18,7 @@ PROC CreateXRechung(nRechnr,cFile)
    LOCAL nProc,nErrOut,nErrBytes,cData,cStdErr
    LOCAL cAufNr,lOneAufnr := .T.,cProc
 
+
    NetUse("englsre","re")
    NetUse("engkund","ku")
    NetUse("ups","ups")
@@ -51,12 +52,12 @@ PROC CreateXRechung(nRechnr,cFile)
       RETURN
    ELSEIF ! re->Packed 
       IF ! GetConfigValue("BATCHMODE")
-         Alert("Rechnung nicht gepackt")
+         //Alert("Rechnung nicht gepackt")
       ENDIF
       RETURN
    ENDIF
 
-   
+   ku->(dbSetOrder( 1))
    ku->(dbSeek( re->Kunde+"K" ))
 
    IF ku->Re_Via != "EMAI"

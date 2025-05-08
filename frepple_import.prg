@@ -58,6 +58,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
    ?? "done" 
 
    ? "Reading data... "
+   gtSetClipboard(ValToPrg(aData))
    IF Len(aData) > 1
       aCSV := {{"FA","Status","Frepple ID","Lieferant","Artikel","Menge alt","Menge neu","Startdatum alt","Startdaum neu","Enddatum alt","Enddatum neu","T„tigkeit"}}
 
@@ -93,7 +94,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
             nAufno := 0   
             nOrder := 0             
             IF AT("FA",aData[nX]["owner"]) == 1
-               nAufno := Val(SubStr(aData[nX]["reference"],3))
+               nAufno := Val(SubStr(aData[nX]["owner"],3))
                IF ! HHasKey(hOrders,nAufno)
                   nAufno := 0                     
                ENDIF
@@ -139,7 +140,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                hRow["JOBS"] := AClone(hJobs[aData[nX]["reference"]])
                HDel(hJobs,aData[nX]["reference"]) // := {}
             ENDIF
-            IF aData[nX]["reference"] $ hRealQty
+            IF aData[nX]["reference"] $ hRealQty               
                hRow["BADQTY"] := Round(hRow["QTY"]-hRealQty[aData[nX]["reference"]],GetMeDecimals(art->me))
                HDel(hRealQty,aData[nX]["reference"])
             ENDIF
@@ -309,6 +310,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
       aData  := HGetValueAt(hItems,nD)*/
    FOR nD := 1 TO Len(aMatch)
       cMatch := aMatch[nD]
+
       aData := hItems[cMatch]
 
       //aData:__enumKey()
@@ -333,11 +335,16 @@ PROCEDURE RUN_FREPPLE_IMPORT()
       nWeek := CWeek(Date())  
       
       DO WHILE wer->Artno == art->Artikelnr .AND. ! wer->(EOF())
-         
-         IF wer->Aufno $ hOrders
-            
+         IF Trim(cMatch) == "KS26206.04"
+            //?  wer->Aufno
+         ENDIF
+   
+         IF wer->Aufno $ hOrders //.AND. hOrders[wer->Aufno]:Qty == 0
+            IF Trim(cMatch) == "KS26206.04"
+               //?? "found"
+            ENDIF
             oExtra := wer->(ExtraData():New(wer->Aufno))
-            IF (wer->Status >= 1 .AND. hOrders[wer->Aufno]:Status == "confirmed");
+            IF (wer->Status >= 1); // .AND. hOrders[wer->Aufno]:Status == "confirmed");
                .OR. (wer->Status == 0) // .AND. Trim(oExtra:FreppleSta) == hOrders[wer->Aufno]:Status)
 
                //this is an existing order which was exported to frepple, here we just move the dates and tasks
@@ -346,9 +353,25 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                   .OR. wer->PlanBad != hOrders[wer->Aufno]:BadQty;
                   .OR. (/*Trim(oExtra:FreppleSta) == "approved" .AND.*/ wer->Status == 0 .AND. wer->Qty != hOrders[wer->Aufno]:Qty) 
 
-                  IF hOrders[wer->Aufno]:Qty == 0
-                     Aadd(aCSV,{wer->Aufno,"bestehend","FEHLER",hOrders[wer->Aufno]:Status,wer->Status,oExtra:FreppleSta})
-                     Tr_MsgBox({"FA "+LtrIM(str(wer->Aufno))+" hat keine Menge"})
+                  IF hOrders[wer->Aufno]:Qty == 0 //frepple would like to delete this order
+                     /*IF wer->Status == 0
+                        dOldStart := IF(Empty(wer->Liefma),wer->Startdate,CalWD(wer->Termin))
+                        dOldEnd := IF(Empty(wer->Liefma),wer->Enddate,CalWD(wer->End))
+
+                        aRow := Array(9)
+                        AFill(aRow,"")
+                        aRow[1] := wer->Aufno         
+                        aRow[6] := .F.
+                        aRow[9] := "l”schen"               
+                        aRow[2] := LTrim(Transform(wer->Qty,Me(art->Me)))
+                        aRow[3] := LTrim(Transform(wer->BadQty,Me(art->Me)))
+                        aRow[4] := Dtoc(dOldStart)
+                        aRow[5] := DtoC(dOldEnd)
+                        Aadd(aList,aRow)
+                     ELSE*/
+                        Aadd(aCSV,{wer->Aufno,"bestehend","FEHLER",hOrders[wer->Aufno]:Status,wer->Status,oExtra:FreppleSta})
+                        Tr_MsgBox({"FA "+LtrIM(str(wer->Aufno))+" hat keine Menge"})
+                     //ENDIF
                   ELSE
                      Eval(bAddJobs,hOrders[wer->Aufno]:Jobs,wer->Aufno)
 
@@ -378,9 +401,17 @@ PROCEDURE RUN_FREPPLE_IMPORT()
             ELSE
                Aadd(aCSV,{wer->Aufno,"bestehend","FEHLER",hOrders[wer->Aufno]:Status,wer->Status,oExtra:FreppleSta})
                aError := {"FA "+LtrIM(str(wer->Aufno))+" kann nicht ge„ndert werden"}
-               IF (wer->Status == 0 .AND. Trim(oExtra:FreppleSta) != hOrders[wer->Aufno]:Status)
+
+               IF wer->Status >= 1 .AND. hOrders[wer->Aufno]:Status != "confirmed"
+                  Aadd(aError,"Status in Frepple ("+hOrders[wer->Aufno]:Status+") weicht von Trader ab (in Produktion)")
+               ELSEIF (wer->Status == 0 .AND. Trim(oExtra:FreppleSta) == "confirmed")
                   Aadd(aError,"Status in Frepple ("+hOrders[wer->Aufno]:Status+") weicht von Trader ab ("+Trim(oExtra:FreppleSta)+")")
-               ENDIF
+               ELSEIF wer->Status != 0
+                  Aadd(aError,"Da stimmt was nicht")
+               ELSE
+                  Aadd(aError,"Keine Ahnung warum")
+               ENDIF               
+               Aadd(aError,"Frepple ID: "+hOrders[wer->Aufno]:ID)
                Tr_MsgBox(aError)
             ENDIF
          ELSEIF wer->Status == 0            
@@ -388,7 +419,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
             AFill(aRow,"")   
 
             aRow[1] := wer->Aufno         
-            aRow[6] := .F.           
+            aRow[6] := .T.           
 
             dOldStart := IF(Empty(wer->Liefma),wer->Startdate,CalWD(wer->Termin))
             dOldEnd := IF(Empty(wer->Liefma),wer->Enddate,CalWD(wer->End))
@@ -418,8 +449,9 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                ENDIF
                aRow[3] := LTrim(Transform(wer->PlanBad,Me(art->Me)))
                IF wer->PlanBad != aData[nX]:BadQty                  
-                  aRow[3] += "->"+LTrim(Transform(aData[nX]:BadQty,Me(art->Me)))
+                  aRow[3] += "->"+AlLTrim(Transform(aData[nX]:BadQty,Me(art->Me)))
                ENDIF
+               
                IF lChange
                   Aadd(aList,aRow)
                   Aadd(aCSV,{wer->Aufno,"berschreiben",aData[nX]:Id,aData[nX]:Supplier,Trim(art->Matchcode),wer->Qty,aData[nX]:Qty,dOldStart,aData[nX]:Start,dOldEnd,aData[nX]:End})                  
@@ -456,6 +488,12 @@ PROCEDURE RUN_FREPPLE_IMPORT()
       ENDDO      
 
       wer->(dbClearFilter())
+
+      IF Trim(cMatch) == "KS26206.04"
+         //? ValToPRg(aData)
+         //SInkey(0)
+      ENDIF
+
       
       nSt := nX+1
       FOR nX := nSt TO Len(aData)
@@ -467,7 +505,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
          aRow[3] := LTrim(Transform(aData[nX]:BadQty,Me(art->Me)))
          aRow[4] := Dtoc(aData[nX]:Start)
          aRow[5] := DtoC(aData[nX]:End)
-         aRow[6] := .F.
+         aRow[6] := .T.
          aRow[7] := aData[nX]         
          Aadd(aList,aRow)
          //Aadd(aCSV,{,"neu",aData[nX]:Id,aData[nX]:Supplier,Trim(art->Matchcode),0,aData[nX]:Qty,"",aData[nX]:Start,"",aData[nX]:End})
@@ -495,7 +533,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
 
          @ MaxRow(),03 SAY "[ >ENTER< - ja/nein | >TAB< - Speichern | >SHIFT-TAB< - zurck | ESC< - abbrechen ]"
          oBrowse := TABrowse():New(06,01,MaxRow()-10,MaxCol()-1)
-         oBrowse:NewColumn("",{|| IF(oBrowse:CurrentDataRow()[6],"JA","nein") })
+         oBrowse:NewColumn("",{|| IF(oBrowse:CurrentDataRow()[6],"JA  ","nein") })
          oBrowse:NewColumn("Art",{|| Pad(oBrowse:CurrentDataRow()[9],7) })
          oBrowse:NewColumn("Auftrag",{|| 
             IF oBrowse:CurrentDataRow()[1] != 0

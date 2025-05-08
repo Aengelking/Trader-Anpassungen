@@ -37,7 +37,7 @@ FOR EACH nKdId IN aCustomers
       DO WHILE Trim(auf->Kundma) == cCustomer  /*.AND. auf->Bestat == 0*/ //cannot exclude ones with bestat == 0 then it will not warn when all is used up immediatally
          ? auf->Abnr,auf->Besda
          IF ! er->(dbSeek( Str(auf->Abnr,6) ))
-            IF auf->Besda >= Date()-365*nCheckYears
+            IF auf->Besda >= Date()-365*nCheckYears .AND. auf->Besda >= oExtra:AufErAb
                IF oExtra:AufGrad == -1 //Grad wird anhand der Lieferzeit des Artikels berechnet
                   art->(dbSetOrder( 2 ))
                   art->(dbSeek( Str(auf->Artikelnr,6) ))

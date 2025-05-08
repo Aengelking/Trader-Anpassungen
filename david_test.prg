@@ -1,6 +1,11 @@
 #include 'david.ch'
+PROC David_test
+LOCAL nLib := DllLoad("dvapi32")
+Alert(ValToPrg(nLib))
+DllCall(nLib,0x0020,"DVMailItemFromEml","x:\test.eml",DV_GetMailAccount())
+DllUnLoad(nLib)
 
-LOCAL oAccount := DV_GetMailAccount()
+/*LOCAL oAccount := DV_GetMailAccount()
 LOCAL oArchive,oArchives,lFound := .F.
 
 oArchive := DV_GetArchiveByName(oAccount:GetSpecialArchive(DvArchivePersonalIn),"Ablage (automatisch)","2015")
@@ -12,7 +17,7 @@ ENDIF
 
 Inkey(0,128)
 
-RETURN
+RETURN*/
 
 
 //mapisendmail()

@@ -170,47 +170,65 @@ ENDDO
 
             FOR EACH hDel IN hDels //nX := 1 TO Len(hDel)
                ? Str(hDel["besnr"],6)
-               IF ! hDel["besnr"] $ hBes
-                  Aadd(hBes,hDel["besnr"])
-               ENDIF
+               
                IF (nX == 1 .AND. hDel["menge"] < 0) .OR. (nX == 2 .AND. hDel["menge"] > 0)                     
                   art->(dbSeek( hDel["matchcode"] ))
-                     IF cLiefma != hDel["liefma"]
-                           IF ! Empty(cLiefma) .AND. ! Empty(cText)
-                              ku->(dbSeek( cLiefma+"L" ))
-
-                              reb->(dbSetOrder( 6 ))
-                              reb->(dbSeek( Str(ku->Nummer,6) ))
-                              rebp->(dbSetOrder( 1 ))
-                              cText += "<br><h3>Nicht verbuchte Rechnungen:</h3>"
-                              cText += Pad("Beleg.nr.",30)+" "+"Eingangsdat."
-                              DO WHILE reb->Liefnr == ku->Nummer .AND. ! reb->(Eof())
-                                 IF reb->Status < 8                                    
-                                    rebp->(dbSeek( Str(reb->ID,9), .T. ))
-                                    cText += CRLF+reb->Beleg+" "+DtoC(Stot(rebp->DateTime))
-                                 ENDIF   
-                                 reb->(dbSkip())                                 
-                              ENDDO
-                              FOR EACH nBesnr IN hBes
-                                 cText += GetNotesForEmail("BES",nBesnr,.T.)
-                              NEXT
-                                                               
-                              SendMail({{"amos.engelking@engelking.de","Amos"}},IF(nX==1,"Gutschriften","Rechnungen")+" fehlen von "+cLiefma,cText)
-                              hBes := {}
-                           ENDIF
-                           cText := "Bes.Nr"+" "+Pad("Datum",8)+" "+Pad("Menge",12)+" "+Pad("Artikel",25)+"AB-Nr."
-                           cLiefma := hDel["liefma"]
-                     ENDIF
-                     IF ! Empty(cText)
-                           cText += Chr(13)+Chr(10)
-                     ENDIF
-                     cText += Str(hDel["besnr"],6)+" "+DToC(hDel["date"])+" "+Pad(Transform(hDel["menge"],Me(art->me)),12)+" "+hDel["matchcode"]+IF(nX==1,hDel["AB"],"")
+                  IF cLiefma != hDel["liefma"]
+                     
+                     __SendMessage(cLiefma,@hBes,@cText,nX)                                             
+                     
+                     cLiefma := hDel["liefma"]                                             
+                  ENDIF
+                  IF ! hDel["besnr"] $ hBes
+                     Aadd(hBes,hDel["besnr"])
+                  ENDIF
+                  IF ! Empty(cText)
+                        cText += Chr(13)+Chr(10)
+                  ENDIF
+                  cText += Str(hDel["besnr"],6)+" "+DToC(hDel["date"])+" "+Pad(Transform(hDel["menge"],Me(art->me)),12)+" "+hDel["matchcode"]+IF(nX==1,hDel["AB"],"")
                ENDIF
             NEXT
          ENDIF
      NEXT
+     __SendMessage(@cLiefma,@hBes,@cText,nX)
   NEXT
 
   rech->(dbClearFilter())
 
 RETURN
+
+STATIC FUNCTION __SendMessage( cLiefma,hBes,cText,nX )   
+   LOCAL nBesnr
+   IF ! Empty(cLiefma) .AND. Len(hBes) > 0
+      ku->(dbSeek( cLiefma+"L" ))
+
+      cText += __GetUnbookedInvoices()
+      
+      FOR EACH nBesnr IN hBes
+         cText += GetNotesForEmail("BES",nBesnr,.T.)
+      NEXT
+               
+      SendMessage("Buchhaltung | "+If(nX==1,"Gutschriften","Rechnungen")+" fehlen",IF(nX==1,"Gutschriften","Rechnungen")+" fehlen von "+cLiefma,cText)
+        
+   ENDIF
+   cText := "Bes.Nr"+" "+Pad("Datum",8)+" "+Pad("Menge",12)+" "+Pad("Artikel",25)+"AB-Nr."
+   cLiefma := ""
+   hBes := {}
+RETURN NIL
+
+STATIC FUNCTION __GetUnbookedInvoices( )
+   LOCAL cText := ""
+   reb->(dbSetOrder( 6 ))
+   reb->(dbSeek( Str(ku->Nummer,6) ))
+   rebp->(dbSetOrder( 1 ))
+   cText += "<br><h3>Nicht verbuchte Rechnungen:</h3>"
+   cText += Pad("Beleg.nr.",30)+" "+"Eingangsdat."
+   DO WHILE reb->Liefnr == ku->Nummer .AND. ! reb->(Eof())
+      IF reb->Status < 8                                    
+         rebp->(dbSeek( Str(reb->ID,9), .T. ))
+         cText += CRLF+reb->Beleg+" "+DtoC(Stot(rebp->DateTime))
+      ENDIF   
+      reb->(dbSkip())                                 
+   ENDDO
+
+RETURN cText

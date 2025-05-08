@@ -45,7 +45,7 @@ PROC Timbutler_orga(aUsers)
 
    FOR nX := 1 TO Len(aUsers)
       IF ! aUsers[nX]['User account locked']
-         ? aUsers[nX]["First name"],aUsers[nX]["Department"],aUsers[nX][cManagerKey],aUsers[nX]["User ID"]
+         ? aUsers[nX]["First name"],aUsers[nX]["Department"],aUsers[nX][cManagerKey],aUsers[nX]["User ID"]         
 
          IF ! aUsers[nX]["Department"] $ aGroups
             Aadd(aGroups,aUsers[nX]["Department"])
@@ -59,12 +59,17 @@ PROC Timbutler_orga(aUsers)
             //'+aUsers[nX]["Department"]+'
          //FWrite(hF,'chart.addNode("Top", '+cManager+', "'+LTrim(Str(aUsers[nX]["User ID"]))+'", "'+aUsers[nX]["First name"]+" "+aUsers[nX]["Last name"]+'", ["'+aUsers[nX]["Department"]+'"]);'+CRLF)
 //? hAvatars[aUsers[nX]["Employee number"]]
+//? ValToPrg(aUsers[nX])
          Aadd(aData,{;
             "name"=>aUsers[nX]["First name"]+" "+aUsers[nX]["Last name"],;
+            "fire"=>IF(AT("Brandschutzhelfer",aUsers[nX]["Additional Information"]) > 0,.T.,.F.),;
+            "rescue"=>IF(AT("Ersthelfer",aUsers[nX]["Additional Information"]) > 0,.T.,.F.),;
             "imageUrl"=>IF(aUsers[nX]["Employee number"]$hAvatars,hAvatars[aUsers[nX]["Employee number"]],"https://timebutler.de/images/avatar/noavatar.png"),;
             "area"=>aUsers[nX]["Department"],;
             "employee"=>aUsers[nX]["Employee number"],;
             "id"=>aUsers[nX]["User ID"],;
+            "phone"=>aUsers[nX]["Phone"],;
+            "mobile"=>aUsers[nX]["Mobile phone"],;
             "parentId"=>IF(!Empty(aUSers[nX][cManagerKey]) .AND. aUsers[nX][cManagerKey] != aUSers[nX]["User ID"],aUsers[nX][cManagerKey],"");
          })
 
@@ -77,7 +82,7 @@ PROC Timbutler_orga(aUsers)
    IF nX > 0
       FOR nY := 1 TO Len(aExternal)
          Aadd(aData,{;
-            "name"=>aExternal[nY]["name"],; 
+            "name"=>aExternal[nY]["name"]+" (ext.)",; 
             "imageUrl"=>"https://timebutler.de/images/avatar/noavatar.png",;           
             "area"=>aExternal[nY]["function"],;
             "employee"=>"",;

@@ -6,9 +6,15 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
    LOCAL oExtra,oApi,cData,nSecs,hData,hPrice,cUrl
    LOCAL aHeaders := {"Authorization: Bearer 9ba19df2-a263-4251-8022-9d70ab149610:993b190c-2209-414c-8698-c50c50adbed7"}
    LOCAL nS,cID,aOffers
-   LOCAL cColour,nMenge,nPreis,nX,cScreen
-   LOCAL getlist := {}
+   //LOCAL cColour,nMenge,nPreis
+   LOCAL nX
+   //,cScreen
+   //LOCAL getlist := {}
+   LOCAL hNimble := {;
+      "FARNELL"=>{"URL"=>"https://de.farnell.com/x/x/x/dp/"+Trim(ali->Artlief),"RENDER"=>.T.};
+   }
 
+   //      "TME"=>{"URL"=>"https://www.tme.eu/de/details/"+Trim(art->Matchcode)+"/xxx/xxx/","RENDER"=>.T.};
    Default(@lDbg,.F.)
 
    //lDbg := Tr_Getini(28) == 9 .AND. ! GetConfigValue("BATCHMODE")
@@ -22,153 +28,168 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
       .OR. AddWorkingDays(cmp2->Datum,15) < Date() ;
       .OR. ValType(HB_DeSerialize(cmp2->Daten)) != "H" .OR. HGetKeyAt(HB_DeSerialize(cmp2->Daten),1) == 0;
          .OR. HGetValueAt(HB_DeSerialize(cmp2->Daten),1) == 0
-      
-      IF Trim(ku->Kunde) == "FARNELL" //If this works we most likely could implement this for all suppliers, at least ones which have a logical URL structure
-         oApi := RestApi():New()
-         oApi:cBaseUrl := "https://api.webit.live/api/v1/realtime/web" //nimbleway.com
-         cData := oApi:Execute("","POST",{;
-            "parse"=>.T.,;            
-            "url"=>"https://de.farnell.com/x/x/x/dp/"+Trim(ali->Artlief),;
-            "format"=>"json",;
-            "render"=>.T.,;
-            "country"=>"DE",;
-            "locale"=>"de";
-         },{;
-            "Authorization: Basic YWNjb3VudC1lbmdlbGtpbmdfZWxla3Ryb25pa19nbWJoX25pejZxdC1waXBlbGluZS1uaW1ibGVhcGk6WkExMTFjbDIzUVc4",;
-            "Content-Type: application/json";
-         },.T.)
-         
-         hPrices := {=>}
-         gtSetClipboard(cData)
-         hData := HB_JsonDecode(cData)            
-         IF hData["status"] == "success"
-            IF Len(hData["parsing"]["entities"]) == 0
-               //parsing error?
-               IF hData["status_code"] == 400
-                  SendMail({{"amos.engelking@engelking.de","Amos"}},"Farnell Artikel nicht gefunden",Trim(art->Matchcode))
-               ELSE
-                  SendMail({{"amos.engelking@engelking.de","Amos"}},"Farnell unbekannter Fehler",Trim(art->Matchcode))
-               ENDIF
-               hPrices := {=>}
-            ELSE            
-               aOffers := hData["parsing"]["entities"]["Product"][1]["offers"][1]["offers"][1]            
-               FOR nX := 1 TO Len(aOffers)               
-                  hPrices[aOffers[nX]["eligibleQuantity"]["minValue"]] := Val(aOffers[nX]["price"])
-               NEXT
-            ENDIF
-         ENDIF
-      ELSEIF ! Empty(oExtra:BrowseAI) .AND. ! Empty(oExtra:BRAI_URL)
-         TxtBox("Preisabfrage "+cLief)
-         nSecs := Seconds()
-         //IF GetConfigValue("BATCHCMODE")
-            cData := NIL
-            //HB_UnCompress(,cData,Len(cData),@cNewData)
+   
+      IF ! Empty(oExtra:BRAI_ENGIN) .AND. ! Empty(oExtra:BRAI_URL)
+         cUrl := StrTran(StrTran(Trim(oExtra:BRAI_URL),"%artlief%",Trim(ali->Artlief)),"%match%",Trim(art->Matchcode))
+         IF Trim(oExtra:BRAI_ENGIN)=="NIMBLE"  //If this works we most likely could implement this for all suppliers, at least ones which have a logical URL structure
             oApi := RestApi():New()
-            oApi:cBaseUrl := "https://api.browse.ai/v2/robots/"+Trim(oExtra:BrowseAI)+"/tasks"
-            cUrl := StrTran(Trim(oExtra:BRAI_URL),"%artlief%",Trim(ali->Artlief))
-
-            
-                  
-            //cData := oApi:Execute("/76dbffd8-a2cc-4607-a939-e2fee7bbc25a","GET",{},aHeaders,.T.)
-            cData := oApi:Execute("","POST",{"inputParameters"=>{"originUrl"=>cUrl}},aHeaders,.T.)
-      
-            hData := HB_JsonDecode(cData)            
-               
-            
-
-            IF ! HHasKey(hData,"result") .OR. ! HHasKey(hData["result"],"status")
-               IF lDbg
-                  Alert("No result or status")
-               ENDIF
-               IF HHasKey(hData,"statusCode") .AND. hData["statusCode"] == 403
-                  SendMail({{"amos.engelking@engelking.de","Amos"}},"BrowseAI Abfrage Limit erreicht",cData)
-               ENDIF
-               RETURN {=>}
-            ELSE            
-               nS := 1
-               cID := hData["result"]["id"]
-               DO WHILE hData["result"]["status"] != "successful"               
-                  @ MaxRow()/2+1,MaxCol()/2-1 SAY Replicate(".",nS)+Replicate(" ",3-nS)
-                  Inkey(2,128)
-                  cData := oApi:Execute("/"+cId,"GET",{=>},aHeaders)
-                  nS++
-                  IF nS > 3
-                     nS := 1
-                  ENDIF
-                  IF cData == NIL
-                     EXIT               
-                  ELSE
-                     //? cData
-                     hData := HB_JsonDecode(cData)
-                  ENDIF
-                  IF hData["result"]["status"] == "failed"
-                     IF hData["result"]["retriedByTaskId"] != NIL
-                        cId := hData["result"]["retriedByTaskId"]
-                     ELSE
-                        EXIT
-                     ENDIF
-                  ENDIF                  
-               ENDDO
-               IF cData != NIL .AND. hData["result"]["status"] == "failed"
-                  IF lDbg
-                     Alert(ValToPrg(hData["result"]))
-                     Alert("Task failed "+hData["result"]["id"])
-                  ENDIF
-                  //SendMail({{"amos.engelking@engelking.de","Amos"}},"BrowseAI Task failed",ValToPrg(hData))
-                  RETURN {=>}
-                  
-               ENDIF
-            ENDIF
-            IF lDbg
-               Alert("BrowseAI took: "+Str(Seconds()-nSecs)+"s")
-            ENDIF
+            oApi:cBaseUrl := "https://api.webit.live/api/v1/realtime/web" //nimbleway.com
+            cData := oApi:Execute("","POST",{;
+               "parse"=>.T.,;            
+               "url"=>hNimble[Trim(ku->Kunde)]:Url,;   //This is the URL of the supplier's website, which is stored in a hash table hNimble with the supplier's name as the key.
+               "format"=>"json",;   
+               "render"=>hNimble[Trim(ku->Kunde)]:Render,;
+               "country"=>"DE",;
+               "locale"=>"de";
+            },{;
+               "Authorization: Basic YWNjb3VudC1lbmdlbGtpbmdfZWxla3Ryb25pa19nbWJoX25pejZxdC1waXBlbGluZS1uaW1ibGVhcGk6WkExMTFjbDIzUVc4",;
+               "Content-Type: application/json";
+            },.T.)
             
             hPrices := {=>}
-            IF HHasKey(hData["result"]["capturedLists"],"Preise")           
-               FOR EACH hPrice IN hData["result"]["capturedLists"]["Preise"]
-                  //Alert(ValToPrg(hPrice))
-                  IF ValType(hPrice["Preis"]) == "C"
-                     hPrices[Val(hPrice["Menge"])] := Val(StrTran(hPrice["Preis"],",","."))
-                  ELSEIF ValType(hPrice["Preis"]) == "N"
-                     hPrices[Val(hPrice["Menge"])] := hPrice["Preis"]
-                  ELSEIF hPrice["Menge"] != NIL
-                     hPrices[Val(hPrice["Menge"])] := 0
+            //gtSetClipboard(cData)
+            hData := HB_JsonDecode(cData)            
+            IF HHasKey(hData,"status") .AND. hData["status"] == "success"
+               IF Len(hData["parsing"]["entities"]) == 0
+                  //parsing error?
+                  IF hData["status_code"] == 400
+                     SendMail({{"amos.engelking@engelking.de","Amos"}},Trim(ku->Kunde)+" Artikel nicht gefunden",Trim(art->Matchcode))
+                  ELSE
+                     SendMail({{"amos.engelking@engelking.de","Amos"}},Trim(ku->Kunde)+" unbekannter Fehler",Trim(art->Matchcode))
                   ENDIF
-               NEXT            
+                  hPrices := {=>}
+               ELSE     
+                  Alert(ValToPrg(hData["parsing"]["entities"]  ))
+                  IF ValType(hData["parsing"]["entities"]["Product"][1]["offers"]) == "A"
+                     FOR nX := 1 TO Len(hData["parsing"]["entities"]["Product"][1]["offers"])
+                        //Alert(hData["parsing"]["entities"]["Product"][1]["offers"][nX]["@type"])
+                        Alert(ValToPrg(hData["parsing"]["entities"]["Product"][1]["offers"][nX]))
+                        IF hData["parsing"]["entities"]["Product"][1]["offers"][nX]["@type"]== "AggregateOffer"
+                           aOffers := hData["parsing"]["entities"]["Product"][1]["offers"][nX]["offers"][1]            
+                           FOR nX := 1 TO Len(aOffers)               
+                              hPrices[aOffers[nX]["eligibleQuantity"]["minValue"]] := Val(aOffers[nX]["price"])
+                           NEXT
+                        ENDIF
+                     NEXT
+                  ELSE
+                     hPrices[a1] := hData["parsing"]["entities"]["Product"][1]["offers"]["highPrice"]
+                  ENDIF
+               ENDIF
+            ELSE
+               Alert("Error;"+ValToPrg(hData))
             ENDIF
-         /*ELSE
-            hPrices := {=>}                  
-            cScreen := SaveScreen()
-            cColour := SetColor(c_four)
-            @ 10,09 CLEAR TO 22,70
-            @ 10,09 TO 22,70 DOUBLE
-            @ 11,10 SAY "Preisabfrage nicht m”glich bitte Preise manuell erfassen:"
-            nX := 1
-            DO WHILE nX <= 10                     
-               nMenge := 0
-               nPreis := 0
-               @ 11+nX,10 SAY "Menge" GET nMenge PICTURE "99999"
-               @ 11+nX,30 SAY "Preis" GET nPreis PICTURE "999.99"
-               READ
-               IF LastKey() == 27 
-                  IF Tr_MsgBox("Abbrechen?",,{"Ja","Nein"}) == 1
-                     hPrices := NIL
+         ELSEIF Trim(oExtra:BRAI_ENGIN) == "BROWSEAI" .AND. ! Empty(oExtra:BrowseAI) //.AND. ! Empty(oExtra:BRAI_URL)
+            TxtBox("Preisabfrage "+cLief)
+            nSecs := Seconds()
+            //IF GetConfigValue("BATCHCMODE")
+               cData := NIL
+               //HB_UnCompress(,cData,Len(cData),@cNewData)
+               oApi := RestApi():New()
+               oApi:cBaseUrl := "https://api.browse.ai/v2/robots/"+Trim(oExtra:BrowseAI)+"/tasks"
+               
+
+               
+                     
+               //cData := oApi:Execute("/76dbffd8-a2cc-4607-a939-e2fee7bbc25a","GET",{},aHeaders,.T.)
+               cData := oApi:Execute("","POST",{"inputParameters"=>{"originUrl"=>cUrl}},aHeaders,.T.)
+         
+               hData := HB_JsonDecode(cData)            
+                  
+               
+
+               IF ! HHasKey(hData,"result") .OR. ! HHasKey(hData["result"],"status")
+                  IF lDbg
+                     Alert("No result or status")
+                  ENDIF
+                  IF HHasKey(hData,"statusCode") .AND. hData["statusCode"] == 403
+                     SendMail({{"amos.engelking@engelking.de","Amos"}},"BrowseAI Abfrage Limit erreicht",cData)
+                  ENDIF
+                  RETURN {=>}
+               ELSE            
+                  nS := 1
+                  cID := hData["result"]["id"]
+                  DO WHILE hData["result"]["status"] != "successful"               
+                     @ MaxRow()/2+1,MaxCol()/2-1 SAY Replicate(".",nS)+Replicate(" ",3-nS)
+                     Inkey(2,128)
+                     cData := oApi:Execute("/"+cId,"GET",{=>},aHeaders)
+                     nS++
+                     IF nS > 3
+                        nS := 1
+                     ENDIF
+                     IF cData == NIL
+                        EXIT               
+                     ELSE
+                        //? cData
+                        hData := HB_JsonDecode(cData)
+                     ENDIF
+                     IF hData["result"]["status"] == "failed"
+                        IF hData["result"]["retriedByTaskId"] != NIL
+                           cId := hData["result"]["retriedByTaskId"]
+                        ELSE
+                           EXIT
+                        ENDIF
+                     ENDIF                  
+                  ENDDO
+                  IF cData != NIL .AND. hData["result"]["status"] == "failed"
+                     IF lDbg
+                        Alert(ValToPrg(hData["result"]))
+                        Alert("Task failed "+hData["result"]["id"])
+                     ENDIF
+                     //SendMail({{"amos.engelking@engelking.de","Amos"}},"BrowseAI Task failed",ValToPrg(hData))
+                     RETURN {=>}
+                     
+                  ENDIF
+               ENDIF
+               IF lDbg
+                  Alert("BrowseAI took: "+Str(Seconds()-nSecs)+"s")
+               ENDIF
+               
+               hPrices := {=>}
+               IF HHasKey(hData["result"]["capturedLists"],"Preise")           
+                  FOR EACH hPrice IN hData["result"]["capturedLists"]["Preise"]
+                     //Alert(ValToPrg(hPrice))
+                     IF ValType(hPrice["Preis"]) == "C"
+                        hPrices[Val(hPrice["Menge"])] := Val(StrTran(hPrice["Preis"],",","."))
+                     ELSEIF ValType(hPrice["Preis"]) == "N"
+                        hPrices[Val(hPrice["Menge"])] := hPrice["Preis"]
+                     ELSEIF hPrice["Menge"] != NIL
+                        hPrices[Val(hPrice["Menge"])] := 0
+                     ENDIF
+                  NEXT            
+               ENDIF
+            /*ELSE
+               hPrices := {=>}                  
+               cScreen := SaveScreen()
+               cColour := SetColor(c_four)
+               @ 10,09 CLEAR TO 22,70
+               @ 10,09 TO 22,70 DOUBLE
+               @ 11,10 SAY "Preisabfrage nicht m”glich bitte Preise manuell erfassen:"
+               nX := 1
+               DO WHILE nX <= 10                     
+                  nMenge := 0
+                  nPreis := 0
+                  @ 11+nX,10 SAY "Menge" GET nMenge PICTURE "99999"
+                  @ 11+nX,30 SAY "Preis" GET nPreis PICTURE "999.99"
+                  READ
+                  IF LastKey() == 27 
+                     IF Tr_MsgBox("Abbrechen?",,{"Ja","Nein"}) == 1
+                        hPrices := NIL
+                        EXIT
+                     ENDIF
+                     LOOP
+                  ENDIF
+                  IF nMenge == 0 .OR. nPreis == 0
                      EXIT
                   ENDIF
-                  LOOP
-               ENDIF
-               IF nMenge == 0 .OR. nPreis == 0
-                  EXIT
-               ENDIF
-               hPrices[nMenge] := nPreis
-               nX++
-            ENDDO
-            SetColor(cColour)
-            RestScreen(,,,,cScreen)
-            RETURN hPrices
-         ENDIF*/
-         TxtClear()
-         
+                  hPrices[nMenge] := nPreis
+                  nX++
+               ENDDO
+               SetColor(cColour)
+               RestScreen(,,,,cScreen)
+               RETURN hPrices
+            ENDIF*/
+            TxtClear()
+         ENDIF 
       ELSE
          hPrices := MBaseRun(Trim(Tr_Getini(1))+"\run\prices\"+cLief,{art->Artikelnr,ali->Artlief,art->Matchcode,@nError})
          IF Tr_Getini(28) == 9 .AND. ! GetConfigValue("BATCHMODE")

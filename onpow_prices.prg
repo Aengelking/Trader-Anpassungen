@@ -183,10 +183,11 @@ Aadd(aSeries,{;
    "FILE"=>"las1agq",;
    "SEARCH"=>"LAS1-AGQ",;
    "REGEX"=>"^(LAS1-AGQ)P?(H?-[0-9]{2}Z?)([D,E,T]{0,2})\/?([^\/]{1,5})\/[^\/]{2,4}\/([A-Z])(\/FP)?",;
-   "MATCH"=>{|aMatch,aCompare|
+   "MATCH"=>{|aMatch,aCompare|           
       IF Len(aCompare) < 3
          RETURN .F.
       ENDIF
+      
       IF aMatch[6] == "N"
          RETURN aCompare[3] == "/N" .AND. aMatch[2]+aMatch[3] == aCompare[2]
       ENDIF
@@ -288,9 +289,11 @@ FOR EACH hSeries IN aSeries
    IF ! File(cFile+".dbf")
       ? "No File",cFile+".dbf"
    ELSE
+      IF Select("oppl") != 0
+         oppl->(dbCloseArea())
+      ENDIF
       Net_Use(cFile,"oppl",.F.,0,"DBFNTX")
       oppl->(dbGoTop())
-
 
       DO WHILE ! oppl->(EOF())
          IF oppl->(FieldPos("NOLED")) != 0 .AND. ! Empty(oppl->NoLed)
@@ -301,13 +304,20 @@ FOR EACH hSeries IN aSeries
                ENDIF
 
                #ifdef DEBUG
+               
                ? oppl->Part,"NO LED"
-               #endif
+               
+               #endif               
                IF ! lNewAli .AND. ! ali->(dbSeek( cSup+hSeries:Search, .T. ))
                   #ifdef DEBUG
-                  ? "Not found"
+                  ?? " Not found"
                   #endif
                ENDIF
+               #ifdef DEBUG
+               IF At(hSeries:Search,ali->Artlief) != 1
+                  ?? " no match"
+               ENDIF
+               #endif
                DO WHILE ali->Kunde == cSup .AND. At(hSeries:Search,ali->Artlief) == 1
                   art->(dbSeek( Str(ali->Artikelnr,6) ))  //need to use artikel DB as some ali->Matchcode's have not been updated on a change!
 
@@ -347,6 +357,10 @@ FOR EACH hSeries IN aSeries
                         ENDIF
                      ENDIF
                      AddPrices(oppl->NoLed+nAddPrice,hRabatte,cPath,cSup,dStart)
+                  ELSE
+                     #ifdef DEBUG
+                        ?? " no price found"
+                     #endif
                   ENDIF
                   IF ! lNewAli
                      ali->(dbSkip())
@@ -381,6 +395,12 @@ FOR EACH hSeries IN aSeries
                ? "Not found"
                #endif
             ENDIF
+            #ifdef DEBUG
+            IF At(hSeries:Search,ali->Artlief) != 1
+               ?? " no match"
+            ENDIF
+            #endif
+
             DO WHILE ali->Kunde == cSup .AND. At(hSeries:Search,ali->Artlief) == 1
                art->(dbSeek( Str(ali->Artikelnr,6) ))  //need to use artikel DB as some ali->Matchcode's have not been updated on a change!
 
@@ -403,10 +423,13 @@ FOR EACH hSeries IN aSeries
                nAddPrice := 0
                aCompare := HB_Regex("(.*)(\/[S,N,A,P])(\/FP)?",oppl->Part)
                IF Len(aCompare) == 0
-                  aCompare := {oppl->Part}
+                  aCompare := {oppl->Part,"","",""}
                ENDIF
                //Extra Cost for LED
                IF aMatches != NIL .AND. Len(aMatches) > 0 .AND. Eval(hSeries:Match,aMatches,aCompare)
+                  #ifdef DEBUG
+                   ?? "price found"                  
+                  #endif
                   nLedPins := Val(aMatches[hSeries:LED])
                   lSingleDual := HHasKey(hSeries,"SINGLEDUAL") .AND. hSeries:SingleDual
 
@@ -491,14 +514,19 @@ FOR EACH hSeries IN aSeries
                   @ 02,37 SAY ali->Artlief
                   #endif
 
+                  #ifndef TEST
                   IF HHasKey(hSeries,"VPE") 
                      art->(Rec_Lock(0))
                      art->VPE := hSeries:VPE
                      art->(dbUnLock())
                   ENDIF
+                  #endif
 
                   AddPrices(nPrice+nAddPrice,hRabatte,cPath,cSup,dStart)
-
+               ELSE
+                  #ifdef DEBUG
+                     ?? " no price found","Matches:",ValToPrg(aMatches),"Compare:",ValToPrg(aCompare)
+                  #endif
                ENDIF
                IF ! lNewAli
                   ali->(dbSkip())

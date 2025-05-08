@@ -4,7 +4,7 @@
 
 #define UPDATE_DAVID
 
-PROC Run_TimeButler(lDavid,lAutoReply,lFrepple)
+PROC Run_TimeButler(lDavid,lAutoReply,lFrepple,lOrga)
    LOCAL oAPI := TimeButlerAPI():New()
    LOCAL aAbsences,hAbsence
    LOCAL aUsers
@@ -12,6 +12,7 @@ PROC Run_TimeButler(lDavid,lAutoReply,lFrepple)
    LOCAL hAbsenceTypes := oAPI:GetAbsenceTypes()
    LOCAL aAbsenceAway := {"Vacation","Parental leave","Sickness","Child ill","Child ill w/o payment"}
    LOCAL aAbsenceLimit := {"Training school","Further training","Fair","Business trip"}
+   LOCAL aAbsenceAvail := {"Home office"}
 
    LOCAL dFrom := Date()      
    //LOCAL dTo := dFrom   
@@ -32,10 +33,18 @@ PROC Run_TimeButler(lDavid,lAutoReply,lFrepple)
    LOCAL oFrepple,aResult
    LOCAL cStartTime,cEndTime
    LOCAL hData,nYear,aData
-
+   LOCAL aDays,nDay,dPrev,dStart
+  
    Default(@lDavid,GetConfigValue("BATCHMODE"))
    Default(@lAutoReply,.T.)
-   Default(@lFrepple,GetConfigValue("BATCHMODE").OR.Tr_msgBox("Frepple synchronisieren?",,{"Ja","Nein"}) == 1)
+   IF ValType(lFrepple) != "L"
+      IF ! GetConfigValue("BATCHMODE")
+         lFrepple := Tr_msgBox("Frepple synchronisieren?",,{"Ja","Nein"}) == 1
+      ELSE
+         lFrepple := .T.
+      ENDIF
+   ENDIF
+   Default(@lOrga,.T.)
 
    NetUse("buyer","buy")
    NetUSe("resource","res")
@@ -47,7 +56,9 @@ PROC Run_TimeButler(lDavid,lAutoReply,lFrepple)
    ?? " abgeschlossen"
 
    //Create Orga Chart
-   Timbutler_orga(aUsers)
+   IF lOrga
+      Timbutler_orga(aUsers)
+   ENDIF
 
    //Update Frepple
    IF lFrepple
@@ -77,9 +88,9 @@ PROC Run_TimeButler(lDavid,lAutoReply,lFrepple)
       aResult := oFrepple:getCalendarBuckets() //this returns all buckets for all resources
       ?? " abgeschlossen"
 
-      ? "Timebulter Buckets werden in Frepple gel”scht..."
+      ? "Timebutler Buckets werden in Frepple gel”scht..."
       FOR nX := 1 TO Len(aResult)
-         IF aResult[nX]["source"] == "Timebutler"
+         IF aResult[nX]["source"] $ {"Timebutler","Trader"}
             ? "Delete bucket "+LTrim(Str(aResult[nX]["id"]))
             oFrepple:deleteCalendarBucket(aResult[nX]["id"])
          ENDIF
@@ -118,6 +129,40 @@ PROC Run_TimeButler(lDavid,lAutoReply,lFrepple)
             oFrepple:Execute(oFrepple:cScenarioUrl+"api/input/calendarbucket/","POST",hData,.T.)
          ENDIF
       NEXT 
+
+      //Add holidays
+      FOR nYear := Year(Date()) TO Year(Date())+1         
+         aDays := FeierTage(nYear,GetConfigValue("STATE"),.F.)
+         dPrev := StoD("")
+         dStart := StoD("")
+         FOR nX := 1 TO Len(aDays)
+            IF dPrev+1 == aDays[nX]
+               dPrev := aDays[nX]
+            ELSE
+               IF ! Empty(dStart)
+                  ? "Feiertage "+DtoC(dStart)+" bis "+DtoC(dPrev)+" werden in Frepple eingetragen"
+                  hData := {=>}
+                  hData["calendar"] := "Schliesstage"
+                  hData["source"] := "Trader"
+
+                  cStartTime := "00:00"
+                  cEndTime := "23:59"
+
+                  hData["startdate"] := oFrepple:DtoC(dStart,cStartTime)
+                  hData["enddate"] := oFrepple:DtoC(dPrev,cEndTime)
+                  hData["value"] := 0
+                  hData["priority"] := 0
+                  hData["monday"] := hData["tuesday"] := hData["wednesday"] := hData["thursday"] := hData["friday"] := hData["saturday"] := hData["sunday"] := .T.
+                  hData["starttime"]  := cStartTime
+                  hData["endtime"] := cEndTime
+                  oFrepple:Execute(oFrepple:cScenarioUrl+"api/input/calendarbucket/","POST",hData,.T.)
+               ENDIF
+               dStart := aDays[nX]
+               dPrev := aDays[nX]
+            ENDIF
+         NEXT
+      NEXT
+      
    ENDIF
 
    IF lDavid
@@ -173,6 +218,7 @@ PROC Run_TimeButler(lDavid,lAutoReply,lFrepple)
                               IF ! hAbsence["Half a day"]
                                  oCalItem:AllDayEvent := .T.
                               ENDIF
+                              oCalItem:ShowAs := IF(hAbsence["Type"]$aAbsenceAvail,1,3)  //3=Out of Office, 1=Free, 2=Busy
                               tStart := StoT(DtoS(hAbsence["From"])+IF(hAbsence["Half a day"].AND.!hAbsence["Morning"],"120000","000000"))
                               oCalItem:StatusTime := tStart
                               oCalItem:SendTime := tStart

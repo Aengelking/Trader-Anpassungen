@@ -22,9 +22,9 @@ Default(@lDisp,.T.)
 Default(@lForce,.F.)
 
 IF .F. //Tr_Getini(28) == 9
-   aCompet := {"BšRKLIN"}
+   aCompet := {"BUERKLIN"}
 ELSE
-   aCompet := {"BšRKLIN","RS","ARROW","FARNELL" } //"Schukat","Conrad", "Reichelt","Mouser" does not work
+   aCompet := {"BUERKLIN","RS","ARROW","FARNELL","TME" } //"Schukat","Conrad", "Reichelt","Mouser" does not work
 ENDIF
 
 IF lDisp
@@ -125,7 +125,8 @@ FOR nX := 1 TO Len(aCompet)
    ku->(dbSeek( Pad(Upper(aCompet[nX]),8)+"L" ))
 
    IF aCompet[nX] == "FARNELL" .AND. lBuerklin  //we only get prices from Farnell (for speed reasons) if there are no Brklin prices
-   ELSEIF (ali->(dbSeek(Pad(Upper(aCompet[nX]),8)+Str(art->Artikelnr,6))) .AND. ! Empty(ali->artlief)) .OR. aCompet[nX] $ "Schukat TME"
+   ELSEIF (ali->(dbSeek(Pad(Upper(aCompet[nX]),8)+Str(art->Artikelnr,6))) .AND. ! Empty(ali->artlief));
+       .OR. aCompet[nX] $ {"Schukat"}
       
       IF lDisp
          @ MaxRow()/2-2,MaxCol()/2-15 SAY PadC("["+aCompet[nX]+"]",30,Chr(196)) COLOR c_five
@@ -151,12 +152,18 @@ FOR nX := 1 TO Len(aCompet)
             RETURN .F.
          ENDIF
       ELSE
-         IF aCompet[nX] == "BšRKLIN"
+         IF aCompet[nX] == "BUERKLIN"
             lBuerklin := .T.
          ENDIF
          aPriceList[nX] := hPrices
       ENDIF
+   ELSEIF ! ali->(Found())
+      
+       //@ MaxRow()/2+1,MaxCol()/2-15 SAY "NICHT GEFUNDEN "+aCompet[nX] COLOR c_five 
+      
    ENDIF
+   //Sinkey(0)
+   
 NEXT
 
 IF lDbg

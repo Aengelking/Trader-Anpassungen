@@ -29,7 +29,7 @@ IF cBase $ {"CKI"}
 ELSEIF cBase == "CI"
    hReferences["SERIES"]   := HB_HCopy({"02/"=>"GQ6","03/"=>"GQ6","04/"=>"GQ8","05/"=>"GQ8","06/"=>"GQ10","07/"=>"GQ10","08/"=>"GQ12","09/"=>"GQ14","12/"=>"GQ12","13/"=>"GQ14"},hReferences["SERIES"])
 ELSE
-   hReferences["SERIES"]   := HB_HCopy({"08/"=>"GQ12-A","15/"=>"LAS2GQ","16/"=>"LAS2GQP"},hReferences["SERIES"])
+   hReferences["SERIES"]   := HB_HCopy({"08/"=>"GQ12-A","15/"=>"LAS1-AGQ16","16/"=>"LAS1-AGQ16P"},hReferences["SERIES"])
 ENDIF
 
 hReferences["MATERIAL"] := {"AS/"=>"/A","AB/"=>"/BU","AG/"=>"/GN","AN/"=>"/NT","AR/"=>"/RD","BN/"=>"/N","V2/"=>"/S","V4/"=>"/SS316L","MB/"=>"/A","BG/"=>"/G","GA/"=>"/GA"} //,"AN/"=>"/NT","AR/"=>"/RD","AG/"=>"/GN"
@@ -122,14 +122,17 @@ FOR EACH nRef IN hTablesRef
          ELSEIF cRef $ {"LAS1GQ","LAS1GQP"}
             hReferences["CONNTYPE"] := {"ST"=>"/L"}
          ENDIF
-         IF cRef $ {"LAS1GQ","LAS1-AGQ","GQ22","GQ25","GQ28","GQ30","GQ22F"}
+         IF cRef $ {"LAS1GQ","LAS1-AGQ","GQ22","GQ25","GQ28","GQ30","GQ22F","LAS1-AGQ16"}
             hReferences["BUTTON"]["F/"] := "-"
             hReferences["BUTTON"]["P/"] := "-"
+         ENDIF
+         IF cRef $ {"LAS1-AGQ16","LAS2-AGQ16P"}
+            hReferences["MATERIAL"]["BN/"] := "/C"
          ENDIF
          IF cBase != "CI"
             IF cRef $ {"LAS1GQ","LAS1GQP","GQ22","GQ22P","GQ25","GQ25P","GQ28","GQ28P","GQ30","GQ30P"}
                hReferences["IP"] := {"M/"=>"/FP"}
-            ELSEIF cRef $ {"LAS2GQ","LAS2GQP"}
+            ELSEIF cRef $ {"LAS2GQ","LAS2GQP","LAS1-AGQ16","LAS1-AGQ16P"}
                hReferences["IP"] := {"M/"=>"/FP","L/"=>"/FP"}
             ENDIF
          ENDIF
@@ -138,7 +141,7 @@ FOR EACH nRef IN hTablesRef
          ELSEIF cRef $ {"TS22","TS25"}
             hReferences["BUTTON"] := {"F/"=>"D/" ,"G/"=>"E/"}
          ENDIF
-      ELSEIF nRef:__enumKey() == "LEDTYPE" .AND. cRef+"|" $ "DT|ET|" .AND. hReferences["SERIES"][aParts[hTablesRef["SERIES"]]] != "LAS2GQ"
+      ELSEIF nRef:__enumKey() == "LEDTYPE" .AND. cRef $ {"DT","ET"} .AND. ! hReferences["SERIES"][aParts[hTablesRef["SERIES"]]] $ {"LAS2GQ","LAS1-AGQ16","LAS1-AGQ16P"}
          hReferences["IP"] := {=>}
       ELSEIF nRef:__eNumKey() == "LEDCOLOR"
          IF ! "N" $ cRef //N=no LED, if there is no "N" then it must be dual color            

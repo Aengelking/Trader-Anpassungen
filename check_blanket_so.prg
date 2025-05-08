@@ -2,21 +2,28 @@
 
 PROCEDURE Check_Blanket_So()
    LOCAL nWeeksBefore := GetValue("SALES_FRAME_WARN",4,"Warnung - Wochen for Rahmenablauf")
+   LOCAL nAlarmBefore := GetValue("SALES_FRAME_ALARM",1,"Eskalation - Wochen for Rahmenablauf")
+   LOCAL nAlarmTo     := GetValue("SALES_FRAME_ALARM_TO",33,"Eskalation Benutzer")
    LOCAL cKey
-   LOCAL hAB := {=>},oUser
+   LOCAL hAB := {=>},oUser,aTo,oAlarmUser
+   LOCAL lEskalation
         
    NetUse("artikel","art")
    NetUse("engkund","ku")
    NetUSe("engauf","auf")   
    NetUse("notes","nts")
+
+   oAlarmUser := User():New()
+   oAlarmUser:Load(nAlarmTo)
    
    SET RELATION TO auf->kundma+"K" INTO "ku"
 
    auf->(dbSetOrder( 14 ))
-   auf->(dbSetFilter({|| auf->VkQty-auf->GelQty > 0 .AND. Val(Right(Str(auf->dterm,4),2)) == 99 .AND. auf->Wterm < AddWeeks(Cweek(),nWeeksBefore) .AND. wterm >= CWeek(Date())   },; 
+   auf->(dbSetFilter({|| auf->VkQty-auf->GelQty > 0 .AND. Val(Right(Str(auf->dterm,4),2)) == 99 .AND. auf->Wterm < AddWeeks(Cweek(Date()),nWeeksBefore) .AND. wterm >= CWeek(Date())   },; 
                         "VkQty-GelQty > 0 .AND. Val(Right(Str(dterm,4),2)) == 99 .AND. wterm < "+Str(AddWeeks(CWeek(Date()),nWeeksBefore),4)+" .AND. wterm > "+CalWeek(Date()) ))      
    auf->(dbGoTop())
 
+   lEskalation := .F.
    DO WHILE auf->Bestat < 3 .AND. ! auf->(EOF())
       art->(dbSeek(auf->Matchcode))
       cKey := auf->Kundma+Str(auf->Buyer,2)
@@ -30,6 +37,9 @@ PROCEDURE Check_Blanket_So()
       IF ! auf->Abnr $ hAB[cKey]["AB"]
          Aadd(hAB[cKey]["AB"],auf->Abnr)
          hAB[cKey]["NOTES"] += StrTran(GetNotesForAb(auf->Abnr),"<h3>Notizen</h3>","<h3>Notizen AB "+LTrim(Str(auf->Abnr))+"</h3>")
+      ENDIF
+      IF auf->Wterm < AddWeeks(Cweek(Date()),nAlarmBefore)
+         lEskalation := .T.
       ENDIF
 
       auf->(dbSkip())
@@ -47,7 +57,12 @@ PROCEDURE Check_Blanket_So()
       oUser := User():New()
       oUser:Load(hAB[cKey]["USER"])
       //
-      SendMail({{oUser:Email,oUser:Name}},"Rahmen von "+Trim(hAb[cKey]["KUNDE"])+" "+IF(Len(hAB[cKEy]["AB"])>1,"laufen","l„uft")+" bald ab",hAB[cKey]["TEXT"])
+      aTo := {{Trim(oUser:Email),Trim(oUser:Name)}}
+      IF lEskalation .AND. oAlarmUser:Email != oUser:Email .AND. ! Empty(oAlarmUser:Email)
+         Aadd(aTo,{Trim(oAlarmUser:Email),Trim(oAlarmUser:Name),"CC"})
+      ENDIF
+      SendMail(aTo,"Rahmen von "+Trim(hAb[cKey]["KUNDE"])+" "+IF(Len(hAB[cKEy]["AB"])>1,"laufen","l„uft")+" bald ab",hAB[cKey]["TEXT"])
+      
    NEXT
 
 RETURN 

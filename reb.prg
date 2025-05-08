@@ -521,11 +521,16 @@ oBrowse:AddKey(K_ENTER,{||
             ENDIF
          ENDIF
          IF nChoice == 0
-            Eval(bOpen,ATail(aFiles)[6])
             aChoices := {"Nein","Ja",cZuText,cFirmText}
             IF lCanApprove
                Aadd(aChoices,"mit Intervall")
             ENDIF
+            IF Abs(reb->Betrag) >= 50
+               Eval(bOpen,ATail(aFiles)[6])
+            ELSE
+               Aadd(aChoices,"anzeigen")
+            ENDIF
+
             nChoice := Tr_MsgBox("Freigeben?",,aChoices)
          ENDIF
          IF nChoice == 5
@@ -577,6 +582,8 @@ oBrowse:AddKey(K_ENTER,{||
             lChangePers := .T.
          ELSEIF nChoice == 4
             lChangeFirm := .T.
+         ELSEIF nChoice == 6
+            Eval(bOpen,ATail(aFiles)[6])
          ENDIF
       ELSE
          nChoice := Tr_MsgBox("Beleg ist noch nicht zur Buchung freigegeben",,{"OK","anzeigen",cZuText,cFirmText})

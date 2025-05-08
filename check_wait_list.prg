@@ -11,7 +11,8 @@ DO WHILE bes->Besnr == -1
       ku->(dbSeek( bes->Liefma+"L" ))
       oExtra := ku->(ExtraData():New(ku->Nummer))
       IF oExtra:Wait_Day == Dow(Date())
-         SendMail({{"daniel.becker@engelking.de","Daniel"}},"Warteliste "+trim(bes->Liefma),"Es befinden sich noch Positionen auf der Warteliste von "+ Trim(bes->Liefma),,.F.)
+//         SendMail({{"daniel.becker@engelking.de","Daniel"}},"Warteliste "+trim(bes->Liefma),"Es befinden sich noch Positionen auf der Warteliste von "+ Trim(bes->Liefma),,.F.)
+         SendMessage("Einkauf | Warteliste",,"Warteliste "+trim(bes->Liefma),"Es befinden sich noch Positionen auf der Warteliste von "+ Trim(bes->Liefma))
       ENDIF
       Aadd(aLief,bes->Liefma)
    ENDIF

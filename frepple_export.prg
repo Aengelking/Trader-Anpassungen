@@ -3,7 +3,7 @@
 #define LAG_STOCK_ADDRESS          4
 #define LAG_STOCK_TEMPBLOCK        6
 
-#define ART_NEEDS_QS art->QS .OR. AScan(aItems,{|x| x[2] == Trim(art->Matchcode)+"_UNCHECKED"}) != 0 ///*.OR. AT(".LP.BS.",art->Matchcode) != 0*/) .OR. ! Empty(art->Zeichnung)
+#define ART_NEEDS_QS .F. //(art->QS .OR. AScan(aItems,{|x| x[2] == Trim(art->Matchcode)+"_UNCHECKED"}) != 0 ///*.OR. AT(".LP.BS.",art->Matchcode) != 0*/) .OR. ! Empty(art->Zeichnung)
 
 FUNCTION RUN_FREPPLE_EXPORT()
    /* SETTINGS */
@@ -67,7 +67,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
    LOCAL nErrorCount
    LOCAL hFiles,aData,lCancel,cFirstOp
    LOCAL cResource,nLZ,aCalBucket
-   LOCAL oErr,cStatus,lConfirmed,nDelWeek
+   LOCAL oErr,cStatus,nDelWeek
    LOCAL tStart,tEnd,nRec,nDays,nPostOp
    LOCAL oArtExtra
    LOCAL dDate,nKW,cFilter
@@ -144,7 +144,8 @@ FUNCTION RUN_FREPPLE_EXPORT()
       IF (art->Lagerart .OR. fol->(dbSeek(Str(art->artikelnr,6)))) .AND. AScan(aItems,{|x| x[1] == art->Artikelnr },2) == 0
          Aadd(aItems,{art->Artikelnr,Trim(art->Matchcode),Trim(art->Artikel)})
          oArtExtra := art->(ExtraData():New(art->Artikelnr))
-         Aadd(aBuffers,{art->Artikelnr,Trim(art->Matchcode),cDefaultLocation,LagGetStock(art->Artikelnr,LAG_STOCK_USABLE)+LagGetStock(art->Artikelnr,LAG_STOCK_ADDRESS,nSelf)+HLAGER(art->Artikelnr,Pad("090/",12)),art->Mindest,oArtExtra:MinInterval}) //LagGetStock(art->Artikelnr,LAG_STOCK_TEMPBLOCK)
+         //Aadd(aBuffers,{art->Artikelnr,Trim(art->Matchcode),cDefaultLocation,LagGetStock(art->Artikelnr,LAG_STOCK_USABLE)+LagGetStock(art->Artikelnr,LAG_STOCK_ADDRESS,nSelf)+HLAGER(art->Artikelnr,Pad("090/",12)),art->Mindest,oArtExtra:MinInterval}) //LagGetStock(art->Artikelnr,LAG_STOCK_TEMPBLOCK)
+         Aadd(aBuffers,{art->Artikelnr,Trim(art->Matchcode),cDefaultLocation,LagGetStock(art->Artikelnr,LAG_STOCK_USABLE)+LagGetStock(art->Artikelnr,LAG_STOCK_ADDRESS,nSelf)+LagGetStock(art->Artikelnr,LAG_STOCK_TEMPBLOCK),art->Mindest,oArtExtra:MinInterval}) //LagGetStock(art->Artikelnr,LAG_STOCK_TEMPBLOCK)         
          hOtherStock := LagGetStock(art->Artikelnr,LAG_STOCK_OTHER_LOCATIONS,0,.T.)
          ku->(dbSetOrder( 8))
          FOR EACH nOtherStock IN hOtherStock
@@ -156,7 +157,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
 
          nStock := LagGetStock(art->Artikelnr,LAG_STOCK_TEMPBLOCK)-HLAGER(art->Artikelnr,Pad("090/",12))
          
-         IF ART_NEEDS_QS .OR. nStock > 0 //this part will need to be checked when it comes in, so we need an extra buffer for this
+         /*IF ART_NEEDS_QS .OR. nStock > 0 //this part will need to be checked when it comes in, so we need an extra buffer for this
             Aadd(aItems,{art->Artikelnr*-1,Trim(art->Matchcode)+"_UNCHECKED","QS: "+Trim(art->Artikel)})
             Aadd(aBuffers,{art->Artikelnr*-1,Trim(art->Matchcode)+"_UNCHECKED",cDefaultLocation,nStock,0,0})
 
@@ -176,7 +177,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
 
             Aadd(aBom,{Trim(art->Matchcode),1,0,ATail(aOperations)[1],"end"})
             Aadd(aBom,{Trim(art->Matchcode)+"_UNCHECKED",-1,0,cFirstOp,"start"})            
-         ENDIF
+         ENDIF*/
 
          //Item Supplier         
          ali->(dbSetOrder( 4 ))         
@@ -294,6 +295,16 @@ FUNCTION RUN_FREPPLE_EXPORT()
       RETURN NIL
    }
 
+   IF ! LockEntity("PPLEX",0)
+      RETURN .F.
+   ENDIF
+
+   IF ! GetConfigValue("BATCHMODE")
+      IF Tr_MsgBox({"Letzter Export "+DtoC(FileDate(cPath+"operation.csv"))+" "+FileTime(cPath+"operation.csv"),"Export starten?"},,{"Ja","Nein"}) == 2
+         RETURN .F.
+      ENDIF
+   ENDIF
+
    SET TIME FORMAT TO "hh:mm:ss"
    
 
@@ -318,6 +329,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
    NetUse("restime","rst")
    NetUse("folgeart","fol")
    NetUse("besdel","bdel")
+
 
    CLS
 
@@ -383,180 +395,189 @@ FUNCTION RUN_FREPPLE_EXPORT()
    ali->(dbSetOrder( 4 ))
    Select("part")
 
-      
-   FOR nI := 1 TO Len(aRoutingItems)
-      @ MaxRow()/2+2,MaxCol()/2-4 SAY "["+Str(aRoutingItems[nI],6)+"]" COLOR c_five
+   IF .F. //! GetConfigValue("BATCHMODE") .AND. Tr_MsgBox("Stcklisten und Arbeitspl„ne neu exportieren?",,{"Ja","Nein"}) == 2
+      //this does not work properly 10.03.25
+      aOperations := FParseEx(cPath+"operation.csv",",")
+      aOperationResources := FParseEx(cPath+"operation resource.csv",",")
+      aBom := FParseEx(cPath+"operation material.csv",",")
+   ELSE
 
-      art->(dbSetOrder( 2 ))
-      art->(dbSeek( Str(aRoutingItems[nI],6) ))
-      cMatch := cRoutingMatch := Trim(art->Matchcode)
-      IF ART_NEEDS_QS
-         cMatch += "_UNCHECKED"
-      ENDIF
- 
-      IF ! part->(dbSeek( Str(aRoutingItems[nI],6) ))  //no bom found, then this cannot be produced
-         LOOP
-      ENDIF
-      IF part->Pos == 0 //skip old header
-         part->(dbSkip())
-      ENDIF
+      FOR nI := 1 TO Len(aRoutingItems)
+         @ MaxRow()/2+2,MaxCol()/2-4 SAY "["+Str(aRoutingItems[nI],6)+"]" COLOR c_five
 
-      lDummy := .F.  
-      lIntern := .F.    
+         art->(dbSetOrder( 2 ))
+         art->(dbSeek( Str(aRoutingItems[nI],6) ))
+         cMatch := cRoutingMatch := Trim(art->Matchcode)
+         IF ART_NEEDS_QS
+            cMatch += "_UNCHECKED"
+         ENDIF
+   
+         IF ! part->(dbSeek( Str(aRoutingItems[nI],6) ))  //no bom found, then this cannot be produced
+            LOOP
+         ENDIF
+         IF ! bom->(dbSeek( Str(aRoutingItems[nI],6) )) 
 
-      //find the last job, this is the one that outputs the part
-      cJobName   := ""
-      job->(dbSetOrder( 1 ))
-      pjob->(dbSetOrder( 2 ))
-      IF pjob->(dbSeek( Str(aRoutingItems[nI],6) ))
-         DO WHILE pjob->Artikelnr == aRoutingItems[nI] .AND. job->(dbSeek( Str(pjob->Job,6) )) .AND. AT(cQSStart,job->Name) == 1  //skip the QS jobs
-            pjob->(dbSkip())
-         ENDDO
-         IF pjob->Artikelnr == aRoutingItems[nI] 
-            lIntern := .T.  //only if there is a job (which is not QS) we can produce internally            
-         
-            DO WHILE pjob->Artikelnr == aRoutingItems[nI]
-               IF job->(dbSeek( Str(pjob->Job,6) )) .AND. AT(cQSStart,job->Name) != 1 //check if the job really exists and is not a QS job
-                  cJobName := job->Name
-               ENDIF
+         ENDIF
+         IF part->Pos == 0 //skip old header
+            part->(dbSkip())
+         ENDIF
+
+         lDummy := .F.  
+         lIntern := .F.    
+
+         //find the last job, this is the one that outputs the part
+         cJobName   := ""
+         job->(dbSetOrder( 1 ))
+         pjob->(dbSetOrder( 2 ))
+         IF pjob->(dbSeek( Str(aRoutingItems[nI],6) ))
+            DO WHILE pjob->Artikelnr == aRoutingItems[nI] .AND. job->(dbSeek( Str(pjob->Job,6) )) .AND. AT(cQSStart,job->Name) == 1  //skip the QS jobs
                pjob->(dbSkip())
             ENDDO
-         ENDIF
-      ENDIF
-      IF ! lIntern .AND. part->Pos != -1 //this cannot be produced externaly either
-         lIntern := .T.         
-      ENDIF
-
-      IF lIntern
-         IF Empty(cJobName)  //no valid job found, we will output via the DUMMY
-            lDummy := .T.  //remember that we are using a DUMMY operation 
-         ENDIF
-
-         Eval(bAddItem)              
-
-         //now we add the output position to the BOM list, we only need this if we can produce internally
-         Aadd(aBom,{cMatch,1*(1-_GetScrapRate(aRoutingItems[nI])),0,Trim(art->Matchcode)+cOpSeparator+IF(!lDummy,Trim(cJobName),"DUMMY"),"end"})         
-      ENDIF
-
-      nLohnArt := 0
-      aThisBom := {}
-      
-      DO WHILE part->Listart == aRoutingItems[nI]
-         IF part->Pos == -1 .AND. (part->Qty != 0 .OR. part->AddQty != 0)
-            nLohnArt := part->Partart
-         ELSEIF part->Pos > 0 .AND. (part->Qty != 0 .OR. part->AddQty != 0)
-            IF ! part->Partart $ aMaterials .AND. ! part->Partart $ aRoutingItems
-               Aadd(aMaterials,part->Partart)
-            ENDIF         
-            art->(dbSeek( Str(part->Partart,6) ))
-            IF art->Artikelnr == 0
-               Aadd(aErrors,{part->Partart,"","FATAL","ITEMNOTFOUND","Item not found for part list "+Str(part->Listart)})                              
+            IF pjob->Artikelnr == aRoutingItems[nI] 
+               lIntern := .T.  //only if there is a job (which is not QS) we can produce internally            
+            
+               DO WHILE pjob->Artikelnr == aRoutingItems[nI]
+                  IF job->(dbSeek( Str(pjob->Job,6) )) .AND. AT(cQSStart,job->Name) != 1 //check if the job really exists and is not a QS job
+                     cJobName := job->Name
+                  ENDIF
+                  pjob->(dbSkip())
+               ENDDO
             ENDIF
-            
-            Eval(bAddItem)
-            pjob->(dbSetOrder( 1 ))
-            IF ! pjob->(dbSeek( Str(aRoutingItems[nI],6)+Str(part->Job,6) )) //is this a valid job on this part list?
-               lDummy := .T.
-            ELSE
-               job->(dbSeek( Str(part->Job,6) ))
-            ENDIF            
-            
-            Aadd(aThisBom,{Trim(art->Matchcode),Round(part->Qty*(1+part->AddPercent/100)*IF(part->Factor==0,1,part->Factor)*-1,8),part->AddQty*IF(part->Factor==0,1,part->Factor)*-1,Trim(cRoutingMatch)+cOpSeparator+IF(pjob->(FOUND()),Trim(job->Name),"DUMMY"),IF(part->Qty<0,"end","start")})
-            IF lIntern .AND. (lDummy .OR. AT(cQSStart,job->Name) != 1) //if it can be produced internally we add it directly to the BOM list, ignore QS jobs
-               Aadd(aBom,ATail(aThisBom))
+         ENDIF
+         IF ! lIntern .AND. part->Pos != -1 //this cannot be produced externaly either
+            lIntern := .T.         
+         ENDIF
+
+         IF lIntern
+            IF Empty(cJobName)  //no valid job found, we will output via the DUMMY
+               lDummy := .T.  //remember that we are using a DUMMY operation 
             ENDIF
-            
-         ENDIF
-         part->(dbSkip())
 
-      ENDDO
+            Eval(bAddItem)              
 
-      
-      art->(dbSetOrder( 2 )) 
-      art->(dbSeek( Str(aRoutingItems[nI],6) ))
-      pjob->(dbSetOrder( 2 ))
-
-      IF lIntern    
-         IF bom->(dbSeek( Str(aRoutingItems[nI],6) )) .AND. bom->Lot != 0
-            nVPE := bom->Lot
-         ELSEIF art->VPE == 0
-            nVPE := 1
-         ELSE
-            nVPE := art->VPE
+            //now we add the output position to the BOM list, we only need this if we can produce internally
+            Aadd(aBom,{cMatch,1*(1-_GetScrapRate(aRoutingItems[nI])),0,Trim(art->Matchcode)+cOpSeparator+IF(!lDummy,Trim(cJobName),"DUMMY"),"end"})         
          ENDIF
 
-         nVPE := CeilingMe(nVPE/(1-_GetScrapRate(aRoutingItems[nI])),Me(art->Me)) //we need to add the scrap to the min/mult to get the quantity without the scrap
-
-         //nVPE := IF(art->VPE==0,1,art->VPE)/(1-_GetScrapRate(aRoutingItems[nI]))
-
-         Aadd(aOperations,{Trim(art->Matchcode), cMatch,0,0,"routing","",20,cDefaultLocation,nVPE,nVPE,0,0 })
+         nLohnArt := 0
+         aThisBom := {}
          
-         IF lDummy  //if we need a DUMMY position (parts not assigned to a JOB), we add it here
-            Aadd(aOperations,{Trim(art->Matchcode)+cOpSeparator+"DUMMY", "",0,1000,"time_per",Trim(art->Matchcode),0,cDefaultLocation,0,0,0,0 })
-         ENDIF  
-
-         Eval(bAddOps,aRoutingItems[nI],Trim(art->Matchcode),.F.,)
-
-         nPostOp := GetValue("FREPPLE_POSTOP",7,"Post-Op time on ouput operation (days)")
-         IF nPostOp != 0
-            ATail(aOperations)[12] := nPostOp*24*60*60
-         ENDIF
-         
-         Aadd(aInterParts,art->Artikelnr) //List of internally producable parts, used for the sales orders
-      ENDIF
-      
-      IF nLohnArt != 0
-         lHasSupplier := .F.
-         art->(dbSeek( Str(aRoutingItems[nI],6) ))  
-         
-
-         ali->(dbSeek( Str(nLohnArt,6) ))
-         DO WHILE ali->Artikelnr == nLohnArt
-            IF ! Trim(ali->Kunde) $ aNotSupplier                            
-               lHasSupplier := .T.
-               ku->(dbSetOrder( 1 ))
-               ku->(dbSeek( ali->Kunde+"L" ))
-               oExtra := ku->(ExtraData():New(ku->Nummer))
-
-               //add a operation to the operation list. For external production we only need this one. It will contain all parts
-               Aadd(aOperations,{Trim(art->Matchcode)+cOpSeparator+"EXT:"+Trim(ali->Kunde), cMatch,0,(IF(ali->LZ>0,ali->LZ,IF(art->LZ==0,nDefaultLZ,art->LZ))+nAddWeeks)*7*24*60*60,"fixed_time","",10,Trim(ali->Kunde),ali->Min,ali->Vpe,0,0 })
-
-               //add the output position for each supplier, without scrap rate as this is only used internnally
-               Aadd(aBom,{cMatch,1,0,Trim(art->Matchcode)+cOpSeparator+"EXT:"+Trim(ali->Kunde),"end"})
-
-               IF Trim(ali->Kunde) == "LACKIERZ"
-                  //Alert("Resource: "+oExtra:Resource+" "+IF(! Empty(oExtra:Resource),"NOT EMPTY","EMPTY"))
+         DO WHILE part->Listart == aRoutingItems[nI]
+            IF part->Pos == -1 .AND. (part->Qty != 0 .OR. part->AddQty != 0)
+               nLohnArt := part->Partart
+            ELSEIF part->Pos > 0 .AND. (part->Qty != 0 .OR. part->AddQty != 0)
+               IF ! part->Partart $ aMaterials .AND. ! part->Partart $ aRoutingItems
+                  Aadd(aMaterials,part->Partart)
+               ENDIF         
+               art->(dbSeek( Str(part->Partart,6) ))
+               IF art->Artikelnr == 0
+                  Aadd(aErrors,{part->Partart,"","FATAL","ITEMNOTFOUND","Item not found for part list "+Str(part->Listart)})                              
                ENDIF
-
-               //if a resource is set on this supplier we add it here
-               IF ! Empty(oExtra:Resource)
-                  Aadd(aOperationResources,{ATail(aOperations)[1],oExtra:Resource,1,"Any","MINCOSTPENALTY"})
+               
+               Eval(bAddItem)
+               pjob->(dbSetOrder( 1 ))
+               IF ! pjob->(dbSeek( Str(aRoutingItems[nI],6)+Str(part->Job,6) )) //is this a valid job on this part list?
+                  lDummy := .T.
+               ELSE
+                  job->(dbSeek( Str(part->Job,6) ))
+               ENDIF            
+               
+               Aadd(aThisBom,{Trim(art->Matchcode),Round(part->Qty*(1+part->AddPercent/100)*IF(part->Factor==0,1,part->Factor)*-1,8),part->AddQty*IF(part->Factor==0,1,part->Factor)*-1,Trim(cRoutingMatch)+cOpSeparator+IF(pjob->(FOUND()),Trim(job->Name),"DUMMY"),IF(part->Qty<0,"end","start")})
+               IF lIntern .AND. (lDummy .OR. AT(cQSStart,job->Name) != 1) //if it can be produced internally we add it directly to the BOM list, ignore QS jobs
+                  Aadd(aBom,ATail(aThisBom))
                ENDIF
-
-               //add item distribution from the supplier to us
-               Eval(bAddItemDistr,cMatch,cDefaultLocation,ali->Kunde,oExtra:RecvTime)
-
-               FOR nX := 1 TO Len(aThisBom)
-                  Eval(bAddItemDistr,aThisBom[nX,1],ali->Kunde,cDefaultLocation,oExtra:ShipTime-IF(oExtra:WaDay>0,oExtra:WaDay-2,0)) //add the item distribution from us to the supplier
-                  Aadd(aBom,AClone(aThisBom[nX])) //add the bom position
-                  ATail(aBom)[4] := Trim(art->Matchcode)+cOpSeparator+"EXT:"+Trim(ali->Kunde)  //change the operation name to point to the external operation
-               NEXT
-
+               
             ENDIF
-            ali->(dbSkip())     
+            part->(dbSkip())
+
          ENDDO
-         IF lHasSupplier
-            art->(dbSeek( Str(aRoutingItems[nI],6) ))  
-            Eval(bAddItem)
-         ELSE
-            art->(dbSeek( Str(aRoutingItems[nI],6) ))
-            Aadd(aErrors,{aRoutingItems[nI],art->Matchcode,"ERROR","NOSUPPLIER","No manufacturing location for external manufacturing"})               
-         ENDIF
-      ENDIF
-   NEXT
-   part->(dbClearFilter())
-   art->(dbClearFilter())
 
+         
+         art->(dbSetOrder( 2 )) 
+         art->(dbSeek( Str(aRoutingItems[nI],6) ))
+         pjob->(dbSetOrder( 2 ))
+
+         IF lIntern    
+            IF bom->(dbSeek( Str(aRoutingItems[nI],6) )) .AND. bom->Lot != 0
+               nVPE := bom->Lot
+            ELSEIF art->VPE == 0
+               nVPE := 1
+            ELSE
+               nVPE := art->VPE
+            ENDIF
+
+            nVPE := CeilingMe(nVPE/(1-_GetScrapRate(aRoutingItems[nI])),Me(art->Me)) //we need to add the scrap to the min/mult to get the quantity without the scrap
+
+            //nVPE := IF(art->VPE==0,1,art->VPE)/(1-_GetScrapRate(aRoutingItems[nI]))
+
+            Aadd(aOperations,{Trim(art->Matchcode), cMatch,0,0,"routing","",20,cDefaultLocation,nVPE,nVPE,0,0 })
+            
+            IF lDummy  //if we need a DUMMY position (parts not assigned to a JOB), we add it here
+               Aadd(aOperations,{Trim(art->Matchcode)+cOpSeparator+"DUMMY", "",0,1000,"time_per",Trim(art->Matchcode),0,cDefaultLocation,0,0,0,0 })
+            ENDIF  
+
+            Eval(bAddOps,aRoutingItems[nI],Trim(art->Matchcode),.F.,)
+
+            nPostOp := GetValue("FREPPLE_POSTOP",7,"Post-Op time on ouput operation (days)")
+            IF nPostOp != 0
+               ATail(aOperations)[12] := nPostOp*24*60*60
+            ENDIF
+            
+            Aadd(aInterParts,art->Artikelnr) //List of internally producable parts, used for the sales orders
+         ENDIF
+         
+         IF nLohnArt != 0
+            lHasSupplier := .F.
+            art->(dbSeek( Str(aRoutingItems[nI],6) ))  
+            
+
+            ali->(dbSeek( Str(nLohnArt,6) ))
+            DO WHILE ali->Artikelnr == nLohnArt
+               IF ! Trim(ali->Kunde) $ aNotSupplier                            
+                  lHasSupplier := .T.
+                  ku->(dbSetOrder( 1 ))
+                  ku->(dbSeek( ali->Kunde+"L" ))
+                  oExtra := ku->(ExtraData():New(ku->Nummer))
+
+                  //add a operation to the operation list. For external production we only need this one. It will contain all parts
+                  Aadd(aOperations,{Trim(art->Matchcode)+cOpSeparator+"EXT:"+Trim(ali->Kunde), cMatch,0,(IF(ali->LZ>0,ali->LZ,IF(art->LZ==0,nDefaultLZ,art->LZ))+nAddWeeks)*7*24*60*60,"fixed_time","",10,Trim(ali->Kunde),ali->Min,ali->Vpe,0,0 })
+
+                  //add the output position for each supplier, without scrap rate as this is only used internnally
+                  Aadd(aBom,{cMatch,1,0,Trim(art->Matchcode)+cOpSeparator+"EXT:"+Trim(ali->Kunde),"end"})
+
+                  IF Trim(ali->Kunde) == "LACKIERZ"
+                     //Alert("Resource: "+oExtra:Resource+" "+IF(! Empty(oExtra:Resource),"NOT EMPTY","EMPTY"))
+                  ENDIF
+
+                  //if a resource is set on this supplier we add it here
+                  IF ! Empty(oExtra:Resource)
+                     Aadd(aOperationResources,{ATail(aOperations)[1],oExtra:Resource,1,"Any","MINCOSTPENALTY"})
+                  ENDIF
+
+                  //add item distribution from the supplier to us
+                  Eval(bAddItemDistr,cMatch,cDefaultLocation,ali->Kunde,oExtra:RecvTime)
+
+                  FOR nX := 1 TO Len(aThisBom)
+                     Eval(bAddItemDistr,aThisBom[nX,1],ali->Kunde,cDefaultLocation,oExtra:ShipTime-IF(oExtra:WaDay>0,oExtra:WaDay-2,0)) //add the item distribution from us to the supplier
+                     Aadd(aBom,AClone(aThisBom[nX])) //add the bom position
+                     ATail(aBom)[4] := Trim(art->Matchcode)+cOpSeparator+"EXT:"+Trim(ali->Kunde)  //change the operation name to point to the external operation
+                  NEXT
+
+               ENDIF
+               ali->(dbSkip())     
+            ENDDO
+            IF lHasSupplier
+               art->(dbSeek( Str(aRoutingItems[nI],6) ))  
+               Eval(bAddItem)
+            ELSE
+               art->(dbSeek( Str(aRoutingItems[nI],6) ))
+               Aadd(aErrors,{aRoutingItems[nI],art->Matchcode,"ERROR","NOSUPPLIER","No manufacturing location for external manufacturing"})               
+            ENDIF
+         ENDIF
+      NEXT
+      part->(dbClearFilter())
+      art->(dbClearFilter())
+   ENDIF
    TxtClear()
 
    nLast := Len(aMaterials)
@@ -860,7 +881,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
          cOrder += "."+StrZero(nDelivery,3)
       ENDIF
 
-      Aadd(aManuOrders,{cOrder,cMatch,nQty,IF(lConfirmed,TtoC(tStart),""),IF(lConfirmed,TtoC(tEnd2),""),cStatus,Trim(wer->Matchcode)+IF(!Empty(wer->liefma),cOpSeparator+"EXT:"+Trim(wer->Liefma),"")})                           
+      Aadd(aManuOrders,{cOrder,cMatch,nQty,TtoC(tStart),TtoC(tEnd2),cStatus,Trim(wer->Matchcode)+IF(!Empty(wer->liefma),cOpSeparator+"EXT:"+Trim(wer->Liefma),"")})                           
       RETURN NIL
    }
 
@@ -870,14 +891,17 @@ FUNCTION RUN_FREPPLE_EXPORT()
    DO WHILE ! wer->(EOF())     
       oWerExtra := wer->(ExtraData():New(wer->Aufno))
 
-      nDays := GetValue("FREPPLE_CONFIRM_MO_DAYS",4,"Confirm MO days ahead (0=off)")
+      /*nDays := GetValue("FREPPLE_CONFIRM_MO_DAYS",4,"Confirm MO days ahead (0=off)")
       
       /*IF Empty(wer->Liefma) .AND. nDays > 0 .AND. wer->StartDate < Date()+nDays .AND. Trim(oWerExtra:FreppleSta) != "confirmed"         
          oWerExtra:FreppleSta := "confirmed"
          oWerExtra:Save()
       ENDIF*/
 
-      IF GetValue("FREPPLE_EXPORT_ALL_MO",.F.,"Export all existing MOs") .OR. wer->Status >= 1 .OR.  ! Empty(wer->Liefma) /*.OR. ! Empty(oWerExtra:FreppleSta)*/  //we only add orders which are in production or also can be purchased externaly
+      IF /*GetValue("FREPPLE_EXPORT_ALL_MO",.F.,"Export all existing MOs");
+         .OR.*/ wer->Status >= 1;
+         .OR.  ! Empty(wer->Liefma) /*.OR. ! Empty(oWerExtra:FreppleSta)*/  //we only add orders which are in production or also can be purchased externaly
+
          @ MaxRow()/2+2,MaxCol()/2-4 SAY "["+Str(wer->Aufno,6)+"]" COLOR c_five     
          IF ! Empty(wer->Liefma)
             ku->(dbSetOrder( 1 ))   
@@ -890,7 +914,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
             ELSE
                dStart := AddWorkingDays(CalWD(wer->termin)+IF(oExtra:WaDay>0,oExtra:WaDay-2,4),oExtra:ShipTime)
             ENDIF
-            IF Right(Str(wer->End,4),2) == "97" 
+            IF Right(Str(wer->End,4),2) $ {"97","98"} 
                dEnd := Date()+12*7
             ELSE
                dEnd   := CalWD(Max(CWeek(Date()),wer->End))-3 //Friday the week before, as Frepple adds RecvTime to this date through the distribution order
@@ -957,19 +981,18 @@ FUNCTION RUN_FREPPLE_EXPORT()
 
             IF lCurrentParts .OR. wer->status >= 1 //either the part list ties up or goods have been supplied (then we do not need a part list in frepple)                           
                cStatus := "" //Trim(oWerExtra:FreppleSta)
-               IF wer->status>=1 .OR. (!Empty(wer->Liefma).AND.bes->Confirmed=="Y")
+               IF /*wer->status>=1 .OR.*/ (!Empty(wer->Liefma).AND.bes->Confirmed=="Y")  //20.03. removed confirmed for internal routing MO, only Job-MO will be exported as confirmed
                   cStatus := "confirmed"
-               ELSEIF Empty(cStatus) .AND. (!Empty(wer->Liefma).AND. ! bes->Printed )
+               ELSEIF /*Empty(cStatus) .AND.*/ (!Empty(wer->Liefma).AND. ! bes->Printed )
                   cStatus := "proposed"
-               ELSEIF Empty(cStatus)
+               ELSE //IF Empty(cStatus)
                   cStatus := "approved"
                ENDIF
-      
-               lConfirmed := .T. //cStatus == "confirmed"
 
                rst->(dbSetOrder( 6 ))
                job->(dbSetOrder( 1 ))               
                res->(dbSetOrder( 1 ))
+               wat->(dbSetOrder( 4 ))
                aManuSubOrders := {}
                IF Empty(wer->Liefma) .AND. rst->(dbSeek( "WA "+Str(wer->Aufno,6) ))
                   tStart := StoT(DtoS(dStart)+"170000")
@@ -979,18 +1002,25 @@ FUNCTION RUN_FREPPLE_EXPORT()
                      tEnd   := Max(tEnd,SToT(rst->End))  
                      lHasResource := .F.                  
                      IF rst->Job != 0                        
-                        job->(dbSeek( Str(rst->Job) ))                                                
+                        job->(dbSeek( Str(rst->Job) )) 
+                        lJobStarted := wat->(dbSeek( Str(wer->Aufno,6)+Str(rst->Job,6) )) //see if job has been started
+                        IF cStatus == "approved"
+                           //cStatus := "confirmed" //switch the main order to confirmed if we have started the job
+                        ENDIF
                         
                         Aadd(aManuSubOrders,{;
                            "FA"+LTrIM(Str(wer->Aufno))+"-"+Trim(job->Name),;
                            cMatch,;
                            wer->Qty-wer->GelQty,;
-                           IF(lConfirmed,TtoC(StoT(rst->Start)),""),;
-                           IF(lConfirmed,TtoC(StoT(rst->End)),""),;
-                           IF(rst->Complete,"completed",cStatus),; 
+                           TtoC(StoT(IF(lJobStarted,wat->Start,rst->Start))),;  //if we have started already we set the start time correctly, sadly this will not update the end time
+                           TtoC(StoT(rst->End)),;
+                           IF(rst->Complete,"completed",IF(lJobStarted,"confirmed","approved")),; //only of the job is started we import it as confirmed, we used to do this the same as the main work order
                            Trim(wer->Matchcode)+cOpSeparator+Trim(job->Name),;
                            "FA"+LTrIM(Str(wer->Aufno));
                         })
+
+                            
+                            
 
                         DO WHILE rst->Job == job->Nummer .AND. rst->No == wer->Aufno .AND. ! rst->(EOF())
                            IF rst->Resource != 0 .AND. res->(dbSeek( Str(rst->Resource,6) ))    
@@ -1077,7 +1107,10 @@ FUNCTION RUN_FREPPLE_EXPORT()
    lCancel := .F.
    FOR EACH aData IN hFiles      
       DO WHILE ! SaveAsCSV(cPath+aData:__enumKey,aData,.T.,.T.) .AND. ! lCancel
-         IF Tr_MsgBox('Datei "'+aData:__eNumKey+'" konnte nicht gespeichert werden.',,{"Wiederholen","Abbrechen"}) == 2
+         IF GetConfigValue("BATCHMODE") .OR. Tr_MsgBox('Datei "'+aData:__eNumKey+'" konnte nicht gespeichert werden.',,{"Wiederholen","Abbrechen"}) == 2
+            IF GetConfigValue("BATCHMODE")
+               SendMail({{"amos.engelking@engelking.de","Amos"}},"Fehler beim Exportieren von "+aData:__eNumKey,"Fehler beim Exportieren von "+aData:__eNumKey)
+            ENDIF
             lCancel := .T.
             EXIT
          ENDIF
@@ -1099,15 +1132,20 @@ FUNCTION RUN_FREPPLE_EXPORT()
    IF ! lCancel
       nErrorCount := 0
       AEval(aErrors,{|x| IF(x[3] == "ERROR" .OR. x[3] == "FATAL",nErrorCount++,NIL) })
-      IF nErrorCount > 0 .AND. Tr_MsgBox(LTrim(Str(nErrorCount))+" Fehler. Fehlerprotokoll ”ffnen?",,{"Ja","Nein"}) == 1
-         WAPI_ShellExecute(,"open",cErrorFile)
+      IF nErrorCount > 0 
+         IF GetConfigValue("BATCHMODE")
+            UnLockEntity("PPLEX",0)
+            RETURN .F.
+         ELSEIF Tr_MsgBox(LTrim(Str(nErrorCount))+" Fehler. Fehlerprotokoll ”ffnen?",,{"Ja","Nein"}) == 1
+            WAPI_ShellExecute(,"open",cErrorFile)
+         ENDIF
       ENDIF
-   ELSE
+   ELSEIF ! GetConfigValue("BATCHMODE")
       Tr_MsgBox("Export abgebrochen")
    ENDIF
    
-
-RETURN NIL
+   UnLockEntity("PPLEX",0)
+RETURN .T.
 
 
 STATIC FUNCTION _GetScrapRate(nArtnr)

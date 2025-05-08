@@ -1,8 +1,9 @@
 PROC CHECK_FRAME_PO
    LOCAL nWeek := AddWeeks(CWeek(Date()),8)
    LOCAL nBesnr
-   LOCAL aTo := {{"amos.engelking@engelking.de","Amos"},{"daniel.becker@engelking.de","Daniel"}}
+   LOCAL aTo := {{"daniel.becker@engelking.de","Daniel"}}
    LOCAL cMessage,cSubject
+   LOCAL oArt
 
    NetUse("engbes","bes")
 
@@ -23,6 +24,7 @@ PROC CHECK_FRAME_PO
          bes->(dbSkip())
       ENDDO
       cMessage += "</pre>"
+      cMessage += GetNotesForEmail("BES",nBesnr,.F.)
       SendMail(aTo,cSubject,cMessage)
    ENDDO
 

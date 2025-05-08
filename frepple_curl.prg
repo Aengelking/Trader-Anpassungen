@@ -49,8 +49,10 @@ FUNCTION RUN_FREPPLE_CURL
 
    ? "Clear existing data. "
    IF ! oFrepple:waitEndOfTask(oFrepple:Empty(),Row(),Col())
-      Alert("failed")
-      RETURN NIL
+      IF ! GetConfigValue("BATCHMODE") 
+         Tr_MsgBox("failed")
+      ENDIF
+      RETURN .F.
    ENDIF
 
    ? "Remove any old files. "   
@@ -58,8 +60,10 @@ FUNCTION RUN_FREPPLE_CURL
       ?? "done"
    ELSE
       ?? "failed"
-      Alert("failed")
-      RETURN NIL
+      IF ! GetConfigValue("BATCHMODE") 
+         Tr_MsgBox("failed")
+      ENDIF
+      RETURN .F.
    ENDIF
 
    ? "Upload files"
@@ -78,7 +82,7 @@ FUNCTION RUN_FREPPLE_CURL
    nProc := HB_OpenProcess(cCmd,,@nStdOut,,.T.)
    IF nProc <= 0
       Alert("Failed to start process.;"+cCmd)
-      RETURN NIL
+      RETURN .F.
    ENDIF
    DO WHILE HB_ProcessValue(nProc,.F.) == -1
       cLine := Space( 1000 )
@@ -89,14 +93,16 @@ FUNCTION RUN_FREPPLE_CURL
    
    ? "Importing data. "
    IF ! oFrepple:waitEndOfTask(oFrepple:ImportFromFolder(),Row(),Col())  
-      Alert("failed")
-      RETURN NIL    
+      IF ! GetConfigValue("BATCHMODE") 
+         Tr_MsgBox("failed")
+      ENDIF
+      RETURN .F.    
    ENDIF
 
    ? "Executing plan. "
    DO WHILE ! oFrepple:waitEndOfTask(oFrepple:RunPlan(),Row(),Col())
-      IF Tr_MsgBox("Executing plan failed",,{"try again","cancel"}) != 1
-         RETURN NIL
+      IF GetConfigValue("BATCHMODE") .OR. Tr_MsgBox("Executing plan failed",,{"try again","cancel"}) != 1
+         RETURN .F.
       ENDIF
    ENDDO
 
@@ -121,18 +127,23 @@ FUNCTION RUN_FREPPLE_CURL
       //Alert(cData)
       IF ! MemoWrit(cDir+aFiles[nX],cData)
          ?? " failed"
+         RETURN .F.
       ELSE
          ?? " OK"
       ENDIF
    NEXT
    
-   Alert("done")
+   IF ! GetConfigValue("BATCHMODE")
+      Alert("done")
+   ENDIF
+
+   
 
    //curl_easy_setopt(pCurl, HB_CURLOPT_POSTFIELDS, BuildPostMessage({"symbol"=>Trim(IF(!Empty(cArtLief),cArtLief,cMatch)),"brutto"=>"","similars"=>{20523,188368,81144,92165,92145} }))
    
 
 
-RETURN NIL
+RETURN .T.
 
 FUNCTION GetFreppleApi()
    LOCAL cBaseUrl := "https://engelking.frepple.com/"

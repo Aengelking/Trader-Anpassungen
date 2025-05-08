@@ -41,7 +41,7 @@ PROC RUN_REPORT_CHECK_AUF_ONTIME
       RETURN
    ENDIF
 
-   FWrite(nH,"AB-Nr.;Pos;Artikel;Best„tigt;Versand;Geplant;Differenz;Wunschtermin;Differenz"+Chr(13)+Chr(10))
+   FWrite(nH,HB_OemToAnsi("AB-Nr.;Pos;Artikel;Best„tigt;Versand;Geplant;Differenz;Wunschtermin;Differenz")+Chr(13)+Chr(10))
 
 DO WHILE ! auf->(EOF()) .AND. auf->Kundma == cKunde .AND. auf->Besda <= dEnd
    IF ku->JustInTime
@@ -49,7 +49,7 @@ DO WHILE ! auf->(EOF()) .AND. auf->Kundma == cKunde .AND. auf->Besda <= dEnd
       dWish := GetJITLiefertag(auf->WDatum,ku->JIT_LZ)
    ELSE
       nShipTime := Hook("get_shiptime",{ku->Nummer,.F.},1)
-      dPlan := CalWD(auf->Dterm)+4  //latest leaving on Friday of that week
+      dPlan := CalWD(auf->Dterm)+4-nShipTime  //latest leaving on Friday of that week
       dWish := GetJITLiefertag(auf->WDatum,nShipTime)
    ENDIF
    dShip := Stod("")
@@ -62,7 +62,7 @@ DO WHILE ! auf->(EOF()) .AND. auf->Kundma == cKunde .AND. auf->Besda <= dEnd
       	re->(dbSkip())
       Enddo
       IF ! Empty(dShip)
-         FWrite(nH,Str(auf->AbNr)+";"+Str(auf->Itmnr)+";"+Trim(auf->Matchcode)+";"+DToC(IF(ku->JustInTime,auf->BDatum,CalWD(auf->Dterm)+nShipTime))+";"+DToC(dShip)+";"+DToC(dPlan)+";"+Str(dShip-dPlan,3)+";"+DToC(dWish)+";"+Str(dShip-dWish,3)+Chr(13)+Chr(10))
+         FWrite(nH,Str(auf->AbNr)+";"+Str(auf->Itmnr)+";"+Trim(auf->Matchcode)+";"+DToC(IF(ku->JustInTime,auf->BDatum,CalWD(auf->Dterm)+4))+";"+DToC(dShip)+";"+DToC(dPlan)+";"+Str(dShip-dPlan,3)+";"+DToC(dWish)+";"+Str(dShip-dWish,3)+Chr(13)+Chr(10))
          IF dShip > dPlan
    //         FWrite(nH,Str(auf->AbNr)+";"+Str(auf->Itmnr)+";"+auf->Matchcode+";"+DToC(dShip)+";"+DToC(dPlan)+";"+Str(dShip-dPlan,3)+Chr(13)+Chr(10))
             IF dShip <= dPlan+2

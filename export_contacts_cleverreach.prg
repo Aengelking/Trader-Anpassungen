@@ -33,23 +33,26 @@ LOCAL dStart := StoD(cStart)
 LOCAL cWeek  := CalWeek(dStart)
 LOCAL nPerson
 LOCAL hTurnOver
+LOCAL hBranchen := GetBranchen()
 
 Head("Ansprechpartner mit Email Adressen exportieren")
 
-@ 06,00 SAY "Muster"
+/*@ 06,00 SAY "Muster"
 @ 06,27 GET lMuster CHECKBOX
 @ 07,00 SAY "Angebote"
 @ 07,27 GET lAngebot CHECKBOX
 @ 08,00 SAY t("Aufträge")
 @ 08,27 GET lAuftrag CHECKBOX
 @ 09,00 SAY "Alle Kontakte"
-@ 09,27 GET lAllContacts CHECKBOX
+@ 09,27 GET lAllContacts CHECKBOX*/
 //@ 10,00 SAY "Allgemeine ausschlieáen"
 //@ 10,27 GET lNoGeneral CHECKBOX
-READ
-
-
+/*READ
 IF LastKey() == 27
+   RETURN
+ENDIF*/
+
+IF Tr_MsgBox("Export starten?",,{"Nein","Ja"}) != 2   
    RETURN
 ENDIF
 
@@ -152,6 +155,8 @@ Aadd(hData[cLang][1],"Stadt")
 Aadd(hData[cLang][1],"Bundesland")
 Aadd(hData[cLang][1],"Land")
 
+Aadd(hData[cLang][1],"Branche")
+
 Aadd(hData[cLang][1],"Letzte Bestellung")
 Aadd(hData[cLang][1],"Letztes Muster")
 Aadd(hData[cLang][1],"Letztes Angebot")
@@ -179,7 +184,7 @@ Do While nX <= Len(hPos)
    If ! Trim(cKunde) $ "SELF TEST"      
       hTurnOver := GetCustomerTurnOver(cKunde)
 		ku->(dbSeek( cKunde+"K" ))
-      nP := 1
+      /*nP := 1
       IF lAllContacts
          aPeople := GetAddressContacts(.F.)[2]
       ELSE
@@ -190,7 +195,7 @@ Do While nX <= Len(hPos)
             ENDIF
          NEXT
          //aPeople := 
-      ENDIF
+      ENDIF*/
       conts->(dbSetOrder(2))
       conts->(dbSeek( Str(ku->Nummer,6) ))
       //Do While nP <= Len(aPeople)
@@ -242,6 +247,13 @@ Do While nX <= Len(hPos)
                   Aadd(aRec,"")
                ENDIF
                AAdd(aRec,Trim(GetCountryname(ku->CountryIso)))
+               
+               IF HHasKey(hBranchen,Trim(ku->Branch))
+                  Aadd(aRec,Trim(hBranchen[ku->Branch]))
+               ELSE
+                  Aadd(aRec,"")
+               ENDIF
+
                Aadd(aRec,IF(Empty(hPos[cKunde]["lastorder"]),"",DToC(hPos[cKunde]["lastorder"])))
                Aadd(aRec,IF(Empty(hPos[cKunde]["lastsample"]),"",DToC(hPos[cKunde]["lastsample"])))
                Aadd(aRec,IF(Empty(hPos[cKunde]["lastquote"]),"",DToC(hPos[cKunde]["lastquote"])))

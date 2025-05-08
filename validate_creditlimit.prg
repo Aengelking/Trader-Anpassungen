@@ -41,7 +41,7 @@ If Round(nLimit,0) < Round(nCredLimit,0)
          IF oReport != NIL .AND. oReport:oRoot != NIL
             oIter := TXmlIteratorScan():New(oReport:oRoot)
             oNode := oIter:Find("DECurrentRating")
-            IF oNode == NIL .OR. Val(oNode:cData) > 3.0
+            IF oNode == NIL .OR. Val(oNode:cData) >= 3.0
                oExtra:AutoMahn := .T.
                oExtra:Save()
                nLimit := Hook("get_customercreditlimit",{ku->Nummer,cKunde,nCredLimit,@nError})

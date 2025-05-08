@@ -10,7 +10,16 @@ FUNC HOOK_AFTER_CHANGE_ARTIKEL_MATCHCODE(cNewMatch,cOldMatch)
          cText += Chr(13)+Chr(10)+lag->Lagerort+" "+Transform(lag->Lagermenge,Me(art->Me))
          lag->(dbSkip())
       ENDDO
-      cText += Chr(13)+Chr(10)+Chr(13)+Chr(10)+"Artikel bitte neu etikettieren."            
-      SendMail({{"bertram.merz@engelking.de","Bertram Merz"}},"Artikel Matchcode "+Trim(cOldMatch)+" ge„ndert",cText)
+      cText += Chr(13)+Chr(10)+Chr(13)+Chr(10)+"Artikel bitte neu etikettieren."     
+      
+      SendMessage("LAGER | Artikel Matchcode ge„ndert","Artikel Matchcode "+Trim(cOldMatch)+" ge„ndert",cText)       
+      
+      //SendMail({{"bertram.merz@engelking.de","Bertram Merz"}},"Artikel Matchcode "+Trim(cOldMatch)+" ge„ndert",cText)
+   ENDIF
+   IF art->QS
+      cText := "Artikelnummer:"+LTrim(Str(art->Artikelnr))+Chr(13)+Chr(10)+"Alter Matchcode: "+cOldMatch+Chr(13)+Chr(10)+"Neuer Matchcode: "+cNewMatch
+      cText += Chr(13)+Chr(10)+Chr(13)+Chr(10)+"Bitte prfen ob Erstmuster neu eingeordnet werden mssen."
+
+      SendMessage("QS | Artikel Matchcode ge„ndert","Artikel Matchcode "+Trim(cOldMatch)+" ge„ndert",cText)       
    ENDIF
 RETURN .T.

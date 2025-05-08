@@ -69,6 +69,10 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
       ELSEIF HHasKey(aOrderList[nX],"MOVEWEEK") .AND. aOrderList[nX]["MOVEWEEK"] != 0
          cMsg += "Liefervorzug prÅfen - verfÅgbar in KW "+NiceWeek(aOrderList[nX]["MOVEWEEK"])
          lVorzug := .T.
+         IF art->Bezug >= 5 .AND. ! part->(dbSeek( Str(art->Artikelnr,6)+Str(-1,4) ))
+            cMsgManu += cMsgLine + " Produktionsvorzug prÅfen - verfÅgbar in KW "+NiceWeek(aOrderList[nX]["MOVEWEEK"])
+            lManu := .T. //Meldung an Fertigungplanung
+         ENDIF         
       ELSEIF art->Mindest > 0 .AND. art->Mindest >= aOrderList[nX]["QTY"]/2  //Artikel hat Meldebestand und dieser ist mindestens 50% der benîtigten Menge
          cMsg += "Lagerartikel - BestÑnde prÅfen"
          lToBeChecked := .T.
@@ -150,7 +154,7 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
                      nSampleWeek := CWeek(Date())
                      DO WHILE ! lSampleFound .AND. auf->Artikelnr == art->Artikelnr .AND. (auf->Bestat <= 3 .OR. (auf->Bestat >= 4 .AND. auf->Bestat <= 6))
                         IF auf->VkQty <= hFreigabe:nMaxQty
-                           lSampleFound := .T.
+                           lSampleFound := (auf->Bestat != 3 .AND. auf->Bestat != 6) .OR. auf->GelQty > 0
                            lSampleShipped := auf->GelQty > 0
                            nSampleWeek := auf->DTerm
                            IF lSampleShipped
@@ -312,37 +316,42 @@ FUNCTION HOOK_ON_AUF_NOT_ORDERED(nAbnr,aOrderList,nReminderCount)
       
    ENDIF
 
+   lRet := .T.
+
    IF /*lOrdered .OR.*/ (lVorzug .AND. nReminderCount == 0) .OR. lToBeOrdered .OR. lToBeChecked
       SendMail(GetConfigEMail("SO-ORDERPARTS"),"AB "+LTrim(Str(nAbnr,6)),cMsg)      
       //SendMail({{"amos.engelking@engelking.de","Amos"}},"AB "+LTrim(Str(nAbnr,6)),cMsg)      
       IF lMOQ
          //SendMail({{"amos.engelking@engelking.de","Amos"}},"AB "+LTrim(Str(nAbnr,6))+" mit MMZ",cMsg)      
       ENDIF
-      RETURN .F.
+      //RETURN .F.
+      lRet := .F.
    ENDIF
    IF lOrdered //we do not send a message to the buyer if we have ordered the parts
-      RETURN .F.
+      //RETURN .F.
+      lRet := .F.
    ENDIF
    IF lManu
-      SendMail({{"yannick.matthaeus@engelking.de","Yannick"}},"AB "+LTrim(Str(nAbnr,6))+" Fertigung planen",cMsgManu)
-      RETURN .F.
+      SendMessage("Fertigung | Auftrag planen","AB "+LTrim(Str(nAbnr,6))+" Fertigung planen",cMsgManu)
+      lRet := .F.
    ENDIF
    IF lFrei
       IF ! lFreiWait
-         aTo := {{"chris.chertes@engelking.de","Chris"}}
-         IF ! (GetValue("HOLIDAY-AMOS-START") <= Date() .AND. GetValue("HOLIDAY-AMOS-END") >= Date())
-            Aadd(aTo,{"amos.engelking@engelking.de","Amos"})
-         ENDIF
-         SendMail(aTo,"AB "+LTrim(Str(nAbnr,6))+" Freigabe prÅfen",cMsgFrei)
+         SendMessage("Projektmanagement | Freigabe Kundenauftrag","AB "+LTrim(Str(nAbnr,6))+" Freigabe prÅfen",cMsgFrei)         
       ELSE
          // SendMail({{"amos.engelking@engelking.de","Amos"}},"AB "+LTrim(Str(nAbnr,6))+" Freigabe prÅfen (geht nicht an Chris)",cMsgFrei)
       ENDIF
-      RETURN .F.
+      //RETURN .F.
+      lRet := .F.
    ENDIF
-   
-   SendMail({{"amos.engelking@engelking.de","Amos"}},"AB "+LTrim(Str(nAbnr,6))+IF(nReminderCount!=NIL .AND. nReminderCount != 0," - "+LTrim(Str(nReminderCount))+". Erinnerung","")+" (Standardmitteilung wird verschickt)",IF(lVorzug .AND. nReminderCount != 0,"VORZUG NICHT VERSENDET"+CRLF,"")+cMsg)
 
-RETURN .T. //send standard message
+   IF lRet
+      SendMail({{"amos.engelking@engelking.de","Amos"}},;
+         "AB "+LTrim(Str(nAbnr,6))+IF(nReminderCount!=NIL .AND. nReminderCount != 0," - "+LTrim(Str(nReminderCount))+". Erinnerung","")+" (Standardmitteilung wird verschickt)",;
+         IF(lVorzug .AND. nReminderCount != 0,"VORZUG NICHT VERSENDET"+CRLF,"")+cMsg)
+   ENDIF
+
+RETURN lRet
 
 
 STATIC Function __AddToWaitList(nQty,nEkPr,nPe,nContract,nContrPos,nDelWeeks)

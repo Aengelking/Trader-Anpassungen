@@ -31,7 +31,8 @@ FUNCTION HOOK_AFTER_CERATE_VARIANT(oArtikel)
          IF ! bpr->(dbSeek(ali->Kunde+Str(ali->Artikelnr,6))) .OR. bpr->EndDate < Date()
             cText += "<br>Preise fehlen!"
          ENDIF 
-
+      ELSE
+         cText += "<br>Hersteller-Artikelnr. und Preis fehlt!"
       ENDIF
    ELSEIF Left(oArtikel:Matchcode,2) == "SZ" //Signal Artikel auf Varianten Basis
       nPoles := Val(Substr(oArtikel:Matchcode,7,2))

@@ -52,7 +52,7 @@ IF lRech //Rechnung
             re->(dbSkip(1))
             DO WHILE re->Rechnr == nNr .AND. ! re->(EOF()) .AND. ! lUpdateFreight
                art->(dbSeek( Str(re->Artikelnr,6) ))
-               IF re->AoQty != 0 .AND. art->Lagerart .AND. (art->Gruppe == "KONK" .OR. AT("NZ/",art->Matchcode) == 1  .OR. art->Manufactur == 14) //Netzkabel oder Onpow (nicht Engelking China)
+               IF re->AoQty != 0 .AND. art->Lagerart .AND. (art->Gruppe == "KANK" .OR. AT("NZ/",art->Matchcode) == 1  .OR. art->Manufactur == 14) //Netzkabel oder Onpow (nicht Engelking China)
                   lUpdateFreight := .T.
                ENDIF
                re->(dbSkip())

@@ -27,6 +27,7 @@ LOCAL nEx,nFixRate,aSkonto,nTable
 LOCAL aAddPriceTab
 LOCAL aPartPriceTabs
 LOCAL nAddPrice
+LOCAL cLiefma
 
 
 NetUse("engkund","ku")
@@ -45,7 +46,7 @@ IF AT("CMI57",art->Matchcode) == 1
    ENDIF
 ENDIF
 
-IF art->Manufactur == 9 .AND. (AT("/PB",art->Matchcode) != 0 .OR. Left(art->Matchcode,2) == "KS") .AND. art->Gruppe == "KONK"
+IF art->Manufactur == 9 .AND. (AT("/PB",art->Matchcode) != 0 .OR. Left(art->Matchcode,2) == "KS") //.AND. art->Gruppe == "KANK"
    NetUse("parts","part")
    art->(dbSetOrder( 2 ))
 
@@ -94,7 +95,7 @@ ELSEIF nTab == 12 .OR. nTab == 29
    oArt := Artikel():New()
    oArt:Load(nArtnr)
 
-   IF oArt:Manufactur == 9
+   IF oArt:Manufactur == 9 //Scolmore
 
       NetUse("artlief","ali")
       ali->(dbSetOrder( 5 ))        
@@ -165,26 +166,51 @@ ELSEIF nTab == 44
 
    aPriceTabs := MBaseRun(Trim(Tr_Getini(1))+"\run\prices\pricetabs",{nArtnr,dDate})   
    nTabSecs := Seconds()-nSecs
-ELSEIF nTab == 13 //Kabelkonfektion
+ELSEIF nTab == 13 //Kabelkonfektion   
+   NetUse("artlief","ali") 
    IF art->Bezug == 5
-      cLiefMa := Pad("SELF",8)
+      //cLiefMa := Pad("SELF",8)
+      NetUse("parts","part")
+      part->(dbSetOrder( 1 ))      
+      IF part->(dbSeek( Str(nArtnr,6)+Str(-1,4) )) //Lohnartikel gefunden         
+         nArtnr := part->Partart                  
+      ENDIF      
+   ENDIF 
+
+   NetUse("artlief","ali")
+   ali->(dbSetOrder( 6 ))
+   IF ali->(dbSeek( Str( nArtnr, 6)+Str(1,1) )) .AND. Trim(ali->Kunde) $ {"SELT","WHTECH"} //Prio 1
+      cLiefma := ali->Kunde
    ELSE
       cLiefma := Pad("WHTECH",8)
    ENDIF
+
    nPausch := 60
    NetUse( "buyprice", "bpr", .F., 0 )
    bpr->( dbSetOrder( 1 ) )   // liefma+artikelnr+qty
    IF bpr->( dbSeek( cLiefma + Str( nArtnr, 6 ) ) ) // found entry in supplier db
       DO WHILE bpr->Liefma == cLiefma .AND. bpr->Artikelnr == nArtnr
          IF ( bpr->StartDate <= Date() .AND. (bpr->Enddate >= Date() .OR. Empty( bpr->EndDate ))  )
-            Aadd(aPriceTabs,{bpr->Qty,(bpr->Price / Max( bpr->Pe, 1 )+nPausch/bpr->Qty)*stpr->Proz1/100*art->VkPe})
+            IF art->Bezug == 5
+               nPrice := StCalc(art->Artikelnr,8,99,.T.,,,bpr->Qty)
+               IF nPrice > 0
+                  Aadd(aPriceTabs,{bpr->Qty,(nPrice+nPausch/bpr->Qty)*stpr->Proz1/100*art->VkPe})
+               ELSE
+                  //Tr_MsgBox("Stckliste konnte fr "+LTrim(Transform(bpr->Qty,Me(art->Me)))+" "+art->Me+" nicht bewertet werden")
+               ENDIF
+            ELSE
+               Aadd(aPriceTabs,{bpr->Qty,(bpr->Price / Max( bpr->Pe, 1 )+nPausch/bpr->Qty)*stpr->Proz1/100*art->VkPe})
+            ENDIF
          ENDIF
          bpr->( dbSkip() )
       ENDDO
    ENDIF
+   aPriceTabs := ASort(aPriceTabs,,,{|a,b| a[1] < b[1] })
+   
    IF Len(aPriceTabs) == 0
       aPriceTabs := {{1,9999.99}}
    ENDIF
+   
 ELSEIF nTab == 14 //Gessmann
    NetUSe("manufact","manu")
    NetUse( "buyprice", "bpr", .F., 0 )
@@ -244,7 +270,8 @@ ELSEIF nTab == 15 //Value-Add
                IF aPartPriceTabs[nX,2] == 0
                   HB_ADel(aPartPriceTabs,nX,.T.)
                ELSE
-                  aPartPriceTabs[nX,2] /= part->Qty
+                  //? aPartPriceTabs[nX,1],aPartPriceTabs[nX,2]/art->vkpe
+                  aPartPriceTabs[nX,2] /= art->vkPe*part->Qty*part->Factor
                   nX++
                ENDIF               
             ENDDO
@@ -288,7 +315,7 @@ ELSEIF nTab == 15 //Value-Add
             EXIT */           
          ENDIF
          part->(dbSkip())
-      ENDDO
+      ENDDO      
       
       IF lFound .AND. nSubArt != 0     //we have found a part on the part list	    
          //IF Tr_Getini(28) == 9;Tr_MsgBox({"Subartikel gefunden",Str(nSubArt),ValToPrg(aPriceTabs)});ENDIF
@@ -322,6 +349,9 @@ ELSEIF nTab == 15 //Value-Add
                HB_ADel(aPriceTabs,1,.T.)
             ENDIF
          ENDDO
+         ASort(aPriceTabs,,,{|a,b| a[1] < b[1] })
+         HB_HSort(hPrice,,,{|a,b| a < b })
+
          FOR nX := 1 TO Len(aPriceTabs)            
             nY := 1
             nPrice := 0
@@ -336,6 +366,7 @@ ELSEIF nTab == 15 //Value-Add
             ENDIF
          NEXT
          
+         ASort(aPriceTabs,,,{|a,b| a[1] < b[1] })
 
       ELSE       
          //IF Tr_Getini(28) == 9;Tr_MsgBox("No part found on the part list;"+art->Matchcode);ENDIF  

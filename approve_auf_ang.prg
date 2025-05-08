@@ -294,7 +294,7 @@ FOR EACH hProd IN aProducts
                         DbgPrn("Waldom (wegen MOQ), Margin:"+LTrim(Str(hProd:Margin))+", EK: "+Ltrim(str(hProd:nEK)))
                      ELSEIF hProd:Artikel:Bezug < 5 //see if we can buy from RS or TME
                         //TME
-                        IF hProd:Artikel:Gruppe != "KOSO"
+                        IF Left(hProd:Artikel:Gruppe,2) != "KO"
                            hProd:Artikel:gotoRec()
                            hPrice := GetPricesCompet("TME")
                            IF ValType(hPrice) == "H" .AND. ! Empty(hPrice)

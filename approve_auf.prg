@@ -22,6 +22,10 @@ LOCAL hLaufZeit := { ; //Sonderlaufzeiten
    50155=>99;
 }
 
+/*IF Tr_MsgBox("Zur Sichtung einer Kollegin/einem Kollegen vorlegen?",,{"Ja","Nein"}) == 2
+   RETURN NIL
+ENDIF*/
+
 oExtra := ku->(ExtraData():New(oAuftrag:Kunde:Nummer))
 
 //temp

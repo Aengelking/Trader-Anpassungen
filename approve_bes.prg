@@ -58,7 +58,7 @@ DO WHILE bes->Besnr == nBesnr .AND. ! bes->(Eof())
       //check to see if it has folgepositionen, if it is not stockable
       lHasFolge := .F.
       IF ! oArt:Lagerart
-         nPosnr := bes->Posnr
+         /*nPosnr := bes->Posnr
          pjcst->(dbSetOrder( 2 ))
          bes->(dbSkip(1))
          IF bes->Besnr == nBesnr .AND. bes->FolgeTo == nPosnr
@@ -76,7 +76,7 @@ DO WHILE bes->Besnr == nBesnr .AND. ! bes->(Eof())
                nLevel := 1
                cText += cBaseText+" Artikel nicht lagerf„hig;"
             ENDIF
-         ENDIF
+         ENDIF*/
       ENDIF
 
       IF (oArt:Lagerart .OR. lHasFolge) .AND. bes->FolgeTo == 0 .AND. (bes->BeStat < 3 /*.OR. bes->bestat >= 5*/) .AND. bes->BeQty > 0 .AND. (bes->EkPr != 0 .OR. bes->BeQty > 3)

@@ -3,7 +3,7 @@ PROCEDURE After_Save_address(oAddress,lNew)
 LOCAL lChange,nRec,cName,lJur
 LOCAL lEG,nResult
 LOCAL aList,oRechnung,nRechnr
-LOCAL oCustom,oExtra,lUpDated
+LOCAL oCustom,oExtra,lUpDated,cError
 
 NetUse("rechnung","reh")
 NetUse("englsre","re")
@@ -121,6 +121,15 @@ IF oAddress:GROUP == "K" //nur Bei Kunden
       ku->Money := "E"
       ku->(dbUnLock())
    ENDIF
+   
+   IF Empty(ku->Branch)
+      TxtBox("Branche wird aktualisiert...")
+      IF ! UpdateBrancheWithAI(@cError)
+         Tr_MsgBox(cError,"FEHLER")
+      ENDIF
+      TxtClear()
+   ENDIF
+
 ENDIF
 
 
@@ -157,3 +166,4 @@ ENDIF
 
 #include "X:\run\agorum.prg"
 #include "X:\run\creditsafe.prg"
+#include "x:\run\update_branch_ai.prg"

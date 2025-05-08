@@ -44,8 +44,8 @@ IF cNextLevel == "MUS" .OR. ;
 	hRet:lBes        := .T.
    hRet:nMaxQty     := 4 //restrict everthing to four pieces, except the expections below 
 
-   IF art->Gruppe == "KONK" ; //Netzkabel
-      .OR. art->Gruppe == "KOSO" .AND. Left(art->Matchcode,3) == "pL/" //Litzen fr die Produktion
+   IF art->Gruppe == "KANK" ; //Netzkabel
+      .OR. Left(art->Gruppe,2) == "KO" .AND. Left(art->Matchcode,3) == "pL/" //Litzen fr die Produktion
       hRet:nMaxQty     := 1000
    ELSEIF Trim(art->Gruppe) == "XX" .AND. Trim(art->Type) == "RHB"
       hRet:nMaxQty     := 10000   
@@ -82,7 +82,7 @@ IF cNextLevel == "MUS" .OR. ;
 	ENDIF
 ELSEIF cState == "" //Freigabe noch nicht begonnen, Vorserien Muster
    hRet:lBes        := .T.
-   hRet:nMaxQty     := 2  //1 for the customer and one for us
+   hRet:nMaxQty     := 6  //1 for the customer and one for us
 ELSEIF cNextLevel == "ZNG" .AND. (Left(oArt:Matchcode,2) == "BA" .OR. Trim(oArt:Matchcode) $ {"KS28074/1"})  //Beschaffungsartikel
    hRet:lBes        := .T.
 ELSEIF cState == "DONE"
@@ -111,8 +111,8 @@ ELSEIF cState == "DONE"
 ENDIF
 
 IF Tr_Getini(28) == 9 
-   /*Alert("Next: "+cNextLevel+";"+ValToPrg(hRet))
-   hRet:lBes := .T.
+   //Alert(art->Matchcode+";Next: "+cNextLevel+";"+ValToPrg(hRet))
+   /*hRet:lBes := .T.
    hRet:nMaxQty := 7*/
    IF ! hRet:lBes //for returns
       IF nSupplier == 31330

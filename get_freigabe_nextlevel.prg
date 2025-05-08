@@ -32,7 +32,7 @@ FUNCTION HOOK_GET_FREIGABE_NEXT_LEVEL(cState,nArtnr,nSupplier,lNextFrei)
          RETURN "VMU"
       ELSEIf cState == "VMU" .AND. ! oArt:KuZeichnun  .AND. Trim(oArt:Type) == "WARE"//keine Kundenzeichnung, dann muss diese vom Kunden freigegeben werden, aber nur wenn es Ware ist, d.h. RHB und UNFERT nicht
          RETURN "UNTK"
-      Elseif oArt:Gruppe != "KONK"  .AND. (cState == "VMU" .OR. cState == "UNTK") //Fremd.-Unterlagen müssen durch uns freigegeben werden, außer bei Netzzuleitungen
+      Elseif oArt:Gruppe != "KANK"  .AND. (cState == "VMU" .OR. cState == "UNTK") //Fremd.-Unterlagen müssen durch uns freigegeben werden, außer bei Netzzuleitungen
          RETURN "UNT"
       ELSEIF cState == "UNT" .OR. cState == "UNTK" //.OR. cState == "MUS" .AND. 
          RETURN  "MUS"

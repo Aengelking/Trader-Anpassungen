@@ -12,12 +12,19 @@ MEMVAR mcHookName,mirpt,mibesnr
 	#xtranslate ShellExecute([<x,...>])        => Wapi_ShellExecute(<x>)
 #endif
 
+IF Tr_Getini(28) == "9"
+   Alert("Here")
+ENDIF
+
 NetUse("engkund","ku")
 netUse("engbes","bes")
 
 mcHookName := "BEFORE_PACK_FROM_LIST"
 
 cEtiPath := "\\EK-SERVER4\Data\Dokumente und Einstellungen\All Users\Dokumente\Aufkleber\"
+IF GetConfigValue("FIRMPATH") != "."
+   cEtiPath += GetConfigValue("FIRMPATH")+"\"
+ENDIF
 
 aOptions := {"Buchen","Drucken"}
 aState := {}
@@ -112,7 +119,7 @@ If ! lInUse .OR. (nChoice := Tr_MsgBox("Dieser Vorgang wird bereits bearbeitet",
 			If lAusland
 			   SET DEVICE TO SCREEN
             TxtBox("Rechnung")
-            
+
 				If ! lAtlas .OR. (lAtlas .AND. lInUse)
 					engrepr("",0,nNr,.F.,If(lAusland,3,ku->re),0) //print original(s), if foreign then print 3 copies for customs
 				Else

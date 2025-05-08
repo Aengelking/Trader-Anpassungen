@@ -24,10 +24,13 @@ LOCAL bGetFreigabe := { |nLief,oLief|
    IF hFreigabe:lBes       
       IF ! lBes .AND. hFreigabe:nMaxQty != 0 //noch nicht durch anderen Lieferanten freiggebn um Menge beschrÑnkt
          nMaxQty += hFreigabe:nMaxQty
+         cText += "Freigabe fÅr "+LTrim(Str(nMaxQty))+" erteilt. " 
+         Aadd(aFreigabeList,cText)
       ELSEIF lBes .AND. nMaxQty != 0 .AND. hFreigabe:nMaxQty == 0 //andere Freigabe aeber BeschrÑnkt, diese ist unbeschrÑnkt, dann BeschrÑnkung aufheben
          nMaxQty := 0
       ENDIF            
-      lBes := .T.      
+      lBes := .T. 
+      
    ELSE      
       cText += "nicht bestellbar. "
       IF hFreigabe["PPF"] == 0
@@ -77,7 +80,7 @@ IF oAufpos:Artikel:IsManufactured //in this case we need to get the "Lohn" posit
    ENDIF
 ELSE
    oArt := oAufpos:Artikel
-   IF oArt:Lagerart //wenn nicht LagerfÑhig dann ist es wahrscheinlich ein Folgeartikel auf jeden Fall wird das nicht extern bestellt.
+   IF oArt:Lagerart .OR. Trim(oArt:Matchcode) $ {"KS26814"} //wenn nicht LagerfÑhig dann ist es wahrscheinlich ein Artikel mit Folgeartikel auf jeden Fall wird das nicht extern bestellt.
       lExtern := .T.
    ENDIF
 ENDIF
@@ -116,8 +119,11 @@ ELSEIF ! Empty(oAufPos:Artikel:Zeichnung) //Freigabe prÅfen
       
    ENDIF
    //Alert(oAufPos:Artikel:Matchcode+";Max: "+Str(nMaxQty)+";Incoming:"+Str(hReq["income"])+";Requirement:"+Str(hReq["requirement"])+";Stock:"+Str(oAufPos:Artikel:Bestand)+";Qty:"+Str(oAufPos:VkQty-IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)))
-
-   nStock := oAufPos:Artikel:Bestand-hReq["requirement"]  //not planned stock
+   IF art->Lagerart
+      nStock := oAufPos:Artikel:Bestand-hReq["requirement"]  //not planned stock
+   ELSE
+      nStock := 0
+   ENDIF
    IF HHasKey(hReq["months"],Str(0,5)+Str(0,3)) //week > 52, e.g. 97, then this is available too
       nStock += hReq["months"][Str(0,5)+Str(0,3)]["requirement"]
       //IF Tr_Getini(28) == 9; Alert("97: "+Str(hReq["months"][Str(0,5)+Str(0,3)]));ENDIF
@@ -149,7 +155,8 @@ ELSEIF ! Empty(oAufPos:Artikel:Zeichnung) //Freigabe prÅfen
          RETURN .F.
       ELSEIF Right(Str(oAufPos:DTerm,4),2) != "97"
          //IF Tr_Getini(28)==9; Alert(Str(oAufPos:VkQty)+";"+Str(nMaxQty+oAufPos:Artikel:Bestand)+";"+IF(!lBes,"Bestellung nicht mîglich",""));ENDIF
-         Tr_MsgBox("Freigabe nicht ausreichend - Liefertermin auf 'folgt' (KWxx97) setzen. Maximal: "+LTrim(Transform(nMaxQty+nStock,oAufpos:Artikel:cPicture)))
+         HB_AIns(aFreigabeList,1,"Freigabe nicht ausreichend - Liefertermin auf 'folgt' (KWxx97) setzen. Maximal: "+LTrim(Transform(nMaxQty+nStock,oAufpos:Artikel:cPicture)),.T.)   
+         Tr_MsgBox(aFreigabeList)
          RETURN .F.
       ELSE
          //Tr_MsgBox("Freigabe nicht ausreichend, Artikel kann nicht bestellt werden. Maximal: "+LTrim(Transform(nMaxQty+nStock,oAufpos:Artikel:cPicture)))

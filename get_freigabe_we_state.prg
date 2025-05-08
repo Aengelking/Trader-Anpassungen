@@ -16,11 +16,11 @@ hRet := {"LWE"=>.F.,"LSPERRONLY"=>.F.,"LNOSPERRQTY"=>0}
 
    cState := "DONE"
 
-   //If (cState == "UNT"  .AND. lFrei) .OR. (art->Gruppe == "KONK" .AND. cState == "UNTK" .AND. lFrei) .OR. (cState == "MUS" .AND. ! lFrei) //Musterfreigabe
+   //If (cState == "UNT"  .AND. lFrei) .OR. (art->Gruppe == "KANK" .AND. cState == "UNTK" .AND. lFrei) .OR. (cState == "MUS" .AND. ! lFrei) //Musterfreigabe
    If cNextLevel == "MUS" .OR. cNextLevel == "DONE" .OR. cState == ""
    	hRet:lWE         := .T.
    	hRet:lSperrOnly  := .T.
-      HRet:nNoSperrQty := If(Left(art->Gruppe,2)=="KO",If(art->Gruppe == "KONK",1000,10),2000)      
+      HRet:nNoSperrQty := If(Left(art->Gruppe,2)=="KO",If(art->Gruppe == "KANK",1000,10),2000)      
    Elseif cState == "MUS"
    	hRet:lWE         := .T.
    	hRet:lSperrOnly  := .T.

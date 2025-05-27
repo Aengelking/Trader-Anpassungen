@@ -1,4 +1,6 @@
 #include 'y:\hb34\include\inkey.ch'
+#define DEBUG_PART "KS17073"
+
 PROCEDURE RUN_FREPPLE_IMPORT()
    //LOCAL cData := MemoRead(Path("import\frepple\manufacturingorder.csv"))
    LOCAL nX,nY
@@ -58,7 +60,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
    ?? "done" 
 
    ? "Reading data... "
-   gtSetClipboard(ValToPrg(aData))
+   //gtSetClipboard(ValToPrg(aData))
    IF Len(aData) > 1
       aCSV := {{"FA","Status","Frepple ID","Lieferant","Artikel","Menge alt","Menge neu","Startdatum alt","Startdaum neu","Enddatum alt","Enddatum neu","T„tigkeit"}}
 
@@ -82,14 +84,25 @@ PROCEDURE RUN_FREPPLE_IMPORT()
          ENDIF
          art->(dbSeek(cMatch))
          oArtExtra := art->(ExtraData():New(art->Artikelnr))
+         IF Trim(cMatch) == DEBUG_PART
+            ? aData[nX]["reference"]
+         ENDIF
          //? aData[nX]["reference"],cMatch,cJob,cSupplier,aData[nX]["operation"],aData[nX]["owner"],aData[nX]["owner"]=="FA8820",aData[nX]["reference"]=="FA8820"         
          hRow := {"ID"=>aData[nX]["reference"],"STATUS"=>aData[nX]["status"],"QTY"=>Round(Val(aData[nX]["quantity"]),GetMeDecimals(art->me)),"BADQTY"=>0,"START"=>Frep_StoT(aData[nX]["startdate"]),"END"=>Frep_StoT(aData[nX]["enddate"]),"SUPPLIER"=>cSupplier,"JOBS"=>{},"DELAY"=>aData[nX]["delay"]}         
          IF AT("QS",cJob) == 1 
-             //ignore QS
+            IF Trim(cMatch) == DEBUG_PART
+               ?? " QS - ignored"
+            ENDIF                                    
+             //ignore QS   
          ELSEIF hRow["STATUS"] == "closed" //closed orders are not imported
-            //? "closed"
+            IF Trim(cMatch) == DEBUG_PART
+               ?? " closed"
+            ENDIF                        
          ELSEIF ! Empty(cJob) .AND. ! Empty(aData[nX]["owner"]) //internal (has a job) and not routing operation
-               
+            IF Trim(cMatch) == DEBUG_PART
+               ?? " looking for order..."
+            ENDIF
+
             //scan for owner 
             nAufno := 0   
             nOrder := 0             
@@ -98,9 +111,12 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                IF ! HHasKey(hOrders,nAufno)
                   nAufno := 0                     
                ENDIF
+               IF Trim(cMatch) == DEBUG_PART
+                  ?? nAufno
+               ENDIF
+      
             ELSEIF HHasKey(hItems,cMatch)
                nOrder := Ascan(hItems[cMatch],{|x| Trim(x["ID"]) == Trim(aData[nX]["owner"]) })
-               //?? nOrder
             ENDIF   
 
             IF cJob != "DUMMY" //do not import DUMMY operations as jobs
@@ -147,32 +163,23 @@ PROCEDURE RUN_FREPPLE_IMPORT()
 
             IF nExt == 0 .OR. oArtExtra:Frep_Ext //internal order or part is marked to import Supplier orders too
                IF AT("FA",aData[nX]["reference"]) == 1 //This is a existing order, we check the dates and move accordingly                  
-                  //IF nExt == 0 .OR. cSupplier == "LACKIERZ"
-                     nAufno := Val(SubStr(aData[nX]["reference"],3))               
-                     IF ! nAufno $ hOrders
-                        hOrders[nAufno] := hRow
-                     ENDIF
-                     wer->(dbSeek( Str(nAufno,6) ))
-                     IF ! HHasKey(hItems,Trim(wer->Matchcode))
-                        hItems[cMatch] := {}
-                     ENDIF               
-                  //ENDIF
-               ELSE //this is a newly proposed order              
-                  /*IF nExt > 0 .AND. cSupplier != "LACKIERZ" //this is a supplier order, we need to add it to the supplier list
-                     //cSupplier := SubStr(aData[nX,hMap:Operation_Id],nExt+6)
-                     IF ! HHasKey(hSuppliers,cSupplier)
-                        hSuppliers[cSupplier] := {=>}
-                     ENDIF
-                     IF ! HHasKey(hSuppliers[cSupplier],cMatch)
-                        hSuppliers[cSupplier,cMatch] := {}
-                     ENDIF
-                     Aadd(hSuppliers[cSupplier,cMatch],hRow)
-                  ELSE*/ //this is a internal order, we need to add it to the internal list*/                  
-                     IF ! HHasKey(hItems,cMatch)
-                        hItems[cMatch] := {}
-                     ENDIF
-                     Aadd(hItems[cMatch],hRow)
-                  //ENDIF
+                  nAufno := Val(SubStr(aData[nX]["reference"],3))               
+                  IF ! nAufno $ hOrders
+                     hOrders[nAufno] := hRow
+                  ENDIF
+                  wer->(dbSeek( Str(nAufno,6) ))
+                  IF ! HHasKey(hItems,Trim(wer->Matchcode))
+                     hItems[cMatch] := {}
+                  ENDIF               
+               ELSE //this is a newly proposed order    
+                  IF Trim(cMatch) == DEBUG_PART
+                     ?? " proposed"
+                  ENDIF                                    
+      
+                  IF ! HHasKey(hItems,cMatch)
+                     hItems[cMatch] := {}
+                  ENDIF
+                  Aadd(hItems[cMatch],hRow)
                ENDIF
             ENDIF
          ENDIF
@@ -217,7 +224,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
             res->(dbSeek( hJob:Resource ))  
          ENDIF
          IF ! Empty(nWA) .AND. (rst->(dbSeek( "WA "+Str(nWA,6)+Str(job->Nummer,6)+Str(-1,6) )) .OR. rst->(dbSeek( "WA "+Str(nWA,6)+Str(0,6) )))
-            Aadd(aCSV,{"","berschreiben",,,,,,StoT(rst->Start),hJob["START"],Stot(rst->End),hJob["END"],hJob:Job,job->Nummer,hJob:Resource})
+            Aadd(aCSV,{nWA,"berschreiben",,,,,,StoT(rst->Start),hJob["START"],Stot(rst->End),hJob["END"],hJob:Job,job->Nummer,hJob:Resource})
             
                rst->(Rec_Lock(0))
                IF hJob:Resource == ""
@@ -240,9 +247,9 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                fjob->(dbUnLock())
             
          ELSEIF ! Empty(nWA)
-            Aadd(aCSV,{"","neu",,,,,,,hJob["START"],,hJob["END"],hJob:Job,job->Nummer,hJob:Resource})
+            Aadd(aCSV,{nWA,"neu",,,,,,,hJob["START"],,hJob["END"],hJob:Job,job->Nummer,hJob:Resource})
             
-               Aadd(ATail(aCSV),"record added")
+               
                oRec := rst->(Record():New(.T.))
                oRec:SetId("ID",2)                  
                oRec:Job := job->Nummer
@@ -280,7 +287,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                res->(dbSeek( Str(rst->Resource,6) ))
             ELSEIF rst->Resource == -1
             //IF AScan(aJobs,{|x| x:Job == Trim(job->Name) .AND. x:Resource == IF(rst->Resource==0,"",Trim(res->Name)) }) == 0
-               Aadd(aCSV,{"","l”schen",,,,,,Stot(rst->Start),,Stot(rst->End),,job->Name,rst->Job,Trim(res->Name)})
+               Aadd(aCSV,{nWA,"l”schen",,,,,,Stot(rst->Start),,Stot(rst->End),,job->Name,rst->Job,Trim(res->Name)})
                
                IF fjob->(dbSeek( Str(rst->ID,12)))
                   fjob->(Rec_Lock(0))
@@ -309,7 +316,13 @@ PROCEDURE RUN_FREPPLE_IMPORT()
       cMatch := HGetKeyAt(hItems,nD)      
       aData  := HGetValueAt(hItems,nD)*/
    FOR nD := 1 TO Len(aMatch)
+
       cMatch := aMatch[nD]
+
+      IF Trim(cMatch) == DEBUG_PART
+         ? DEBUG_PART
+      ENDIF                                    
+
 
       aData := hItems[cMatch]
 
@@ -323,10 +336,8 @@ PROCEDURE RUN_FREPPLE_IMPORT()
 
       wer->(dbsetOrder( 2 ))
       Select("wer")
-      SET FILTER TO wer->Status <= 3 .AND. /* wer->Status >= 1 .AND. (Empty(wer->Liefma) .OR. Trim(wer->Liefma) $ {"LACKIERZ"}) .AND.*/ wer->Qty-wer->PlanBad > 0 .AND. Right(Str(wer->TerminFrue,4),2) != "99"
+      SET FILTER TO wer->Status <= 3 .AND. wer->Qty-wer->PlanBad > 0 .AND. Right(Str(wer->TerminFrue,4),2) != "99"
    
-      //
-
       wer->(dbSeek( Str(art->Artikelnr,6) ))
      
       nX := 0
@@ -334,14 +345,14 @@ PROCEDURE RUN_FREPPLE_IMPORT()
 
       nWeek := CWeek(Date())  
       
-      DO WHILE wer->Artno == art->Artikelnr .AND. ! wer->(EOF())
-         IF Trim(cMatch) == "KS26206.04"
-            //?  wer->Aufno
+      DO WHILE wer->Artno == art->Artikelnr .AND. ! wer->(EOF())         
+         IF Trim(cMatch) == DEBUG_PART
+            ?  wer->Aufno
          ENDIF
    
          IF wer->Aufno $ hOrders //.AND. hOrders[wer->Aufno]:Qty == 0
-            IF Trim(cMatch) == "KS26206.04"
-               //?? "found"
+            IF Trim(cMatch) == DEBUG_PART
+               ?? "found"
             ENDIF
             oExtra := wer->(ExtraData():New(wer->Aufno))
             IF (wer->Status >= 1); // .AND. hOrders[wer->Aufno]:Status == "confirmed");
@@ -373,6 +384,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                         Tr_MsgBox({"FA "+LtrIM(str(wer->Aufno))+" hat keine Menge"})
                      //ENDIF
                   ELSE
+   
                      Eval(bAddJobs,hOrders[wer->Aufno]:Jobs,wer->Aufno)
 
                      nOrder := wer->(IndexOrd())
@@ -453,6 +465,10 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                ENDIF
                
                IF lChange
+                  IF Trim(cMatch) == DEBUG_PART
+                     ?? "changing ",aData[nX]:ID
+                  ENDIF
+
                   Aadd(aList,aRow)
                   Aadd(aCSV,{wer->Aufno,"berschreiben",aData[nX]:Id,aData[nX]:Supplier,Trim(art->Matchcode),wer->Qty,aData[nX]:Qty,dOldStart,aData[nX]:Start,dOldEnd,aData[nX]:End})                  
                   
@@ -464,6 +480,10 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                   
                   AEval(aKWQty,{|x| x[6] -= wer->Qty-wer->PlanBad-wer->GelQty },nKW)                  
                ELSE //no change, so just make sure the jobs are in-sync
+                  IF Trim(cMatch) == DEBUG_PART
+                     ?? "applying jobs from",aData[nX]:ID
+                  ENDIF
+      
                   Eval(bAddJobs,aData[nX]:Jobs,wer->Aufno)               
                ENDIF               
             ELSE //dieser Auftrag wird nicht mehr gebraucht und kann gel”scht werden
@@ -483,6 +503,11 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                AEval(aKWQty,{|x| x[6] -= wer->Qty-wer->PlanBad-wer->GelQty},nKW) 
                
             ENDIF
+         ELSE
+            IF Trim(cMatch) == DEBUG_PART
+               ?? "ignoring wrong status",wer->Status
+            ENDIF
+
          ENDIF
          wer->(dbSkip())
       ENDDO      
@@ -700,8 +725,10 @@ PROCEDURE RUN_FREPPLE_IMPORT()
    NEXT
 
    cFileName := PatH("import\frepple\import-"+TtoS(DateTime())+".csv")
-   //SaveAsCSV(cFileName,aCSV)
-   //WAPI_ShellExecute(,"open",cFileName)
+   IF Tr_getini(28) == 9 .AND. Tr_MsgBox("Importprotokoll speichern?",,{"Ja","Nein"}) == 1
+      SaveAsCSV(cFileName,aCSV)
+      WAPI_ShellExecute(,"open",cFileName)
+   ENDIF
 
    //Sinkey(0)
    IF nColCount < 186

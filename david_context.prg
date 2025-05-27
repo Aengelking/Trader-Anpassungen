@@ -111,7 +111,11 @@ PROCEDURE RUN_DAVID_CONTEXT( cFunction,cMsgPath )
          Enquiry()
          EXIT
       CASE "AUFTRAG"
-         MBaseRun(Trim(tr_getini(1))+"\run\Auftrag_Beleg",{cMsgPath})
+         IF Tr_Getini(28) == 9
+            MBaseRun(Path("\run\docprocessing\Auto_Auftrag"),{cMsgPath})
+         ELSE
+            MBaseRun(Trim(tr_getini(1))+"\run\Auftrag_Beleg",{cMsgPath})
+         ENDIF
          EXIT
       CASE "ANGEBOT"
          MBaseRun(Trim(tr_getini(1))+"\run\Angebot_order",{cMsgPath})

@@ -54,7 +54,7 @@ MEMVAR cPriceError
    ELSEIF lDbg .AND. "Leider konnten wir die von Ihnen gesuchte Seite nicht finden" $ cData
       Alert("Part not found;"+cArtlief)
    ELSEIF "Nicht mehr im Sortiment" $ cData
-      Tr_MsgBox("Artikel bei RS nicht mehr erh„tllich. Bitte Lieferant l”schen.")
+      SendMessage("PRODUKTMANAGEMENT | Artikel nicht mehr verfgbar","Artikel bei RS nicht mehr erh„tlich "+Trim(art->Matchcode),cUrl)      
       cPriceError := "Part not available"
       RETURN NIL
    Endif

@@ -1,4 +1,4 @@
-PROC TestSupabase
+PROC RUN_SYNC_Supabase
    LOCAL oSupa := Supabase():New()
    LOCAL oTimebutler := TimeButlerAPI():New()
    LOCAL nM
@@ -65,7 +65,7 @@ PROC TestSupabase
       RETURN .T.
    })
     
-
+   //hValues["MA"] := {"months"=>AFill(Array(12),0),"yearly"=>0}
    aUsers := oTimebutler:Execute("users")
    IF ! HHasKey(aUsers[Len(aUsers)],"First name") //we seem to get an empty user at the end of the list which we ignore      
       HB_Adel(aUsers,Len(aUsers),.T.)
@@ -81,7 +81,8 @@ PROC TestSupabase
             nLastMonth := Val(SubStr(x["Date of separation from company (dd/mm/yyyy)"],3,2))
          ENDIF
          nLastMonth := Min(nLastMonth,Month(Date()))
-         FOR nM := nFirstMonth TO nLastMonth
+         FOR nM := Max(1,nFirstMonth) TO Min(nLastMonth,12)
+            ? nM
             hValues["MA"]["months"][nM]++
          NEXT
       ENDIF
@@ -286,58 +287,5 @@ PROC TestSupabase
    //Sinkey(0)
 RETURN
 
-#include '\\ek-server4\data\hb34\include\hbclass.ch'
-#include '\\ek-server4\data\hb34\contrib\hbcurl\hbcurl.ch'
-CLASS Supabase FROM RestAPI
-   METHOD New
-   METHOD Login
-   METHOD Execute
-
-   DATA cToken
-ENDCLASS
-
-METHOD New 
-   ::cBaseUrl := "https://dliworuqojsjkkxroeqz.supabase.co/"
-   ::cKeyName := "LOV-INTERN"
-RETURN ::Super():New()
-
-METHOD Login
-   LOCAL hLogin
-
-   hLogin := HB_JsonDecode(::Execute("auth/v1/token?grant_type=password","POST",{"email"=>"$USERNAME$","password"=>"$PASSWORD$"},,.T.))
-   IF "access_token" $ hLogin
-      ::cToken := hLogin["access_token"]
-   ELSE
-      Alert(ValToPrg(hLogin))
-      RETURN .F.
-   ENDIF
-RETURN .T.
-
-METHOD Execute(cUrl,cMethod,hData,aMoreHeader)
-   LOCAL lPostJson := .F.
-   LOCAL aHeader,nX
-
-   IF Empty(aHeader)
-      aHeader := {}
-   ENDIF
-
-   Aadd(aHeader,"apikey: "+"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsaXdvcnVxb2pzamtreHJvZXF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDAxNjkzMjMsImV4cCI6MjA1NTc0NTMyM30.RfTWO9-R7N840CFhLvSPM0ANMeZTyrn_v9jCcjrG9Hk")
-   IF ! Empty(::cToken)
-      Aadd(aHeader,"Authorization: Bearer "+::cToken)
-   ENDIF
-   IF ! cMethod $ {"GET"} .AND. ! Empty(hData)
-      lPostJson := .T.
-      Aadd(aHeader,"content-type: application/json")
-   ENDIF
-
-   IF ! Empty(aMoreHeader)
-      FOR nX := 1 TO Len(aMoreHeader)
-         Aadd(aHeader,aMoreHeader[nX])
-      NEXT
-   ENDIF
-   
-
-RETURN ::Super():Execute(cUrl,cMethod,hData,aHeader,lPostJson) //,nResponse,cResponse,cFile)
-
-
+#include "x:\run\supabase_api.prg"
 #include "x:\run\timebutlerapi.prg"

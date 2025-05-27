@@ -17,6 +17,9 @@ PROC Shopware_Stock_Price
    LOCAL nCount := 0
    LOCAL nUpdate := 0
 
+   LOCAL aPrices,oArtikel
+   LOCAL cEURID,cRuleID
+
    NetUse("artikel","art")
    NetUSe("liefstock","lsto")
    NetUse("waldom","wald")
@@ -26,34 +29,7 @@ PROC Shopware_Stock_Price
       SetValue("SW_UPD_ALL",.F.)
    ENDIF
 
-   /*art->(dbSetFilter({|| art->(&(cFilter))},cFilter))
-   art->(dbGoTop())
-
-   hSendData := {;
-      "filter"=>{;
-         {;		   
-            "type"=>"multi",;
-            "operator"=>"and",;
-            "queries"=>{;                  
-               {;
-                  "type"=>"equals",;
-                  "field"=>"productNumber",;
-                  "value"=>""; 
-               };
-            };    
-         };     
-      },;
-      "associations"=>{; 
-         "properties"=>{},; //get all used properties			   		   
-         "options"=>{}; //get all options, these are the ones set by the variantions
-      },;	
-      "includes"=>{;
-         "product"=>{; //only the fields we really need
-            "id";
-         };
-      },;
-      "limit"=>1;
-   }*/
+   cErr := ""
 
    bGetStock := {|lWaldom|
       LOCAL nSaveStock,nRec
@@ -97,6 +73,8 @@ PROC Shopware_Stock_Price
    shop->(dbSetFilter( {|| shop->(&(cFilter))},cFilter))
    shop->(dbGoTop())
 
+   cEURID := oSW:GetCurrencyID("EUR")
+
 
    DO WHILE ! shop->(EOF())
       nStock := 0
@@ -104,21 +82,52 @@ PROC Shopware_Stock_Price
          IF wald->(dbSeek( shop->Matchcode ))
             nStock := Round(wald->Stock,0)
          ENDIF
+         aPrices := {}
       ELSE
          art->(dbSetOrder( 2 ))
          art->(dbSeek( Str(shop->Artikelnr,6) ))
          Eval(bGetStock)
       ENDIF
-      IF lUpdAll .OR. nStock != shop->Bestand //if the stock differs we upload it
-         hData := oSw:Execute("product/"+shop->UUID,"PATCH",{;
-                  "stock"=>nStock;                  
-         })
+      IF lUpdAll .OR. nStock != shop->Bestand .OR.; //if the stock differs we upload it
+         (shop->Artikelnr != 0 .AND. StoT(shop->LastUpd)+30*24*60*60 <= Datetime()) //if part is in trader we update the prices every 30 days
+         
+         hProdData := {"stock"=>nStock}
+         
+         IF shop->Artikelnr != 0
+            /*oArtikel := Artikel():New()
+            oArtikel:Load(art->Artikelnr)
+            aPrices := oArtikel:GetSellPrices(Date())
+            IF Len(aPrices) > 0
+               hProdData["prices"] := {}
+               FOR nX := 1 TO Len(aPrices)
+                  Aadd(hProdData["prices"],{;
+                     "id"=>cPriceID,;
+                     "quantityStart"=>aPrices[nX][1],;
+                     "quantityEnd"=>IF(nX<Len(aPrices),aPrices[nX+1][1]-1,NIL),;
+                     "ruleId"=>cRuleID,;
+                     "price"=>{{;
+                        "currencyId"=>cEURID,;
+                        "net"=>aPrices[nX][2],;
+                        "gross"=>0;
+                     }};
+                  })
+               NEXT
+            ENDIF*/
+         ENDIF
+         hData := oSw:Execute("product/"+shop->UUID,"PATCH",hProdData)
          
          IF hData != NIL .AND. HHasKey(hData,"errors")
-            oErr := ErrorNew()
-            oErr:SubSystem   := "SHOPWARE-UPDATE"
-            oErr:Description := hData["errors"][1]["detail"]+" ("+shop->Matchcode+";"+LTrim(Str(nStock))+") "
-            Throw(oErr) 
+            IF hData["errors"][1]["code"] == "FRAMEWORK__WRITE_TYPE_INTEND_ERROR"
+               IF ! Empty(cErr)
+                  cErr += Chr(13)+Chr(10)
+               ENDIF
+               cErr += "Artikel "+shop->Matchcode+" nicht gefunden. Wurde dieses umbenannt?"
+            ELSE
+               oErr := ErrorNew()
+               oErr:SubSystem   := "SHOPWARE-UPDATE"
+               oErr:Description := hData["errors"][1]["detail"]+" ("+shop->Matchcode+";"+LTrim(Str(nStock))+") "
+               Throw(oErr) 
+            ENDIF
          ENDIF
          nUpdate++
       ENDIF
@@ -141,6 +150,9 @@ PROC Shopware_Stock_Price
    ? "completed. "+LTrim(Str(nCount))
    ? "Updated: "+LTrim(Str(nUpdate))
    ? "It took: "+Str(Seconds()-nStart)
-
+   ? cErr
+   IF ! GetConfigValue("BATCHMODE")
+      Sinkey(0)
+   ENDIF
 
    #include "x:\run\shopware.prg"

@@ -59,11 +59,11 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
                   ENDIF
                   hPrices := {=>}
                ELSE     
-                  Alert(ValToPrg(hData["parsing"]["entities"]  ))
+                  //Alert(ValToPrg(hData["parsing"]["entities"]  ))
                   IF ValType(hData["parsing"]["entities"]["Product"][1]["offers"]) == "A"
                      FOR nX := 1 TO Len(hData["parsing"]["entities"]["Product"][1]["offers"])
                         //Alert(hData["parsing"]["entities"]["Product"][1]["offers"][nX]["@type"])
-                        Alert(ValToPrg(hData["parsing"]["entities"]["Product"][1]["offers"][nX]))
+                        //Alert(ValToPrg(hData["parsing"]["entities"]["Product"][1]["offers"][nX]))
                         IF hData["parsing"]["entities"]["Product"][1]["offers"][nX]["@type"]== "AggregateOffer"
                            aOffers := hData["parsing"]["entities"]["Product"][1]["offers"][nX]["offers"][1]            
                            FOR nX := 1 TO Len(aOffers)               
@@ -76,7 +76,9 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
                   ENDIF
                ENDIF
             ELSE
-               Alert("Error;"+ValToPrg(hData))
+               IF lDbg
+                  Alert("Error;"+ValToPrg(hData))
+               ENDIF               
             ENDIF
          ELSEIF Trim(oExtra:BRAI_ENGIN) == "BROWSEAI" .AND. ! Empty(oExtra:BrowseAI) //.AND. ! Empty(oExtra:BRAI_URL)
             TxtBox("Preisabfrage "+cLief)

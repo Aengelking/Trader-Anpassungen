@@ -530,7 +530,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
             lHasSupplier := .F.
             art->(dbSeek( Str(aRoutingItems[nI],6) ))  
             
-
+            ali->(dbSetOrder( 4 ))
             ali->(dbSeek( Str(nLohnArt,6) ))
             DO WHILE ali->Artikelnr == nLohnArt
                IF ! Trim(ali->Kunde) $ aNotSupplier                            
@@ -963,6 +963,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
                      //{{"Item-ID","Item","Location","Onhand","Minimum"}}
 
                      art->(dbSeek( Str( we->Partart,6 ) ))
+                     Eval(bAddItem) //just in case we have not added this item yet
                      nX := AScan(aBuffers,{|x| x[1]==we->Partart .AND. x[3] == IF(Empty(wer->Liefma),cDefaultLocation,Trim(wer->Liefma)) },2)
                      IF nX != 0                        
                         aBuffers[nX,4] += CeilingMe((we->Qty-(we->ListQty*wer->GelQty*(1+we->ListPerc/100)))*we->Factor,art->Me)

@@ -6,6 +6,7 @@ LOCAL nKdId
 LOCAL cCustomer
 LOCAL nFrQty
 LOCAL nCheckYears := 4
+LOCAL cFilter,cFilter2,nRec
 
 NetUse("engauf","auf")
 NetUse("engkund","ku")
@@ -16,7 +17,8 @@ NetUse("artikel","art")
 
 auf->(dbSetOrder( 2 ))
 
-auf->(dbSetFilter({|| Right(Str(auf->DTerm,4),2) == "99" .AND. auf->Besda >= Date()-365*nCheckYears },'Right(Str(DTerm,4),2) == "99" .AND. Besda >= StoD("'+DtoS(Date()-365*nCheckYears)+'")'))
+cFilter := 'Right(Str(DTerm,4),2) == "99" .AND. Besda >= StoD("'+DtoS(Date()-365*nCheckYears)+'")'
+auf->(dbSetFilter({|| auf->(&(cFilter)) },cFilter))
 
 CLS
 
@@ -50,13 +52,29 @@ FOR EACH nKdId IN aCustomers
                ENDIF
                ?? auf->VkQty,auf->GelQty,nFrQty,auf->VkQty-auf->GelQty-nFrQty , (auf->ContrQty+nFrQty)*(1-nGrad/100)
                IF  auf->VkQty-auf->GelQty <= (auf->ContrQty+nFrQty)*(1-nGrad/100)
+                  //Check to see if there is a newer frame contract for this part
+
                   art->(dbSetOrder( 2 ))
                   art->(dbSeek( Str(auf->Artikelnr,6) ))
                   cText := hContact["anrede"]+",<br/><br/>"
-                  cText += "Ihr o.g. Auftrag ist zu "+LTrim(Str( (1-(auf->VkQty-auf->GelQty)/(auf->ContrQty+nFrQty))*100,3,0))+"% erschˆpft."
+                  cText += "Ihr o.g. Auftrag ist zu "+LTrim(Str( (1-(auf->VkQty-auf->GelQty)/(auf->ContrQty+nFrQty))*100,3,0))+"% erschîpft."
                   cText += " Es wurden "+Transform(auf->ContrQty-auf->VkQty+nFrQty+auf->GelQty,Me(art->Me))+" der "+Transform(auf->ContrQty+nFrQty,Me(art->Me))+" "+Trim(art->Me)+" abgerufen.<br/><br/>"
-                  cText += "Bitte pr¸fen Sie ob ein neuer Rahmen notwendig ist.<br/><br/>"
-                  cText += "Mit freundlichen Gr¸ﬂen<br/><br/>"
+
+                  nRec := auf->(Recno())
+                  cFilter2 := cFilter+" .AND. Besda > StoD('"+DtoS(auf->Besda)+"')"
+                  auf->(dbSetOrder( 6 ))
+                  auf->(dbSetFilter( {|| auf->(&(cFilter2)) },cFilter2))
+                  IF auf->(dbSeek( Pad(cCustomer,8)+auf->Matchcode ))
+                     //cText += cFilter2+"<br/>"
+                     cText += "Es wurde bereits ein neuer Rahmen Åber "+Transform(auf->ContrQty,Me(art->Me))+" "+Trim(art->Me)+" am "+DtoC(auf->Besda)+" angelegt.<br/><br/>"
+                  ELSE                     
+                     cText += "Bitte prÅfen Sie ob ein neuer Rahmen notwendig ist.<br/><br/>"
+                  ENDIF
+                  auf->(dbSetOrder( 2 ))
+                  auf->(dbSetFilter({|| auf->(&(cFilter)) },cFilter))
+                  auf->(dbGoto(nRec))
+
+                  cText += "Mit freundlichen GrÅ·en<br/><br/>"
                   cText += "<b>Engelking Elektronik GmbH</b><br/>"
                   cText += "Albstrasse 16<br/>"
                   cText += "78609 Tuningen<br/>"
@@ -66,15 +84,15 @@ FOR EACH nKdId IN aCustomers
                   cText += "Tel: +49-(0)7464-9865-0<br/>"
                   cText += "Fax: +49-(0)7464-9865-71<br/><br/>"
                   cText += "Amtsgericht Freiburg (HRB 602241)<br/>"
-                  cText += "Gesch‰ftsf¸hrer: Amos Engelking<br/>"
+                  cText += "GeschÑftsfÅhrer: Amos Engelking<br/>"
 
 //                  SendMail({{hContact["email"],hContact["name"]},{"amos.engelking@engelking.de","Amos","BCC"}},HB_AnsiToOem("Auftrag "+Trim(auf->Aufnr)+" (AB "+LTrim(Str(auf->Abnr))+"/"+LTrim(Str(auf->Itmnr))+")"),HB_AnsiToOem(cText),,,,.T.,"info@engelking.de")
-                  SendMail({{"amos.engelking@engelking.de","Amos"}},HB_AnsiToOem("Auftrag "+Trim(auf->Aufnr)+" (AB "+LTrim(Str(auf->Abnr))+"/"+LTrim(Str(auf->Itmnr))+")"),HB_AnsiToOem(cText),,,,.T.,"info@engelking.de")
+                  SendMail({{"amos.engelking@engelking.de","Amos"}},"Ihr Auftrag "+Trim(auf->Aufnr)+" (AB "+LTrim(Str(auf->Abnr))+"/"+LTrim(Str(auf->Itmnr))+")",cText,,,,.T.,"info@engelking.de")
 
-                  er->(Add_Rec())
+                  /*er->(Add_Rec())
                   er->Aufnr := auf->Abnr
                   er->Date := Date()
-                  er->(dbUnLock())
+                  er->(dbUnLock())*/
                ENDIF
             ENDIF
          ENDIF

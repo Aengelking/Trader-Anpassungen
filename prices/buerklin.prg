@@ -32,7 +32,7 @@ LOCAL cScreen
                WAPI_ShellExecute(,"open",cUrl)
             ENDIF
          ELSE
-            SendMail({{"amos.engelking@engelking.de","Amos"}},"Artikel nicht mehr bei Brklin erh„tlich "+Trim(art->Matchcode),cUrl)
+            SendMessage("PRODUKTMANAGEMENT | Artikel nicht mehr verfgbar","Artikel nicht mehr bei Brklin erh„tlich "+Trim(art->Matchcode),cUrl)
          ENDIF
          RETURN NIL //hPrices
       ENDIF

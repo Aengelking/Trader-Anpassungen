@@ -1,4 +1,4 @@
-#include 'hbclass.ch'
+//#include 'hbclass.ch'
 //#include 'hbcompat.ch'
 //ID: SWIAN2FUEFL2D01ODWHQM2W2BQ
 //Key: Y1ZpSlRrbXVvTGc1MVpSNHhqclRjVFlpaWVLVEJocGQ2QW9JSmM
@@ -10,6 +10,18 @@
 #define SW_BASIS_FIELD "custom_trader_basis"
 #define SW_CAT_TITLE_FIELD "custom_trader_category_title"
 #define SW_PAGE_SIZE   50
+
+/*PROC Shopware_TEST
+   LOCAL oSW := ShopWareAPI():New()
+   CLS
+   IF ! oSW:Auth()
+      Alert("Login failed")
+      RETURN
+   ENDIF
+
+   ? oSW:GetCurrencyID("EUR")
+   Sinkey(0)
+RETURN*/
 
 PROC ShopWare_Update_Partno
    LOCAL oSW := ShopWareAPI():New()
@@ -407,78 +419,7 @@ FUNCTION Shopware_Group_Map(cName)
    ENDIF
 RETURN {cName}
 
-
-//API for Shopware 6
-
-CLASS ShopWareAPI FROM RestAPI
-   METHOD Auth
-   METHOD Execute
-   METHOD New
-
-   DATA cBaseUrl //INIT "https://engelking-test.shopware.store/api/"     
-
-   //CLASSDATA lUseBasicAuth INIT .T.
-
-   DATA cToken
-   DATA tTokenExpires INIT StoT("")
-   
-   DATA cKeyName INIT "SW_API"
-
-ENDCLASS
-
-METHOD New(lLive)   
-   ::cBaseUrl := GetValue("SW_URL","https://egl.teufels-werk.de/api/","URL of the Shopware installation")
-   IF ! GetConfigValue("BATCHMODE")
-      IF (ValType(lLive) == "L" .AND. ! lLive) .OR. (ValType(lLive) != "L" .AND. Tr_MsgBox("Bitte w„hle die Umgebung aus, von der die Daten heruntergeladen werden sollen.",,{"Live","Staging"}) == 2)      
-         ::cBaseUrl := GetValue("SW_STAGING_URL","https://engelking.dev.intocommerce.de/api/","URL of the Shopware Staging Environment")
-      ENDIF
-   ENDIF
-RETURN ::Super:New()
-
-METHOD Auth(lRefresh)
-   LOCAL hProdData
-   LOCAL hResponse
-
-   Default(@lRefresh,.F.)
-
-   hProdData := {=>}
-   hProdData["client_id"] := "$USERNAME$"
-   /*IF lRefresh
-      hProdData["grant_type"] := "refresh_token"
-      hProdData["refresh_token"] := ::cToken
-   ELSE*/
-      hProdData["grant_type"] := "client_credentials"      
-      hProdData["client_secret"] := "$PASSWORD$"
-   //ENDIF
-
-   hResponse := ::Execute("oauth/token","POST",hProdData) 
-   IF "errors" $ hResponse
-      Alert(ValToPrg(hResponse))
-      RETURN .F.
-   ENDIF
-
-   ::cToken := hResponse["access_token"]
-   ::tTokenExpires := DateTime()+hResponse["expires_in"]/24/60/60   
-   
-
-RETURN .T.
-
-METHOD Execute(cUrl,cMethod,hProdData,lJson)
-   LOCAL cData,aHeaders := {'Content-Type: application/json'}
-
-   Default(@lJson,.T.)
-   
-   IF ! cUrl == "oauth/token" .AND. ::tTokenExpires <= DateTime()+5/24/60/60 //add five seconds so we have enough time to execute the actual call      
-      ::Auth(.T.)
-   ENDIF
-   IF ! Empty(::cToken)
-      Aadd(aHeaders,"Authorization: Bearer "+::cToken)
-   ENDIF
-   cData := ::Super:Execute(cUrl,cMethod,hProdData,aHeaders,.T.)
-   IF ! lJson
-      RETURN cData
-   ENDIF
-RETURN HB_JsonDecode(cData)
+#include 'x:\run\shopware_api.prg'
 
 STATIC FUNCTION _DeUpper(cText)
    LOCAL hRepl := {"„"=>"Ž","”"=>"™",""=>"š"}

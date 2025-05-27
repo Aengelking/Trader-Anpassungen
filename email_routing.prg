@@ -35,8 +35,8 @@ PROCEDURE RUN_EMAIL_ROUTING
    LOCAL cName
    LOCAL hDomains := {=>},cDomain
    LOCAL hKunden := {=>}
-   LOCAL hTo := {2=>{"USER"=>58},3=>{"USER"=>54},5=>{"USER"=>69}}
-   LOCAL aWebMailer := {"gmx","gmail","outlook","t-online"}   
+   LOCAL hTo := {2=>{"USER"=>58},3=>{"USER"=>73},5=>{"USER"=>73}}
+   LOCAL aWebMailer := {"gmx","gmail","outlook","t-online","web"}   
    LOCAL cError := ""
 
    MEMVAR c_four_list,c_one_list

@@ -253,6 +253,9 @@ ELSEIF nTab == 15 //Value-Add
          art->(dbSeek( Str(part->Partart,6) ))    
          manu->(dbSeek( Str(art->Manufactur,5) ))
          IF part->Pos == 0 .OR. part->Qty+part->AddQty == 0 //header or part with no qty, ignore
+            IF part->Pos == -1 .AND. ! GetConfigValue("BATCHMODE")               
+               Tr_MsgBox("Lohnposition ohne Menge")
+            ENDIF
          ELSEIF part->Pos == -1 //Konfektionsposition
             IF part->Qty == 1
                nSubArt := art->Artikelnr
@@ -280,7 +283,9 @@ ELSEIF nTab == 15 //Value-Add
             IF Len(aPartPriceTabs) == 0 .AND. ! GetConfigValue("BATCHMODE")
                aPriceTabs := {}
                lFound := .F.
-               Tr_MsgBox({"Keine Preisstaffel fr "+trim(art->Matchcode)})
+               IF ! GetConfigValue("BATCHMODE")
+                  Tr_MsgBox({"Keine Preisstaffel fr "+trim(art->Matchcode)})
+               ENDIF
                EXIT
             ELSEIF Len(aPriceTabs) == 0
                aPriceTabs := aPartPriceTabs

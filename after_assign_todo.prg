@@ -71,7 +71,7 @@ PROCEDURE Hook_on_assign_todo(oTodo,lTrigger)
    ELSEIF Trim(oTodo:RefType) == "QS"
       cSubject += " #QS "+LTrim(Str(oTodo:Ref,6))
    ENDIF
-   IF Tr_Getini(28) != 9 .OR. Tr_MsgBox("Aufgabe versenden?",Trim(oTodo:Task),{"Ja","Nein"}) == 1
+   IF Tr_Getini(28) != 9 .OR. GetConfigValue("BATCHMODE") .OR. Tr_MsgBox("Aufgabe versenden?",Trim(oTodo:Task),{"Ja","Nein"}) == 1
       SendMail({{Trim(oUser:Email),Trim(oUser:Buyer)}},cSubject,cText)
    ENDIF
 

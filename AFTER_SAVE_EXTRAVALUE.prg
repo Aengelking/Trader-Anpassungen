@@ -19,11 +19,18 @@ Function AFTER_SAVE_EXTRAVALUE(cName,oExtra)
          oExtra:SDS := .T.
          oExtra:Save()
          Tr_MsgBox("Sicherheitsdatenblatt ist bei Gefahrstoffen notwendig")
-      ELSEIF oExtra:Critical .AND. ! art->Charge
+      ENDIF
+      IF oExtra:Critical .AND. ! art->Charge
          oArt := Artikel():New()
          oArt:Charge := .T.
          oArt:Save()
          Tr_MsgBox("Chargenverwaltung fÅr kritische Komponente aktiviert")
+      ENDIF
+      IF oExtra:Expires .AND. ! art->Charge
+         oArt := Artikel():New()
+         oArt:Charge := .T.
+         oArt:Save()
+         Tr_MsgBox("Chargenverwaltung fÅr Artikel mit Verfallsdatum aktiviert")
       ENDIF
    ENDIF
 RETURN .T.

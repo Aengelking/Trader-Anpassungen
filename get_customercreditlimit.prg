@@ -84,6 +84,7 @@ ENDIF
     hDisputedInvoices[69774] := {"UNTIL"=>StoD("20241205")}
     hDisputedInvoices[69963] := {"UNTIL"=>StoD("20241205")}
     hDisputedInvoices[69725] := {"UNTIL"=>StoD("20250115")} //not really disputed but there is some problem with the invoice
+    hDisputedInvoices[71067] := {"UNTIL"=>StoD("20250607")} //addresses where not correct and the due has been reset to 
 
    IF lAuftrag      
       hSpecial["EXIDE"] := {"DATE"=>SToD("20211231"),"LIMIT"=>110000} //28.08.2020 bekommen nur 40.000 von der Versicherung, da die Ware aber beim Lieferant bestellt ist will ich auch die Auftr„ge eintragen
@@ -227,6 +228,8 @@ ENDIF
    hSpecial["KMCELEC"]    := {"DATE"=>StoD("20250630"), "LIMIT"=>2000} //12.04.25 Schlechtes Rating (3.0)
    hSpecial["ARMAGMBH"] :=  {"DATE"=>SToD("20250630"),"LIMIT"=>2900} //15.04.25 Schlechtes Rating, zahlt aber meist pnktlich.
    hSpecial["CARSTECH"] :=  {"DATE"=>SToD("20250630"),"LIMIT"=>10000} //15.04.25 Eine Rechnung wurde sehr sp„t bezahlt, ging an die falsche Adresse und wurde dann lange nicht durch uns bearbeitet.
+   hSpecial["STOLZE"] :=  {"DATE"=>SToD("20250730"),"LIMIT"=>1650} //10.05.25 schlechtes Rating
+   hSpecial["CHIPGERM"] :=  {"DATE"=>SToD("20250730"),"LIMIT"=>1190} //12.05.25 Probleme mit dem Buchhaltungskontakt
 
    //Auftragslimits fr groáe Kunden, diese gelten wenn der Kunde die voll Deckung bei der Versicherung haben
     

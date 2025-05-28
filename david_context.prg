@@ -112,7 +112,8 @@ PROCEDURE RUN_DAVID_CONTEXT( cFunction,cMsgPath )
          EXIT
       CASE "AUFTRAG"
          IF Tr_Getini(28) == 9
-            MBaseRun(Path("\run\docprocessing\Auto_Auftrag"),{cMsgPath})
+            __Run("Y:\harbour\trader\bin\trader.exe -C 3 -F MBaseRun(Path('run\docprocessing\Auto_Auftrag'),{'"+cMsgPath+"'})")
+            //MBaseRun(Path("\run\docprocessing\Auto_Auftrag"),{cMsgPath})
          ELSE
             MBaseRun(Trim(tr_getini(1))+"\run\Auftrag_Beleg",{cMsgPath})
          ENDIF

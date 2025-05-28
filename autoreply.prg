@@ -75,7 +75,7 @@ PROCEDURE HRBMAIN
    Endif
 
 
-   IF ! SetDavidAutoReply()
+   IF ! oAutoReply:Set()
       Tr_MsgBox("Autoreply konnte NICHT eingerichtet werden")
    ELSE
       Tr_MsgBox(t("Autoreply wurde eingerichtet und aktiviert"))

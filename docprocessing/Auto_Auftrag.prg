@@ -447,9 +447,6 @@ ENDDO
       ENDIF
    ENDIF
 
-   //temporarily set all to new for test purposes
-   lNew := .T.
-
    //*** NEUER AUFTRAG ***/
    NetUse("angebot","ang")
    IF lNew
@@ -568,7 +565,7 @@ ENDDO
                   ENDIF
 
                   //Staffelpreis suche
-                  
+                  ? ku->Kunde
                   aPrices := oArtikel:GetSellPrices(Date(),ku->Kunde)
                   nPrice := 0
                   FOR nP := 1 to Len(aPrices)

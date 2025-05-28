@@ -36,7 +36,10 @@ PROCEDURE RUN_EMAIL_ROUTING
    LOCAL hDomains := {=>},cDomain
    LOCAL hKunden := {=>}
    LOCAL hTo := {2=>{"USER"=>58},3=>{"USER"=>73},5=>{"USER"=>73}}
-   LOCAL aWebMailer := {"gmx","gmail","outlook","t-online","web"}   
+   LOCAL aWebMailer := {"gmail.com","yahoo.com","hotmail.com","hotmail.de","hotmail.fr","hotmail.co.uk","outlook.com",;
+                        "outlook.de","live.com","live.de","aol.com","gmx.de","gmx.net","gmx.com","gmx.at","gmx.ch","gmx.fr",;
+                        "gmx.li","gmx.us","gmx.co.uk","web.de","t-online.de","freenet.de","mail.de","mailbox.org","posteo.de",;
+                        "protonmail.com","tutanota.com","tuta.com","mailfence.com","zoho.com","icloud.com"}   
    LOCAL cError := ""
 
    MEMVAR c_four_list,c_one_list

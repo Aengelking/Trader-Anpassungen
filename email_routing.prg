@@ -129,7 +129,6 @@ PROCEDURE RUN_EMAIL_ROUTING
          cName := "KUNDE:"+Str(ku->Nummer,6)+" "+ku->Kunde
          IF ! HHasKey(hKunden,ku->Nummer)
             oItem := oCommon:RoutingEntries:Add( cName )
-            //oItem:Commit()
          ELSE
             oItem := hKunden[ku->Nummer]
             oItem:Name := cName
@@ -154,7 +153,7 @@ PROCEDURE RUN_EMAIL_ROUTING
          DO WHILE ! conts->(Eof()) .AND. conts->Active .AND. conts->Address == ku->Nummer
             IF ! Empty(conts->Email)
                cDomain := Trim(SubStr(conts->Email,AT("@",conts->Email)))
-               IF cDomain $ aWebmailer
+               IF SubStr(cDomain,2) $ aWebmailer
                   IF nFilter >= 6
                      cError += "Maximale Anzahl Domains/Email-Adressen erreicht "+ku->Kunde+CRLF
                      EXIT
@@ -172,7 +171,6 @@ PROCEDURE RUN_EMAIL_ROUTING
                      ENDIF               
                   ENDIF
                   
-                  //oItem:Commit()
                ELSEIF ! cDomain $ hDomains
                   IF nFilter >= 6
                      cError += "Maximale Anzahl Domains/Email-Adressen erreicht "+ku->Kunde+CRLF

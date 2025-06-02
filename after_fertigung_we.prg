@@ -15,9 +15,9 @@ FUNCTION HOOK_AFTER_FERTIGUNG_WE()
 
          cText += "Ausschuss bersteigt Planung"
          //aTo := {{"chris.chertes@engelking.de","Chris"}}
-         aTo := {}
-         Aadd(aTo,{"amos.engelking@engelking.de","Amos"})         
-         SendMail(aTo,"Ausschuss bei FA "+LTrim(Str(wer->Aufno)),cText)
+         //aTo := {}
+         //Aadd(aTo,{"amos.engelking@engelking.de","Amos"})         
+         SendMessage("Qualitaet | Ausschuss zu hoch","Ausschuss bei FA "+LTrim(Str(wer->Aufno)),cText)
       ENDIF
    ENDIF
 RETURN .T.

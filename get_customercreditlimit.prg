@@ -157,7 +157,7 @@ ENDIF
    //hSpecial["SMARTCIT"]   := {"DATE"=>StoD("20220530"), "LIMIT"=>1500} //09.03.22 Keine Bewertung bei CS, zahlt mit Skonto
    //hSpecial["LORENTZ"] := {"DATE"=>StoD("20220331"), "LIMIT"=>3500} //14.03.22 Keine Bewertung durch CS, Umsatz in letzten 12 Monaten < 2000?, bisher aber mit Skonto bezahlt      
    hSpecial["JETWORX"] := {"DATE"=>StoD("20220422"), "LIMIT"=>1290} //07.04.22 Wg. Urlaub verl„ngert //23.03.22 Startup mit Rating von 3.6
-   hSpecial["GEHO"] := {"DATE"=>StoD("20250628"), "LIMIT"=>700} //18.03.25 verl„ngert Zahlungsverhalten schwankend //28.11.23 Hat letzte Rechnung pnktlich bezahlt //19.09.23 Zahlt erst nach 2. Mahnung - Tina droht die Umstellung auf Vorkasse an //04.05.22 Zahlt weiterhin erst nach Mahnung. Verl„ngert //07.04.22 Wg. Urlaub verl„ngert //28.03.22 Rating 3.1, zahlt nach 1 od. 2 Mahnung. Steht bereits auf Automahn.
+   hSpecial["GEHO"] := {"DATE"=>StoD("20250828"), "LIMIT"=>950} //06.06.25 ZV gerade ok. erh”ht auf 950 //18.03.25 verl„ngert Zahlungsverhalten schwankend //28.11.23 Hat letzte Rechnung pnktlich bezahlt //19.09.23 Zahlt erst nach 2. Mahnung - Tina droht die Umstellung auf Vorkasse an //04.05.22 Zahlt weiterhin erst nach Mahnung. Verl„ngert //07.04.22 Wg. Urlaub verl„ngert //28.03.22 Rating 3.1, zahlt nach 1 od. 2 Mahnung. Steht bereits auf Automahn.
    hSpecial["EMIKA"] := {"DATE"=>StoD("20220422"), "LIMIT"=>565} //07.04.22 Zahlt schleppend, dieses Limit liegt unter dem akutell offen Betrag. Neue Auftr„ge auf Rechnung werden erst akzeptiert wenn die Rechnung bezahlt ist
    hSpecial["MCSMEDIC"] := {"DATE"=>StoD("20220503"), "LIMIT"=>1330} //02.05.22 Hat schlechtes Rating (3,9) - bestehender Kunde, hatte frher mit Skonto bezahlt. Steht auf Automahnung
    hSpecial["SERRA"] := {"DATE"=>StoD("20220530"), "LIMIT"=>351} //06.05.22 Schlechtes Rating (3.2) zahlt aber bisher mit Skonto
@@ -230,6 +230,7 @@ ENDIF
    hSpecial["CARSTECH"] :=  {"DATE"=>SToD("20250630"),"LIMIT"=>10000} //15.04.25 Eine Rechnung wurde sehr sp„t bezahlt, ging an die falsche Adresse und wurde dann lange nicht durch uns bearbeitet.
    hSpecial["STOLZE"] :=  {"DATE"=>SToD("20250730"),"LIMIT"=>1650} //10.05.25 schlechtes Rating
    hSpecial["CHIPGERM"] :=  {"DATE"=>SToD("20250730"),"LIMIT"=>1190} //12.05.25 Probleme mit dem Buchhaltungskontakt
+   hSpecial["VITRONIW"] := {"DATE"=>StoD("20250831"), "LIMIT"=>400} //06.06.25 Direkt nach erster Mahnung bezahlt. Steht auf Automahn //12.06.19 Zahlt immer nach der 1. Mahnung, diese sollten wir schneller versenden
 
    //Auftragslimits fr groáe Kunden, diese gelten wenn der Kunde die voll Deckung bei der Versicherung haben
     
@@ -395,7 +396,6 @@ ENDIF
     //hSpecial["SEMEX"]   := {"DATE"=>StoD("20190730"), "LIMIT"=>420} //06.05.19 Rating 3.6, Kunde will woanders kaufen, wenn wir nicht auf Rechnung liefern. Auf Factoring umgestellt.     
     //hSpecial["SBB"]    := {"DATE"=>SToD("20200330"),"LIMIT"=>4200}  //05.02.20 Nach Hinterlegung von einem BH Kontakt KL wieder freigeschalten. //22.05.19 Bei der šberschreitung lohnt keine Anfrage bei Creditsafe //2015 war zu blöd die letzte Rechnung zu bezahlen, Sigi schickt nächstes mal eine Atombombe, 19.08. auf 30 Tage umgestellt
     
-    //hSpecial["VITRONIW"] := {"DATE"=>StoD("20190731"), "LIMIT"=>800} //12.06.19 Zahlt immer nach der 1. Mahnung, diese sollten wir schneller versenden
     
     //hSpecial["BROSEBAM"] := {"DATE"=>StoD("20191030"), "LIMIT"=>400,"TOLATE"=>.T.} //24.07.19 Rechnung ging an die falsche Email Adresse. Kunde ist KONZERN
     //hSpecial["GEAFOOD"] := {"DATE"=>StoD("20200630"), "LIMIT"=>1200} //19.11.19 verl„ngert //26.07.19 Rechnung ging an falsche Adresse, daher wurde die Rechnung zu sp„t bezahlt. 

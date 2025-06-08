@@ -1,17 +1,27 @@
+PROC HOOK_BEFORE_START_WERKAUF
 PARAMETERS nWaNr,nArtNr
+LOCAL cMissing
    NetUse("engkund","ku")
+
 
    wer->(dbSetOrder(1))
    wer->(dbSeek( str(nWaNr,6) ))
 
    IF Empty(wer->Liefma)
       IF ! GetConfigValue("BATCHMODE")
-         aOptions := {"abbrechen"}
-         IF Tr_Getini(28) == 9 .OR. (Date() >= StoD("20250407") .AND. Date() <= StoD("20250417"))
-            Aadd(aOptions,"manuell ausl”sen")
-         ENDIF
-         IF TR_MsgBox("Fertigungsauftr„ge nicht manuell ausl”sen!",,aOptions) != 2
+         IF ! WAStatus(,@cMissing)
+            IF Tr_MsgBox("Auftrag kann nicht ausgel”st werden",,{"Ok","Grnde anzeigen"}) == 2
+               MemoEdit(cMissing)
+            ENDIF
             RETURN .F.
+         ELSE
+            aOptions := {"abbrechen"}
+            IF Tr_Getini(28) == 9 .OR. (Tr_Getini(28) == 67 .AND. Date() >= StoD("20250609") .AND. Date() <= StoD("20250620"))
+               Aadd(aOptions,"manuell ausl”sen")
+            ENDIF
+            IF TR_MsgBox("Fertigungsauftr„ge nicht manuell ausl”sen!",,aOptions) != 2
+               RETURN .F.
+            ENDIF
          ENDIF
       ENDIF
    ELSE

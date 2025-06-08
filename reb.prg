@@ -451,17 +451,17 @@ oBrowse:AddKey(K_ENTER,{||
    }
    LOCAL nChoice,aChoices,nTop
    MEMVAR c_five,c_one
+   
    ASort(aFiles,,,{|x,y| x[6] < y[6] }) //sort according to file name and not date
-   /*IF Tr_Getini(28) == 9
-      FOR nX := 1 To LEN(aFiles)
-      ? aFiles[nX,6]
-      NEXT
-      Sinkey(0)
-   ENDIF*/
+   
    IF reb->Status <= 8
       IF reb->Liefnr != 0 .OR. reb->Status == 8
          nChoice := Tr_MsgBox("Buchen?",,{"Ja","abrechen","anzeigen",cZuText,cFirmText})
          IF nChoice == 1
+            IF Len(aFiles) == 0
+               Tr_MsgBox("Keine Rechnungsdatei gefunden")
+               RETURN .T.
+            ENDIF
             Eval(bOpen,ATail(aFiles)[6])
             IF reb->Liefnr != 0 //Trader
                ku->(dbSetORder( 8 ))

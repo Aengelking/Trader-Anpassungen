@@ -41,6 +41,7 @@ PROCEDURE RUN_EMAIL_ROUTING
                         "gmx.li","gmx.us","gmx.co.uk","web.de","t-online.de","freenet.de","mail.de","mailbox.org","posteo.de",;
                         "protonmail.com","tutanota.com","tuta.com","mailfence.com","zoho.com","icloud.com"}   
    LOCAL cError := ""
+   LOCAL nFilter,nCount
 
    MEMVAR c_four_list,c_one_list
 
@@ -164,7 +165,7 @@ PROCEDURE RUN_EMAIL_ROUTING
                      oFilter:Object := DvField_SRFrom //-2147450823 //From
                      oFilter:Comparision := DvItemIsEqual
                      oFilter:Value := Trim(conts->Email)
-                     IF ! lFirst
+                     IF nFilter > 1
                         oFilter:Operator := DvFilterOr
                      ELSE
                         oFilter:Operator := DvFilterAnd

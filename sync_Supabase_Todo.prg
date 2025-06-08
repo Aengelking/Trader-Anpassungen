@@ -20,7 +20,7 @@ PROC RUN_SYNC_Supabase_Todo
    //download todos
    aTodo := HB_JsonDecode(oSupa:Execute("rest/v1/kr_todos","GET",{"select"=>"id,title,due_date,trader_uuid,completed,key_result_id"},,.T.))
 
-   aKRs := HB_JsonDecode(oSupa:Execute("rest/v1/key_results","GET",{"select"=>"id,title,user_id"},,.T.))
+   aKRs := HB_JsonDecode(oSupa:Execute("rest/v1/key_results","GET",{"select"=>"id,title,user_id,trader_uuid"},,.T.))
 
    aUsers := HB_JsonDecode(oSupa:Execute("rest/v1/users","GET",{"select"=>"id,email"},,.T.))
 
@@ -35,10 +35,13 @@ PROC RUN_SYNC_Supabase_Todo
       ENDIF
    NEXT
 
-   // Sync todos from Supabase to Trader
+   // Sync key results and todos from Supabase to Trader
    SyncSupabaseToTrader(aTodo, aKRs, aUsers, nKeyResultsListID, oSupa)
    
-   // Sync completed status from Trader to Supabase
+   // Clean up orphaned todos in Trader
+   CleanupOrphanedTodos(aTodo, aKRs, nKeyResultsListID)
+   
+   // Sync completed status from Trader to Supabase (todos only, not key results)
    SyncTraderToSupabase(nKeyResultsListID, oSupa)
 
    Sinkey(0)
@@ -112,14 +115,61 @@ STATIC FUNCTION CreateKeyResultsList()
    
 RETURN nNewID
 
-// Sync todos from Supabase to Trader
+// Sync key results and todos from Supabase to Trader
 STATIC FUNCTION SyncSupabaseToTrader(aTodo, aKRs, aUsers, nKeyResultsListID, oSupa)
-   LOCAL nTodo, nKR, nUser
-   LOCAL oTodo
+   LOCAL nKR, nUser, nTodo
+   LOCAL oTodo, oKRTodo
    LOCAL hUpdateData
+   LOCAL cParentUUID
    
    NetUse("todo","todo")
    
+   // First, sync key results as parent todos
+   FOR nKR := 1 TO Len(aKRs)
+      nUser := AScan(aUsers, {|aUser| aUser["id"] == aKRs[nKR]["user_id"]} )
+      IF nUser != 0 .AND. aUsers[nUser]["trader_id"] > 0
+         
+         IF ! Empty(aKRs[nKR]["trader_uuid"])
+            // Update existing key result
+            ? "Updating key result: ",hb_utf8tostr(aKRs[nKR]["title"])
+            
+            oKRTodo := Todo():New()
+            IF oKRTodo:Load(aKRs[nKR]["trader_uuid"])
+               oKRTodo:Task := "KR: "+hb_utf8tostr(aKRs[nKR]["title"])
+               // Don't update Done status for key results
+               oKRTodo:Save()
+            ELSE
+               ? "*** NOT FOUND *** "+aKRs[nKR]["trader_uuid"]
+               aKRs[nKR]["trader_uuid"] := ""
+            ENDIF
+         ENDIF
+
+         IF Empty(aKRs[nKR]["trader_uuid"])
+            // Create new key result parent todo
+            ? "Creating new key result: ",hb_strtoutf8(aKRs[nKR]["title"])
+            
+            oKRTodo := Todo():New(.T.)
+            oKRTodo:UUID := win_UuidCreateString()
+            oKRTodo:RefType := "TL"
+            oKRTodo:Ref := nKeyResultsListID
+            oKRTodo:Task := "KR: "+hb_utf8tostr(aKRs[nKR]["title"])
+            oKRTodo:User := aUsers[nUser]["trader_id"]
+            oKRTodo:Level := 0  // Parent level
+            oKRTodo:Done := .F.  // Key results are never marked as done automatically
+            oKRTodo:Notes := "Supabase KR ID: " + aKRs[nKR]["id"]
+            oKRTodo:Save()
+            
+            // Update Supabase with trader_uuid
+            hUpdateData := {"trader_uuid" => oKRTodo:UUID}                  
+            oSupa:Execute("rest/v1/key_results?id=eq." + aKRs[nKR]["id"], "PATCH", hUpdateData,, .T.)
+            
+            aKRs[nKR]["trader_uuid"] := oKRTodo:UUID
+            
+         ENDIF
+      ENDIF
+   NEXT
+   
+   // Then, sync todos as children under their key results
    FOR nTodo := 1 TO Len(aTodo)
       // Only process incomplete todos or those without trader_uuid
       IF ! aTodo[nTodo]["completed"] .OR. Empty(aTodo[nTodo]["trader_uuid"])
@@ -128,9 +178,29 @@ STATIC FUNCTION SyncSupabaseToTrader(aTodo, aKRs, aUsers, nKeyResultsListID, oSu
             nUser := AScan(aUsers, {|aUser| aUser["id"] == aKRs[nKR]["user_id"]} )
             IF nUser != 0 .AND. aUsers[nUser]["trader_id"] > 0
                
+               // Get parent key result UUID
+               cParentUUID := aKRs[nKR]["trader_uuid"]
+               
+               IF ! Empty(aTodo[nTodo]["trader_uuid"])
+                  // Update existing trader todo
+                  ? "Updating todo: ",hb_strtoutf8(aTodo[nTodo]["title"]),IF(!Empty(aTodo[nTodo]["due_date"]),DtoC(StoD(StrTran(Left(aTodo[nTodo]["due_date"],10),"-",""))),"")
+                                    
+                  oTodo := Todo():New()
+                  IF oTodo:Load(aTodo[nTodo]["trader_uuid"])
+                     oTodo:Task := hb_utf8tostr(aTodo[nTodo]["title"])
+                     oTodo:Parent := cParentUUID  // Ensure parent relationship is maintained
+                     oTodo:Due := IF(!Empty(aTodo[nTodo]["due_date"]),StoD(StrTran(Left(aTodo[nTodo]["due_date"],10),"-")),StoD(""))
+                     oTodo:Done := aTodo[nTodo]["completed"]
+                     oTodo:Save()
+                  ELSE
+                     ?? "**** NOT FOUND *****"
+                     aTodo[nTodo]["trader_uuid"] := ""
+                  ENDIF
+               ENDIF
+
                IF Empty(aTodo[nTodo]["trader_uuid"])
-                  // Create new trader todo
-                  ? "Creating new trader todo: ",hb_strtoutf8(aTodo[nTodo]["title"])
+                  // Create new trader todo as child
+                  ? "Creating new todo under KR: ",hb_strtoutf8(aTodo[nTodo]["title"])
                   
                   oTodo := Todo():New(.T.)
                   oTodo:UUID := win_UuidCreateString()
@@ -138,28 +208,19 @@ STATIC FUNCTION SyncSupabaseToTrader(aTodo, aKRs, aUsers, nKeyResultsListID, oSu
                   oTodo:Ref := nKeyResultsListID
                   oTodo:Task := hb_utf8tostr(aTodo[nTodo]["title"])
                   oTodo:User := aUsers[nUser]["trader_id"]
+                  oTodo:Parent := cParentUUID
                   oTodo:Due := IF(!Empty(aTodo[nTodo]["due_date"]),StoD(StrTran(Left(aTodo[nTodo]["due_date"],10),"-","")),StoD(""))
                   oTodo:Done := aTodo[nTodo]["completed"]
-                  oTodo:Notes := "Supabase ID: " + aTodo[nTodo]["id"]
+                  oTodo:Notes := "Supabase TODO ID: " + aTodo[nTodo]["id"]
                   oTodo:Save()
                   
                   // Update Supabase with trader_uuid
                   hUpdateData := {"trader_uuid" => oTodo:UUID}                  
                   oSupa:Execute("rest/v1/kr_todos?id=eq." + aTodo[nTodo]["id"], "PATCH", hUpdateData,, .T.)
-                  
-               ELSE
-                  // Update existing trader todo
-                  ? "Updating trader todo: ",hb_utf8tostr(aTodo[nTodo]["title"]),IF(!Empty(aTodo[nTodo]["due_date"]),DtoC(StoD(StrTran(Left(aTodo[nTodo]["due_date"],10),"-",""))),"")
-                  
-                  oTodo := Todo():New()
-                  IF oTodo:Load(aTodo[nTodo]["trader_uuid"])
-                     oTodo:Task := hb_utf8tostr(aTodo[nTodo]["title"])
-                     oTodo:Due := IF(!Empty(aTodo[nTodo]["due_date"]),StoD(StrTran(Left(aTodo[nTodo]["due_date"],10),"-","")),StoD(""))
-                     oTodo:Done := aTodo[nTodo]["completed"]
-                     oTodo:Save()
-                  ENDIF
                ENDIF
             ENDIF
+         ELSE
+            ? "Key Result not found:",aKRs[nKR]["title"]
          ENDIF
       ENDIF
    NEXT
@@ -168,7 +229,55 @@ STATIC FUNCTION SyncSupabaseToTrader(aTodo, aKRs, aUsers, nKeyResultsListID, oSu
    
 RETURN .T.
 
-// Sync completed status from Trader to Supabase
+// Clean up orphaned todos in Trader that no longer exist in Supabase
+STATIC FUNCTION CleanupOrphanedTodos(aTodo, aKRs, nKeyResultsListID)
+   LOCAL cListID := "TL "+Str(nKeyResultsListID,6)
+   LOCAL oTodo, nPos
+   LOCAL lFound
+   LOCAL nDeleted := 0
+   
+   NetUse("todo","todo")
+   
+   todo->(dbSetOrder(10)) // RefType+Ref order
+   todo->(dbSeek(cListID))
+   
+   ? "Starting cleanup of orphaned todos..."
+   
+   DO WHILE todo->RefType+Str(todo->Ref,6) == cListID .AND. !todo->(EOF())
+      lFound := .F.
+      
+      // Check Key Results (Level 0)
+      IF todo->Level == 0
+         lFound := (AScan(aKRs, {|aKR| aKR["trader_uuid"] == Trim(todo->UUID)}) > 0)
+         
+      // Check Todos (Level 1)
+      ELSEIF todo->Level == 1 
+         lFound := (AScan(aTodo, {|aTodoItem| aTodoItem["trader_uuid"] == Trim(todo->UUID)}) > 0)
+
+      ENDIF
+      
+      // Delete if not found in Supabase
+      IF !lFound 
+         ? "Deleting orphaned todo:", Left(todo->Task, 50)
+         
+         oTodo := Todo():New()
+         
+         oTodo:Delete()
+         nDeleted++
+      ELSE
+         ? "Found "+todo->Task
+      ENDIF
+      
+      todo->(dbSkip())
+   ENDDO
+   
+   todo->(dbCloseArea())
+   
+   ? "Cleanup completed. Deleted", nDeleted, "orphaned todos."
+   
+RETURN .T.
+
+// Sync completed status from Trader to Supabase (todos only, not key results)
 STATIC FUNCTION SyncTraderToSupabase(nKeyResultsListID, oSupa)
    LOCAL cListID := "TL "+Str(nKeyResultsListID,6)
    LOCAL cSupabaseID, hUpdateData
@@ -180,11 +289,12 @@ STATIC FUNCTION SyncTraderToSupabase(nKeyResultsListID, oSupa)
    todo->(dbSeek(cListID))
    
    DO WHILE todo->RefType+Str(todo->Ref,6) == cListID .AND. !todo->(EOF())
-      IF todo->Level == 0 .AND. !Empty(todo->Notes) .AND. "Supabase ID:" $ todo->Notes
+      // Only sync todos (Level 1), not key results (Level 0)
+      IF todo->Level == 1 .AND. !Empty(todo->Notes) .AND. "Supabase TODO ID:" $ todo->Notes
          // Extract Supabase ID from notes
-         nPos := At("Supabase ID:", todo->Notes)
+         nPos := At("Supabase TODO ID:", todo->Notes)
          IF nPos > 0
-            cSupabaseID := LTrim(SubStr(todo->Notes, nPos + 12))
+            cSupabaseID := LTrim(SubStr(todo->Notes, nPos + 17))
             nPos := At(Chr(13), cSupabaseID)
             IF nPos > 0
                cSupabaseID := Left(cSupabaseID, nPos - 1)
@@ -196,7 +306,7 @@ STATIC FUNCTION SyncTraderToSupabase(nKeyResultsListID, oSupa)
             cSupabaseID := Trim(cSupabaseID)
             
             IF !Empty(cSupabaseID)
-               ? "Syncing completion status for Supabase ID:", cSupabaseID, "Completed:", todo->Done
+               ? "Syncing completion status for Supabase TODO ID:", cSupabaseID, "Completed:", todo->Done
                
                // Update completion status in Supabase
                hUpdateData := {"completed" => todo->Done}
@@ -231,4 +341,3 @@ RETURN nID
    
 
    #include "x:\run\supabase_api.prg"
-

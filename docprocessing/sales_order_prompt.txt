@@ -76,8 +76,8 @@
          "blanket_purchase_order_number": "",
          "currency": "",         
          "requirements": {
-            "REACH"=>true,;
-            "RoHS"=>true,;
+            "REACH":true,
+            "RoHS:true,
             "additional":""
          },
          "quote_number": "",

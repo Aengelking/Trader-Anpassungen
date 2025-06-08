@@ -1005,8 +1005,8 @@ FUNCTION RUN_FREPPLE_EXPORT()
                      IF rst->Job != 0                        
                         job->(dbSeek( Str(rst->Job) )) 
                         lJobStarted := wat->(dbSeek( Str(wer->Aufno,6)+Str(rst->Job,6) )) //see if job has been started
-                        IF cStatus == "approved"
-                           //cStatus := "confirmed" //switch the main order to confirmed if we have started the job
+                        IF cStatus == "approved" .AND. lJobStarted
+                           cStatus := "confirmed" //switch the main order to confirmed if we have started the job otherwise it can be that frepple sets the quantity to 0
                         ENDIF
                         
                         Aadd(aManuSubOrders,{;

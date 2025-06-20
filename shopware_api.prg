@@ -93,7 +93,7 @@ ENDCLASS
 METHOD New(lLive) CLASS ShopWareAPI
    ::cBaseUrl := GetValue("SW_URL","https://egl.teufels-werk.de/api/","URL of the Shopware installation")
    IF ! GetConfigValue("BATCHMODE")
-      IF (ValType(lLive) == "L" .AND. ! lLive) .OR. (ValType(lLive) != "L" .AND. Tr_MsgBox("Bitte w„hle die Umgebung aus, von der die Daten heruntergeladen werden sollen.",,{"Live","Staging"}) == 2)      
+      IF (ValType(lLive) == "L" .AND. ! lLive) .OR. (ValType(lLive) != "L" .AND. Tr_MsgBox("Bitte wï¿½hle die Umgebung aus, von der die Daten heruntergeladen werden sollen.",,{"Live","Staging"}) == 2)      
          ::cBaseUrl := GetValue("SW_STAGING_URL","https://engelking.dev.intocommerce.de/api/","URL of the Shopware Staging Environment")
       ENDIF
    ENDIF

@@ -26,10 +26,14 @@ PROC RUN_LEX_DEBITOR_SALDEN
 
    FOR EACH nAccount IN aAccounts
       nSaldo := LX_GetSaldo(nAccount,dEoY)
+      nOPSaldo := 0
       nRest  := nSaldo
       hAccSalden := {=>}
       IF nSaldo != 0
          ? nAccount,nSaldo
+         IF nAccount == 22429
+            AltD()
+         ENDIF
          aOPs := LX_GetOffenePosten(nAccount,,nYear)
          AEval(aOPs,{|hData| 
             IF ! HHasKey(hAccSalden,hData["STEUERKONTO"])
@@ -37,13 +41,14 @@ PROC RUN_LEX_DEBITOR_SALDEN
             ENDIF
             hAccSalden[hData["STEUERKONTO"]] += hData["REST"]
             nRest -= hData["REST"]
+            //nOPSaldo += hData["BETRAG"]-hData["REST"]
             RETURN NIL
          })
-         IF nAccount == 28049
-//            Alert(ValToPrg(aOps))
+         IF nAccount == 22429
+            Alert(ValToPrg(aOps))
             //EXIT
          ENDIF
-         hAccSalden[-1] := nRest
+         hAccSalden["KEIN OP"] := nSaldo         
          Aadd(aData,Array(Len(aData[1])))         
          ATail(aData)[1] := nAccount
          ATail(aData)[2] := nSaldo

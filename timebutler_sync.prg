@@ -34,6 +34,7 @@ PROC Run_TimeButler(lDavid,lAutoReply,lFrepple,lOrga)
    LOCAL cStartTime,cEndTime
    LOCAL hData,nYear,aData
    LOCAL aDays,nDay,dPrev,dStart
+   LOCAL oUser
   
    Default(@lDavid,GetConfigValue("BATCHMODE"))
    Default(@lAutoReply,.T.)
@@ -55,6 +56,46 @@ PROC Run_TimeButler(lDavid,lAutoReply,lFrepple,lOrga)
    aUsers := oAPI:Execute("users")
    ?? " abgeschlossen"
 
+   ? "Abwesenheiten werden heruntergeladen..."
+   aAbsences := {}
+   FOR nYear := Year(Date()) TO Year(Date())+1
+      aData := oAPI:Execute("absences?year="+Ltrim(Str(nYear)))
+      FOR nX := 1 To Len(aData)
+         Aadd(aAbsences,aData[nX])
+      NEXT
+   NEXT      
+   ?? " abgeschlossen"
+   //? ValtoPrg(aAbsences)
+   IF ValType(aAbsences) != "A"
+      ? "Fehler bei der Verbindung zu timebutler"         
+      //Sinkey(0)
+      RETURN
+   ENDIF
+
+   //Abwesenheit und Vertreter beim Benutzer hinterlegen
+   FOR EACH hAbsence IN aAbsences
+      IF Len(hAbsence) > 1 .AND. hAbsence["From"] >= Date() .AND.;
+         hAbsence["To"] >= Date() .AND.;
+         HHasKey(hAbsence,"Employee number") .AND. ValType(hAbsence["Employee number"]) == "N" .AND.;
+         hAbsence["Substitute state"] == "Approved"
+         
+         oUser := User():New()
+         IF oUser:Load(hAbsence["Employee number"])               
+            oUser:oSettings:AwayUntil := hAbsence["To"]
+            oUser:oSettings:AwayFrom := hAbsence["From"]
+
+            nR := AScan(aUsers,{|x| x["User ID"] == hAbsence["User ID of the substitute"]})
+            IF nR != 0 .AND. ! Empty(aUsers[nR]["Employee number"]) 
+               oUser:oSettings:AwaySubst := aUsers[nR]["Employee number"]
+            ELSE
+               oUser:oSettings:AwaySubst := 0
+            ENDIF
+         ENDIF
+         
+         lForward := hAbsence["Forward emails"] == "yes"
+      ENDIF
+   NEXT
+
    //Create Orga Chart
    IF lOrga
       Timbutler_orga(aUsers)
@@ -62,21 +103,7 @@ PROC Run_TimeButler(lDavid,lAutoReply,lFrepple,lOrga)
 
    //Update Frepple
    IF lFrepple
-      ? "Abwesenheiten werden heruntergeladen..."
-      aAbsences := {}
-      FOR nYear := Year(Date()) TO Year(Date())+1
-         aData := oAPI:Execute("absences?year="+Ltrim(Str(nYear)))
-         FOR nX := 1 To Len(aData)
-            Aadd(aAbsences,aData[nX])
-         NEXT
-      NEXT      
-      ?? " abgeschlossen"
-      //? ValtoPrg(aAbsences)
-      IF ValType(aAbsences) != "A"
-         ? "Fehler bei der Verbindung zu timebutler"         
-         //Sinkey(0)
-         RETURN
-      ENDIF
+      
 
       
 
@@ -86,83 +113,87 @@ PROC Run_TimeButler(lDavid,lAutoReply,lFrepple,lOrga)
    
       ? "Frepple Buckets werden heruntergeladen..."
       aResult := oFrepple:getCalendarBuckets() //this returns all buckets for all resources
-      ?? " abgeschlossen"
-
-      ? "Timebutler Buckets werden in Frepple gel”scht..."
-      FOR nX := 1 TO Len(aResult)
-         IF aResult[nX]["source"] $ {"Timebutler","Trader"}
-            ? "Delete bucket "+LTrim(Str(aResult[nX]["id"]))
-            oFrepple:deleteCalendarBucket(aResult[nX]["id"])
-         ENDIF
-      NEXT
-      ?? " abgeschlossen"
-   
       
-      res->(dbSetOrder( 3 ))
-      FOR EACH hAbsence IN aAbsences            
-         IF Len(hAbsence) > 1 .AND. hAbsence["To"] >= Date()-15 .AND.;
-            HHasKey(hAbsence,"Employee number") .AND. ValType(hAbsence["Employee number"]) == "N" .AND. res->(dbSeek( Str(hAbsence["Employee number"],2)))
-            ? "Add bucket for "+res->Name+" "+hAbsence["Type"]+" from "+DtoC(hAbsence["From"])+" to "+DtoC(hAbsence["To"])
-            hData := {=>}
-            hData["calendar"] := Trim(res->Name)
-            hData["source"] := "Timebutler"
 
-            cStartTime := "06:00"
-            cEndTime := "18:00"
-            IF hAbsence["Half a day"]
-               IF hAbsence["Morning"]                  
-                  cEndTime := "12:00"
-               ELSE
-                  cStartTime := "12:00"
-                  
-               ENDIF            
-            ENDIF
-
-            hData["startdate"] := oFrepple:DtoC(hAbsence["From"],cStartTime)
-            hData["enddate"] := oFrepple:DtoC(hAbsence["To"],cEndTime)
-            hData["value"] := 0
-            hData["priority"] := 0
-            hData["monday"] := hData["tuesday"] := hData["wednesday"] := hData["thursday"] := hData["friday"] := hData["saturday"] := hData["sunday"] := .T.
-            hData["starttime"]  := cStartTime
-            hData["endtime"] := cEndTime
-
-            oFrepple:Execute(oFrepple:cScenarioUrl+"api/input/calendarbucket/","POST",hData,.T.)
-         ENDIF
-      NEXT 
-
-      //Add holidays
-      FOR nYear := Year(Date()) TO Year(Date())+1         
-         aDays := FeierTage(nYear,GetConfigValue("STATE"),.F.)
-         dPrev := StoD("")
-         dStart := StoD("")
-         FOR nX := 1 TO Len(aDays)
-            IF dPrev+1 == aDays[nX]
-               dPrev := aDays[nX]
-            ELSE
-               IF ! Empty(dStart)
-                  ? "Feiertage "+DtoC(dStart)+" bis "+DtoC(dPrev)+" werden in Frepple eingetragen"
-                  hData := {=>}
-                  hData["calendar"] := "Schliesstage"
-                  hData["source"] := "Trader"
-
-                  cStartTime := "00:00"
-                  cEndTime := "23:59"
-
-                  hData["startdate"] := oFrepple:DtoC(dStart,cStartTime)
-                  hData["enddate"] := oFrepple:DtoC(dPrev,cEndTime)
-                  hData["value"] := 0
-                  hData["priority"] := 0
-                  hData["monday"] := hData["tuesday"] := hData["wednesday"] := hData["thursday"] := hData["friday"] := hData["saturday"] := hData["sunday"] := .T.
-                  hData["starttime"]  := cStartTime
-                  hData["endtime"] := cEndTime
-                  oFrepple:Execute(oFrepple:cScenarioUrl+"api/input/calendarbucket/","POST",hData,.T.)
-               ENDIF
-               dStart := aDays[nX]
-               dPrev := aDays[nX]
+      IF ValType(aResult) != "A"
+         ?? "Fehler bei der Verbindung zu Frepple"
+      ELSE
+         ?? " abgeschlossen"
+         ? "Timebutler Buckets werden in Frepple gel”scht..."
+         FOR nX := 1 TO Len(aResult)
+            IF aResult[nX]["source"] $ {"Timebutler","Trader"}
+               ? "Delete bucket "+LTrim(Str(aResult[nX]["id"]))
+               oFrepple:deleteCalendarBucket(aResult[nX]["id"])
             ENDIF
          NEXT
-      NEXT
+         ?? " abgeschlossen"
       
+         
+         res->(dbSetOrder( 3 ))
+         FOR EACH hAbsence IN aAbsences            
+            IF Len(hAbsence) > 1 .AND. hAbsence["To"] >= Date()-15 .AND.;
+               HHasKey(hAbsence,"Employee number") .AND. ValType(hAbsence["Employee number"]) == "N" .AND. res->(dbSeek( Str(hAbsence["Employee number"],2)))
+               ? "Add bucket for "+res->Name+" "+hAbsence["Type"]+" from "+DtoC(hAbsence["From"])+" to "+DtoC(hAbsence["To"])
+               hData := {=>}
+               hData["calendar"] := Trim(res->Name)
+               hData["source"] := "Timebutler"
+
+               cStartTime := "06:00"
+               cEndTime := "18:00"
+               IF hAbsence["Half a day"]
+                  IF hAbsence["Morning"]                  
+                     cEndTime := "12:00"
+                  ELSE
+                     cStartTime := "12:00"
+                     
+                  ENDIF            
+               ENDIF
+
+               hData["startdate"] := oFrepple:DtoC(hAbsence["From"],cStartTime)
+               hData["enddate"] := oFrepple:DtoC(hAbsence["To"],cEndTime)
+               hData["value"] := 0
+               hData["priority"] := 0
+               hData["monday"] := hData["tuesday"] := hData["wednesday"] := hData["thursday"] := hData["friday"] := hData["saturday"] := hData["sunday"] := .T.
+               hData["starttime"]  := cStartTime
+               hData["endtime"] := cEndTime
+
+               oFrepple:Execute(oFrepple:cScenarioUrl+"api/input/calendarbucket/","POST",hData,.T.)
+            ENDIF
+         NEXT 
+
+         //Add holidays
+         FOR nYear := Year(Date()) TO Year(Date())+1         
+            aDays := FeierTage(nYear,GetConfigValue("STATE"),.F.)
+            dPrev := StoD("")
+            dStart := StoD("")
+            FOR nX := 1 TO Len(aDays)
+               IF dPrev+1 == aDays[nX]
+                  dPrev := aDays[nX]
+               ELSE
+                  IF ! Empty(dStart)
+                     ? "Feiertage "+DtoC(dStart)+" bis "+DtoC(dPrev)+" werden in Frepple eingetragen"
+                     hData := {=>}
+                     hData["calendar"] := "Schliesstage"
+                     hData["source"] := "Trader"
+
+                     cStartTime := "00:00"
+                     cEndTime := "23:59"
+
+                     hData["startdate"] := oFrepple:DtoC(dStart,cStartTime)
+                     hData["enddate"] := oFrepple:DtoC(dPrev,cEndTime)
+                     hData["value"] := 0
+                     hData["priority"] := 0
+                     hData["monday"] := hData["tuesday"] := hData["wednesday"] := hData["thursday"] := hData["friday"] := hData["saturday"] := hData["sunday"] := .T.
+                     hData["starttime"]  := cStartTime
+                     hData["endtime"] := cEndTime
+                     oFrepple:Execute(oFrepple:cScenarioUrl+"api/input/calendarbucket/","POST",hData,.T.)
+                  ENDIF
+                  dStart := aDays[nX]
+                  dPrev := aDays[nX]
+               ENDIF
+            NEXT
+         NEXT
+      ENDIF
    ENDIF
 
    IF lDavid

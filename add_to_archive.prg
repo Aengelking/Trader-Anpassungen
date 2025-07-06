@@ -51,6 +51,8 @@ PROC ADD_TO_ARCHIVE()
          ? "Dokument nicht im Agorum Archiv gefunden - wird hinzugefÅgt"
          IF ! oAgorum:AddFile(cDocType,ATail(aFiles)[6],oObject)
             ? "Fehler beim HinzufÅgen: ",oAgorum:cErrorText
+         ELSE
+            ? "Dokument erfolgreich hinzugefÅgt"
          ENDIF
       ENDIF
    ENDDO

@@ -1,6 +1,6 @@
 PROC RUN_SYNC_Supabase_Todo
    LOCAL oSupa := Supabase():New()
-   LOCAL aTodo,aKRs,nKR,nUser,aUsers,nTodo
+   LOCAL aTodo,aKRs,nUser,aUsers
    LOCAL nKeyResultsListID
 
    IF ! oSupa:Login()
@@ -81,14 +81,14 @@ RETURN nListID
 
 // Create the "Key Results" todo list
 STATIC FUNCTION CreateKeyResultsList()
-   LOCAL nNewID := 0
+   LOCAL nNewID
    LOCAL nCurrentUserID := SystemUser():Id
    
    NetUse("tl","tl")
    NetUse("tl_acc","tl_acc")
    
    // Create new todo list
-   tl->(dbAppend())
+   tl->(Add_Rec(0))
    nNewID := __GetNextTLID()
    tl->ID := nNewID
    tl->NAME := "Key Results"
@@ -99,21 +99,33 @@ STATIC FUNCTION CreateKeyResultsList()
    tl->UPDATEDBY := nCurrentUserID
    tl->STATUS := "A"
    tl->(dbCommit())
+   tl->(dbUnlock())
    
-   // Add owner access record
-   tl_acc->(dbAppend())
-   tl_acc->TLID := nNewID
-   tl_acc->USERID := nCurrentUserID
-   tl_acc->ISOWNER := .F.
-   tl_acc->CANWRITE := .F.
-   tl_acc->GRANTEDAT := Date()
-   tl_acc->GRANTEDBY := nCurrentUserID
-   tl_acc->(dbCommit())
+   // Add owner access record if not already present
+   AddUserAccessToList(nNewID, nCurrentUserID)
    
    tl->(dbCloseArea())
    tl_acc->(dbCloseArea())
    
 RETURN nNewID
+
+// Add user access to a todo list if not already present
+STATIC FUNCTION AddUserAccessToList(nListID, nUserID)
+   NetUse("tl_acc","tl_acc")
+   tl_acc->(dbSetOrder(1)) // TLUSER order: TLID+USERID
+   IF ! tl_acc->(dbSeek(STR(nListID,6)+STR(nUserID,6)))
+      tl_acc->(Add_Rec(0))
+      tl_acc->TLID := nListID
+      tl_acc->USERID := nUserID
+      tl_acc->ISOWNER := .F.
+      tl_acc->CANWRITE := .F.
+      tl_acc->GRANTEDAT := Date()
+      tl_acc->GRANTEDBY := nUserID
+      tl_acc->(dbCommit())
+      tl_acc->(dbUnlock())
+   ENDIF
+   tl_acc->(dbCloseArea())
+RETURN NIL
 
 // Sync key results and todos from Supabase to Trader
 STATIC FUNCTION SyncSupabaseToTrader(aTodo, aKRs, aUsers, nKeyResultsListID, oSupa)
@@ -136,8 +148,11 @@ STATIC FUNCTION SyncSupabaseToTrader(aTodo, aKRs, aUsers, nKeyResultsListID, oSu
             oKRTodo := Todo():New()
             IF oKRTodo:Load(aKRs[nKR]["trader_uuid"])
                oKRTodo:Task := "KR: "+hb_utf8tostr(aKRs[nKR]["title"])
+               oKRTodo:User := aUsers[nUser]["trader_id"]
                // Don't update Done status for key results
                oKRTodo:Save()
+               // Ensure user has access to the list (in case of reassignment)
+               AddUserAccessToList(nKeyResultsListID, aUsers[nUser]["trader_id"])
             ELSE
                ? "*** NOT FOUND *** "+aKRs[nKR]["trader_uuid"]
                aKRs[nKR]["trader_uuid"] := ""
@@ -158,6 +173,9 @@ STATIC FUNCTION SyncSupabaseToTrader(aTodo, aKRs, aUsers, nKeyResultsListID, oSu
             oKRTodo:Done := .F.  // Key results are never marked as done automatically
             oKRTodo:Notes := "Supabase KR ID: " + aKRs[nKR]["id"]
             oKRTodo:Save()
+            
+            // Add user to the list
+            AddUserAccessToList(nKeyResultsListID, aUsers[nUser]["trader_id"])
             
             // Update Supabase with trader_uuid
             hUpdateData := {"trader_uuid" => oKRTodo:UUID}                  

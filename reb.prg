@@ -24,6 +24,7 @@ LOCAL nPerson := Tr_Getini(28),nPersSel,nPersNoBooked
 LOCAL cFor,bSetFilter,lShowNotes := .F.
 LOCAL bTermin,nT,dNext,aSkonto,dDate
 LOCAL cInter
+LOCAL nProject
 
 MEMVAR c_five,c_one
 
@@ -449,11 +450,11 @@ oBrowse:AddKey(K_ENTER,{||
       Wapi_ShellExecute(,"open",cFile)
       RETURN NIL
    }
-   LOCAL nChoice,aChoices,nTop
+   LOCAL nChoice,aChoices,nTop   
+   LOCAL cScreen
    MEMVAR c_five,c_one
    
    ASort(aFiles,,,{|x,y| x[6] < y[6] }) //sort according to file name and not date
-   
    IF reb->Status <= 8
       IF reb->Liefnr != 0 .OR. reb->Status == 8
          nChoice := Tr_MsgBox("Buchen?",,{"Ja","abrechen","anzeigen",cZuText,cFirmText})
@@ -521,7 +522,7 @@ oBrowse:AddKey(K_ENTER,{||
             ENDIF
          ENDIF
          IF nChoice == 0
-            aChoices := {"Nein","Ja",cZuText,cFirmText}
+            aChoices := {"Nein","Ja",cZuText,cFirmText,"Projekt zuweisen"}
             IF lCanApprove
                Aadd(aChoices,"mit Intervall")
             ENDIF
@@ -533,7 +534,7 @@ oBrowse:AddKey(K_ENTER,{||
 
             nChoice := Tr_MsgBox("Freigeben?",,aChoices)
          ENDIF
-         IF nChoice == 5
+         IF aChoices[nChoice] == "mit Intervall"
             cScreen := SaveScreen(10,10,12,41)
             SetColor(c_five)
             @ 10,10 CLEAR TO 12,41
@@ -552,9 +553,38 @@ oBrowse:AddKey(K_ENTER,{||
                rerep->(dbUnLock())
                nChoice := 2
             ENDIF
+         ELSEIF aChoices[nChoice] == "Projekt zuweisen"
+            //--- PROJECT ASSIGNMENT AND APPROVAL FOR LEXWARE INVOICES ---*      
+            NetUse("projekte","pj")                  
+            SetColor(c_five)
+            cScreen := SaveScreen()
+            nProject := 0
+            @ 10,10 CLEAR TO 12,41
+            @ 10,10 TO 12,41
+            @ 11,11 SAY "Projekt " GET nProject PICTURE "999999" VALID {|| 
+               IF ! pj->(dbSeek(Str(nProject,6))) 
+                  @ 12,11 SAY "Nicht gefunden" 
+                  RETURN .F. 
+               ENDIF 
+               RETURN .T. 
+            }
+            READ
+            RestScreen(,,,,cScreen)
+            SetColor(c_one)
+            IF LastKey() != 27 .AND. nProject != 0 .AND. Tr_MsgBox("Projekt "+LTrim(Str(nProject,6))+" "+Trim(pj->Beschreibu)+" zuweisen und freigeben?",,{"Nein","Ja"}) == 2
+               NetUse("projcost","pjcst")
+               pjcst->(Add_Rec())
+               pjcst->Projekt := nProject
+               pjcst->Typ := "ER"
+               pjcst->Rebid := reb->ID
+               pjcst->Datum := Date()
+               pjcst->Summe := reb->Betrag
+               pjcst->(dbUnLock())
+               
+               nChoice := 2 //the will approve the invoice               
+            ENDIF
          ENDIF
-         IF nChoice == 2
-            
+         IF nChoice == 2            
             LETO_BEGINTRANSACTION()
             BEGIN SEQUENCE
                reb->(Rec_Lock())               
@@ -582,7 +612,7 @@ oBrowse:AddKey(K_ENTER,{||
             lChangePers := .T.
          ELSEIF nChoice == 4
             lChangeFirm := .T.
-         ELSEIF nChoice == 6
+         ELSEIF aChoices[nChoice] == "anzeigen"
             Eval(bOpen,ATail(aFiles)[6])
          ENDIF
       ELSE
@@ -610,14 +640,8 @@ oBrowse:AddKey(K_ENTER,{||
          @ nTop+4,36,nTop+15,54 GET oRec:Person LISTBOX hPeople ASSOCIATIVE
          READ
          IF LastKey() != 27
-/*            rebp->(Add_Rec())
-            rebp->Type := "PERS"
-            rebp->DateTime := DateTime()
-            rebp->Person   := Tr_getini(28)
-            rebp->Rev      := reb->Rev
-            rebp->(dbUnLock())*/
             oRec:Save()
-            //reb->(dbSkip())
+            
             Eval(bSkip)
          ENDIF
          RestScreen(,,,,cScreen)
@@ -646,8 +670,8 @@ oBrowse:AddKey(K_ENTER,{||
          engre(ku->Kunde,Pad(IF(Empty(reb->Beleg_Kurz),reb->Beleg,reb->Beleg_Kurz),14))
       ELSEIF nChoice == 3
          lChangeFirm := .T.
-      ENDIF
-   ENDIF
+      ENDIF     
+   ENDIF   
    IF lChangeFirm
       cKonto := Space(100)
       nLiefnr := 0

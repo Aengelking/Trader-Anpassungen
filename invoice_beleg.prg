@@ -14,7 +14,7 @@
 
 #define P_SIGRID 34
 #define P_DANIEL IF(Date()>=Stod("20220701").AND.Date()<=StoD("20220707"),9,57)
-#define P_DANIELA IF(Date()>=StoD("20251604"),66,50)
+#define P_DANIELA 50 //IF(Date()>=StoD("20251604"),66,50)
 #define P_AMOS 9
 #define P_LISA 64
 

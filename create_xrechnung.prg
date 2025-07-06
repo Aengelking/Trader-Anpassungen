@@ -254,11 +254,11 @@ PROC CreateXRechung(nRechnr,cFile)
             ATail(hData["items"])["orderPosition"] := Trim(re->Aufnr)
          ENDIF
          IF ! Empty(re->Rabatt)
-            ATail(hData["items"])["allowances"] := {;
+            ATail(hData["items"])["allowances"] := {{;
                "percent"=>re->Rabatt,;
                "reason"=>IF(cLang!="D","Discount","Rabatt"),;
                "type"=>"percentage";
-            }
+            }}
          ENDIF
          //"description": "",
          //"netAmount": null,

@@ -100,7 +100,7 @@ FUNCTION CS_GetCompanyReport(oSoap,cID,nReason)
                      +LTRIM(Str(ProcLine(i))) + ")  "
            i++
          endDO
-         SendMail({{"amos.engelking@engelking.de","Amos"}},"Doppelabruf Creditsafe "+cID,cText)
+         //SendMail({{"amos.engelking@engelking.de","Amos"}},"Doppelabruf Creditsafe "+cID,cText)
          RETURN NIL
       ENDIF
    ENDIF

@@ -4,6 +4,7 @@ LOCAL cDir
 LOCAl aDir,cFile := "",nX,nPos,cNr
 LOCAL lLP := .F.
 LOCAL nListArt,aEnv,lZip,lTop
+LOCAL nY, aExtract, cFileName
 
 IF ValType(lAw) != "L"
    lAW := .F.
@@ -42,7 +43,7 @@ cZeich := Trim(cZeich)
 cInd   := Trim(cInd)
 
 aDir  := Directory(cDir+"*.*")
-
+//? ValToPrg(aDir)
 FOR nX := 1 TO Len(aDir)
 	nPos := At("_",aDir[nX,1])
 	IF nPos == 0
@@ -72,7 +73,9 @@ IF lLP
    ELSE
       lTop := .F.
    ENDIF
-   Aadd(aFiles,cFile)
+   IF ! Empty(cFile)
+      Aadd(aFiles,cFile)
+   ENDIF
    IF part->(dbSeek( Str(nListArt,6) ))
       DO WHILE part->ListArt == nListArt .AND. ! part->(EOF())
          IF part->Pos > 0
@@ -93,17 +96,30 @@ IF lLP
    IF lTop      
       IF Len(aFiles) >= 1         
          cFile := cDir+"PCB_"+StrZero(art->Artikelnr,6)+".ZIP"
-         /*lZip := .F. //we would also need to check if all files are in the ZIP file
+
+         lZip := .F. //we would also need to check if all files are in the ZIP file
          IF File(cFile)
+            aExtract := hb_GetFilesInZip( cFile , .T.)  // extract all files in zip, returns an array of { cFileName, nSize, nMethod, nCompSize, nRatio, dDate, cTime, hb_numtohex( nCRC, 8 ), nInternalAttr /* cAttr */, lCrypted, cComment }
+         
+            // Check if all files in aFiles are present in the ZIP archive
+            FOR nX := 1 TO Len(aFiles)                              
+               cFileName := SubStr(aFiles[nX],Rat("\",aFiles[nX])+1)  // get the file name without path               
+               nY := AScan(aExtract,{|aFile| Upper(aFile[1]) == Upper(cFileName)})
+               IF nY == 0
+                  Alert("File "+aFiles[nX]+" not found in ZIP file "+cFile)
+                  lZip := .T.
+                  EXIT
+               ENDIF
+            NEXT
             FOR nX := 1 TO Len(aFiles)  
                IF FileDate(cFile) < FileDate(aFiles[nX]) .OR. (FileDate(cFile) == FileDate(aFiles[nX]) .AND. FileTime(cFile) < FileTime(aFiles[nX]))
                   lZip := .T.
                   EXIT
                ENDIF            
             NEXT
-         ELSE*/
+         ELSE
             lZip := .T.
-         //ENDIF
+         ENDIF         
          IF lZip
             FOR nX := 1 TO Len(aFiles)  
                IF ! hb_ZipFile( cFile,aFiles,4,,.T.,,.F.,.F.)

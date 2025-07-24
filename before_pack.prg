@@ -113,11 +113,14 @@ IF lRech
       RETURN .F.
    ENDIF
 
-   IF nVersandart $ {2,19,23,34,43,44,45,46,49,51} .AND. oRechnung:Brutto > 30000
-      Tr_MsgBox("Wert der Sendung zu hoch, bitte per Spedition versenden.")
-      
-      oRechnung:VersandArt := 57
-      oRechnung:Save()
+   IF oRechnung:Brutto > 30000
+      IF nVersandart != 58 // {2,19,23,34,43,44,45,46,49,51}
+         Tr_MsgBox("Wert der Sendung zu hoch, bitte per Spedition versenden.")
+         nVersandart := 58 //Spedition
+      ENDIF
+      aValidVersand := {58} //only Spedition
+      //oRechnung:VersandArt := 58
+      //oRechnung:Save()
    ENDIF
    GotoRechAddress(.T.) //goto delivery address
 			   

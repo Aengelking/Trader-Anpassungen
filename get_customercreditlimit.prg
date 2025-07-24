@@ -127,8 +127,8 @@ ENDIF
    //hSpecial["D™LCO"]  := {"DATE"=>StoD("20211030"), "LIMIT"=>940} //28.06.21 Auf autom. Mahnung umgestellt. Letzte Rechnung wurde erst nach 3. Mahnung gezahlt //11.11.20 letztes Rechnung direkt nach erster Mahnung bezahlt.
    //hSpecial["IMED"]  := {"DATE"=>StoD("20210830"), "LIMIT"=>38} // 11.12.20 kleiner Betrag
    //hSpecial["REPRO"]    := {"DATE"=>StoD("20211230"), "LIMIT"=>1852} //07.07.21 Kunde wurde zwischenzeitlich auf autom. Mahnung gesetzt hat nun direkt nach erster Mahnung bezahlt //11.01.21 Schlechtes Rating, bestehender Kunde
-   //hSpecial["IRTSYSTE"] := {"DATE"=>StoD("20211230"), "LIMIT"=>1780} //12.04.21 War gar kein Rahmen, daher Limit angehoben //21.01.21 Rating liegt inzwischen bei 4,3, zahlt nach 1 Mahnung, seit 17 aber nicht n”tig, daher Auftragslimit fr Rahmen und geringer Betrag fr Rechnungen //29.03.17 seitdem keine Rechnung, Rahmen ausgelaufen und wir haben nicht alles da //18.07.16 Rating 3.6, zahlt aber bisher pünktlich
-   hSpecial["BERGMANM"] := {"DATE"=>StoD("20231130"),"LIMIT"=>1300} //20.09.23 - letzte zwei Jahre kein Limit notwendig. Hat letzte Rechnung sofort nach 1. Mahnung bezahlt //19.07.21 hat erste Rechnung erst nach 15 Tagen die 2. aber im Prinzip pnktlich bezahlt. Steht bereits auf autom. Mahnung
+   hSpecial["IRTSYSTE"] := {"DATE"=>StoD("20251230"), "LIMIT"=>2100} //26.06.25 Steht auf Automahnung, altes Limit 1780 //12.04.21 War gar kein Rahmen, daher Limit angehoben //21.01.21 Rating liegt inzwischen bei 4,3, zahlt nach 1 Mahnung, seit 17 aber nicht n”tig, daher Auftragslimit fr Rahmen und geringer Betrag fr Rechnungen //29.03.17 seitdem keine Rechnung, Rahmen ausgelaufen und wir haben nicht alles da //18.07.16 Rating 3.6, zahlt aber bisher pünktlich
+   hSpecial["BERGMANM"] := {"DATE"=>StoD("20231130"),"LIMIT"=>1300} //20.9.23 - letzte zwei Jahre kein Limit notwendig. Hat letzte Rechnung sofort nach 1. Mahnung bezahlt //19.07.21 hat erste Rechnung erst nach 15 Tagen die 2. aber im Prinzip pnktlich bezahlt. Steht bereits auf autom. Mahnung
    //hSpecial["REB"] := {"DATE"=>StoD("20210830"),"LIMIT"=>1300} //14.06.21 Rating schlecht, zahlte frher (letzte Lieferung 2020) mit Skonto   
    //hSpecial["FELDMANV"] := {"DATE"=>StoD("20210830"),"LIMIT"=>120} //09.03.21 Keine Auskunft   
    //hSpecial["MEYTRON"] := {"DATE"=>StoD("20210830"),"LIMIT"=>450} //12.03.21 Schlechtes (4.4) Rating. Buchhaltungskontakt wurde hinterlegt und auf autom. Mahnung gesetzt
@@ -178,7 +178,7 @@ ENDIF
    hSpecial["HUMID"] := {"DATE"=>SToD("20221230"),"LIMIT"=>2200}  //28.10.22 Rating 3.6, auf Automahnung bisher keine Zahlungserfahrung
    hSpecial["WINTERGA"] := {"DATE"=>SToD("20221230"),"LIMIT"=>100}  //09.11.22 Da ist was mit CS nicht i.O.
    hSpecial["H™RBELT"] := {"DATE"=>SToD("20231230"),"LIMIT"=>853}  //19.12.22 Erh”hung von 750 auf 853
-   hSpecial["WANTEC"]   := {"DATE"=>SToD("20241231"),"LIMIT"=>IF(lAuftrag,6000,760)}  //14.01.24 Hat 2023 kein Limit gebraucht, wieder eingesetzt //20.12.22 Hat l„nger nichts abgerufen. Limit wieder auf 760 gesetzt //12.10.20 Limit von 760 auf 1999 erh”ht //15.05.20 brauch jetzt auch zur Auslieferung eine h”heres Limit. //13.05.20 Neuer Rahmen, daher verl„ngert aber auf 3000 reduziert //16.04.19 brauchen das Limit fr einen Rahmen, der ist sehr schlampig beim bezahlen der Rechnungen //19.03.18 verlängert //19.10. auf 3300 erhöht //12.10.17 Verlängerung und Erhöhung auf 2900, letzten beiden Rechnungen wurden mit Skonto bezahlt //06.07.17 Erhöhung auf 2120 von 1800 //13.03.17 kurzeitige Erhöhung um einen Rahmen einzugeben. //18.01.17 nicht in CS gelistet daher nur 300€ //06.09.16 Erhöhung um 40€ auf 2380
+   hSpecial["WANTEC"]   := {"DATE"=>SToD("20251231"),"LIMIT"=>IF(lAuftrag,6000,1000)}  //26.06.25 Limit von 760 erh”ht //14.01.24 Hat 2023 kein Limit gebraucht, wieder eingesetzt //20.12.22 Hat l„nger nichts abgerufen. Limit wieder auf 760 gesetzt //12.10.20 Limit von 760 auf 1999 erh”ht //15.05.20 brauch jetzt auch zur Auslieferung eine h”heres Limit. //13.05.20 Neuer Rahmen, daher verl„ngert aber auf 3000 reduziert //16.04.19 brauchen das Limit fr einen Rahmen, der ist sehr schlampig beim bezahlen der Rechnungen //19.03.18 verlängert //19.10. auf 3300 erhöht //12.10.17 Verlängerung und Erhöhung auf 2900, letzten beiden Rechnungen wurden mit Skonto bezahlt //06.07.17 Erhöhung auf 2120 von 1800 //13.03.17 kurzeitige Erhöhung um einen Rahmen einzugeben. //18.01.17 nicht in CS gelistet daher nur 300€ //06.09.16 Erhöhung um 40€ auf 2380
    hSpecial["THELECTR"]   := {"DATE"=>SToD("20241030"),"LIMIT"=>1001} //17.09.24 CS vergibt nach Insolvenz nur 750 //18.01.23 Insolvenzverfahren in Eigenverqaltung //03.12.21 Von 928 erh”ht //08.11.21 Eine Rechnung direkt nach 1. Mahnung bezahlt (diese wurde sp„t verschickt), steht nun auf Automahnung. Von 750 auf 928 angehoiben
    hSpecial["HYUNDAI"]   := {"DATE"=>SToD("20230731"),"LIMIT"=>973}  //13.02.23 Letzte Rechnung wurde erst sp„t nach der 3. Mahnung bezahlt. Diese ging wahrscheinlich auch nicht an die richtige Person. Neuer Versuch
    hSpecial["APROOFED"]   := {"DATE"=>SToD("20230731"),"LIMIT"=>800}  //
@@ -219,21 +219,21 @@ ENDIF
    hSpecial["M-T-N"] := {"DATE"=>StoD("20250228"), "LIMIT"=>1200} //31.01.25 in letzter Zeit keine Rechnungen, davor  (2023) mit Skonto bezahlt. Erh”ht von 750 auf 1200
    hSpecial["MIMMUELL"]   := {"DATE"=>StoD("20250630"), "LIMIT"=>3200} //02.02.25 seit 2023 nichts mehr gekauft //01.04.19 Hat in der Vergangenheit immer mit Skonto bezahlt
    hSpecial["AQUAMETR"]   := {"DATE"=>StoD("20250630"), "LIMIT"=>850} //24.03.25 Erh”ht von 250 //25.02.25 Neugrndung (Umwandlung Einzelfirma) //27.07.23 Neu eingetragen, da lange nchts bestellt //06.11.20 auf von 499 aud 700 erh”ht //23.10.20 zahlt mit Skonto //27.05.19 2017 sehr pnktlich bezahlt //09.05.17 bisher auf Vorkasse, ist aber bei CreditSafe nicht gelistet
-   hSpecial["HANSEYAC"]    := {"DATE"=>StoD("20250430"), "LIMIT"=>2500} //05.03.25 Ware auf Lager (Rahmen) kunde zahlt aber verz”gert. K”nnen niemanden erreichen //16.04.19 Nach Rcksprache mit Sigi das KL auf 13000? angehoben, der Kunde zahlt immer wenn sie Herrn Elmenhorst kontaktier //08.11.18 Auftragslimit auf 25k erh”ht //27.07.18 Zahlt erst nach merhfacher Mahnung. Factoring keine L”sung, da fas Limit haupts„chlich fr Auftr„ge und nicht fr die Rechnungen selbst ben”tigt wird
+   hSpecial["HANSEYAC"]    := {"DATE"=>StoD("20250730"), "LIMIT"=>2500} //30.06.25 Auf Automahn //05.03.25 Ware auf Lager (Rahmen) kunde zahlt aber verz”gert. K”nnen niemanden erreichen //16.04.19 Nach Rcksprache mit Sigi das KL auf 13000? angehoben, der Kunde zahlt immer wenn sie Herrn Elmenhorst kontaktier //08.11.18 Auftragslimit auf 25k erh”ht //27.07.18 Zahlt erst nach merhfacher Mahnung. Factoring keine L”sung, da fas Limit haupts„chlich fr Auftr„ge und nicht fr die Rechnungen selbst ben”tigt wird
    hSpecial["SOLVENTU"]    := {"DATE"=>StoD("20250530"), "LIMIT"=>2100} //07.03.25 Hatte aufgrund eines unvorhergesehenen Mitarbeiterwechsel sehr sp„t zahlen k”nnen
    hSpecial["OEMTRADI"]    := {"DATE"=>StoD("20250630"), "LIMIT"=>700} //07.03.25 Letzte Rechnung ziemlich direkt nach 1. Mahnung bezahlt
    hSpecial["KERSIA"]    := {"DATE"=>StoD("20250630"), "LIMIT"=>650} //10.03.25 Hat letzte Rechnung verstp„tet bezahlt (siehe Notizen) wir probieren das nochmal
    hSpecial["XI-MACH"]    := {"DATE"=>StoD("20250630"), "LIMIT"=>1500} //10.03.25 Kunde hatte IT Probleme und konnte daher nicht zahlen
-   hSpecial["SANMINUS"]    := {"DATE"=>StoD("20250630"), "LIMIT"=>60000} //23.03.25 Hat letzte Rechnung sehr sp„t bezahlt (26T / 2 Mahnung). Auf Automahn gestellt, ist der Fertiger fr Kaco
-   hSpecial["KMCELEC"]    := {"DATE"=>StoD("20250630"), "LIMIT"=>2000} //12.04.25 Schlechtes Rating (3.0)
+   hSpecial["SANMINUS"]    := {"DATE"=>StoD("20250830"), "LIMIT"=>60000} //02.07.25 Automahn hilft nicht - Sabid geht nochmals auf die zu //23.03.25 Hat letzte Rechnung sehr sp„t bezahlt (26T / 2 Mahnung). Auf Automahn gestellt, ist der Fertiger fr Kaco
+   hSpecial["KMCELEC"]    := {"DATE"=>StoD("20250730"), "LIMIT"=>2000} //12.04.25 Schlechtes Rating (3.0)
    hSpecial["ARMAGMBH"] :=  {"DATE"=>SToD("20250630"),"LIMIT"=>2900} //15.04.25 Schlechtes Rating, zahlt aber meist pnktlich.
-   hSpecial["CARSTECH"] :=  {"DATE"=>SToD("20250630"),"LIMIT"=>10000} //15.04.25 Eine Rechnung wurde sehr sp„t bezahlt, ging an die falsche Adresse und wurde dann lange nicht durch uns bearbeitet.
+   hSpecial["CARSTECH"] :=  {"DATE"=>SToD("20250930"),"LIMIT"=>10000} //15.04.25 Eine Rechnung wurde sehr sp„t bezahlt, ging an die falsche Adresse und wurde dann lange nicht durch uns bearbeitet.
    hSpecial["STOLZE"] :=  {"DATE"=>SToD("20250730"),"LIMIT"=>1650} //10.05.25 schlechtes Rating
    hSpecial["CHIPGERM"] :=  {"DATE"=>SToD("20250730"),"LIMIT"=>1190} //12.05.25 Probleme mit dem Buchhaltungskontakt
    hSpecial["VITRONIW"] := {"DATE"=>StoD("20250831"), "LIMIT"=>400} //06.06.25 Direkt nach erster Mahnung bezahlt. Steht auf Automahn //12.06.19 Zahlt immer nach der 1. Mahnung, diese sollten wir schneller versenden
-
-   //Auftragslimits fr groáe Kunden, diese gelten wenn der Kunde die voll Deckung bei der Versicherung haben
-    
+   hSpecial["NANOTEC"] := {"DATE"=>StoD("20250831"), "LIMIT"=>450} //11.06.25 Keine Bewertung bei CS (ungengend Informationen) 
+   
+   //Auftragslimits fr groáe Kunden, diese gelten wenn der Kunde die voll Deckung bei der Versicherung haben    
     hBigCustomer["FRANKE"]   := 241000
     hBigCustomer["STEIERMA"] := 390000
     //hBigCustomer["SCHNEIDG"] := 208000 //berechnetes Fabrikationsrisiko ca. 147 TEUR. 
@@ -381,7 +381,7 @@ ENDIF
    //hSpecial["OMC"] := {"DATE"=>SToD("20210330"),"LIMIT"=>70} //16.02.21 Verl„nger und von 210 reduziert, zahlt nicht besonders pkt. //11.11.20 Verl„ngert und von 101 erh”ht //05.10.20 Kunde hatte anscheinden Probleme mit dem Mailserver und haben deswegeen weder Rechnung noch Mahnung bekommen.
    //hSpecial["WASSERWE"] := {"DATE"=>SToD("20201030"),"LIMIT"=>25} //07.10.20 Schlechtes Rating, sehr geringer betrag
 
-        //hSpecial["WHTECH"]   := {"DATE"=>StoD("20201231"), "LIMIT"=>5700} //12.10.20 Verl„ngert und erh”ht von 300 //14.03.19 Ziehen wir immer von den Rechnungen ab //28.07.16 wenn der weiterhin nicht zahlt, ziehen wir das von den Rechnungen ab!
+   hSpecial["WHTECH"]   := {"DATE"=>StoD("20251231"), "LIMIT"=>5700} //16.07.25 Limit eingetragen, da wegen versp„teter Rechnung kein auslieferung m”glich //12.10.20 Verl„ngert und erh”ht von 300 //14.03.19 Ziehen wir immer von den Rechnungen ab //28.07.16 wenn der weiterhin nicht zahlt, ziehen wir das von den Rechnungen ab!
     //hSpecial["TILLYTA"]  := {"DATE"=>StoD("20190430"), "LIMIT"=>12500} //12.11.18 šber Factoring wird pnktlich bezahlt, erh”hung auf 12,5K //5.6.18 Werden das zuknftig ber Factoring abwickeln, die haben ein Limit von 10.000 einger„umt //16.04.18 schwieriger Kunde, zahlt sehr unpünktlich und dadruch ist das KL der Versicherung gestrichen.
     
     //hSpecial["EDB"] := {"DATE"=>StoD("20191230"), "LIMIT"=>2200} //13.02.19 verl„ngert, weiterhin Factoring //16.10.18 Rating 3.5 daher Factoring

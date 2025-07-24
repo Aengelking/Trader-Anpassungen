@@ -15,6 +15,9 @@ LOCAL aFreigabeList
 LOCAL nStock
 LOCAL bGetFreigabe := { |nLief,oLief|
    LOCAL cText
+   
+   oAufPos:Artikel:gotoRec()
+   Alert(art->Matchcode)
    hFreigabe := GetFreigabeBesState(nLief)   
    IF nLief == 0
       cText := "INTERN "  
@@ -53,10 +56,10 @@ NetUse("ppf","ppf")
 oExtra := ku->(ExtraData():New( oAufPos:Auftrag:Kunde:Nummer ))
 oArtExtra := art->(ExtraData():New(oAufpos:Artikelnr))
 
-IF oAufpos:lNew .AND. oAufPos:ContractPosition == NIL .AND. Left(oAufPos:Artikel:Matchcode,3) == "57M" .AND. Trim(oAufPos:Artikel:Matchcode) != "57M-112B."
+/*IF oAufpos:lNew .AND. oAufPos:ContractPosition == NIL .AND. Left(oAufPos:Artikel:Matchcode,3) == "57M" .AND. Trim(oAufPos:Artikel:Matchcode) != "57M-112B."
    Tr_MsgBox("Artikel aktuell nicht erh„ltlich - auf CM(I)57 ausweichen.")
    RETURN .F.
-ENDIF
+ENDIF*/  //gibt es lt. Yannick wieder 4.7.25
 
 IF ! oAufPos:Artikel:Manufactur $ {5,6} .AND. oExtra:WerksBesch .AND. ! oArtExtra:CoC .AND. ! (oAufPos:Auftrag:Kunde:Kunde == "RMWKABEL" .AND. Trim(art->Matchcode) == "PX0587")
    Tr_MsgBox({"Dieser Artikel hat keine Werksbescheinigungen (CoC).","Dieser Kunde m”chte nur Artikel mit CoC."})
@@ -179,7 +182,9 @@ IF oExtra:SepAbruf .AND. oAufPos:ContractPosition != NIL
 ENDIF
 
 //Check for Folgeartikel on Engelking's Switch products
-IF oAufPos:Artikel:Manufactur == 6 .AND. Left(oAufPos:Artikel:Gruppe,2) == "SW" .AND. ! oArtExtra:NoFolge  
+IF ((oAufPos:Artikel:Manufactur == 6 .AND. Left(oAufPos:Artikel:Gruppe,2) == "SW");
+      .OR. (Left(oAufPos:Artikel:Matchcode,3) == "SCM" .AND. Right(Trim(oAufPos:Artikel:Matchcode),2) == "01"));
+     .AND. ! oArtExtra:NoFolge  
 
    NetUse("folgeart","fol")
    IF ! fol->(dbSeek(STR(oAufPos:Artikel:Artikelnr,6)))

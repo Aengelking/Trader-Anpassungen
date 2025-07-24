@@ -63,9 +63,10 @@ FUNC HOOK_AFTER_MOVE_STOCK(nArtnr,cVonLager,cNachLager,nMenge,cCharge)
       
       //NetUse("parts","part")
 
-      aTo := {{"amos.engelking@engelking.de","Amos"}}
+      //aTo := {{"amos.engelking@engelking.de","Amos"}}      
+      //SendMail(aTo,Trim(art->Matchcode)+" wurde "+IF(lFromSperr,"ent","ge")+"sperrt","Von Lager: "+cVonLager+CRLF+"Nach Lager:"+cNachLager+CRLF+"Menge: "+Transform(nMenge,Me(art->Me))+CRLF+cGrund)   
       
-      SendMail(aTo,Trim(art->Matchcode)+" wurde "+IF(lFromSperr,"ent","ge")+"sperrt","Von Lager: "+cVonLager+CRLF+"Nach Lager:"+cNachLager+CRLF+"Menge: "+Transform(nMenge,Me(art->Me))+CRLF+cGrund)   
+      SendMessage("Qualitaet | Artikel gesperrt","Artikel "+Trim(art->Matchcode)+" wurde "+IF(lFromSperr,"ent","ge")+"sperrt","Von Lager: "+cVonLager+CRLF+"Nach Lager:"+cNachLager+CRLF+"Menge: "+Transform(nMenge,Me(art->Me))+CRLF+cGrund)
    ENDIF
          
 RETURN NIL

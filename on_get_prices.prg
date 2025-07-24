@@ -1,34 +1,10 @@
 FUNC HOOK_ON_GET_PRICES( aPriceTabs,nArtnr,nTab,dDate,cKundma )
 
-LOCAL nRate,nMulti
-LOCAL nX,nManu
-LOCAL lSubDistiGBP := .F.,lPackOnly
-LOCAL nVPE
-LOCAL oArt,nWeight
-LOCAL lFound,nPrice,nPausch,nSubArt,hPrice
-LOCAL nSecs := Seconds()
-/*df
-   SETTINGS FOR SUB DISTIS
-
-   Manufacuters
-   1=Bulgin
-   2=Edac
-   3=ITW
-   10=Arcolectric
-*/
-
-//which supplier to use for each manufacturer
-LOCAL nSubAufschlag := 0.3
-LOCAL nSubSpecial   := 0.2
-LOCAL aSubSpecial := {"MONACOR"} //{"ALDERS"}
-LOCAL oExtra
-LOCAL cMatch
-LOCAL nEx,nFixRate,aSkonto,nTable
-LOCAL aAddPriceTab
-LOCAL aPartPriceTabs
-LOCAL nAddPrice
-LOCAL cLiefma
-
+LOCAL nRate,nMulti, nX, nManu, lSubDistiGBP := .F., lPackOnly, nVPE, oArt, nWeight, lFound, nPrice, nPausch, nSubArt
+LOCAL hPrice, nSecs := Seconds(), nTabSecs, nY, hCostOO, nQ, nC, nP
+LOCAL nSubAufschlag := 0.3, nSubSpecial := 0.2, aSubSpecial := {"MONACOR"}
+LOCAL oExtra, cMatch, nEx, nFixRate, aSkonto, nTable, aAddPriceTab, aPartPriceTabs, nAddPrice, cLiefma
+LOCAL nVK,nQty
 
 NetUse("engkund","ku")
 IF ! Empty(cKundma)
@@ -447,6 +423,30 @@ ELSEIF nTab == 26
          ENDIF
       NEXT      
    ENDIF
+ELSEIF nTab == 60   
+   hCostOO := RUN_GetCostFromOO(nArtnr)   
+   aPriceTabs := {}
+   IF hCostOO["ERROR"] == 0 .AND. Len(hCostOO["DATA"]) > 0
+      FOR nC := 1 TO Len(hCostOO["DATA"])
+         nQ := hCostOO["DATA",nC,"QTY"]
+         nP := hCostOO["DATA",nC,"COST"]*2.5 //60% margin
+         AAdd(aPriceTabs, {nQ, nP})
+      NEXT
+   ELSE
+      aPriceTabs := {{1, 9999.99}}
+      
+      nQty := GetKwStock(nArtnr,9999)  //briger Lagerbestand
+      IF nQty > 0
+         oArt := Artikel():New()
+         oArt:Load(nArtnr)
+         nVK := oArt:GetAvgBuyPrice()*3.33 //70% margin
+         IF nVK > 0
+            aPriceTabs := {{nQty, nVK}}
+         ENDIF
+      ENDIF
+      //Alert(ValToPRg(hCostOO))
+      
+   ENDIF
 ENDIF
 
 //FIXED GBP RATE
@@ -522,3 +522,4 @@ ENDIF
 RETURN aPriceTabs
 
 #include 'x:\run\getupsimportcost.prg'
+#include 'X:\run\OO_costing.prg'

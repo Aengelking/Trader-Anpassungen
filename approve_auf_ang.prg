@@ -250,7 +250,7 @@ FOR EACH hProd IN aProducts
                      hProd:nEK := nWaldPrice
                      hProd:Supplier := Pad("WALDOM",8)
                      hProd:Margin :=  (hProd:VkPr / Currate( cMoney, "V" ) - hProd:nEK) /  (hProd:VkPr / Currate( cMoney, "V" ))
-                     DbgPrn("Kauf von Woldom, Margin:"+LTrim(Str(hProd:Margin))+", EK: "+Ltrim(str(hProd:nEK)))
+                     DbgPrn("Kauf von Waldom, Margin:"+LTrim(Str(hProd:Margin))+", EK: "+Ltrim(str(hProd:nEK)))
                   ENDIF
                ELSE
                   DbgPrn("No Waldom found")

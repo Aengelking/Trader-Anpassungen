@@ -1,9 +1,11 @@
 FUNC HOOK_ON_SEND_PAYREMINDER(cState,cKunde,cText,nMaxDaysOver,nMaxRem,aOpenInvoices)
    LOCAL oExtra,oKunde,cText2,aRecvs := {}
-   LOCAL nPerson := 0,aTo
-   LOCAL cType
+   LOCAL nPerson := 0,aTo,aTos
+   LOCAL cType,nTotal
 
    ? cKunde
+
+   HB_SYMBOL_UNUSED(cState)
 
    oKunde := Adresse():New()
    oKunde:LoadMatchcode(cKunde,"K")
@@ -44,17 +46,27 @@ FUNC HOOK_ON_SEND_PAYREMINDER(cState,cKunde,cText,nMaxDaysOver,nMaxRem,aOpenInvo
          cText2 += "<br/>"+cText
 
          IF nPerson != 0
-            //SetConfigValue("BATCHMODE",.F.)
-            SetPrinterMethodType(3)
-            StatDr(cKunde,nPerson,3,AddWorkingDays(GetValue("LASTPAY","D"),-1,GetConfigValue("STATE"),.T.),aRecvs)   
-            
-            //aTo := 
-            //aTo := GetConfigEmail("SI-NOPAY-SEVERE")
-            //Aadd(aTo,GetConfigEmail("SI-NOPAY-SEVERE"))
-            FOR EACH aTo IN {GetConfigEmail("SI-NOPAY"),GetConfigEmail("SI-NOPAY-SEVERE")}            
-               SendMail(aTo,cType+" wurde an "+Trim(cKunde)+" versendet",cText2,,,2,.T.)
-            NEXT
-            RETURN .F.
+            nTotal := 0
+            AEval(aOpenInvoices,{|x| 
+               nTotal += x["VALUE"]
+               RETURN .T.
+            })
+            IF nTotal > 5 //erst ab 5 EUR
+               SetPrinterMethodType(3)
+               StatDr(cKunde,nPerson,3,AddWorkingDays(GetValue("LASTPAY","D"),-1,GetConfigValue("STATE"),.T.),aRecvs)   
+               
+               //aTo := 
+               //aTo := GetConfigEmail("SI-NOPAY-SEVERE")
+               //Aadd(aTo,GetConfigEmail("SI-NOPAY-SEVERE"))
+               aTos := {GetConfigEmail("SI-NOPAY")}
+               IF nMaxRem >= 2
+                  Aadd(aTos,GetConfigEmail("SI-NOPAY-SEVERE"))
+               ENDIF
+               FOR EACH aTo IN aTos
+                  SendMail(aTo,cType+" wurde an "+Trim(cKunde)+" versendet",cText2,,,2,.T.)
+               NEXT
+               RETURN .F. //do not send standard email
+            ENDIF
          ENDIF
       ENDIF
    ENDIF

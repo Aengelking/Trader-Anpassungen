@@ -1,4 +1,8 @@
 #include 'y:\hb32\include\inkey.ch'
+#include "hbgtwvg.ch"
+#include "wvtwin.ch"
+#include "hbgtinfo.ch"
+#define HB_CALL_FUNC_DIRECT      1 
 
 #define LX_CAT_DEBITOR          128
 #define LX_CAT_KREDITOR         256
@@ -25,6 +29,8 @@ LOCAL cFor,bSetFilter,lShowNotes := .F.
 LOCAL bTermin,nT,dNext,aSkonto,dDate
 LOCAL cInter
 LOCAL nProject
+LOCAL aFiles
+LOCAL nWebView
 
 MEMVAR c_five,c_one
 
@@ -40,6 +46,8 @@ LOCAL nTolPaydate := GetValue("REB_TOLDATE",2,"Toleranz fr Zahldatum") //deduct
 LOCAL lIsAdmin    := AScan(aAdmin,Tr_Getini(28)) != 0
 LOCAL hUsers
 LOCAL hPeople := {=>}
+
+LOCAL nStyle, hWnd
 
 IF Date() <= StoD("20200830") .AND. Tr_Getini(28) == 34 //Urlaub Daniel 
    //lCanApprove := .T.
@@ -188,12 +196,17 @@ bTermin := {||
    ENDIF
    RETURN StoD(rebp->DateTime)+5
 }
+
+
+
+
 oBrowse := reb->(TBrowseTr():New(03,00,MaxRow()-11,MaxCol()))
 oBrowse:OneColumn := .T.
 //IF Tr_Getini(28) == 9
    oBrowse:ColorSpec := GetClrPair(c_one,1)+","+GetClrPair(c_one,5)+",R+/W*,GR+/BG,"+GetClrPair(c_one,2)
 //ENDIF
 oBrowse:lBox := .F.
+oBrowse:NoRefreshBug := .T.
 oBrowse:NewColumn("G",{|| IF(reb->Status < 8,IF(reb->Liefnr == 0,"!","-")," ") },{|| 
    //HB_SymbolUnused(oBrowse)
    IF ! oBooked:Buffer .AND. Eval(bTermin) <= Date()
@@ -254,63 +267,92 @@ oBrowse:bAnyFun := {||
    LOCAL lStorno
    LOCAL nTop := MaxRow()-09
 
-   rebp->(dbSetOrder( 1 ))
-   rebp->(dbSeek( Str(reb->ID,9), .T. ))
-   oBrowse2:Rebuild := .T.
-   oBrowse2:Display()
-   oBrowse2:deHilite()
    @ nTop,nL CLEAR TO MaxRow(),MaxCol()
    @ MaxRow()-08,42 SAY Replicate(Chr(196),nW)
    DispBox(MaxRow()-09,41,MaxRow(),41)
-   IF reb->Status == 9
-      rebp->(dbSetFilter({|| Trim(rebp->Type) == "STORN" },'Trim(Type) == "STORN"'))
-      lStorno := rebp->(dbSeek( Str(reb->ID,9), .T. ))
-      rebp->(dbClearFilter())
-      IF lStorno
-         @ nTop,nL SAY Pad("GRUND",nW)
-         @ nTop+2,nL SAY rebp->Grund
-      ELSE
-         @ nTop,nL SAY Pad("BUCHUNGEN",nW)
-         aBookings := LX_GetBookingsForID("ER"+Str(reb->ID,9))
-         FOR nX := 1 TO Len(aBookings)
-            IF aBookings[nX,"HABEN"] != 0 //ignore split bookings
-               @ nTop+nR+2,nL SAY DtoC(aBookings[nX,"BUCHDATUM"])+" "+Str(aBookings[nX,"HABEN"],6)+" "+Pad(aBookings[nX,"TEXT"],MaxCol()-41-8-1-6-1)
-               nR++
-               IF aBookings[nX,"SOLL"] != 0
-                  @ nTop+nR+2,nL SAY Space(8)+" "+Str(aBookings[nX,"SOLL"],6)+" "+Str(aBookings[nX,"NETTO"],12,2)
-                  nR++
-               ENDIF
-            ENDIF
-         NEXT
+
+   IF reb->(EOF()) 
+      IF nWebView != NIL
+         hb_webview_destroy(nWebView)
+         nWebView := NIL
       ENDIF
-      rebp->(dbSeek( Str(reb->ID,9), .T. ))
-   ENDIF
-   IF reb->Status < 8  .OR. (rebn->(dbSeek( Str(reb->ID,9) )) .AND. ! Empty(rebn->Notes))
-      IF reb->Status > 8
-         @ nTop,nL+10 SAY "|"
-         IF ! lShowNotes
-            @ nTop,nL+12 SAY "N" COLOR "B+/W"
-         ELSE
-            @ nTop,nL+12 SAY "N"
-         ENDIF
-         @ nTop,nL+13 SAY "OTIZEN"
-      ELSE      
-         @ nTop,nL SAY "N" COLOR "B+/W"
-         @ nTop,nL+1 SAY "OTIZEN"         
-      ENDIF
-      IF reb->Status <= 8 .OR. lShowNotes
-         IF rebn->(dbSeek( Str(reb->ID,9) )) .AND. !Empty(rebn->Notes)
-            cCol := SetColor("N/GR*")
-            //FOR nX := 1 TO 8
-            @ nTop+2,nL CLEAR TO MaxRow(),MaxCol()
-            nT := Max(1,MLCount(rebn->Notes,nW)-7)
-            FOR nX := nT TO MLCount(rebn->Notes,nW)
-               @ nTop+nX+1-nT+1,nL SAY Pad(MemoLine(rebn->Notes,nW,nX),nW)
-            NEXT
-            SetColor(cCol)
-         ENDIF
+   ELSE
+      IF nWebView == NIL .OR. ! WAPI_ISWINDOW( hb_webview_get_window(nWebView) )
+         //there is no window or it has been closed. let us open one
+         nWebView := hb_webview_create( .T. )      
       ENDIF
       
+      hb_webview_navigate(nWebView,"about:blank") //clear existing document to indicate a new invoice
+      
+      aFiles := GetArchiveFiles({"ER"=>reb->ID}) //this takes approx 1s
+
+      ASort(aFiles,,,{|x,y| x[6] < y[6] }) //sort according to file name and not date
+
+      IF AT(".PDF",Upper(ATail(aFiles)[6])) != 0
+         //Display the invoice
+         hb_webview_navigate(nWebView,"file:///"+ATail(aFiles)[6])
+
+         //set new title
+         hb_webview_set_title(nWebView,"Rechnungsanzeige "+Trim(reb->Beleg))
+      ENDIF
+      
+      rebp->(dbSetOrder( 1 ))
+      rebp->(dbSeek( Str(reb->ID,9), .T. ))
+      oBrowse2:Rebuild := .T.
+      oBrowse2:Display()
+      oBrowse2:deHilite()
+   
+   
+      IF reb->Status == 9
+         rebp->(dbSetFilter({|| Trim(rebp->Type) == "STORN" },'Trim(Type) == "STORN"'))
+         lStorno := rebp->(dbSeek( Str(reb->ID,9), .T. ))
+         rebp->(dbClearFilter())
+         IF lStorno
+            @ nTop,nL SAY Pad("GRUND",nW)
+            @ nTop+2,nL SAY rebp->Grund
+         ELSE
+            @ nTop,nL SAY Pad("BUCHUNGEN",nW)
+            aBookings := LX_GetBookingsForID("ER"+Str(reb->ID,9))
+            FOR nX := 1 TO Len(aBookings)
+               IF aBookings[nX,"HABEN"] != 0 //ignore split bookings
+                  @ nTop+nR+2,nL SAY DtoC(aBookings[nX,"BUCHDATUM"])+" "+Str(aBookings[nX,"HABEN"],6)+" "+Pad(aBookings[nX,"TEXT"],MaxCol()-41-8-1-6-1)
+                  nR++
+                  IF aBookings[nX,"SOLL"] != 0
+                     @ nTop+nR+2,nL SAY Space(8)+" "+Str(aBookings[nX,"SOLL"],6)+" "+Str(aBookings[nX,"NETTO"],12,2)
+                     nR++
+                  ENDIF
+               ENDIF
+            NEXT
+         ENDIF
+         rebp->(dbSeek( Str(reb->ID,9), .T. ))
+      ENDIF
+      IF reb->Status < 8  .OR. (rebn->(dbSeek( Str(reb->ID,9) )) .AND. ! Empty(rebn->Notes))
+         IF reb->Status > 8
+            @ nTop,nL+10 SAY "|"
+            IF ! lShowNotes
+               @ nTop,nL+12 SAY "N" COLOR "B+/W"
+            ELSE
+               @ nTop,nL+12 SAY "N"
+            ENDIF
+            @ nTop,nL+13 SAY "OTIZEN"
+         ELSE      
+            @ nTop,nL SAY "N" COLOR "B+/W"
+            @ nTop,nL+1 SAY "OTIZEN"         
+         ENDIF
+         IF reb->Status <= 8 .OR. lShowNotes
+            IF rebn->(dbSeek( Str(reb->ID,9) )) .AND. !Empty(rebn->Notes)
+               cCol := SetColor("N/GR*")
+               //FOR nX := 1 TO 8
+               @ nTop+2,nL CLEAR TO MaxRow(),MaxCol()
+               nT := Max(1,MLCount(rebn->Notes,nW)-7)
+               FOR nX := nT TO MLCount(rebn->Notes,nW)
+                  @ nTop+nX+1-nT+1,nL SAY Pad(MemoLine(rebn->Notes,nW,nX),nW)
+               NEXT
+               SetColor(cCol)
+            ENDIF
+         ENDIF
+         
+      ENDIF
    ENDIF
 
    RETURN .T.
@@ -440,6 +482,7 @@ oBrowse:AddKey(K_DEL,{||
    RETURN NIL
 })
 
+
 oBrowse:AddKey(K_ENTER,{||
    LOCAL aFiles := GetArchiveFiles({"ER"=>reb->ID})
    LOCAL cZuText := "anderer Person zuordnen"
@@ -457,13 +500,15 @@ oBrowse:AddKey(K_ENTER,{||
    ASort(aFiles,,,{|x,y| x[6] < y[6] }) //sort according to file name and not date
    IF reb->Status <= 8
       IF reb->Liefnr != 0 .OR. reb->Status == 8
-         nChoice := Tr_MsgBox("Buchen?",,{"Ja","abrechen","anzeigen",cZuText,cFirmText})
+         nChoice := Tr_MsgBox("Buchen?",,{"Ja","abrechen",cZuText,cFirmText})
          IF nChoice == 1
             IF Len(aFiles) == 0
                Tr_MsgBox("Keine Rechnungsdatei gefunden")
                RETURN .T.
             ENDIF
-            Eval(bOpen,ATail(aFiles)[6])
+            IF AT(".PDF",Upper(ATail(aFiles)[6])) == 0
+               Eval(bOpen,ATail(aFiles)[6])
+            ENDIF
             IF reb->Liefnr != 0 //Trader
                ku->(dbSetORder( 8 ))
                ku->(dbSeek( Str(reb->Liefnr,6) ))
@@ -480,10 +525,10 @@ oBrowse:AddKey(K_ENTER,{||
 	           Eval(bSkip)
 	         ENDIF
          ELSEIF nChoice == 3
-            Eval(bOpen,ATail(aFiles)[6])
-         ELSEIF nChoice == 4
+            //Eval(bOpen,ATail(aFiles)[6])
+         ELSEIF nChoice == 3
             lChangePers := .T.
-         ELSEIF nChoice == 5
+         ELSEIF nChoice == 4
             lChangeFirm := .T.
          ENDIF
       ELSEIF (lCanApprove .OR. lPreApprove .OR. (Tr_Getini(28) $ hApprKto .AND. reb->Konto $ hApprKto[Tr_Getini(28)]) ) .AND. reb->Person == Tr_Getini(28)
@@ -526,15 +571,16 @@ oBrowse:AddKey(K_ENTER,{||
             IF lCanApprove
                Aadd(aChoices,"mit Intervall")
             ENDIF
-            IF Abs(reb->Betrag) >= 50
+            //IF Abs(reb->Betrag) >= 50            
+            IF AT(".PDF",Upper(ATail(aFiles)[6])) == 0
                Eval(bOpen,ATail(aFiles)[6])
             ELSE
-               Aadd(aChoices,"anzeigen")
+               //Aadd(aChoices,"anzeigen")
             ENDIF
 
             nChoice := Tr_MsgBox("Freigeben?",,aChoices)
          ENDIF
-         IF aChoices[nChoice] == "mit Intervall"
+         IF nChoice != 0 .AND. aChoices[nChoice] == "mit Intervall"
             cScreen := SaveScreen(10,10,12,41)
             SetColor(c_five)
             @ 10,10 CLEAR TO 12,41
@@ -612,8 +658,8 @@ oBrowse:AddKey(K_ENTER,{||
             lChangePers := .T.
          ELSEIF nChoice == 4
             lChangeFirm := .T.
-         ELSEIF aChoices[nChoice] == "anzeigen"
-            Eval(bOpen,ATail(aFiles)[6])
+         //ELSEIF aChoices[nChoice] == "anzeigen"
+            //Eval(bOpen,ATail(aFiles)[6])
          ENDIF
       ELSE
          nChoice := Tr_MsgBox("Beleg ist noch nicht zur Buchung freigegeben",,{"OK","anzeigen",cZuText,cFirmText})
@@ -645,8 +691,9 @@ oBrowse:AddKey(K_ENTER,{||
             Eval(bSkip)
          ENDIF
          RestScreen(,,,,cScreen)
-         SetColor(c_one)
+         SetColor(c_one)         
       ENDIF
+      oBrowse:RefreshAll()
    ELSE
       nChoice := 1
       IF reb->Liefnr != 0          
@@ -720,6 +767,7 @@ oBrowse:AddKey(K_ENTER,{||
             reb->Konto  := nKonto
             reb->Liefnr := 0
          ENDIF
+         oBrowse:RefreshAll()
       ENDIF
       RestScreen(,,,,cScreen)
       SetColor(c_one)
@@ -815,7 +863,12 @@ reb->(dbClearFilter())
 
 @ MaxRow()-10,00 SAY Replicate(Chr(196),MaxCol()+1)
 
+
+
 oBrowse:EventLoop()
+
+hb_webview_terminate(nWebView)
+hb_webview_destroy(nWebView)
 //oPdf:Close()
 
 
@@ -835,3 +888,9 @@ FUNCTION RebTypeText(cType)
          RETURN "ersetzt"
    END
 RETURN ""
+
+FUNCTION RebOnCloseWebview()
+   Alert("Closing")
+   //hb_webview_destroy(nWebView)
+   //nWebView := NIL
+RETURN NIL

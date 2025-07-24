@@ -84,7 +84,7 @@ re->(dbGoTop())
 ku->(dbSetOrder( 1 ))
 DO while ! RE->(eof()) .AND. re->reposnr == 0
 	ku->(dbSeek( re->Kunde+"K" ))
-	If Between(ku->PLZ,cVPLZ,cTPlz)
+	If ku->PLZ >= cVPLZ .AND. ku->PLZ <= cTPlz
 	  	If ! HHasKey(hCustomers,re->Kunde)
 	  		hCustomers[re->Kunde] := {"last12"=>0,"comp"=>0,"count12"=>0,"last12-auf"=>0,"comp-auf"=>0,"count12-auf"=>0}
 	  	Endif
@@ -113,7 +113,7 @@ auf->(dbSetOrder(9))
 auf->(dbGoTop())
 Do While ! auf->(Eof()) .AND. LastKey() != 27
 	ku->(dbSeek( auf->Kundma+"K" ))
-	If Between(ku->PLZ,cVPLZ,cTPlz)
+	If cVPLZ >= ku->PLZ .AND. ku->PLZ <= cTPlz
 	  	If ! HHasKey(hCustomers,auf->Kundma)
 	  		hCustomers[auf->Kundma] := {"last12"=>0,"comp"=>0,"count12"=>0,"last12-auf"=>0,"comp-auf"=>0,"count12-auf"=>0}
 	  	Endif

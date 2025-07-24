@@ -9,7 +9,11 @@
 #define SW_PAGE_SIZE   50
 
 PROC Shopware_TEST
-   LOCAL oSW := ShopWareAPI():New()  //Shopware Admin REST Api
+   LOCAL oSW := ShopWareAPI():New()  //Shopware Admin REST Api   
+   LOCAL cEURID,cRuleID
+   LOCAL aRules,nX,nArtnr
+   LOCAL aProdPrices,oArtikel
+   LOCAL hProdData,aPrices
    CLS
    IF ! oSW:Auth()
       Alert("Login failed")
@@ -18,8 +22,8 @@ PROC Shopware_TEST
 
    cEURID := oSW:GetCurrencyID("EUR")
 
+   //Look for the default price rule
    aRules := oSw:Execute("rule","GET")["data"]
-
    FOR nX := 1 TO Len(aRules)      
       ? aRules[nX]["attributes"]["name"]
       IF aRules[nX]["attributes"]["name"] == "Always valid (Default)"
@@ -28,12 +32,23 @@ PROC Shopware_TEST
       ENDIF
    NEXT
 
+   IF Empty(cRuleID)
+      Alert("No default rule found")
+      RETURN
+   ENDIF
+
    //? ValToPrg(aRules[nX])
    NetUse("shopware","shop")
    nArtnr := 1760
    shop->(dbSeek( Str(nArtnr,6) ))
 
    aProdPrices := oSw:Execute("product/"+shop->UUID+"/prices","GET")["data"]
+   FOR nX := 1 TO Len(aProdPrices)      
+      IF aProdPrices[nX]["attributes"]["ruleId"] != cRuleID //this is from a different price rule so we ignore it
+         ? "Ignoring",aProdPrices[nX]["id"],aProdPrices[nX]["attributes"]["ruleId"]
+         HB_ADel(aProdPrices,nX,.T.)
+      ENDIF
+   NEXT
 
    oArtikel := Artikel():New()
    oArtikel:Load(nArtnr)
@@ -47,7 +62,7 @@ PROC Shopware_TEST
             "quantityEnd"=>IF(nX<Len(aPrices),Int(aPrices[nX+1][1]-1),NIL),;
             "ruleId"=>cRuleID,;             
             "price"=>{{;               
-               "currencyId"=>oSW:GetCurrencyID("EUR"),;
+               "currencyId"=>cEURID,;
                "net"=>aPrices[nX][2],;
                "gross"=>Round(aPrices[nX][2]*1.19,2),;
                   "linked"=>.T.;
@@ -58,11 +73,21 @@ PROC Shopware_TEST
             ATail(hProdData["prices"])["price"][1]["id"] := aProdPrices[nX]["id"]
          ENDIF
       NEXT
+
    ENDIF
+   
+   //Delete any not used breaks
+   FOR nX := Len(aPrices)+1 TO Len(aProdPrices)   
+      //? "Deleting "+aProdPrices[nX]["id"]
+      //? ValToPrg(oSW:Execute("product/"+shop->UUID+"/prices/"+aProdPrices[nX]["id"],"DELETE"))
+   NEXT
+
    ? ValToPrg(hProdData)
    ? shop->UUID
-   //hData := oSw:Execute("product/"+shop->UUID,"PATCH",hProdData,.F.)
-   //? ValToPrg(hData)
+
+   //Update/Save price breaks
+   hData := oSw:Execute("product/"+shop->UUID,"PATCH",hProdData,.F.)
+   ? ValToPrg(hData)
    Sinkey(0)
 RETURN
 
@@ -72,7 +97,7 @@ RETURN
 CLASS ShopWareAPI FROM RestAPI
    METHOD Auth
    METHOD Execute
-   METHOD New
+   METHOD New      
 
    METHOD GetCurrencyID
 
@@ -82,6 +107,7 @@ CLASS ShopWareAPI FROM RestAPI
 
    DATA cToken
    DATA tTokenExpires INIT StoT("")
+   DATA lLive INIT .T.
    
    DATA cKeyName INIT "SW_API"
 
@@ -93,7 +119,8 @@ ENDCLASS
 METHOD New(lLive) CLASS ShopWareAPI
    ::cBaseUrl := GetValue("SW_URL","https://egl.teufels-werk.de/api/","URL of the Shopware installation")
    IF ! GetConfigValue("BATCHMODE")
-      IF (ValType(lLive) == "L" .AND. ! lLive) .OR. (ValType(lLive) != "L" .AND. Tr_MsgBox("Bitte wï¿½hle die Umgebung aus, von der die Daten heruntergeladen werden sollen.",,{"Live","Staging"}) == 2)      
+      IF (ValType(lLive) == "L" .AND. ! lLive) .OR. (ValType(lLive) != "L" .AND. Tr_MsgBox("Bitte w„hle die Umgebung aus, von der die Daten heruntergeladen werden sollen.",,{"Live","Staging"}) == 2)      
+         ::lLive := .F.
          ::cBaseUrl := GetValue("SW_STAGING_URL","https://engelking.dev.intocommerce.de/api/","URL of the Shopware Staging Environment")
       ENDIF
    ENDIF

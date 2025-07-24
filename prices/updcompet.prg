@@ -21,8 +21,8 @@ PUBLIC cPriceError
 Default(@lDisp,.T.)
 Default(@lForce,.F.)
 
-IF .F. //Tr_Getini(28) == 9
-   aCompet := {"BUERKLIN"}
+IF.F. // Tr_Getini(28) == 9
+   aCompet := {"TME"}
 ELSE
    aCompet := {"BUERKLIN","RS","ARROW","FARNELL","TME" } //"Schukat","Conrad", "Reichelt","Mouser" does not work
 ENDIF

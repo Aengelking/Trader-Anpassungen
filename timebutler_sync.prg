@@ -300,7 +300,7 @@ PROC Run_TimeButler(lDavid,lAutoReply,lFrepple,lOrga)
                      
                      
                      oAutoReply := DavidAutoReply():New(nRecno)
-                     IF dAwayUntil != oAutoReply:dUntil .OR. oAutoReply:nVertreter != nVertreter .OR. oAutoReply:dFrom != dAwayFrom 
+                     IF dAwayUntil != oAutoReply:dUntil .OR. oAutoReply:nVertreter != nVertreter .OR. oAutoReply:dFrom != dAwayFrom .OR. oAutoReply:lForward != lForward
                         oAutoReply:dFrom  := dAwayFrom
                         oAutoReply:dUntil := dAwayUntil
                         oAutoReply:nVertreter := nVertreter
@@ -333,7 +333,7 @@ PROC Run_TimeButler(lDavid,lAutoReply,lFrepple,lOrga)
                      //Sinkey(0)
                      
                   ENDIF
-                  IF buy->(Recno()) == 54
+                  IF buy->(Recno()) == 34 //.AND. ! GetConfigValue("BATCHMODE")   
                      //Sinkey(0)
                   ENDIF
                   //SInkey(0)

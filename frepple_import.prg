@@ -1,5 +1,5 @@
 #include 'y:\hb34\include\inkey.ch'
-#define DEBUG_PART "KS17073"
+#define DEBUG_PART "" //"p19294.GEH.V2.KPL.002"
 
 PROCEDURE RUN_FREPPLE_IMPORT()
    //LOCAL cData := MemoRead(Path("import\frepple\manufacturingorder.csv"))
@@ -40,6 +40,10 @@ PROCEDURE RUN_FREPPLE_IMPORT()
    //NEXT
 
    Head("Importing from Frepple")
+
+   IF ! LockEntity("PPLIM",0)
+      RETURN
+   ENDIF
 
 
    NetUse("artikel","art")
@@ -197,7 +201,6 @@ PROCEDURE RUN_FREPPLE_IMPORT()
 
    bAddJobs := {|aJobs,nWA|
       LOCAL nX //,nSt := 1
-
       job->(dbSetOrder( 2 ))
       res->(dbSetOrder( 2 ))
 
@@ -734,6 +737,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
    IF nColCount < 186
       SetMode(nRowCount,nColCount)
    ENDIF
+   UnLockEntity("PPLIM",0)
 RETURN
 
    

@@ -90,8 +90,15 @@ PROCEDURE RUN_Email_Mailing
       hResponse := oBrevo:Execute("smtp/templates","GET")
 
       IF ValType(hResponse) != "H"
-         Tr_MsgBox("Fehler","Fehler beim Abruf der Vorlagen")
+         Tr_MsgBox("Fehler beim Abruf der Vorlagen")
          RETURN 
+      ENDIF
+      IF ! HHasKey(hResponse,"templates")
+         Tr_MsgBox("Keine Vorlagen gefunden")
+         IF HHasKey(hResponse,"message")
+            Tr_MsgBox(hResponse["message"])
+         ENDIF
+         RETURN
       ENDIF
       hTemplates := {=>}
       FOR nX := 1 TO Len(hResponse["templates"])
@@ -316,16 +323,60 @@ PROCEDURE RUN_Email_Mailing
       oBrowse:NewColumn("  "+Pad("Kunde",8)+" "+Pad("Anrede",29)+" "+Pad("Person",30)+" "+"Email",{|| 
          LOCAL hPers
          LOCAL hData := hPos[oBrowse:CurrentDataRow()[1]]      
+         LOCAl cStatus
 
          hPers := hData["people"][oBrowse:CurrentDataRow()[2]]
          
          ku->(dbSeek( hData["kunde"]+"K" ))
          conts->(dbSetOrder(2))      
-         //Pad(hPers["name"],30)+" "+
-         RETURN IF(HHasKey(hPers,"messageid"),Chr(251)," ")+" "+hData["kunde"]+" "+Pad(hPers["anrede"],29)+" "+Pad(hPers["email"],35)+IF(HHasKey(hPers,"status"),Pad(hPers["status"],10),Space(10))  
+         
+         // Add validation indicator
+         IF ! IsValidEmail(hPers["email"])
+            cStatus := Chr(15) // Warning symbol for invalid email
+         ELSEIF HHasKey(hPers,"messageid")
+            cStatus := Chr(251) // Checkmark for sent
+         ELSE
+            cStatus := " "
+         ENDIF
+         
+         RETURN cStatus+" "+hData["kunde"]+" "+Pad(hPers["anrede"],29)+" "+Pad(hPers["email"],35)+IF(HHasKey(hPers,"status"),Pad(hPers["status"],10),Space(10))  
       })   
       
       oBrowse:AddKey(K_ESC,{|| .F. })
+      oBrowse:AddKey(K_ENTER,{||
+         LOCAL hData := hPos[oBrowse:CurrentDataRow()[1]]
+         LOCAL hPers := hData["people"][oBrowse:CurrentDataRow()[2]]
+         LOCAL cNewEmail, cOldEmail,aMsgs
+         
+         IF HHasKey(hPers,"messageid")
+            Tr_MsgBox("Email bereits versendet - kann nicht ge„ndert werden")
+         ELSE
+            cOldEmail := hPers["email"]
+            cNewEmail := GetBox(Pad(cOldEmail,50), "Email-Adresse bearbeiten fr " + hPers["name"], "@S50")
+            IF LastKey() != K_ESC .AND. ! Empty(cNewEmail)
+               cNewEmail := Trim(cNewEmail)
+               IF IsValidEmail(cNewEmail)
+                  aMsgs := {"Email-Adresse erfolgreich ge„ndert: "+cNewEmail}
+                  IF ! HHasKey(hPers,"nummer")
+                     Aadd(aMsgs,"Kundenstamm wurde nicht aktualisiert (alte JSON-Datei)")
+                  ELSE
+                     ku->(dbSeek( hData["kunde"]+"K" ))
+                     conts->(dbSetOrder(2))      
+                     IF conts->(dbSeek( Str(ku->Nummer,6)+Str(hPers["nummer"],4) ))
+                        conts->(Rec_Lock())
+                        conts->Email := cNewEmail
+                        conts->(dbUnlock())
+                     ENDIF                                       
+                  ENDIF
+                  hPers["email"] := cNewEmail                  
+                  Tr_MsgBox(aMsgs)
+               ELSE
+                  Tr_MsgBox("Ungltige Email-Adresse - Žnderung nicht gespeichert")
+               ENDIF
+            ENDIF
+         ENDIF
+         RETURN .T.
+      })
       oBrowse:AddKey(K_DEL,{||      
          LOCAL hData := hPos[oBrowse:CurrentDataRow()[1]]
          LOCAL hPers := hData["people"][oBrowse:CurrentDataRow()[2]]
@@ -347,6 +398,7 @@ PROCEDURE RUN_Email_Mailing
          RETURN .T.
       })
 
+
       oBrowse:bAnyFun := {||
          LOCAL nX
          LOCAL hData := hPos[oBrowse:CurrentDataRow()[1]]
@@ -358,6 +410,7 @@ PROCEDURE RUN_Email_Mailing
       }
       @ 27,48 TO MaxRow(),74 DOUBLE
       @ 27,49 SAY "[ Artikel ]"
+      @ MaxRow(),00 SAY "ENTER=Email bearbeiten  DEL=Empf„nger entfernen  ESC=Weiter"
       oBrowse:EventLoop()
       @ 27,48 CLEAR TO MaxRow(),74
 
@@ -480,9 +533,16 @@ PROCEDURE RUN_Email_Mailing
          
          FOR nP := 1 TO Len(aPeople)
             IF ! HHasKey(HGetValueAt(aPeople,nP),"messageid")
+               aPerson := HGetValueAt(aPeople,nP)
+               
+               // Validate email before adding to send list
+               IF ! IsValidEmail(aPerson["email"])
+                  @ 26,40 SAY "Invalid email: " + Left(aPerson["email"],20)
+                  LOOP // Skip this recipient
+               ENDIF
+               
                nCount++
                @ 26,16 SAY Str(nCount,10)
-               aPerson := HGetValueAt(aPeople,nP)
                //Aadd(aTo,{"name"=>aPeople[nP]["name"],"email"=>aPeople[nP]["email"]})         
                IF nChoice == 4
                   cEmail := aPerson["email"]
@@ -513,9 +573,13 @@ PROCEDURE RUN_Email_Mailing
       //gtSetClipboard(HB_JsonEncode(hData))
 
       hResult := oBrevo:Execute("smtp/email","POST",hData)
-      IF ! HHasKey(hResult,"messageIds")
-         Tr_MsgBox("Fehler beim Versenden der Emails")
-         Alert(ValToPrg(hResult))
+      IF ! HHasKey(hResult,"messageIds")         
+         IF HHasKey(hResult,"message")
+            Tr_MsgBox(hResult["message"],"Fehler beim Versenden der Emails")
+         ELSE
+            Tr_MsgBox("Fehler beim Versenden der Emails")
+         ENDIF         
+         //Alert(ValToPrg(hResult))
          RETURN   
       ENDIF
       IF nChoice == 4
@@ -564,6 +628,23 @@ SET CURSOR ON
 
 TR_MsgBox("Export abgeschlossen")*/
 
+STATIC FUNCTION IsValidEmail(cEmail)
+   LOCAL cPattern := "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+   cEmail := Trim(cEmail)
+   
+   // Basic checks
+   IF Empty(cEmail) .OR. AT("@", cEmail) == 0 .OR. AT(".", cEmail) == 0
+      RETURN .F.
+   ENDIF
+   
+   // More sophisticated validation using regex if available
+   IF Type("HB_RegexMatch()") == "UI"
+      RETURN HB_RegexMatch(cPattern, cEmail)
+   ENDIF
+   
+   // Fallback: basic validation
+   RETURN AT("@", cEmail) > 1 .AND. AT(".", cEmail) > AT("@", cEmail) + 1 .AND. Len(cEmail) - AT(".", cEmail) >= 2
+
 STATIC Function __AddEntry(hPos,cKunde,cMatchcode,nPerson,hSettings,cMainMatch)
    LOCAL aPeople
    LOCAL cAnrede,cName,cEmail
@@ -611,7 +692,7 @@ STATIC Function __AddEntry(hPos,cKunde,cMatchcode,nPerson,hSettings,cMainMatch)
                   cEmail := ""
                ENDIF
                IF ! Empty(cEmail)
-                  hPos[cKunde]["people"][LTrim(Str(nPerson))] := {"anrede"=>cAnrede,"name"=>cName,"email"=>cEmail}
+                  hPos[cKunde]["people"][LTrim(Str(nPerson))] := {"anrede"=>cAnrede,"name"=>cName,"email"=>cEmail,"nummer"=>nPerson}
                   nCount++
                ENDIF
             ENDIF

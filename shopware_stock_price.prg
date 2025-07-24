@@ -2,7 +2,7 @@ PROC Shopware_Stock_Price
    /** SETTINGS ***/
 
    LOCAL aSuppliers := {"WALDOM"}
-   LOCAL lUpdAll    := GetValue("SW_UPD_ALL",.F.,"Best„nde aller Artikel aktualisiern (1x)")
+   LOCAL lUpdAll    := GetValue("SW_UPD_ALL",.F.,"Best„nde aller Artikel aktualisieren (1x)")
    LOCAL aErrorTo   := {{"amos.engelking@engelking.de","Amos"}}
    /** END OF SEETING ***/
 
@@ -10,6 +10,7 @@ PROC Shopware_Stock_Price
    LOCA cFilter := 'At("KS",matchcode) != 1 .AND. Trim(Type) == "WARE" .AND. ! Obsolete'
    LOCAL hSendData,hProdData,oExtra
    LOCAL hData,oErr,aAvail,nStock,nX,cSupplier
+   LOCAL cErr := ""
    
    LOCAL nCurWeek := CWeek(Date())
    LOCAL nStart := Seconds()
@@ -19,6 +20,7 @@ PROC Shopware_Stock_Price
 
    LOCAL aPrices,oArtikel
    LOCAL cEURID,cRuleID
+   LOCAL aRules,aProdPrices
 
    NetUse("artikel","art")
    NetUSe("liefstock","lsto")
@@ -29,8 +31,7 @@ PROC Shopware_Stock_Price
       SetValue("SW_UPD_ALL",.F.)
    ENDIF
 
-   cErr := ""
-
+   
    bGetStock := {|lWaldom|
       LOCAL nSaveStock,nRec
       Default(@lWaldom,.T.)
@@ -66,6 +67,7 @@ PROC Shopware_Stock_Price
       IF nStock < 0
          nStock := 0
       ENDIF
+      RETURN NIL
    }
 
    CLS
@@ -73,8 +75,25 @@ PROC Shopware_Stock_Price
    shop->(dbSetFilter( {|| shop->(&(cFilter))},cFilter))
    shop->(dbGoTop())
 
+   //Look for currency ID
    cEURID := oSW:GetCurrencyID("EUR")
 
+   //Look for the default price rule
+   aRules := oSw:Execute("rule","GET")["data"]
+   FOR nX := 1 TO Len(aRules)      
+      ? aRules[nX]["attributes"]["name"]
+      IF aRules[nX]["attributes"]["name"] == "Always valid (Default)"
+         cRuleID := aRules[nX]["id"]
+         EXIT
+      ENDIF
+   NEXT
+
+   IF Empty(cRuleID)
+      oErr := ErrorNew()
+      oErr:SubSystem   := "SHOPWARE-UPDATE"
+      oErr:Description := "No default price rule found"   
+      Throw(oErr) 
+   ENDIF
 
    DO WHILE ! shop->(EOF())
       nStock := 0
@@ -87,32 +106,54 @@ PROC Shopware_Stock_Price
          art->(dbSetOrder( 2 ))
          art->(dbSeek( Str(shop->Artikelnr,6) ))
          Eval(bGetStock)
-      ENDIF
+      ENDIF            
       IF lUpdAll .OR. nStock != shop->Bestand .OR.; //if the stock differs we upload it
-         (shop->Artikelnr != 0 .AND. StoT(shop->LastUpd)+30*24*60*60 <= Datetime()) //if part is in trader we update the prices every 30 days
+         (shop->Artikelnr != 0 .AND. StoT(shop->LastUpd)+30 <= Datetime()) //if part is in trader we update the prices every 30 days
          
          hProdData := {"stock"=>nStock}
          
          IF shop->Artikelnr != 0
-            /*oArtikel := Artikel():New()
-            oArtikel:Load(art->Artikelnr)
-            aPrices := oArtikel:GetSellPrices(Date())
-            IF Len(aPrices) > 0
-               hProdData["prices"] := {}
-               FOR nX := 1 TO Len(aPrices)
-                  Aadd(hProdData["prices"],{;
-                     "id"=>cPriceID,;
-                     "quantityStart"=>aPrices[nX][1],;
-                     "quantityEnd"=>IF(nX<Len(aPrices),aPrices[nX+1][1]-1,NIL),;
-                     "ruleId"=>cRuleID,;
-                     "price"=>{{;
-                        "currencyId"=>cEURID,;
-                        "net"=>aPrices[nX][2],;
-                        "gross"=>0;
-                     }};
-                  })
+            IF ! oSW:lLive  //only on staging for now
+               //download the current prices
+               aProdPrices := oSw:Execute("product/"+shop->UUID+"/prices","GET")["data"]
+               FOR nX := 1 TO Len(aProdPrices)      
+                  IF aProdPrices[nX]["attributes"]["ruleId"] != cRuleID //this is from a different price rule so we ignore it                  
+                     HB_ADel(aProdPrices,nX,.T.)
+                  ENDIF
                NEXT
-            ENDIF*/
+
+               //Add price data
+               oArtikel := Artikel():New()
+               oArtikel:Load(shop->Artikelnr)
+               aPrices := oArtikel:GetSellPrices(Date())
+               hProdData := {=>}
+               IF Len(aPrices) > 0
+                  hProdData["prices"] := {}
+                  FOR nX := 1 TO Len(aPrices)
+                     Aadd(hProdData["prices"],{;            
+                        "quantityStart"=>Int(aPrices[nX][1]),;
+                        "quantityEnd"=>IF(nX<Len(aPrices),Int(aPrices[nX+1][1]-1),NIL),;
+                        "ruleId"=>cRuleID,;             
+                        "price"=>{{;               
+                           "currencyId"=>cEURID,;
+                           "net"=>aPrices[nX][2],;
+                           "gross"=>Round(aPrices[nX][2]*1.19,2),;
+                              "linked"=>.T.;
+                        }};
+                     })
+                        
+                     IF nX<=Len(aProdPrices) //if we have a price in the shopware DB we update it
+                        ATail(hProdData["prices"])["price"][1]["id"] := aProdPrices[nX]["id"]
+                     ENDIF
+                  NEXT
+                  ? ValToPrg(hProdData["prices"])
+               ENDIF
+
+               //Delete any not used breaks
+               FOR nX := Len(aPrices)+1 TO Len(aProdPrices)                  
+                  oSW:Execute("product/"+shop->UUID+"/prices/"+aProdPrices[nX]["id"],"DELETE")
+               NEXT
+            ENDIF
          ENDIF
          hData := oSw:Execute("product/"+shop->UUID,"PATCH",hProdData)
          
@@ -132,9 +173,12 @@ PROC Shopware_Stock_Price
          nUpdate++
       ENDIF
       @ 01,00 SAY shop->UUID+shop->Matchcode+Str(nStock)
-      shop->(Rec_Lock(0))
-      shop->Bestand := nStock
-      shop->(dbUnlock())
+      IF oSW:lLive //update record in trader if we are Live
+         shop->(Rec_Lock(0))
+         shop->Bestand := nStock
+         shop->LastUpd := TtoS(DateTime())
+         shop->(dbUnlock())
+      ENDIF
       shop->(dbSkip())
       nCount++
    ENDDO

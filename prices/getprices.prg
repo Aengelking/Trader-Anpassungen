@@ -124,7 +124,10 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
                         //? cData
                         hData := HB_JsonDecode(cData)
                      ENDIF
-                     IF hData["result"]["status"] == "failed"
+                     IF ! HHasKey(hData,"result") 
+                        SendMail({{"amos.engelking@engelking.de","Amos"}},"BrowseAI Abfrage",cData)
+                     ENDIF
+                     IF HHasKey(hData["result"],"status") .AND. hData["result"]["status"] == "failed"
                         IF hData["result"]["retriedByTaskId"] != NIL
                            cId := hData["result"]["retriedByTaskId"]
                         ELSE

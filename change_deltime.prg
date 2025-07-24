@@ -10,7 +10,7 @@ NetUse("artikel","art")
 
 aManu := GetManufacturerArray()
 
-Head(t("Lieferzeit bei allen Produkten eines Herstellers ändern"))
+Head(t("Beschaffungszeit bei allen Produkten eines Herstellers ändern"))
 
 @ 01,00 SAY "Hersteller "
 @ 01,12,23,40 GET nManu LISTBOX aManu[2] DROPDOWN

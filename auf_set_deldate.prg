@@ -5,6 +5,7 @@
    LOCAL hUser := {=>},aOrders,nX
    LOCAL nLastAB,cText,oUser
    LOCAL aTo,dLastDate,nLevel
+   LOCAL cNotes,aABs := {}
 
    NetUse("artikel","art")
    NetUse("engauf","auf")
@@ -40,10 +41,13 @@
       oUser := User():New()
       oUser:Load((aOrders:__eNumKey))
       nLastAB := 0
+      aABs := {}
+      cNotes := ""
       cText := "Hallo "+SubStr(oUser:Name,1,AT(" ",oUser:Name)-1)+","+CRLF+CRLF+"folgende Auftr„ge stehen noch auf 'Termin folgt' oder 'Unbekannt':<pre>"   
       cText += "AB-Nr. Pos "+Pad("Artikel",25)+PadL("Menge",12)+" "+Space(4)+" "+"Datum   "+" "+"m”glicher Termin"+CRLF
       FOR nX := 1 TO Len(aOrders)
          auf->(dbSeek( Str(aOrders[nX,1],6)+Str(aOrders[nX,2]) ))
+         Aadd(aABs,auf->Abnr)
 
          IF nLastAB != auf->Abnr
             cText += Str(auf->Abnr,6) //+" vom: "+DtoC(auf->Besda)+". "+IF(Empty(auf->LastPrint),"Bisher keine AB verschickt","AB gedruckt am: "+DtoC(auf->LastPrint))+CRLF            
@@ -59,7 +63,15 @@
          IF AddWeeks(CWeek(dLastDate),8) <= CWeek(Date())
             nLevel := 2
          ENDIF
+
+         IF ! auf->Abnr $ aABs         
+            cNotes += GetNotesForEmail("AUF",auf->Abnr,.T.)
+            Aadd(aABs,auf->Abnr)
+         ENDIF
+         
          nLastAB := auf->Abnr
+
+
       NEXT
 
       aTo := {{oUser:Email,oUser:Name}}
@@ -71,7 +83,7 @@
          Aadd(aTo,{"amos.engelking@engelking.de","Amos","CC"})
       ENDIF
       IF Len(aTo) > 0
-         SendMail(aTo,"Auftr„ge mit 'Termin folgt'/'Unbekannt'",cText) //,,,,.T.)
+         SendMail(aTo,"Auftr„ge mit 'Termin folgt'/'Unbekannt'",cText+cNotes) //,,,,.T.)
       ENDIF
    NEXT
 

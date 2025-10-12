@@ -1,7 +1,12 @@
 PROC HOOK_AFTER_CHANGE_ADR_MATCHCODE(cOldMatch,cMatch,cGroup)
-   LOCAL nOrd := ku->(IndexOrd())
-   LOCAL oAddress := Adresse():New(.F.),oExtra,oCustom
+   LOCAL nOrd 
+   LOCAL oAddress,oExtra,oCustom
    LOCAL oAdmin
+   IF Select("ku") == 0
+      NetUse("engkund","ku")
+   ENDIF
+   nOrd := ku->(IndexOrd())
+   oAddress := Adresse():New(.F.)
    
    
    HB_SYMBOL_UNUSED(cOldMatch)

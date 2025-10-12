@@ -63,6 +63,9 @@ IF cNextLevel == "MUS" .OR. ;
          hPrice := oArt:GetBuyPrice(ku->Kunde,-1)
          nPrice := hPrice["price"]/hPrice["unit"]
       ELSE
+         IF Date() <= StoD("20250818")
+            hRet:nMaxQty := 11
+         ENDIF
          //this needs testing
          /*hPrice := RUN_GetCostFromOO(art->Artikelnr)
          IF HHasKey(hPrice,"DATA")

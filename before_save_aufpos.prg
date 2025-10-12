@@ -156,7 +156,7 @@ ELSEIF ! Empty(oAufPos:Artikel:Zeichnung) //Freigabe prÅfen
          ENDIF
          Tr_MsgBox(aFreigabeList)
          RETURN .F.
-      ELSEIF Right(Str(oAufPos:DTerm,4),2) != "97"
+      ELSEIF ! Right(Str(oAufPos:DTerm,4),2) $ {"97","99"} //Rahmen oder KW 97
          //IF Tr_Getini(28)==9; Alert(Str(oAufPos:VkQty)+";"+Str(nMaxQty+oAufPos:Artikel:Bestand)+";"+IF(!lBes,"Bestellung nicht mîglich",""));ENDIF
          HB_AIns(aFreigabeList,1,"Freigabe nicht ausreichend - Liefertermin auf 'folgt' (KWxx97) setzen. Maximal: "+LTrim(Transform(nMaxQty+nStock,oAufpos:Artikel:cPicture)),.T.)   
          Tr_MsgBox(aFreigabeList)

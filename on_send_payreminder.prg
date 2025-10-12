@@ -53,7 +53,7 @@ FUNC HOOK_ON_SEND_PAYREMINDER(cState,cKunde,cText,nMaxDaysOver,nMaxRem,aOpenInvo
             })
             IF nTotal > 5 //erst ab 5 EUR
                SetPrinterMethodType(3)
-               StatDr(cKunde,nPerson,3,AddWorkingDays(GetValue("LASTPAY","D"),-1,GetConfigValue("STATE"),.T.),aRecvs)   
+               StatDr(cKunde,nPerson,IF(nMaxRem>=1,2,3),AddWorkingDays(GetValue("LASTPAY","D"),-1,GetConfigValue("STATE"),.T.),aRecvs)  //08.09.25 Frist 3 Tage, ab der 2.nur 2 Tage 
                
                //aTo := 
                //aTo := GetConfigEmail("SI-NOPAY-SEVERE")

@@ -1,16 +1,24 @@
 FUNC HOOK_ON_GET_PRICES( aPriceTabs,nArtnr,nTab,dDate,cKundma )
 
-LOCAL nRate,nMulti, nX, nManu, lSubDistiGBP := .F., lPackOnly, nVPE, oArt, nWeight, lFound, nPrice, nPausch, nSubArt
+LOCAL nRate,nMulti, nX, nManu, lSubDistiGBP := .F., lPackOnly, nVPE, oArt, nWeight, lFound, nPrice, nPausch, nSubArt, nInternalCost, nHourlyRate
 LOCAL hPrice, nSecs := Seconds(), nTabSecs, nY, hCostOO, nQ, nC, nP
 LOCAL nSubAufschlag := 0.3, nSubSpecial := 0.2, aSubSpecial := {"MONACOR"}
 LOCAL oExtra, cMatch, nEx, nFixRate, aSkonto, nTable, aAddPriceTab, aPartPriceTabs, nAddPrice, cLiefma
 LOCAL nVK,nQty
+
+NetUse("ptcache","ptc")
+//use cache if it is not older than a week (or a month for tab 60=Engelking)
+IF ptc->(dbSeek( Str(nArtnr,6) )) .AND. ptc->LastDate >= Date()-IF(nTab==60,30,7) .AND. ptc->Prices != "{}" .AND. Empty(cKundMa)
+   RETURN HB_JsonDecode(ptc->Prices)
+ENDIF
 
 NetUse("engkund","ku")
 IF ! Empty(cKundma)
    ku->(dbSeek( cKundma+"K" ))
    oExtra := ku->(ExtraData():New( ku->Nummer ))
 ENDIF
+
+//?? "_ ("+Trim(art->Matchcode)+" "+Ltrim(Str(nTab,2))+") "
 
 IF AT("CMI57",art->Matchcode) == 1   
    NetUse("parts","part")
@@ -25,6 +33,7 @@ ENDIF
 IF art->Manufactur == 9 .AND. (AT("/PB",art->Matchcode) != 0 .OR. Left(art->Matchcode,2) == "KS") //.AND. art->Gruppe == "KANK"
    NetUse("parts","part")
    art->(dbSetOrder( 2 ))
+      
 
    part->(dbSeek( Str(nArtnr,6) ))
    lPackOnly := .T.
@@ -32,7 +41,7 @@ IF art->Manufactur == 9 .AND. (AT("/PB",art->Matchcode) != 0 .OR. Left(art->Matc
       art->(dbSeek( Str(part->Partart,6) ))      
       IF part->Pos <= 0 .OR. At("KARTON",art->Matchcode) == 1 .OR. AT("BEUTEL",art->Matchcode) == 1 //nur Verpackung in Beutel
          //do nothing
-      ELSEIF AT("NZ/",art->Matchcode) == 1
+      ELSEIF AT("NZ/",art->Matchcode) == 1 .OR. AT("PA",art->Matchcode) == 1
          cMatch := art->Matchcode
       ELSE
          //Alert(art->Matchcode)
@@ -40,7 +49,7 @@ IF art->Manufactur == 9 .AND. (AT("/PB",art->Matchcode) != 0 .OR. Left(art->Matc
       ENDIF
       part->(dbSkip())
    ENDDO
-   //cMatch := StrTran(art->Matchcode,"/PB","/BU")
+   
    IF lPackOnly .AND. ! Empty(cMatch)
       art->(dbSetOrder( 1 ))
       IF art->(dbSeek( cMatch ))
@@ -61,8 +70,7 @@ IF nTab == 1 .AND. art->Manufactur $ {1,10} //Bulgin, check if we can buy direct
    //IF Tr_GetIni(28)==9;Alert("Starting search");ENDIF
    bpr->( dbSetOrder( 1 ) )   // liefma+artikelnr+qty
    bpr->(dbSetFilter({|| bpr->StartDate <= Date() .AND. (bpr->Enddate >= Date() .OR. Empty( bpr->EndDate )) },"StartDate <= Date() .AND. (Enddate >= Date() .OR. Empty( EndDate ))"))
-   IF ! bpr->( dbSeek( ku->Kunde + Str( art->Artikelnr, 6 ) ) ) //no prices found we have to buy from Waldom
-      //IF Tr_GetIni(28)==9;Alert("Waldom");ENDIF
+   IF ! bpr->( dbSeek( ku->Kunde + Str( art->Artikelnr, 6 ) ) ) //no prices found we have to buy from Waldom      
       RETURN GetPrices(art->Artikelnr,30,dDate,cKundma)   
    ENDIF
    //IF Tr_GetIni(28)==9;Alert("NO WALDOM");ENDIF
@@ -72,7 +80,6 @@ ELSEIF nTab == 12 .OR. nTab == 29
    oArt:Load(nArtnr)
 
    IF oArt:Manufactur == 9 //Scolmore
-
       NetUse("artlief","ali")
       ali->(dbSetOrder( 5 ))        
       IF ali->(dbSeek( Str( nArtnr, 6)+Pad("SCOLMORE",8) ))                  
@@ -166,10 +173,13 @@ ELSEIF nTab == 13 //Kabelkonfektion
    bpr->( dbSetOrder( 1 ) )   // liefma+artikelnr+qty
    IF bpr->( dbSeek( cLiefma + Str( nArtnr, 6 ) ) ) // found entry in supplier db
       DO WHILE bpr->Liefma == cLiefma .AND. bpr->Artikelnr == nArtnr
+         
          IF ( bpr->StartDate <= Date() .AND. (bpr->Enddate >= Date() .OR. Empty( bpr->EndDate ))  )
             IF art->Bezug == 5
                nPrice := StCalc(art->Artikelnr,8,99,.T.,,,bpr->Qty)
+               
                IF nPrice > 0
+                  
                   Aadd(aPriceTabs,{bpr->Qty,(nPrice+nPausch/bpr->Qty)*stpr->Proz1/100*art->VkPe})
                ELSE
                   //Tr_MsgBox("Stckliste konnte fr "+LTrim(Transform(bpr->Qty,Me(art->Me)))+" "+art->Me+" nicht bewertet werden")
@@ -228,21 +238,22 @@ ELSEIF nTab == 15 //Value-Add
          art->(dbSetORder(2))
          art->(dbSeek( Str(part->Partart,6) ))    
          manu->(dbSeek( Str(art->Manufactur,5) ))
-         IF part->Pos == 0 .OR. part->Qty+part->AddQty == 0 //header or part with no qty, ignore
+         IF part->Pos == 0 .OR. part->Qty+part->AddQty <= 0 //header or part with no qty, ignore
             IF part->Pos == -1 .AND. ! GetConfigValue("BATCHMODE")               
                Tr_MsgBox("Lohnposition ohne Menge")
-            ENDIF
-         ELSEIF part->Pos == -1 //Konfektionsposition
+            ENDIF         
+         ELSEIF part->Pos == -1 //Lohnposition
             IF part->Qty == 1
                nSubArt := art->Artikelnr
             ELSEIF Tr_Getini(28) == 9
-               Tr_MsgBox("Konfektionsposition mit mehr als einem Stck;"+art->Matchcode)
+               Tr_MsgBox("Lohnposition mit mehr als einem Stck;"+art->Matchcode)
             ENDIF
          ELSEIF Trim(art->Type) == "VERP" //Left(art->Matchcode,6) == "KARTON" //nur Verpackung
             oArt := Artikel():New()
             nAddPrice += oArt:GetAvgBuyPrice()*part->Qty*part->Factor
          ELSE //IF /*! lFound .AND. manu->Principal .AND. art->Table != 15*/ //we have not found a part on the part list yet this is a part we can buy from a manufacturer and it does not have table 15 (non recursive)           
-            
+            lFound := .T.
+
             aPartPriceTabs := GetPrices(art->Artikelnr,art->Table,dDate,cKundma)
             nX := 1
             DO WHILE nX <= Len(aPartPriceTabs)
@@ -253,9 +264,8 @@ ELSEIF nTab == 15 //Value-Add
                   aPartPriceTabs[nX,2] /= art->vkPe*part->Qty*part->Factor
                   nX++
                ENDIF               
-            ENDDO
+            ENDDO            
             
-            lFound := .T.
             IF Len(aPartPriceTabs) == 0 .AND. ! GetConfigValue("BATCHMODE")
                aPriceTabs := {}
                lFound := .F.
@@ -298,26 +308,58 @@ ELSEIF nTab == 15 //Value-Add
          part->(dbSkip())
       ENDDO      
       
-      IF lFound .AND. nSubArt != 0     //we have found a part on the part list	    
-         //IF Tr_Getini(28) == 9;Tr_MsgBox({"Subartikel gefunden",Str(nSubArt),ValToPrg(aPriceTabs)});ENDIF
-         bpr->( dbSetOrder( 2 ) )  
-         ku->(dbsetOrder( 1 ))
+      IF lFound 
          hPrice := {=>}
-         IF bpr->( dbSeek( Str( nSubArt, 6 ) ) ) // found entry in supplier db            
-            DO WHILE bpr->Artikelnr == nSubArt
-               IF bpr->StartDate <= dDate .AND. (bpr->Enddate >= dDate .OR. Empty( bpr->EndDate ))
-                  ku->(dbSeek( bpr->Liefma+"L" ))                  
-                  nPrice := (bpr->Price / Max( bpr->Pe, 1 ))*Currate( ku->Money, "E" )                  
-                  IF ! HHasKey(hPrice,bpr->Qty) .OR. hPrice[bpr->Qty] > nPrice
-                     hPrice[bpr->Qty] := nPrice
+         IF nSubart == 0 //keine Lohnposition, prfen ob T„tigkeiten hinterlegt sind.
+            NetUse("partjobs","pjob")
+            NetUse("jobs","job")
+            NetUse("resource","res")
+
+            nPausch := 60
+            
+            pjob->(dbSetOrder(2)) // Artikelnr
+            IF pjob->(dbSeek(Str(nArtnr,6)))
+               nInternalCost := 0
+               DO WHILE pjob->Artikelnr == nArtnr .AND. ! pjob->(EOF())
+                  job->(dbSeek(Str(pjob->Job,6)))
+                  IF job->(Found()) .AND. pjob->Seconds > 0
+                     // Use a default hourly rate for internal production (60 EUR/hour)
+                     nHourlyRate := GetValue("FA_HOURLYRATE",25)
+                     nInternalCost += (pjob->Seconds/3600) * nHourlyRate // Convert seconds to hours and multiply by rate
                   ENDIF
-                  //cSupplier := bpr->Liefma               
-               ENDIF
-               bpr->( dbSkip() )
-            ENDDO
+                  pjob->(dbSkip())
+               ENDDO
+               
+               // Add^set internal production cost as the buy price
+               hPrice[1] := nInternalCost
+               hPrice[100] := nInternalCost
+            ENDIF
+         ELSE
+            bpr->( dbSetOrder( 2 ) )  
+            ku->(dbsetOrder( 1 ))
+
+            nPausch := 60
+            
+            IF bpr->( dbSeek( Str( nSubArt, 6 ) ) ) // found entry in supplier db            
+               DO WHILE bpr->Artikelnr == nSubArt
+                  IF bpr->StartDate <= dDate .AND. (bpr->Enddate >= dDate .OR. Empty( bpr->EndDate ))
+                     ku->(dbSeek( bpr->Liefma+"L" ))                  
+                     nPrice := (bpr->Price / Max( bpr->Pe, 1 ))*Currate( ku->Money, "E" )                  
+                     IF ! HHasKey(hPrice,bpr->Qty) .OR. hPrice[bpr->Qty] > nPrice
+                        hPrice[bpr->Qty] := nPrice
+                     ENDIF
+                     //cSupplier := bpr->Liefma               
+                  ENDIF
+                  bpr->( dbSkip() )
+               ENDDO
+            ENDIF
          ENDIF
-         
-         nPausch := 60
+      ENDIF
+
+      IF lFound .AND. Len(hPrice) > 0     //we have found a part on the part list and we have a cost for manufacturing
+         IF ! GetConfigValue("BATCHMODE") 
+            //Alert(ValToPrg(aPriceTabs))
+         ENDIF
          DO WHILE  Len(aPriceTabs) >= 1 .AND. Len(hPrice) >= 1 .AND. HGetKeyAt(hPrice,1) > aPriceTabs[1,1] //remove all pricetabs which are too small
             IF Len(aPriceTabs) >= 2 .AND. HGetKeyAt(hPrice,1) < aPriceTabs[2,1] //the next one is big enough, then we change the quantity on this one
                aPriceTabs[1,1] := HGetKeyAt(hPrice,1)
@@ -350,7 +392,14 @@ ELSEIF nTab == 15 //Value-Add
          ASort(aPriceTabs,,,{|a,b| a[1] < b[1] })
 
       ELSE       
-         //IF Tr_Getini(28) == 9;Tr_MsgBox("No part found on the part list;"+art->Matchcode);ENDIF  
+         IF ! GetConfigValue("BATCHMODE") 
+            IF ! lFound
+               Tr_MsgBox("Kein Artikel auf der Stckliste gefunden")
+            ELSEIF nSubArt == 0
+               Tr_MsgBox("Kein Konfektionsartikel auf der Stckliste gefunden")
+            ENDIF
+         ENDIF
+             
          aPriceTabs := {}
       ENDIF
    ELSE
@@ -424,29 +473,76 @@ ELSEIF nTab == 26
       NEXT      
    ENDIF
 ELSEIF nTab == 60   
-   hCostOO := RUN_GetCostFromOO(nArtnr)   
-   aPriceTabs := {}
-   IF hCostOO["ERROR"] == 0 .AND. Len(hCostOO["DATA"]) > 0
-      FOR nC := 1 TO Len(hCostOO["DATA"])
-         nQ := hCostOO["DATA",nC,"QTY"]
-         nP := hCostOO["DATA",nC,"COST"]*2.5 //60% margin
-         AAdd(aPriceTabs, {nQ, nP})
-      NEXT
+   aPriceTabs := {}  
+   oExtra := art->(ExtraData():New(art->Artikelnr))
+   
+   IF Len(oExtra:CalcQty) > 0
+      aQty := oExtra:CalcQty
    ELSE
-      aPriceTabs := {{1, 9999.99}}
+      IF art->VPE != 0 //if there is a packaging unit we use multiple of this
+         nVPE := art->VPE
+      ELSE //otherwise we use 100 as default quantity
+         nVPE := 100
+      ENDIF
+      aQty := {nVPE,nVPE*5,nVPE*10,nVPE*20}
+   ENDIF
+   IF oExtra:CalcMargin > 0
+      nMulti := 1/(1-oExtra:CalcMargin/100)
+   ELSE
+      nMulti := 2.5 //default: 60% margin
+   ENDIF
+   
+   //first we try to calculate the price using the parts list, price base 9 = stock based + supplier price for purchasing
+   FOR EACH nQ IN aQty      
+      cInfoData := ""
+      nP := StCalc(nArtnr,9,,.T.,Date(),,nQ,.T.,@cInfoData)*nMulti //60% margin
+      IF Tr_Getini(28) == 9
+         //MemoEdit(cInfoData)
+      ENDIF
+      IF nP > 0
+         Aadd(aPriceTabs,{nQ,nP})
+      ELSE
+         //MemoEdit(cInfoData)
+      ENDIF
+   NEXT   
+   
+   /*IF Len(aPriceTabs) == 0 //alternatively we try  a calculation file
+      hCostOO := RUN_GetCostFromOO(nArtnr)
+      IF hCostOO["ERROR"] == 0 .AND. Len(hCostOO["DATA"]) > 0 
+         FOR nC := 1 TO Len(hCostOO["DATA"])
+            nQ := hCostOO["DATA",nC,"QTY"]
+            nP := hCostOO["DATA",nC,"COST"]*2.5 //60% margin
+            AAdd(aPriceTabs, {nQ, nP})
+         NEXT
+      ENDIF
+   ENDIF*/
+
+   //aPriceTabs := {{1, 9999.99}}
+   
+   nQty := GetKwStock(nArtnr,9999)  //briger Lagerbestand
+   IF nQty > 0
+      oArt := Artikel():New()
+      oArt:Load(nArtnr)
+      nVK := oArt:GetAvgBuyPrice()*3.33 //70% margin
+      IF nVK > 0 .AND. Len(aPriceTabs) == 0 .OR. nQty < aPriceTabs[1,1]
+         HB_AInS(aPriceTabs,1,{nQty, nVK},.T.)
       
-      nQty := GetKwStock(nArtnr,9999)  //briger Lagerbestand
-      IF nQty > 0
-         oArt := Artikel():New()
-         oArt:Load(nArtnr)
-         nVK := oArt:GetAvgBuyPrice()*3.33 //70% margin
-         IF nVK > 0
-            aPriceTabs := {{nQty, nVK}}
-         ENDIF
       ENDIF
       //Alert(ValToPRg(hCostOO))
       
    ENDIF
+   IF Len(aPriceTabs) > 0 .AND. nArtnr > 0
+      IF ! ptc->(dbSeek( Str(nArtnr,6) ))   
+         ptc->(Add_Rec(0))
+         ptc->Artnr := nArtnr
+      ELSE
+         ptc->(Rec_Lock(0))
+      ENDIF
+      ptc->Prices := HB_JsonEncode(aPriceTabs)
+      ptc->LastDate := Date()
+      ptc->(dbUnLock())
+   ENDIF
+   //Alert(ValToPrg(aPriceTabs))
 ENDIF
 
 //FIXED GBP RATE
@@ -521,5 +617,5 @@ ENDIF
 
 RETURN aPriceTabs
 
-#include 'x:\run\getupsimportcost.prg'
-#include 'X:\run\OO_costing.prg'
+#include '..\run\getupsimportcost.prg'
+#include '..\run\OO_costing.prg'

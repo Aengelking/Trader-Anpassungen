@@ -25,6 +25,8 @@ FUNC HOOK_BEFORE_CREATE_INVOICE(oRechnung,lCredit)
    IF lCredit
       oRechnung:Porto := 0
       oRechnung:Versandart := 21
+   ELSEIF oRechnung:Versandart == 10 //Abholung
+      oRechnung:Porto := 0
    ELSEIF oRechnung:oKunde:Portok == "Y"
       IF sk->(IsPrepay(oRechnung:Skonto))
          oRechnung:Porto := 0

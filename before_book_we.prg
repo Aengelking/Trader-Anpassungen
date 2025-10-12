@@ -7,6 +7,10 @@ FUNCTION HOOK_BEFORE_BOOK_WE(hData,oBesPos,oArt)
       Tr_MsgBox("Bitte Gewicht angeben")
       RETURN .F.
    ENDIF
+   /*cNotes := GetNotesDisplay("BES",oBesPos:Besnr,,";")
+   IF ! Empty(cNotes)
+      Alert(cNotes)
+   ENDIF*/
    IF oExtra:CoC
       IF ! oArt:Charge //Keine Chargenverwaltung, dann mssen wir noch die Lieferantennummer voranstellen
          ku->(dbSetOrder(1))

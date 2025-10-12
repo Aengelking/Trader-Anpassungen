@@ -3,7 +3,8 @@ STATIC lDbg
 FUNCTION Approve_AUF_ANG(aProducts,cText1,nLevel,cKundma,dDate,cMoney,lAuf)
 
 /** SETTINGS **/
-LOCAL aLevels := { {9},{33},{41,54},{45,37,28,58},{69,66} }
+LOCAL aLevels := { {9},{33},{41},{45,37,28,58,73},{66} }
+LOCAL aLearning := {73,66}
 LOCAL nMinIncrease := 0.049  //Mindest um diesen Wert in den letzten 12 Monaten angehoben, wenn auáerhalb der Staffel
 LOCAL nIncreasePerYear := 0.029 //Mindestens um diesen Wert pro Jahr angehoben wenn auáerhalb der Staffel
 LOCAL lHoliday := Date() >= GetValue("HOLIDAY-AMOS-START") .AND. Date() <= GetValue("HOLIDAY-AMOS-END")
@@ -212,10 +213,15 @@ FOR EACH hProd IN aProducts
          DbgPrn("NO STOCK")
          nVPE := 0
          lUnderMOQ := .T. //if we have no direct manufacturer we are always under MOQ
-         IF manu->(dbSeek( Str(hProd:Artikel:Manufactur,5) )) .AND. manu->Address != 0            
-            ku->(dbSetOrder( 8 ))
-            ku->(dbSeek( Str(manu->Address,6) ))
-            ali->(dbSeek( Str(hProd:Artikel:Artikelnr,6) + ku->Kunde ))
+         ali->(dbSetOrder( 6 ))
+         IF (hProd:Artikel:Manufactur == 5 .AND. ali->(dbSeek( Str(hProd:Artikel:Artikelnr,6) + "1" ))); //Engelking China - search for Prio 1 supplier
+            .OR. (hProd:Artikel:Manufactur != 5 .AND. manu->(dbSeek( Str(hProd:Artikel:Manufactur,5) )) .AND. manu->Address != 0)
+            IF hProd:Artikel:Manufactur != 5
+               ku->(dbSetOrder( 8 ))
+               ku->(dbSeek( Str(manu->Address,6) ))
+               ali->(dbSetOrder( 5 ))
+               ali->(dbSeek( Str(hProd:Artikel:Artikelnr,6) + ku->Kunde ))
+            ENDIF
             
             lUnderMOQ := hProd:Qty < ali->VPE
             IF lUnderMOQ
@@ -461,11 +467,18 @@ IF ! Empty(cText1)
 ELSE
    nLevel := 4
 ENDIF
-   aUsers := {}
-   FOR nX := nLevel TO 1 STEP -1
-      AEval(aLevels[nX],{|x| Aadd(aUsers,x) })
-   NEXT
-   RETURN {cText1,aUsers}
+
+aUsers := {}
+FOR nX := nLevel TO 1 STEP -1
+   AEval(aLevels[nX],{|x| Aadd(aUsers,x) })
+NEXT
+
+IF Tr_Getini(28) $ aLearning .AND. Tr_Getini(28) $ aUsers ;
+   .AND. Len(aUsers) > 1 .AND. Tr_MsgBox("Anderer Person zu Genehmigung vorlegen?",,{"selber genehmigen","Ja"}) == 2 //Learning mode for these users
+   HB_ADel(aUsers,AScan(aUsers,{|x| x==Tr_Getini(28) }),.T.)
+ENDIF
+
+RETURN {cText1,aUsers}
 //ENDIF
 //RETURN {"",{TR_getini(28)}}
 

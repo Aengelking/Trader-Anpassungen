@@ -1,5 +1,5 @@
 PROC HOOK_AFTER_BOOK_RMA(oRmaPos,nMenge,cLagerort)
-   LOCAL cText 
+   LOCAL cText ,aTo
  
    cText := "Artikel : "+oRmaPos:Matchcode+"<br />"
    cText += "Anzahl  : "+Transform(nMenge,oRmaPos:oRechPos:oArtikel:cPicture)+"<br />"
@@ -7,7 +7,13 @@ PROC HOOK_AFTER_BOOK_RMA(oRmaPos,nMenge,cLagerort)
    cText += "AB      : "+LTrim(Str(oRmaPos:Abnr))+" Pos.: "+LTrim(Str(oRmaPos:RePos))+"<br />"
    cText += "Rechnung: "+LTrim(Str(oRmaPos:Rechnung))
 
-   SendMail({{"amos.engelking@engelking.de","Amos"}},"RMA "+LTrim(Str(oRmaPos:oRma:Nummer))+" eingelagert",cText,,,,.T.)
+   aTo := {{"amos.engelking@engelking.de","Amos"}}
+
+   IF Trim(oRmaPos:oRma:Grund) == "DEF"
+      Aadd(aTo,{"marcel.moessner@engelking.de","Marcel M”ssner"})
+   ENDIF
+
+   SendMail(aTo,"RMA "+LTrim(Str(oRmaPos:oRma:Nummer))+" eingelagert",cText,,,,.T.)
 
    TxtBox("Artikel Aufkleber",,,15)
    oRmaPos:oRechPos:oArtikel:gotoRec()

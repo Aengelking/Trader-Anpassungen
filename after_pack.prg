@@ -47,7 +47,7 @@ IF lRech //Rechnung
                lPorto := .F.
             ENDIF
          ENDIF 
-         IF lPorto
+         IF lPorto .AND. oRechnung:Versandart != 10 .AND. oRechnung:Versandart != -1 //Porto und keine Abholung oder Verweis
             art->(dbSetOrder( 2 ))
             re->(dbSkip(1))
             DO WHILE re->Rechnr == nNr .AND. ! re->(EOF()) .AND. ! lUpdateFreight

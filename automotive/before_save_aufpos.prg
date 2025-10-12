@@ -8,7 +8,9 @@ LOCAL nStock
 LOCAL aRegexMatch
 LOCAL bGetFreigabe := { |nLief,oLief|
    LOCAL cText
-   
+   IF Trim(oAufPos:Artikel:Matchcode) $ {"PORTO"}  //special exceptions
+      RETURN .T.
+   ENDIF
    oAufPos:Artikel:gotoRec()   
    hFreigabe := GetFreigabeBesState(nLief)   
    IF nLief == 0
@@ -46,9 +48,11 @@ NetUse("parts","part")
 NetUse("ppf","ppf")
 
 aRegexMatch := HB_Regex("KS([0-9]{5,6}).*",Trim(oAufPos:Artikel:Matchcode))
-IF Len(aRegexMatch) == 0
+IF Len(aRegexMatch) == 0 
+   
    Tr_MsgBox("Es k”nnen nur KS Artikel an Kunden verkauft werden.")
    RETURN .F.
+   
 ELSEIF Val(aRegexMatch[2]) != oAufPos:Auftrag:Kunde:Nummer
    Tr_MsgBox("Artikel "+Trim(oAufPos:Artikel:Matchcode)+" kann nur an Kunde Nr. "+Trim(aRegexMatch[2])+" geliefert werden.")
    RETURN .F.

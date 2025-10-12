@@ -94,6 +94,9 @@ IF lLP
       ENDDO
    ENDIF
    IF lTop      
+      IF Tr_Getini(28) == 9
+         Alert(ValToPrg(aFiles))
+      ENDIF         
       IF Len(aFiles) >= 1         
          cFile := cDir+"PCB_"+StrZero(art->Artikelnr,6)+".ZIP"
 

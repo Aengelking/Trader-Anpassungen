@@ -22,7 +22,7 @@ If Round(nLimit,0) < Round(nCredLimit,0)
    ku->(dbSetOrder( 1 ))
    ku->(dbSeek( cKunde+"K" ))   
    
-   IF ku->CountryIso == "DE" .AND. nCredLimit <= 20000 
+   IF ku->CountryIso == "DE" .AND. nCredLimit <= 20000 //wir versuchen noch ein paar Dinge um ein automatische Kreditlimit zu erteilen
       IF Tr_Getini(28) == 9 .AND. nError $ {101,102} .AND. Trim(ku->CompForm) $ {"GMBH","AG","EK","KG","KGaA","OHG","SE","UG"} .AND. Tr_MsgBox("Kein Eintrag bei Creditsafe gefunden. Nummer hinterlegen?",,{"Ja","Nein"}) != 2
          EditCSNumber()
          nLimit := Hook("get_customercreditlimit",{ku->Nummer,cKunde,nCredLimit,@nError},0)
@@ -51,7 +51,9 @@ If Round(nLimit,0) < Round(nCredLimit,0)
             ENDIF
          ENDIF
       ENDIF     
+   ENDIF
 
+   IF ku->CountryIso == "DE" .AND. nCredLimit <= 5000 //eine Prfung ber die R+V macht keinen Sinn, wenn das Limit unter 5000 EUR liegt da wir einen Selbstbehalt von 2500 ? haben
       IF Tr_MsgBox({"Kreditlimit kann nicht erteilt werden. Maximal: "+LTrim(str(nLimit)),HB_AnsiToOem("Soll eine manuelle Einzelprüfung Kreditanfrage an Amos versendet werden?")},,{"Nein","Ja"}) == 2
          SetColor(c_five)
          @ 10,10 CLEAR TO 20,40

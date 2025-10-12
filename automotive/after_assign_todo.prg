@@ -30,7 +30,7 @@ PROCEDURE Hook_on_assign_todo(oTodo,lTrigger)
          EXIT
    END
    IF ! Empty(cLink)
-      cText += ': <a href="trader: -F '+cLink+'">'+Ltrim(Str(oTodo:Ref,6))+'</a>'
+      cText += ': <a href="trader: -F '+cLink+' -C 2">'+Ltrim(Str(oTodo:Ref,6))+'</a>'
    ELSE
       cText += ": "+Ltrim(Str(oTodo:Ref,6))
    ENDIF
@@ -67,7 +67,7 @@ PROCEDURE Hook_on_assign_todo(oTodo,lTrigger)
    cSubject := "Neue Aufgabe"
 
    IF Trim(oTodo:RefType) == "PJ"
-      cSubject += " #EKP "+Ltrim(Str(oTodo:Ref,6))
+      cSubject += " #EAP "+Ltrim(Str(oTodo:Ref,6))
    ELSEIF Trim(oTodo:RefType) == "QS"
       cSubject += " #QS "+LTrim(Str(oTodo:Ref,6))
    ENDIF

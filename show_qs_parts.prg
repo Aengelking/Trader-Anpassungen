@@ -13,7 +13,7 @@ FUNCTION RUN_SHOW_QS_PARTS
    LOCAL nQSJob,cQSJob,nQSUsed   
    LOCAL hColors := {"OVER"=>"N/R*","NOW"=>"N+/GR*","NEXT"=>"N+/G*"}
    LOCAL aList := {}
-   LOCAL oBrowse
+   LOCAL oBrowse,oBrowseQS
 
    LOCAL aFirms := {},aFirm
 
@@ -91,12 +91,12 @@ FUNCTION RUN_SHOW_QS_PARTS
          
          //? ""
          
-         Aadd(aList,{"MATCH"=>art->Matchcode,"TEXT"=>art->Matchcode+" "+PadL(Transform(nQSQty,Me(art->Me)),12),"STATUS"=>0,"NEXT"=>"ÿ","WE"=>StoD(""),"FIRM"=>aFirm:ID})
-         IF pjob->(dbSeek( Str(art->Artikelnr,6)+Str(nQSJob,6) ))                  
+         Aadd(aList,{"MATCH"=>art->Matchcode,"ARTNR"=>art->Artikelnr,"TEXT"=>art->Matchcode+" "+PadL(Transform(nQSQty,Me(art->Me)),12),"STATUS"=>0,"NEXT"=>"ÿ","WE"=>StoD(""),"FIRM"=>aFirm:ID})
+         /*IF pjob->(dbSeek( Str(art->Artikelnr,6)+Str(nQSJob,6) ))                  
             ATail(aList)["TEXT"] += " "+StrZero(Int(pjob->Seconds*nQSQty/60/60),2)+":"+StrZero(Int(Mod(pjob->Seconds*nQSQty/60,60)),2)+":"+StrZero(Mod(pjob->Seconds*nQSQty,60),2)
-         ELSE
+         ELSE*/
             ATail(aList)["TEXT"] += Space(9)         
-         ENDIF 
+         //ENDIF 
 
 
          FOR nX := 1 TO Len(aKwQty)
@@ -159,11 +159,11 @@ FUNCTION RUN_SHOW_QS_PARTS
 
          SetPos(Row(),00)      
          //?? art->Matchcode,PadL(Transform(nQSQty,Me(art->Me)),12)//,PadL(Transform(nStock,Me(art->Me)),12)
-         IF pjob->(dbSeek( Str(art->Artikelnr,6)+Str(nQSJob,6) ))         
+         /*IF pjob->(dbSeek( Str(art->Artikelnr,6)+Str(nQSJob,6) ))         
             //?? "",Str(Int(pjob->Seconds*nQSQty/60/60),2)+":"+Str(Int(Mod(pjob->Seconds*nQSQty/60,60)),2)+":"+Str(Mod(pjob->Seconds*nQSQty,60),2)         
          ELSE         
             //?? "",Space(8)
-         ENDIF    
+         ENDIF    */
 
 
       NEXT
@@ -201,6 +201,11 @@ FUNCTION RUN_SHOW_QS_PARTS
 
    NEXT
 
+   IF Len(aList) == 0
+      Tr_MsgBox("Keine Artikel gefunden")
+      RETURN .F.
+   ENDIF
+
    NetUse("artikel","art")
 
    @ 02,69 TO 06,94
@@ -234,6 +239,9 @@ FUNCTION RUN_SHOW_QS_PARTS
    oBrowse:lbox := .F.
 
    oBrowse:NewColumn(Pad("Artikel",25)+" "+PadL("QS Menge",12)+" "+Pad("Dauer(h)",8)+" N„chste F„lligkeit  WE",{|| Pad(oBrowse:CurrentDataRow()["TEXT"]+" "+oBrowse:CurrentDataRow()["NEXT"],67)+" "+IF(HHasKey(oBrowse:CurrentDataRow(),"WE"),DtoC(oBrowse:CurrentDataRow()["WE"]),"") },{|| 
+      IF ValType(oBrowse:CurrentDataRow()) != "H"
+         RETURN {1,1}
+      ENDIF
       IF oBrowse:CurrentDataRow()["STATUS"] == 0
          IF Mod(oBrowse:CurrentRow(),2) == 0
             RETURN {4,3}
@@ -244,6 +252,47 @@ FUNCTION RUN_SHOW_QS_PARTS
    })
 
    oBrowse:aData := aList
+
+
+   @ 20,77 SAY PadC(" Bekannte Fehler ",MaxCol()-77,Chr(196))
+
+   NetUse("qs","qs")
+   qs->(dbSetOrder( 2 ))
+   qs->(dbSeek( Str(art->Artikelnr,6) ))
+   oBrowseQS := qs->(TBrowseTr():New(21,77,MaxRow(),MaxCol()))
+   oBrowseQS:lBox := .F.
+   oBrowseQS:OneColumn := .T.
+   oBrowseQS:HeadSep := ""
+   oBrowseQS:NewColumn("Nummer",{|| Str(qs->Nummer,6) })
+   oBrowseQS:NewColumn("Beschreibung",{|| Pad(qs->Beschreibu,60) })
+   oBrowseQS:WhileBlock := {|| ValType(oBrowse:CurrentDataRow()) == "H" .AND. qs->Artnr == oBrowse:CurrentDataRow()["ARTNR"] }
+   oBrowseQS:ForBlock := {|| qs->Status != 8 }  //abgelehnt ausblenden
+   //oBrowseQS:AddKey(K_ENTER,{|| EditQS(qs->Nummer) })
+   oBrowseQS:Display()
+   oBrowseQS:deHilite()
+      //Aadd(aBrowse,{oBrowse,SaveEnv()})
+
+   oBrowse:bAnyFun := {||
+      IF ValType(oBrowse:CurrentDataRow()) == "H" .AND. hHasKey(oBrowse:CurrentDataRow(),"ARTNR")         
+         qs->(dbCloseArea())
+         IF oBrowse:CurrentDataRow()["FIRM"] == 0
+            NetUse("qs","qs")         
+         ELSE
+            nFirm := AScan(aFirms,{|x| x["ID"] == oBrowse:CurrentDataRow()["FIRM"]})
+            NetUse(aFirms[nFirm]:Path+"qs","qs")         
+         ENDIF
+         qs->(dbSetOrder( 2 ))
+         qs->(dbSeek( Str(oBrowse:CurrentDataRow()["ARTNR"],6) ))
+         oBrowseQS:RefreshAll()
+         oBrowseQS:Display()
+         oBrowseQS:deHilite()
+      ELSE
+         SetColor(c_one)
+         @ 21,77 CLEAR TO MaxRow(),MaxCol()
+      ENDIF
+      RETURN .T.
+   }
+
    oBrowse:EventLoop()
 
    //Sinkey(0)

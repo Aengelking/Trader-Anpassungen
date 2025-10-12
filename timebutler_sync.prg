@@ -1,6 +1,7 @@
 
 //#include 'inkey.ch'
-#include "y:\harbour\trader\source\include\david.ch"
+//#include "y:\harbour\trader\source\include\david.ch"
+#define DvCalendarItem 7   // CalendarItem Objekt
 
 #define UPDATE_DAVID
 

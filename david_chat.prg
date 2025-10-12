@@ -122,7 +122,7 @@ PROC RUN_David_Chat
                      cJson := SubStr(cJson,1,AT('}',cText)-1)
                      hJson := HB_JsonDecode(cJson)
                      cReplace := ""
-                     IF HHasKey(hJson,"type")
+                     IF ValType(hJson) == "H" .AND. HHasKey(hJson,"type")
                         IF hJson["type"] == "hyperlink"
                            cReplace := '<a href="#" onclick="trader.openLink('+"'"+hb_base64decode(hJson["link"])+"'"+')">'+hb_base64decode(hJson["text"])+"</a>"
                         ELSEIF hJson["type"] == "agree"

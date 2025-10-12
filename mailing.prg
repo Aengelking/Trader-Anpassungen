@@ -112,7 +112,7 @@ PROCEDURE RUN_Email_Mailing
          RETURN
       ENDIF
       @ 01,00 SAY "Vorlage"
-      @ 01,24,20,47 GET nTemplate LISTBOX hTemplates ASSOCIATIVE WHEN lNew
+      @ 01,24,20,77 GET nTemplate LISTBOX hTemplates ASSOCIATIVE WHEN lNew
       READ
       IF LastKey() == K_ESC .OR. nTemplate == 0
          RETURN
@@ -562,7 +562,6 @@ PROCEDURE RUN_Email_Mailing
       NEXT
 
       //Send Emails
-
       hData := {=>}
       hData["templateId"] := hResponse["templates"][nTemplate]["id"]
       hData["messageVersions"] := aVersions   
@@ -576,6 +575,8 @@ PROCEDURE RUN_Email_Mailing
       IF ! HHasKey(hResult,"messageIds")         
          IF HHasKey(hResult,"message")
             Tr_MsgBox(hResult["message"],"Fehler beim Versenden der Emails")
+            Alert(ValToPrg(hResult ))
+            Alert(ValToPrg(hData))
          ELSE
             Tr_MsgBox("Fehler beim Versenden der Emails")
          ENDIF         

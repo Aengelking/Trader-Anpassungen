@@ -52,13 +52,13 @@ PROC SEND_USER_TODO_EMAIL(nUserId)
    todo->(dbSeek(Str(nUserId,2)+"N"))
    
    DO WHILE todo->User == nUserId .AND. ! todo->Done .AND. !todo->(EOF())
-      IF todo->Due <= AddWorkingDays(Date(),-4) .AND. ! Empty(todo->Due)
+      IF AddWorkingDays(todo->Due,todo->Days*-1) <= AddWorkingDays(Date(),3) .AND. ! Empty(todo->Due)
          AAdd(aAllTodos, {;
             "UUID"=>Trim(todo->UUID),;
             "task" => Trim(todo->Task),;
             "due" => todo->Due,;
             "created" => Date(),; //todo->Created,; 
-            "reftype" => hRecordTypes[Trim(todo->RefType)],;               
+            "reftype" => IF(HHAsKey(hRecordTypes,Trim(todo->RefType)), hRecordTypes[Trim(todo->RefType)], "Unbekannt"),;
             "ref" => todo->Ref,;
             "priority" => IIF(todo->Due <= Date(), "Hoch", IIF(todo->Due <= Date()+2, "Mittel", "Niedrig"));
          })
@@ -83,6 +83,7 @@ PROC SEND_USER_TODO_EMAIL(nUserId)
    
    cEmailBody += _EMAIL_FOOTER()
 
+   //cUserEmail := "amos.engelking@engelking.de" // For testing only
    // Send email
    SendMail({{cUserEmail,cUserName}}, "Deine offenen Aufgaben - " + DtoC(Date()), cEmailBody,,,, .T.)
    
@@ -105,27 +106,15 @@ FUNCTION _BUILD_TASK_HTML(hTask, nTaskNum)
       cDueText := "Morgen"
    ELSE
       cDueText := "in " + LTrim(Str(nDaysDue)) + " Tagen"
-   ENDIF
-   
-   // Calculate created date text
-   /*nDaysCreated := Date() - hTask["created"]
-   IF nDaysCreated == 0
-      cCreatedText := "Heute"
-   ELSEIF nDaysCreated == 1
-      cCreatedText := "vor 1 Tag"
-   ELSE
-      cCreatedText := "vor " + LTrim(Str(nDaysCreated)) + " Tagen"
-   ENDIF*/
+   ENDIF   
 
    cHTML := "<!-- Task Item " + LTrim(Str(nTaskNum)) + " -->" + CRLF
    cHTML += '<div class="task-item">' + CRLF
    cHTML += '  <div class="task-name"><a href="trader: -F TodoList('+"'"+hTask["UUID"]+"'"+')">' + hTask["task"] + '</a></div>' + CRLF
    cHTML += '  <div class="task-details">' + CRLF
-   cHTML += '    <strong>F„llig:</strong> ' + cDueText + ' - '
-   //cHTML += '<strong>Erstellt:</strong> ' + cCreatedText + ' - '
+   cHTML += '    <span class="task-priority priority-' + Lower(hTask["priority"]) + '">' + cDueText + '</span> - '   
    cHTML += '<strong>' + hTask["reftype"] + " "+LTrim(Str(hTask["ref"]))+'</strong>'+ CRLF
    cHTML += '  </div>' + CRLF
-   cHTML += '  <span class="task-priority priority-' + Lower(hTask["priority"]) + '">' + hTask["priority"] + '</span>' + CRLF
    cHTML += '</div>' + CRLF + CRLF
 
 RETURN cHTML
@@ -303,7 +292,7 @@ FUNCTION _EMAIL_HEADER(cName)
             display: inline-block;
             padding: 4px 12px;
             border-radius: 20px;
-            font-size: 12px;
+            font-size: 10px;
             font-weight: 600;
             text-transform: uppercase;
         }

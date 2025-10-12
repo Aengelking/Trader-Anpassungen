@@ -1,5 +1,5 @@
 FUNCTION RUN_SEND_POS()
-   LOCAL nYear := Year(Date()),nMonth := Month(Date())
+   LOCAL nYear := Year(Date()),nMonth := 7 //Month(Date())
    LOCAL aData
    LOCAL cPW,cFile,cDir
    LOCAL cLang,cText

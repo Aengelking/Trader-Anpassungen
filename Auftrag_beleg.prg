@@ -272,6 +272,12 @@ FUNCTION ProcessSalesOrder(nKunde,hResults,aData,oAuftrag)
          auf->(dbClearFilter()) //need to clear the filter, otherwise the position cannot acces the contractposition
          oPos := oAuftrag:Positions:GetRecord(auf->Itmnr)
          oContract := oPos:ContractPosition
+         //extend the contract if necessary
+         //oContract:WTerm := Max(Max(oPos:Wterm,oPos:DTerm),oContract:Wterm)
+         oContract:WTerm := Max(CWeek(aData[nX]["DATE"]),oContract:Wterm)
+
+         oContract:Save()
+
          IF nX > Len(aData) .OR. aData[nX]["DATE"] > hResults["MATDATE"] .OR. aData[nX]["DATE"] < oAuftrag:Besda
             IF /*oPos:BeStat < 3 .OR.*/ oPos:VkQty != 0
                ? t("Lösche "),Transform(oPos:VkQty,cMe),art->me,auf->WDatum                            
@@ -305,8 +311,10 @@ FUNCTION ProcessSalesOrder(nKunde,hResults,aData,oAuftrag)
             IF Tr_getini(28) == 9
                //AltD()
             ENDIF
-            oPos:UpdateDTerm()
-
+            //oPos:UpdateDTerm()
+            IF oPos:HasValidationErrors()
+               Tr_MsgBox("Fehler in Position: "+ValToPrg(oPos:GetValidationResult()))
+            ENDIF
             ?? " Liefertermin:",oPos:Dterm,oPos:BDatum
             oPos:Save()            
          ENDIF
@@ -314,8 +322,7 @@ FUNCTION ProcessSalesOrder(nKunde,hResults,aData,oAuftrag)
             //oContract:ContrQty -= oContract:VkQty-nOpenQty
             //oContract:VkQty := nOpenQty
          //ENDIF
-         oContract:WTerm := Max(Max(oPos:Wterm,oPos:DTerm),oContract:Wterm)
-         oContract:Save()
+         
 
          auf->(dbSetFilter({|| auf->(&(cFilter)) },cFilter)) //now we reset the filter
          auf->(dbSkip())
@@ -356,7 +363,7 @@ FUNCTION ProcessSalesOrder(nKunde,hResults,aData,oAuftrag)
             oPos:Aufnr    := hResults["ORDER"] 
             oPos:WDatum   := aData[nX]["DATE"]
 
-            oPos:UpdateDterm()
+//            oPos:UpdateDterm()
             IF hResults["PRODDATE"] >= aData[nX]["DATE"]
                oPos:BeStat := 0
             ELSE //falls nicht zur produktion freigegeben pos auf erl setzten

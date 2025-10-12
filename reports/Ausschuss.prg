@@ -39,10 +39,12 @@ PROC Bericht_Ausschuss()
 
    Aadd(aList,{"Artikel","Gesamt","Ausschuss","Ausschuss %","Geplanter Ausschuss","Ausschuss ber Plan %"})
 
-   FOR EACH aArtikel IN hArtikel      
-      art->(dbSeek( Str(aArtikel:__eNumKey(),6) ))      
-      ? art->Matchcode,aArtikel["TOTAL"],aArtikel["BAD"],aArtikel["BAD"]/aArtikel["TOTAL"]*100
-      Aadd(aList,{Trim(art->Matchcode),aArtikel["TOTAL"],aArtikel["BAD"],aArtikel["BAD"]/aArtikel["TOTAL"]*100,aArtikel["PLANBAD"],IF(aArtikel["BAD"]-aArtikel["PLANBAD"]!=0,aArtikel["PLANBAD"]/(aArtikel["BAD"]-aArtikel["PLANBAD"])*100,"")})
+   FOR EACH aArtikel IN hArtikel 
+      IF aArtikel["TOTAL"] != 0     
+         art->(dbSeek( Str(aArtikel:__eNumKey(),6) ))      
+         ? art->Matchcode,aArtikel["TOTAL"],aArtikel["BAD"],aArtikel["BAD"]/aArtikel["TOTAL"]*100
+         Aadd(aList,{Trim(art->Matchcode),aArtikel["TOTAL"],aArtikel["BAD"],aArtikel["BAD"]/aArtikel["TOTAL"]*100,aArtikel["PLANBAD"],IF(aArtikel["BAD"]-aArtikel["PLANBAD"]!=0,aArtikel["PLANBAD"]/(aArtikel["BAD"]-aArtikel["PLANBAD"])*100,"")})
+      ENDIF
    NEXT
 
 

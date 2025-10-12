@@ -7,6 +7,7 @@ LOCAL cCustomer
 LOCAL nFrQty
 LOCAL nCheckYears := 4
 LOCAL cFilter,cFilter2,nRec
+LOCAL aTo
 
 NetUse("engauf","auf")
 NetUse("engkund","ku")
@@ -87,7 +88,13 @@ FOR EACH nKdId IN aCustomers
                   cText += "GeschÑftsfÅhrer: Amos Engelking<br/>"
 
 //                  SendMail({{hContact["email"],hContact["name"]},{"amos.engelking@engelking.de","Amos","BCC"}},HB_AnsiToOem("Auftrag "+Trim(auf->Aufnr)+" (AB "+LTrim(Str(auf->Abnr))+"/"+LTrim(Str(auf->Itmnr))+")"),HB_AnsiToOem(cText),,,,.T.,"info@engelking.de")
-                  SendMail({{"amos.engelking@engelking.de","Amos"}},"Ihr Auftrag "+Trim(auf->Aufnr)+" (AB "+LTrim(Str(auf->Abnr))+"/"+LTrim(Str(auf->Itmnr))+")",cText,,,,.T.,"info@engelking.de")
+                  //aTo := {{hContact["email"],hContact["name"]}}
+                  IF Trim(ku->Kunde) == "FP"
+                     aTo := {{"sabid.pehlic@engelking.de","Sabid Pehlic"}}
+                  ELSE
+                     aTo := {{"amos.engelking@engelking.de","Amos"}}
+                  ENDIF
+                  SendMail(aTo,"Ihr Auftrag "+Trim(auf->Aufnr)+" (AB "+LTrim(Str(auf->Abnr))+"/"+LTrim(Str(auf->Itmnr))+")",cText,,,,.T.,"info@engelking.de")
 
                   /*er->(Add_Rec())
                   er->Aufnr := auf->Abnr

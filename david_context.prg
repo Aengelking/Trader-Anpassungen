@@ -94,7 +94,7 @@ PROCEDURE RUN_DAVID_CONTEXT( cFunction,cMsgPath )
          cBeleg := StrZero(ku->Nummer,6)+"-"+StrTran(Alltrim(cBeleg)," ","")
          AddFileToArchive("COC",cBeleg,cTempPath+aFiles[nFile])
          EXIT      
-      CASE "INVOICE"
+      CASE "INVOICE"         
          MBaseRun(Trim(tr_getini(1))+"\run\Invoice_beleg",{"CONTEXT",cMsgPath})
          EXIT
       CASE "NOTIZ"
@@ -111,7 +111,7 @@ PROCEDURE RUN_DAVID_CONTEXT( cFunction,cMsgPath )
          Enquiry()
          EXIT
       CASE "AUFTRAG"
-         IF Tr_Getini(28) == 9
+         IF .F. //Tr_Getini(28) == 9
             __Run("Y:\harbour\trader\bin\trader.exe -C 1 -F MBaseRun(Path('run\docprocessing\Auto_Auftrag'),{'"+cMsgPath+"'})")
             //MBaseRun(Path("\run\docprocessing\Auto_Auftrag"),{cMsgPath})
          ELSE

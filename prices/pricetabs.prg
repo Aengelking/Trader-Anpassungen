@@ -7,15 +7,24 @@ LOCAL cWald := Pad("WALDOM",8)
 LOCAL lDbg := .F. //Tr_Getini(28) == 9
 LOCAL aBuy,nEK,nMarg,nVK,nX
 LOCAL aUseAvg := {"PX0686"}
-LOCAL oArtikel,nAvgBuy
+LOCAL oArtikel,nAvgBuy,nDecimals
 LOCAL nSecs := Seconds()
+
+NetUse("ptcache","ptc")
+//use cache if it is not older than a week
+IF ptc->(dbSeek( Str(nArtnr,6) )) .AND. ptc->LastDate >= Date()-7 .AND. ptc->Prices != "{}"
+   IF lDbg
+      Alert("Using cached price tab")
+   ENDIF
+   RETURN HB_JsonDecode(ptc->Prices)
+ENDIF
 
 NetUse("compprice","cmpr")
 NetUse("manufact","manu")
 netUse("engkund","ku")
 NetUse("artlief","ali")
 
-
+nDecimals := GetMeDecimals(art->Me)
 aPriceTabs := GetPrices(art->Artikelnr,IF(art->Manufactur == 14,77,IF(art->Manufactur==9,12,1)),dDate)
 
 IF lDbg 
@@ -53,10 +62,7 @@ ENDIF
 
 oArtikel := Artikel():New()
 oArtikel:Load(art->Artikelnr)
-nAvgBuy := oArtikel:GetAvgBuyPrice(Date())
-/*IF nAvgBuy > 0 .AND. nAvgBuy < nEK   //do not understand this, if the price from the manufacturer rises we should only use the avgbuyprice if we have stock
-   nEK := nAvgBuy
-ENDIF*/
+/*nAvgBuy := oArtikel:GetAvgBuyPrice(Date())*/
 
 ali->(dbSeek(ku->Kunde+Str(art->Artikelnr,6)))
 
@@ -109,12 +115,12 @@ DO WHILE cmpr->Artikelnr == art->Artikelnr
          ENDIF
       ENDIF
 
-      IF cmpr->Menge <= oArtikel:Bestand .AND. nAvgBuy < nEK  //we have bought our stock somewhere cheaper (e.g. PX0686)
+      /*IF cmpr->Menge <= oArtikel:Bestand .AND. nAvgBuy < nEK  //we have bought our stock somewhere cheaper (e.g. PX0686)
          IF lDbg
             Alert("AvgBuyPrice")
          ENDIF
-         //nEk := nAvgBuy
-      ENDIF
+         nEk := nAvgBuy
+      ENDIF*/
 
 
       nMarg := _GetMinMargin(art->Matchcode)
@@ -149,7 +155,7 @@ ENDIF
 IF Len(aPriceTabs) > 1
    nLast := Round(aPriceTabs[1,2],2)
    nX := 2
-   DO WHILE .T.
+   DO WHILE .T.      
       IF nLast <= Round(aPriceTabs[nX,2],2) .OR. aPriceTabs[nX,2] == 0
          HB_ADel(aPriceTabs,nX,.T.)
       ELSE
@@ -164,6 +170,20 @@ ENDIF
 
 IF Tr_GetIni(28) == 9
    //Alert("Step 1:"+LTrim(Str(nSecs1))+";Step 2:"+LTrim(Str(nSecs2))+";Run_Prices_PriceTabs: "+Str(Seconds()-nSecs))
+   //Sinkey(0)
+ENDIF
+
+//save to cache
+IF Len(aPriceTabs) > 0 .AND. nArtnr > 0
+   IF ! ptc->(dbSeek( Str(nArtnr,6) ))   
+      ptc->(Add_Rec(0))
+      ptc->Artnr := nArtnr
+   ELSE
+      ptc->(Rec_Lock(0))
+   ENDIF
+   ptc->Prices := HB_JsonEncode(aPriceTabs)
+   ptc->LastDate := Date()
+   ptc->(dbUnLock())
 ENDIF
 
 RETURN aPriceTabs

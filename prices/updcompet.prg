@@ -125,11 +125,11 @@ FOR nX := 1 TO Len(aCompet)
    ku->(dbSeek( Pad(Upper(aCompet[nX]),8)+"L" ))
 
    IF aCompet[nX] == "FARNELL" .AND. lBuerklin  //we only get prices from Farnell (for speed reasons) if there are no Brklin prices
-   ELSEIF (ali->(dbSeek(Pad(Upper(aCompet[nX]),8)+Str(art->Artikelnr,6))) .AND. ! Empty(ali->artlief));
+   ELSEIF (ali->(dbSeek(Pad(Upper(aCompet[nX]),8)+Str(art->Artikelnr,6))) .AND. ! Empty(ali->artlief) .AND. ali->Priority <= 8);
        .OR. aCompet[nX] $ {"Schukat"}
       
       IF lDisp
-         @ MaxRow()/2-2,MaxCol()/2-15 SAY PadC("["+aCompet[nX]+"]",30,Chr(196)) COLOR c_five
+         @ MaxRow()/2-2,MaxCol()/2-15 SAY PadC("[ "+aCompet[nX]+" ]",30,Chr(196)) COLOR c_five         
       ENDIF
       
       hPrices := GetPricesCompet(aCompet[nX],lForce,@nError)
@@ -142,12 +142,16 @@ FOR nX := 1 TO Len(aCompet)
          IF ! aCompet[nX] $ "Schukat TME" .AND. (aCompet[nX] != "Mouser" .OR. ValType(hPrices) != "H" .OR. Len(hPrices) != 2)
             IF lDisp
                IF  ValType(hPrices) == "H" //NIL is used for connection errors
-                  SendMail({{"amos.engelking@engelking.de","Amos"}},"Preise von "+aCompet[nX]+" konnten fuer "+Trim(art->Matchcode)+" nicht geladen werden")
+                  IF Date() <= GetValue("HOLIDAY-AMOS-START") .OR. Date() >= GetValue("HOLIDAY-AMOS-END")
+                     SendMail({{"amos.engelking@engelking.de","Amos"}},"Preise von "+aCompet[nX]+" konnten fuer "+Trim(art->Matchcode)+" nicht geladen werden")
+                  ENDIF
                ENDIF
-               TxtBox("Preise von "+aCompet[nX]+" konnten nicht geladen werden!","FEHLER")
-               Inkey(5,128)
-               TxtClear()
-               TxtClear()
+               IF ! GetConfigValue("BATCHMODE")
+                  TxtBox("Preise von "+aCompet[nX]+" konnten nicht geladen werden!","FEHLER")
+                  Inkey(5,128)
+                  TxtClear()
+                  TxtClear()
+               ENDIF
             ENDIF
             RETURN .F.
          ENDIF

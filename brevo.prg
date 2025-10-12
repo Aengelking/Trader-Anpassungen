@@ -79,6 +79,7 @@ ENDCLASS
 
 METHOD New()
    ::cBaseUrl := "https://api.brevo.com/v3/"
+   ::cApiKeyName := "BREVO-API"
 RETURN SELF
 
 METHOD Execute(cPath,cMethod,hData)
@@ -86,7 +87,7 @@ METHOD Execute(cPath,cMethod,hData)
    LOCAL aHeader
 
    aHeader := {"accept: application/json","content-type: application/json"}
-   Aadd(aHeader,"api-key: SCHLUESSEL_ENTFERNT")
+   Aadd(aHeader,"api-key: $APIKEY$")
 
    hResponse := HB_JsonDecode(::Super:Execute(cPath,cMethod,hData,aHeader,.T.))
 
@@ -105,7 +106,7 @@ FUNCTION SendMailTemplate(aTo,nTemplate,hParams,hResponse)
    hData["templateId"] := nTemplate
    hData["params"] := hParams
    aHeader := {"accept: application/json","content-type: application/json"}
-   Aadd(aHeader,"api-key: SCHLUESSEL_ENTFERNT")
+   Aadd(aHeader,"api-key: ")
 
    hResponse := HB_JsonDecode(oBrevo:Execute("email","POST",hData,aHeader,.T.))
 

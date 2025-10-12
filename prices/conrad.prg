@@ -11,6 +11,17 @@ LOCAL oHttp,cData,cVal,nQty,aMatches
 
 RETURN {1=>999.99} //funktioniert gerade nicht
 
+
+                  /*oApi := RestApi():New()
+                  oApi:cBaseUrl := "https://api.browse.ai/v2/robots/"+Trim(oExtra:BrowseAI)+"/tasks"
+                  cData := oApi:Execute("","POST",{"inputParameters"=>{"originUrl"=>cUrl}},aHeaders,.T.)
+            
+                  hData := HB_JsonDecode(cData)            
+DO WHILE hData["result"]["status"] != "successful"               
+                        @ MaxRow()/2+1,MaxCol()/2-5 SAY Replicate(".",nS)+Replicate(" ",11-nS)
+                        Inkey(2,128)*/
+
+
    HB_SYMBOL_UNUSED(nArtnr)
    HB_SYMBOL_UNUSED(cMatch)
    //cMatch := StrTran(Trim(cMatch),"/","_")

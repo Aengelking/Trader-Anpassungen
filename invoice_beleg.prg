@@ -14,9 +14,17 @@
 
 #define P_SIGRID 34
 #define P_DANIEL IF(Date()>=Stod("20220701").AND.Date()<=StoD("20220707"),9,57)
-#define P_DANIELA 50 //IF(Date()>=StoD("20251604"),66,50)
+#define P_DANIELA IF(Date()>=StoD("20250730").AND.Date()<=StoD("20250813"),66,50)
 #define P_AMOS 9
 #define P_LISA 64
+
+#command @ <top>,<left>,<bottom>,<right> GET <var> LISTBOX <hash> ASSOCIATIVE ;
+	[VALID <valid>];
+	[WHEN <when>];
+	[COLOR <color>];
+;
+=> GET_AssociativeListBox(getlist,<top>,<left>,<bottom>,<right>,{|v| If(v==NIL,<var>,<var>:=v)},<hash>,<{valid}>, <{when}>,<color>)
+
 
 PROCEDURE Run_Invoice_Beleg(cType,cMsgPath)
 
@@ -46,14 +54,28 @@ LOCAL bDrawImage
 LOCAL aPaint := {}
 LOCAL nScale := 1
 LOCAL aList,hEntry,cYearPre,aChoice
+
 LOCAL nPersTrader := IF(Date()<=StoD("20210813"),P_SIGRID,P_DANIELA)  //Person die für Trader Rechnungen verantwortlichist
 LOCAL nPersGenehm := IF(Date()<=StoD("20210813"),P_SIGRID,P_AMOS)   //Person die für Genehmigungen zuständig ist
+LOCAL hKS         := {"000"=>"Verwaltung (000)",;
+                     "100"=>"Marketing (100)",;
+                     "200"=>"Vertrieb (200)",;
+                     "300"=>"Fertigung (300)",;
+                     "400"=>"Beschaffung (400)",;
+                     "500"=>"Produktmanagement (500)",;
+                     "600"=>"Entwicklung (600)",;
+                     "700"=>"Qualit„t (700)",;
+                     "800"=>"Lager (800)"}
+
+LOCAL hKSGenehm  := {"100"=>P_LISA}
+
 LOCAL hLiefPerson := {=>}
 LOCAL hKontoGenehm := {=>} //bestimmte Kreditoren einer Person zuweisen
 LOCAL nImageTop := 0,nImageRight := 0,nImageBottom := 0
 LOCAL nImageTopDiff:= 0,nImageRightDiff := 0
 LOCAL lAuto := .F.
 LOCAL nBetrag := 0
+LOCAL cKostenstelle := "000"
 LOCAL bDisplayButtons,nPage := 1
 LOCAL nPersOnApprove := P_SIGRID //automatically assign to this person on approval
 LOCAL dNext,lApprove,lRepeat
@@ -115,32 +137,7 @@ SetKey(K_LBUTTONDOWN,{||
    ENDIF
 RETURN NIL
 })
-/*
-   LOCAL nKey
-   LOCAL nMRow,nMCol
-   LOCAL cScreen := SaveScreen()
-   IF MRow() >= nImageTop .AND. MCol() <= nImageRight  
-      nMRow := MRow()
-      nMCol := MCol()
-      DO WHILE (nKey := Inkey(0)) != K_LBUTTONUP
-         DO WHILE nKey != 0
-            nImageTopDiff += (MRow()-nMRow)/10
-            nKey := Inkey()
-         ENDDO
-         //nImageRightDiff += MCol()-nMCol         
-         Eval(bDrawImage)
-         @ 00,00 CLEAR TO nImageTop+nImageTopDiff-1,MaxCol() //clear top of image
-         //@ 00,00 CLEAR TO MaxRow(),nImageRightDiff-1 //clear left of image
-         @ nImageBottom+1,00 CLEAR TO MaxRow(),MaxCol() //clear bottom of image
-         //@ 00,nImageRight+nImageRightDiff+1 CLEAR TO MaxRow(),MaxCol() //clear right of image
-      ENDDO
-      nImageTopDiff:= 0
-      nImageRightDiff := 0
-      RestScreen(,,,,cScreen)
-      RETURN .T. //stop processing in getlist
-   ENDIF
-   RETURN .F.
-})*/
+
 
 /************** FRACHT ***************/
 hKontoGenehm[70062] := P_SIGRID
@@ -206,6 +203,14 @@ NetUse("rerepeat","rerep")
 
 LX_Start()
 hAccounts := LX_GetAccountsInCat(LX_CAT_KREDITOR,.T.)
+
+//W„hrungsdifferenzkonten aus der Liste entfernen
+FOR EACH cKonto IN hAccounts   
+   nKonto := cKonto:__eNumKey()
+   IF HB_RegexMatch(".*w(ae|„|Ž)hrung.*",hAccounts[nKonto],.F.)
+      HB_HDel(hAccounts,nKonto,.T.)      
+   ENDIF
+NEXT
 
 IF ! Empty(cMsgPath)  //email
    oAccount := DV_GetMailAccount()
@@ -321,6 +326,8 @@ ELSEIF cType == "CONTEXT" .AND. Empty(cMsgPath)
    SetConfigValue("attachfile","") //reset attached file so it does not get deleted if it has come from disk, we have already saved the name to cFileName
 ENDIF
 
+
+
 IF HB_RegExMatch("\.((pdf)|(doc))$",cFileName,.F.)
    cImageFile := GetEnv("temp")+"\"+SubStr(cFileName,Rat("\",cFileName)+1)+"_%d.jpg"
    cGSExe := GS_EXE+' -sDEVICE=jpeg -r300 -q -dBATCH -dNOPAUSE -sOutputFile="'+cImageFile+'" "'+cFileName+'"' //extract first page from PDF as JPEGs
@@ -398,18 +405,46 @@ DO WHILE .T.
 
    cBelegKurz := ""
    IF ! Empty(cLiefma)
-      FindAd( cLiefma, "L",01,50 )
+      FindAd( cLiefma, "L",01,70 )
    ENDIF
 
    @ 01,00 SAY Pad("Belegnr.",19) GET cBeleg VALID ! Empty(cBeleg) PICTURE "@!" WHEN ! lAuto
-   @ 02,00 SAY Pad("Lieferant",19) GET cLiefma PICTURE "@!" VALID Empty(cLiefma) .OR. FindAd( cLiefma, "L",01,50 ) WHEN Empty(cKonto) .AND. ! lAuto
+   @ 02,00 SAY Pad("Lieferant",19) GET cLiefma PICTURE "@!" WHEN Empty(cKonto) .AND. ! lAuto
+   ATail(getlist):postBlock := {||          
+      IF ! Empty(cLiefma) //prfen ob dieser nur ber Lexware gebucht wird
+         IF ! FindAd( cLiefma, "L",01,70 ) 
+            RETURN .F.
+         ENDIF
+         oExtra := ku->(ExtraData():New(ku->Nummer))
+         IF oExtra:NoPo //dieser Lieferant bekommt keine Bestellungen und daher muss dieser direkt in Lexware gebucht werden
+            fibu->(dbSetOrder( 1 ))
+            IF fibu->(dbSeek( Str(ku->Nummer,6) ))
+               nKonto := fibu->Konto
+               IF HHasKey(hAccounts,nKonto)
+                  cKonto := Pad(hAccounts[nKonto],100)
+               ELSE
+                  cKonto := LTrim(Str(nKonto))+" "+LX_GetAccountName(nKonto)                  
+               ENDIF
+               cLiefma := Space(8)
+               getList[3]:Display()
+            ELSE
+               Tr_MsgBox("Kein Fibukonto - bitte hinterlegen")
+               RETURN .F.
+            ENDIF
+         ENDIF
+         cKostenstelle := Space(3) //ware hat keine Kostenstelle
+      ELSEIF Empty(cKostenstelle)
+         cKostenstelle := "000"
+      ENDIF
+      RETURN .T.      
+   } 
    IF lAuto
-      Eval(ATail(GetList):preBlock)
+      Eval(ATail(GetList):postBlock)
    ENDIF
    @ 03,00 SAY Pad("Konto",19)
    oGet := GetSuggestions():New(03,20,{|v| IF(v==NIL,cKonto,cKonto:=v) })
    oGet:aValues := HGetValues(hAccounts)
-   oGet:Picture := "@S30"
+   oGet:Picture := "@S40"
    oGet:Display()
    oGet:preBlock := {|| Empty(cLiefma) .AND. ! lAuto }
    oGet:postBlock := {||
@@ -435,9 +470,11 @@ DO WHILE .T.
    Aadd(getlist,oGet)
    @ 04,00 SAY Pad("Rechnungssumme",19) GET nBetrag VALID nBetrag != 0 PICTURE "@E 9,999,999.99"
    @ 05,00 SAY Pad("Belegjahr",19) GET nYear VALID nYear >= Year(Date())-1 .AND. nYear <= Year(Date()+31) PICTURE "9999" WHEN cType != "SCAN" .AND. ! lAuto //Belegjahr außer bei Scan's da wird es von der ID entnommen
+   @ 06,00 SAY Pad("Kostenstelle",19)
+   @ 06,20,15,50 GET cKostenstelle LISTBOX hKS ASSOCIATIVE WHEN Empty(cLiefma) 
 
    IF cType == "SCAN"
-      @ 06,00 SAY "Interne Belegnummer "+Str(nID,9)
+      @ 07,00 SAY "Interne Belegnummer "+Str(nID,9)
    ENDIF
    Wvt_Paint()
    READ
@@ -449,7 +486,7 @@ DO WHILE .T.
    ENDIF
 
    IF ! Empty(cLiefma) //prfen ob dieser nur ber Lexware gebucht wird
-      oExtra := ku->(ExtraData():New(ku->Nummer))
+      /*oExtra := ku->(ExtraData():New(ku->Nummer))
       IF oExtra:NoPo //dieser Lieferant bekommt keine Bestellungen und daher muss dieser direkt in Lexware gebucht werden
          fibu->(dbSetOrder( 1 ))
          IF fibu->(dbSeek( Str(ku->Nummer,6) ))
@@ -459,7 +496,7 @@ DO WHILE .T.
             Tr_MsgBox("Kein Fibukonto - bitte hinterlegen")
             RETURN
          ENDIF
-      ENDIF
+      ENDIF*/
    ELSE
       fibu->(dbSetOrder( 2 ))
       ku->(dbSetOrder( 8 ))
@@ -659,11 +696,14 @@ DO WHILE .T.
             IF ! Empty(cBelegKurz)
                reb->Beleg_Kurz := cBelegKurz
             ENDIF
+            reb->KS := cKostenstelle
             reb->Status := IF(lBooked,9,0)
             IF ! lBooked
-               IF Empty(cLiefma)
+               IF Empty(cLiefma)                  
                   IF nKonto $ hKontoGenehm
                      reb->Person := hKontoGenehm[nKonto]
+                  ELSEIF ! Empty(cKostenstelle) .AND. cKostenstelle $ hKSGenehm
+                     reb->Person := hKSGenehm[cKostenstelle]
                   ELSE
                      reb->Person := nPersGenehm
                   ENDIF
@@ -691,6 +731,7 @@ DO WHILE .T.
          ENDIF
          
          reb->Betrag := nBetrag
+         reb->KS := cKostenstelle
 
          //reb->(dbUnLock()) //this causes it to crash
 

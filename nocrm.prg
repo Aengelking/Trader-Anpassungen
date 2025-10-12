@@ -297,6 +297,7 @@ FUNCTION noCRM_Interface(lComment,cType)
       //getlist[3]:Display()
 
       READ
+
       IF LastKey() == 27
          IF ! Eval(bExit)
             LOOP
@@ -304,7 +305,8 @@ FUNCTION noCRM_Interface(lComment,cType)
          EXIT         
       ENDIF
 
-      IF nLeadId != -1 .AND. hLead["user_id"] == NIL //lead needs to be assigned
+      IF (nLeadId != -1 .AND. hLead["user_id"] == NIL) .OR. (ValType(hLead) == "H" .AND. HHasKey(hLead,"extended_info") .AND. HHasKey(hLead["extended_info"],"user") .AND. ValType(hLead["extended_info"]["user"]) == "H" .AND. HHasKey(hLead["extended_info"]["user"],"email") .AND.;
+         Trim(hLead["extended_info"]["user"]["email"]) != Trim(cUsrEmail)) //lead needs to be assigned
          oNoCRM:Execute("leads/"+Ltrim(Str(nLeadId))+"/assign","POST",{"user_id"=>cUsrEmail})         
       ENDIF
 
@@ -312,11 +314,12 @@ FUNCTION noCRM_Interface(lComment,cType)
       nStep := oNoCRM:GetStepId( GetValue("NOCRM_STEP","Angebot","Phase in der Pipeline") ,nPipeLine)
 
 
-      IF nLeadId == -1 .OR. hLead["remind_date"] == NIL .OR. dRemindDate != noCRM_DateConv(hLead["remind_date"]) .OR. hLead["status"] != "standby"
+      IF nLeadId == -1 .OR. hLead["remind_date"] == NIL .OR. dRemindDate != noCRM_DateConv(hLead["remind_date"]) .OR. hLead["status"] != "standby"         
          hLeadData["remind_date"] := noCRM_DateConv(dRemindDate)
          hLeadData["status"] := "standby"         
       ENDIF
-      IF nStep != 0  //if nStep is 0 we will leave it as it is, or on a new one not set it at all
+      
+      IF nStep != 0  .AND. (nLeadId == -1 .OR. Empty(hLead["step"]) ) //if nStep is 0 we will leave it as it is, or on a new one not set it at all
          hLeadData["step"] := nStep //this is the step in the defined pipeline
       ENDIF
 
@@ -354,7 +357,12 @@ FUNCTION noCRM_Interface(lComment,cType)
 
       //save any data which has been set to the lead
       IF Len(hLeadData) > 0                   
-         oNoCRM:Execute("leads/"+Ltrim(Str(oRec:Lead)),"PUT",hLeadData)
+         hResponse := oNoCRM:Execute("leads/"+Ltrim(Str(oRec:Lead)),"PUT",hLeadData)
+         IF hResponse == NIL
+            Tr_MsgBox("Fehler beim Speichern der Lead-Daten: "+oNoCRM:cErrorText)
+         ELSE
+            //Alert(ValToPrg(hResponse))
+         ENDIF
       ENDIF
 
       IF lComment

@@ -2,7 +2,7 @@ FUNCTION RUN_PRICES_RS(nArtnr,cArtlief,cMatch,lSub)
 
 LOCAL nX
 LOCAL lDbg := .F. //Tr_Getini(28) == 9 .AND. ! GetConfigValue("BATCHMODE")
-LOCAL lPriceDbg := .F.
+LOCAL lPriceDbg := .T.
 LOCAL cChr
 LOCAL hPrices,cUrl,nPe,aRegex
 LOCAL hData,hSubData
@@ -53,13 +53,36 @@ MEMVAR cPriceError
       RETURN NIL
    ELSEIF lDbg .AND. "Leider konnten wir die von Ihnen gesuchte Seite nicht finden" $ cData
       Alert("Part not found;"+cArtlief)
-   ELSEIF "Nicht mehr im Sortiment" $ cData
-      SendMessage("PRODUKTMANAGEMENT | Artikel nicht mehr verfgbar","Artikel bei RS nicht mehr erh„tlich "+Trim(art->Matchcode),cUrl)      
+   ELSEIF hb_strToUtf8("Nicht mehr im Sortiment") $ cData
+      //SendMessage("PRODUKTMANAGEMENT | Artikel nicht mehr verfgbar","Artikel bei RS nicht mehr erh„tlich "+Trim(art->Matchcode),"RS wurde als Lieferant bei diesem Artikel entfernt<br>"+cUrl)      
+      IF lDbg
+         Alert("Part not available;"+cArtlief)
+      ENDIF
+      IF Trim(ali->Artlief) == Trim(cArtlief) .AND. Trim(ali->Kunde) == "RS"  //we are on the correct article
+         ali->(Rec_Lock(0))
+         ali->Artlief := ""  //avoid further updates
+         ali->(dbUnlock())
+      ENDIF
       cPriceError := "Part not available"
       RETURN NIL
+   /*ELSEIF hb_strToUtf8("Derzeit nicht erh„ltlich") $ cData //text seems to be on every page
+      SendMessage("PRODUKTMANAGEMENT | Artikel nicht verfgbar","Artikel bei RS derzeit nicht verfgbar "+Trim(art->Matchcode),"RS wurde als Lieferant bei diesem Artikel entfernt<br>"+cUrl)      
+      IF lDbg
+         Alert("Part currently not available;"+cArtlief)
+      ENDIFn
+      IF Trim(ali->Artlief) == Trim(cArtlief) .AND. Trim(ali->Kunde) == "RS"  //we are on the correct article
+         //ali->(Rec_Lock(0))
+         //ali->(dbDelete())
+         //ali->(dbUnlock())
+      ELSE         
+         Alert("Part not available;"+cArtlief)
+         
+      ENDIF
+      cPriceError := "Part not available"
+      RETURN {=>}*/
    Endif
 
-   aRegex := HB_Regex("Preis pro.*?([0-9]*) StÃ¼ck([^\(][^0-9]*([0-9]+))?",cData) //
+   aRegex := HB_Regex("Preis pro[\s:]*?([0-9]*) StÃ¼ck([^\(][^0-9]*([0-9]+))?",cData) //
    nPe := 1
 
    oArtikel := Artikel():New(.F.)
@@ -67,10 +90,19 @@ MEMVAR cPriceError
 
    IF oArtikel:Me == "STCK" .AND. Len(aRegex) >= 2 .AND. ! Empty(aRegex[2])
       nPe := Max(Val(aRegex[2]),1)
-   ELSEIF oArtikel:Me == "PACK" .AND. Len(aRegex) >= 4
-      nPe := 1/Max(Val(aRegex[4]),1)
-      IF lDbg
-         Alert("Pack, Preiseinheit: "+LTrim(Str(nPE)))
+   ELSEIF oArtikel:Me == "PACK" 
+      IF Len(aRegex) >= 4
+         nPe := 1/Max(Val(aRegex[4]),1)
+         IF lDbg
+            Alert("Pack, Preiseinheit: "+LTrim(Str(nPE))+";Regex: "+ValToPrg(aRegex))
+         ENDIF
+      ELSE
+         oExtra := art->(ExtraData():New(art->Artikelnr))
+         IF oExtra:VpePack != 0
+            nPe := 1/oExtra:VpePack
+         ELSE
+            nPE := 1/10 //default to 10 if nothing else is known
+         ENDIF
       ENDIF
    ENDIF
 

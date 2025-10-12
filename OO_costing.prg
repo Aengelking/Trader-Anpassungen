@@ -202,5 +202,15 @@ FUNCTION RUN_GetCostFromOO(nArtnr,lUpdateCur)
    ENDDO
 RETURN aPrices
 
-#include 'X:\run\oo.prg'
+//#include 'x:\run\oo.prg'
+FUNCTION OOProperty( oServiceManager, cName, uValue )
+   LOCAL cStructure
+   LOCAL oProperty
+
+   cStructure := "com.sun.star.beans.PropertyValue"
+
+   oProperty := oServiceManager:bridge_GetStruct( cStructure )
+   oProperty:Name := cName
+   oProperty:Value := uValue
+   RETURN oProperty
 

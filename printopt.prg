@@ -2,9 +2,20 @@ PROCEDURE RUN_PRINTOPT
 //PRINT A LIST OF ALL AVAILBLE OPTIONS
 
 LOCAL cBase
+LOCAL oPdf
+LOCAL aSizes,aPageS,aOrient
+LOCAL nSize
+LOCAL nTab,nLastTab,nLength
+LOCAL nCol,nColWidth
+LOCAL nPage,nXMargin,nExLen
+LOCAL nTWidth,nLines
+LOCAL nNextPos,nPosX,nPos,nR,nC
+LOCAL cString
+LOCAL nPageCount
+LOCAL cExample
+LOCAL nRow
 
-p := 0
-nWidth := 165
+MEMVAR c_four,c_one
 
 NETUSE("engkund","ku",.F.,0)
 
@@ -34,6 +45,9 @@ Else
 		aPageS  := {"A4","A4","A3","A3","A2","A2"}
 		aOrient := {"P","L","P","L","P","L"}
 		nSize := AMenu(aSizes)
+      IF LastKey() == 27 .OR. nSize == 0
+         RETURN
+      ENDIF
 		SetColor(c_one)
 //		nCopies := GetBox(1,"Kopien")
 		BeginJob()
@@ -67,7 +81,7 @@ Else
 		nTab := 1
 		nCol := 1
 		nLength := Len(Trim(cBase))
-		nPage := 1
+		
 		nXMargin := oPdf:M2X(oPdf:PDFLEFT)
 		nExLen := oPdf:M2X(oPdf:Len(Trim(cExample)))+5
 
@@ -95,17 +109,14 @@ Else
 
 		while nTab <= 99 .AND. op->(dbSeek(cBase+Str(nTab,2)))
 
-			nNextPos := nXMargin+nColWidth*(nCol-1) //-((nPage-1)*(nWidth+oPDF:PDFLEFT))
-                        
+			nNextPos := nXMargin+nColWidth*(nCol-1)                     
 
-
-			If nNextPos+nColWidth > oPdf:PageX-nXMargin /*oPdf:ReportWidth-oPdf:PDFLEFT*2-5*/ .OR. oPdf:ReportPage != nPage   //this col does not fit onto the page or options have flown onto the next page, so we start on a fresh page
-				nPage++
+			If nNextPos+nColWidth > oPdf:PageX-nXMargin /*oPdf:ReportWidth-oPdf:PDFLEFT*2-5*/ .OR. oPdf:ReportPage != nPage   //this col does not fit onto the page or options have flown onto the next page, so we start on a fresh page				
 				nCol := 1
 				oPdf:NewPage()
 			Endif
-                        nPosX := nXMargin+nColWidth*(nCol-1)
-                        nPos := oPdf:X2C(nPosX)
+         nPosX := nXMargin+nColWidth*(nCol-1)
+         nPos := oPdf:X2C(nPosX)
 
 			//oPdf:Box(  100, nPosX,400,nPosX+nColWidth, 1, 0, "D", "000000" )
 
@@ -113,43 +124,39 @@ Else
 
 			oPdf:NewLine()
 
+         op->(dbSeek(cBase+Str(nTab,2)))
+         opt->(dbSeek(cBase+Str(nTab,2)))
+
 			cString := SubStr(cExample,0,nLength)
 			nC := nPosX
 			nR := oPdf:R2D(oPdf:ReportLine)
 			oPdf:AtSay(cString,nR,nPosX,'X')
 			oPdf:Bold()
 			nC += oPdf:M2X(oPdf:Len(cString))
-			cString := Pad(op->TabKey,op->length)
+			cString := Pad(op->TabKey,opt->length)
 			oPdf:AtSay(cString,nR,nC,'X')
 			oPdf:Normal()
-			nC += oPdf:M2X(oPdf:Len(cString))
-			oPdf:AtSay(SubStr(cExample,nLength+op->length+1),nR,nC,'X') //,,nPos+nLength+op->length+1)
+			nC += oPdf:M2X(oPdf:Len(cString))			
+         oPdf:AtSay(SubStr(cExample,nLength+opt->length+1),nR,nC,'X') //,,nPos+nLength+op->length+1)
 
 			//oPdf:NewLine()
-            op->(dbSeek(cBase+Str(nTab,2)))
-            opt->(dbSeek(cBase+Str(nTab,2)))
             
 			nTWidth := oPdf:X2M(nColWidth-oPdf:M2X(oPdf:Len(Replicate('X',opt->Length+2))))-5
 			If ! Empty(opt->Funktion)
-			nLines := oPdf:Text(Trim(HB_OemToAnsi(opt->Funktion)),oPDF:ReportLine-1,oPdf:X2M(nPosX)+.5,nTWidth,,1,'-')
+			   nLines := oPdf:Text(Trim(HB_OemToAnsi(opt->Funktion)),oPDF:ReportLine-1,oPdf:X2M(nPosX)+.5,nTWidth,,1,'-')
 			Endif
 
 			oPdf:NewLine(1) //nLines-If(nLines>1,1,0))
 
 			nPage := oPdf:ReportPage
 
-			nLength += op->length
+			nLength += opt->length
 			while op->Table == nTab .AND. op->Model == cBase
 				oPdf:NewLine()
 				oPdf:AtSay(Pad(op->TabKey,opt->Length)+": ",oPdf:R2D(oPdf:ReportLine+1),nPosX,'X')
-/*
-      nRow := ::R2D( nRow )
-      nCol := ::M2X( ::PDFLEFT ) + ;
-              nCol * 100.00 / ::REPORTWIDTH * ;
-              ( ::PAGEX - ::M2X( ::PDFLEFT ) * 2 - 9.0 ) / 100.00
-*/
-				If ! Empty(op->Descript)
-				nLines := oPdf:Text(Trim(HB_OemToAnsi(op->Descript)),oPDF:ReportLine-1,oPdf:X2M(nPosX)+.5+oPdf:Len(Replicate('X',opt->Length+2)),nTWidth,,1,'-')
+
+            If ! Empty(op->Descript)
+ 				   nLines := oPdf:Text(Trim(HB_OemToAnsi(op->Descript)),oPDF:ReportLine-1,oPdf:X2M(nPosX)+.5+oPdf:Len(Replicate('X',opt->Length+2)),nTWidth,,1,'-')
 				Endif
 				oPdf:NewLine(1) //nLines-If(nLines>1,1,0))
 

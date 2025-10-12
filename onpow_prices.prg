@@ -1,4 +1,4 @@
-PROC RUN_ONPOW_PRICES(lNewAli)
+FUNC ONPOWPRICES(xValue)
 //#define TEST
 //#define DEBUG
 LOCAL cMainPath := "Y:\Dokumente und Einstellungen\All Users\Dokumente\Lieferanten\Onpow\Preise\dbf\"
@@ -6,19 +6,33 @@ LOCAL cPath
 LOCAL aMatches
 LOCAL cSup := Pad("ONPOW",8)
 LOCAL aSeries := {},hSeries
-LOCAL nAddPrice,nPrice
+LOCAL nAddPrice,nPrice,nFinalPrice := 0
 LOCAL aDir,cFile
 LOCAL dStart := StoD(""),dDate
 LOCAL hRabatte := {1=>0,5000=>5}
 LOCAL cSearch,lSingle,lSingleDual
 LOCAL nX,aCompare,nLedPins
+LOCAL cArtlief,lArtLiefPassed := .F.,lNewAli := .F.
 
 MEMVAR cFilter
 PUBLIC cFilter
 
-Default(@lNewAli,.F.)
+IF ValType(xValue) == "L"
+   lNewAli := xValue
+ELSE
+   IF ValType(xValue) == "C" 
+      #ifdef DEBUG
+      Alert("Getting price for article: "+xValue)
+      #endif
+      cArtLief := Pad(xValue,35)
+      lNewAli := .T.
+      lArtLiefPassed := .T.
+   ENDIF
+ENDIF
 
-Head("ONPOW Preisliste einlesen")
+IF ! lNewAli
+   Head("ONPOW Preisliste einlesen")
+ENDIF
 
 //look for youngest directory
 aDir := Directory(cMainpath+"*.*","D")
@@ -79,7 +93,7 @@ Aadd(aSeries,{;
       RETURN Len(aCompare) >= 2 .AND. aMatch[2]+aMatch[3] == aCompare[2]
    },;
    "LED"=>5,;
-   "ADDCOSTLED"=>{41=>1.5,42=>1.5,31=>0.9,32=>0.9,2=>0.35},;
+   "ADDCOSTLED"=>{41=>1.28,42=>1.28,31=>0.77,32=>0.77,2=>0.3},;
    "VPE"=>40;
    };
 )
@@ -295,7 +309,7 @@ FOR EACH hSeries IN aSeries
       Net_Use(cFile,"oppl",.F.,0,"DBFNTX")
       oppl->(dbGoTop())
 
-      DO WHILE ! oppl->(EOF())
+      DO WHILE (! lNewAli .OR. nFinalPrice == 0) .AND. ! oppl->(EOF())
          IF oppl->(FieldPos("NOLED")) != 0 .AND. ! Empty(oppl->NoLed)
             IF HHasKey(hSeries,"REGEXNOLED")
                aCompare := HB_Regex("([^\/]*(?:\/[JL])?)(\/[ANS])(\/FP)?",oppl->Part)
@@ -303,30 +317,35 @@ FOR EACH hSeries IN aSeries
                   aCompare := {oppl->Part}
                ENDIF
 
-               #ifdef DEBUG
-               
-               ? oppl->Part,"NO LED"
-               
+               #ifdef DEBUG               
+               ? oppl->Part,"NO LED"               
                #endif               
-               IF ! lNewAli .AND. ! ali->(dbSeek( cSup+hSeries:Search, .T. ))
-                  #ifdef DEBUG
-                  ?? " Not found"
-                  #endif
+               IF ! lNewAli 
+                  IF ! ali->(dbSeek( cSup+hSeries:Search, .T. ))
+                     #ifdef DEBUG
+                     ?? " Not found"
+                     #endif
+                     LOOP
+                  ELSE
+                     cArtLief := ali->Artlief
+                  ENDIF
                ENDIF
                #ifdef DEBUG
-               IF At(hSeries:Search,ali->Artlief) != 1
+               IF At(hSeries:Search,cArtLief) != 1
                   ?? " no match"
                ENDIF
                #endif
-               DO WHILE ali->Kunde == cSup .AND. At(hSeries:Search,ali->Artlief) == 1
-                  art->(dbSeek( Str(ali->Artikelnr,6) ))  //need to use artikel DB as some ali->Matchcode's have not been updated on a change!
+               DO WHILE (lArtLiefPassed .OR. ali->Kunde == cSup) .AND. At(hSeries:Search,cArtLief) == 1
+                  IF ! lArtLiefPassed
+                     art->(dbSeek( Str(ali->Artikelnr,6) ))  //need to use artikel DB as some ali->Matchcode's have not been updated on a change!
 
-                  IF Left(art->Matchcode,2) $ "CS KS"
-                     IF ! lNewAli
-                        ali->(dbSkip())
-                        LOOP
-                     ELSE
-                        RETURN
+                     IF Left(art->Matchcode,2) $ "CS KS"
+                        IF ! lNewAli
+                           ali->(dbSkip())
+                           LOOP
+                        ELSE
+                           RETURN
+                        ENDIF
                      ENDIF
                   ENDIF
                   IF Upper(Chr(Inkey())) == "S"
@@ -335,13 +354,13 @@ FOR EACH hSeries IN aSeries
                      ENDIF
                   ENDIF
 
-                  aMatches := HB_Regex(hSeries:RegexNoLed,ali->Artlief)
+                  aMatches := HB_Regex(hSeries:RegexNoLed,cArtLief)
 
                   IF aMatches != NIL .AND. Len(aMatches) > 0 .AND. Eval(hSeries:MatchNoLed,aMatches,aCompare)
                      #ifdef DEBUG
-                     ? " ",ali->Artlief
+                     ? " ",cArtLief
                      #else
-                     @ 02,37 SAY ali->Artlief
+                     @ 02,37 SAY cArtLief
                      #endif
                      nAddPrice := 0
                      IF HHasKey(hSeries,"IPNOLED")
@@ -356,7 +375,14 @@ FOR EACH hSeries IN aSeries
                            nAddPrice += hSeries:MaterialAddCost[aMatches[hSeries["MATERIALNOLED"]]]
                         ENDIF
                      ENDIF
-                     AddPrices(oppl->NoLed+nAddPrice,hRabatte,cPath,cSup,dStart)
+                     nFinalPrice := oppl->NoLed+nAddPrice
+                     IF ! lArtLiefPassed
+                        AddPrices(nFinalPrice,hRabatte,cPath,cSup,dStart)
+                     ENDIF
+                     #ifdef DEBUG
+                     ? " price found",nFinalPrice
+                     Sinkey(0)
+                     #endif
                   ELSE
                      #ifdef DEBUG
                         ?? " no price found"
@@ -364,6 +390,7 @@ FOR EACH hSeries IN aSeries
                   ENDIF
                   IF ! lNewAli
                      ali->(dbSkip())
+                     cArtLief := ali->Artlief
                   ELSE
                      EXIT
                   ENDIF
@@ -372,11 +399,18 @@ FOR EACH hSeries IN aSeries
                #ifdef DEBUG
                ? oppl->Part," NO LED direct"
                #endif
-               IF ali->(dbSeek( cSup+Pad(oppl->Part,35) )) //IF no regex and there is a match between DB an the part on the list
+               IF lArtLiefPassed .OR. ali->(dbSeek( cSup+Pad(oppl->Part,35) )) //IF no regex and there is a match between DB an the part on the list
+                  nFinalPrice := oppl->NoLed
+                  IF ! lArtLiefPassed
+                     #ifdef DEBUG                  
+                     ? " ",ali->Artikelnr
+                     #endif
+                     AddPrices(nFinalPrice,hRabatte,cPath,cSup,dStart)
+                  ENDIF
                   #ifdef DEBUG
-                  ? " ",ali->Artikelnr
+                  ? " price found",nFinalPrice
+                  Sinkey(0)
                   #endif
-                  AddPrices(oppl->NoLed,hRabatte,cPath,cSup,dStart)
                ELSE
                   #ifdef DEBUG
                   ? " not found"
@@ -396,29 +430,32 @@ FOR EACH hSeries IN aSeries
                #endif
             ENDIF
             #ifdef DEBUG
-            IF At(hSeries:Search,ali->Artlief) != 1
+            IF At(hSeries:Search,cArtLief) != 1
                ?? " no match"
             ENDIF
             #endif
 
-            DO WHILE ali->Kunde == cSup .AND. At(hSeries:Search,ali->Artlief) == 1
-               art->(dbSeek( Str(ali->Artikelnr,6) ))  //need to use artikel DB as some ali->Matchcode's have not been updated on a change!
+            DO WHILE (lArtLiefPassed .OR. ali->Kunde == cSup) .AND. At(hSeries:Search,cArtLief) == 1
+               IF ! lArtLiefPassed
+                  cArtLief := ali->Artlief
+                  art->(dbSeek( Str(ali->Artikelnr,6) ))  //need to use artikel DB as some ali->Matchcode's have not been updated on a change!
 
-               IF Left(art->Matchcode,2) $ "CS KS"
-                  IF ! lNewAli
-                     ali->(dbSkip())
-                     LOOP
-                  ELSE
-                     RETURN
+                  IF Left(art->Matchcode,2) $ "CS KS"
+                     IF ! lNewAli
+                        ali->(dbSkip())
+                        LOOP
+                     ELSE
+                        RETURN 0
+                     ENDIF
                   ENDIF
                ENDIF
                IF Upper(Chr(Inkey())) == "S"
                   IF Upper(Chr(Sinkey(0))) == "C"
-                     RETURN
+                     RETURN 0
                   ENDIF
                ENDIF
 
-               aMatches := HB_Regex(hSeries:Regex,ali->Artlief)
+               aMatches := HB_Regex(hSeries:Regex,cArtLief)
 
                nAddPrice := 0
                aCompare := HB_Regex("(.*)(\/[S,N,A,P])(\/FP)?",oppl->Part)
@@ -474,12 +511,15 @@ FOR EACH hSeries IN aSeries
 
                   IF ValType(nPrice) != "N"
                      Alert("Make sure all price fields are numeric. Add zeros to the first line.;"+cFile)
-                     RETURN
+                     RETURN 0
                   ENDIF
 
                   IF nPrice == 0
-                     ? ali->Artlief,"no price"
+                     #ifdef DEBUG
+                     ? cArtLief,"no price"
+                     #endif
                      ali->(dbSkip())
+
                      LOOP
                   ENDIF
 
@@ -509,23 +549,34 @@ FOR EACH hSeries IN aSeries
                   ENDIF
 
                   #ifdef DEBUG
-                  ? " ",ali->Artlief,Str(nPrice,5,2),"+",Str(nAddPrice,5,2)
+                  ? " ",cArtLief,Str(nPrice,5,2),"+",Str(nAddPrice,5,2)
                   #else
-                  @ 02,37 SAY ali->Artlief
-                  #endif
-
-                  #ifndef TEST
-                  IF HHasKey(hSeries,"VPE") 
-                     art->(Rec_Lock(0))
-                     art->VPE := hSeries:VPE
-                     art->(dbUnLock())
+                  IF ! lArtLiefPassed
+                     @ 02,37 SAY cArtLief
                   ENDIF
                   #endif
+                  
+                  nFinalPrice := nPrice+nAddPrice                     
+                  IF ! lArtLiefPassed 
+                     #ifndef TEST                  
+                     IF HHasKey(hSeries,"VPE") 
+                        art->(Rec_Lock(0))
+                        art->VPE := hSeries:VPE
+                        art->(dbUnLock())
+                     ENDIF
+                     #endif
 
-                  AddPrices(nPrice+nAddPrice,hRabatte,cPath,cSup,dStart)
+                     AddPrices(nFinalPrice,hRabatte,cPath,cSup,dStart)
+                  ENDIF
+                  #ifdef DEBUG
+                  ? " price found",nFinalPrice
+                  Sinkey(0)
+                  #endif
+                     
+                  
                ELSE
                   #ifdef DEBUG
-                     ?? " no price found","Matches:",ValToPrg(aMatches),"Compare:",ValToPrg(aCompare)
+                     ?? " no price found" //,"Matches:",ValToPrg(aMatches),"Compare:",ValToPrg(aCompare)
                   #endif
                ENDIF
                IF ! lNewAli
@@ -545,6 +596,8 @@ IF ! lNewAli
    @ MaxRow(),00 SAY "Abgeschlossen. Weiter mit beliebiger Taste..."
    SInkey(0)
 ENDIF
+
+RETURN nFinalPrice
 
 STATIC FUNCTION AddPrices(nPrice,hRabatte,cPath,cSup,dStart)
    LOCAL nRab,nQty

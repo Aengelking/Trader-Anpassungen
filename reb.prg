@@ -34,6 +34,16 @@ LOCAL nWebView
 
 MEMVAR c_five,c_one
 
+LOCAL hKS         := {"000"=>"Verwaltung (000)",;
+                     "100"=>"Marketing (100)",;
+                     "200"=>"Vertrieb (200)",;
+                     "300"=>"Fertigung (300)",;
+                     "400"=>"Beschaffung (400)",;
+                     "500"=>"Produktmanagement (500)",;
+                     "600"=>"Entwicklung (600)",;
+                     "700"=>"Qualit„t (700)",;
+                     "800"=>"Lager (800)"}
+
 /*** SETTINGS ***/
 LOCAL lCanApprove := Tr_Getini(28) $ GetValue("REB_APPROVER",{9,57},"Genehmiger (Benutzernummer)")
 LOCAL lPreApprove := Tr_Getini(28) $ GetValue("REB_PREAPPROVER",{64},"Vorprfer (Benutzernummer)")
@@ -46,6 +56,7 @@ LOCAL nTolPaydate := GetValue("REB_TOLDATE",2,"Toleranz fr Zahldatum") //deduct
 LOCAL lIsAdmin    := AScan(aAdmin,Tr_Getini(28)) != 0
 LOCAL hUsers
 LOCAL hPeople := {=>}
+LOCAL cKostenstelle
 
 LOCAL nStyle, hWnd
 
@@ -206,7 +217,7 @@ oBrowse:OneColumn := .T.
    oBrowse:ColorSpec := GetClrPair(c_one,1)+","+GetClrPair(c_one,5)+",R+/W*,GR+/BG,"+GetClrPair(c_one,2)
 //ENDIF
 oBrowse:lBox := .F.
-oBrowse:NoRefreshBug := .T.
+//oBrowse:NoRefreshBug := .T.
 oBrowse:NewColumn("G",{|| IF(reb->Status < 8,IF(reb->Liefnr == 0,"!","-")," ") },{|| 
    //HB_SymbolUnused(oBrowse)
    IF ! oBooked:Buffer .AND. Eval(bTermin) <= Date()
@@ -258,6 +269,15 @@ oBrowse:NewColumn("Kontonr.",{||
 oBrowse:NewColumn("Betrag",{||
    RETURN Transform(reb->Betrag,"@E 9,999,999.99")   
 })
+
+oBrowse:NewColumn("KS",{||
+   LOCAL cKS := IF(Empty(reb->KS),"",reb->KS)
+   LOCAL cDesc := ""
+   IF ! Empty(cKS) .AND. HHasKey(hKS,cKS)
+      cDesc := " "+Left(hKS[cKS],10)
+   ENDIF
+   RETURN cKS+cDesc
+},,15,"@!",Space(20),{|x| Upper(Trim(x)) })
 
 
 oBrowse:bAnyFun := {||
@@ -420,6 +440,7 @@ bEditNotes := {||
       rebn->Notes := cText
       rebn->(dbUnLock())
    ENDIF
+   Eval(oBrowse:bAnyFun)
    RETURN NIL
 }
 
@@ -478,6 +499,7 @@ oBrowse:AddKey(K_DEL,{||
       RECOVER
          LETO_ROLLBACK()
       END
+      oBrowse:RefreshAll()
    ENDIF
    RETURN NIL
 })
@@ -524,7 +546,7 @@ oBrowse:AddKey(K_ENTER,{||
 	         IF reb->Status == 9 .AND. ! oBooked:Buffer
 	           Eval(bSkip)
 	         ENDIF
-         ELSEIF nChoice == 3
+         //ELSEIF nChoice == 3
             //Eval(bOpen,ATail(aFiles)[6])
          ELSEIF nChoice == 3
             lChangePers := .T.
@@ -580,54 +602,57 @@ oBrowse:AddKey(K_ENTER,{||
 
             nChoice := Tr_MsgBox("Freigeben?",,aChoices)
          ENDIF
-         IF nChoice != 0 .AND. aChoices[nChoice] == "mit Intervall"
-            cScreen := SaveScreen(10,10,12,41)
-            SetColor(c_five)
-            @ 10,10 CLEAR TO 12,41
-            @ 10,10 TO 12,41
-            cInter := "M"
-            @ 11,11 SAY "Intervall"
-            @ 11,21,16,40  GET cInter LISTBOX {"M"=>"monatlich","H"=>"halbj„hrlich","J"=>"j„hrlich"} ASSOCIATIVE
-            READ
-            RestScreen(10,10,12,41,cScreen)
-            IF LastKey() != 27               
-               rerep->(Add_Rec(0))
-               rerep->Konto := reb->Konto
-               rerep->Betrag := reb->Betrag
-               rerep->Intervall := cInter
-               rerep->Last := Date()
-               rerep->(dbUnLock())
-               nChoice := 2
-            ENDIF
-         ELSEIF aChoices[nChoice] == "Projekt zuweisen"
-            //--- PROJECT ASSIGNMENT AND APPROVAL FOR LEXWARE INVOICES ---*      
-            NetUse("projekte","pj")                  
-            SetColor(c_five)
-            cScreen := SaveScreen()
-            nProject := 0
-            @ 10,10 CLEAR TO 12,41
-            @ 10,10 TO 12,41
-            @ 11,11 SAY "Projekt " GET nProject PICTURE "999999" VALID {|| 
-               IF ! pj->(dbSeek(Str(nProject,6))) 
-                  @ 12,11 SAY "Nicht gefunden" 
-                  RETURN .F. 
-               ENDIF 
-               RETURN .T. 
-            }
-            READ
-            RestScreen(,,,,cScreen)
-            SetColor(c_one)
-            IF LastKey() != 27 .AND. nProject != 0 .AND. Tr_MsgBox("Projekt "+LTrim(Str(nProject,6))+" "+Trim(pj->Beschreibu)+" zuweisen und freigeben?",,{"Nein","Ja"}) == 2
-               NetUse("projcost","pjcst")
-               pjcst->(Add_Rec())
-               pjcst->Projekt := nProject
-               pjcst->Typ := "ER"
-               pjcst->Rebid := reb->ID
-               pjcst->Datum := Date()
-               pjcst->Summe := reb->Betrag
-               pjcst->(dbUnLock())
-               
-               nChoice := 2 //the will approve the invoice               
+
+         IF ValType(aChoices) == "A" 
+            IF nChoice != 0 .AND. aChoices[nChoice] == "mit Intervall"
+               cScreen := SaveScreen(10,10,12,41)
+               SetColor(c_five)
+               @ 10,10 CLEAR TO 12,41
+               @ 10,10 TO 12,41
+               cInter := "M"
+               @ 11,11 SAY "Intervall"
+               @ 11,21,16,40  GET cInter LISTBOX {"M"=>"monatlich","H"=>"halbj„hrlich","J"=>"j„hrlich"} ASSOCIATIVE
+               READ
+               RestScreen(10,10,12,41,cScreen)
+               IF LastKey() != 27               
+                  rerep->(Add_Rec(0))
+                  rerep->Konto := reb->Konto
+                  rerep->Betrag := reb->Betrag
+                  rerep->Intervall := cInter
+                  rerep->Last := Date()
+                  rerep->(dbUnLock())
+                  nChoice := 2
+               ENDIF
+            ELSEIF nChoice != 0 .AND. aChoices[nChoice] == "Projekt zuweisen"
+               //--- PROJECT ASSIGNMENT AND APPROVAL FOR LEXWARE INVOICES ---*      
+               NetUse("projekte","pj")                  
+               SetColor(c_five)
+               cScreen := SaveScreen()
+               nProject := 0
+               @ 10,10 CLEAR TO 12,41
+               @ 10,10 TO 12,41
+               @ 11,11 SAY "Projekt " GET nProject PICTURE "999999" VALID {|| 
+                  IF ! pj->(dbSeek(Str(nProject,6))) 
+                     @ 12,11 SAY "Nicht gefunden" 
+                     RETURN .F. 
+                  ENDIF 
+                  RETURN .T. 
+               }
+               READ
+               RestScreen(,,,,cScreen)
+               SetColor(c_one)
+               IF LastKey() != 27 .AND. nProject != 0 .AND. Tr_MsgBox("Projekt "+LTrim(Str(nProject,6))+" "+Trim(pj->Beschreibu)+" zuweisen und freigeben?",,{"Nein","Ja"}) == 2
+                  NetUse("projcost","pjcst")
+                  pjcst->(Add_Rec())
+                  pjcst->Projekt := nProject
+                  pjcst->Typ := "ER"
+                  pjcst->Rebid := reb->ID
+                  pjcst->Datum := Date()
+                  pjcst->Summe := reb->Betrag
+                  pjcst->(dbUnLock())
+                  
+                  nChoice := 2 //the will approve the invoice               
+               ENDIF
             ENDIF
          ENDIF
          IF nChoice == 2            
@@ -658,6 +683,7 @@ oBrowse:AddKey(K_ENTER,{||
             lChangePers := .T.
          ELSEIF nChoice == 4
             lChangeFirm := .T.
+
          //ELSEIF aChoices[nChoice] == "anzeigen"
             //Eval(bOpen,ATail(aFiles)[6])
          ENDIF
@@ -692,8 +718,8 @@ oBrowse:AddKey(K_ENTER,{||
          ENDIF
          RestScreen(,,,,cScreen)
          SetColor(c_one)         
-      ENDIF
-      oBrowse:RefreshAll()
+         oBrowse:RefreshAll()
+      ENDIF      
    ELSE
       nChoice := 1
       IF reb->Liefnr != 0          
@@ -715,10 +741,12 @@ oBrowse:AddKey(K_ENTER,{||
          ku->(dbSetORder( 8 ))
          ku->(dbSeek( Str(reb->Liefnr,6) ))            
          engre(ku->Kunde,Pad(IF(Empty(reb->Beleg_Kurz),reb->Beleg,reb->Beleg_Kurz),14))
+         oBrowse:RefreshAll()
       ELSEIF nChoice == 3
          lChangeFirm := .T.
       ENDIF     
    ENDIF   
+
    IF lChangeFirm
       cKonto := Space(100)
       nLiefnr := 0
@@ -825,6 +853,40 @@ IF lIsAdmin
       reb->Beleg_Kurz := cBelegKurz
       reb->(dbUnLock())
       RETURN .T.      
+   })
+
+   oBrowse:AddKey(K_ALT_K,{||      
+      LOCAL oGet,getlist := {}
+      LOCAL cScreen := SaveScreen()
+      LOCAL nTop := (MaxRow()-5)/2
+
+      IF reb->Liefnr != 0
+         Tr_MsgBox("Rechnung fr Warenlieferung eines Lieferanten. Kostenstelle nur bei Kontorechnung „ndern.")
+         RETURN .T.
+      ENDIF
+
+      cKostenstelle := IF(Empty(reb->KS),"KS000",reb->KS)
+      
+      SetColor(c_five)
+      @ nTop,30 CLEAR TO nTop+4,65
+      Tr_Box(nTop,30,nTop+4,65,.T.)
+      @ nTop+1,32 SAY "Kostenstelle „ndern"
+      @ nTop+2,30 SAY Chr(199)+Replicate(Chr(196),34)+Chr(182)
+      
+      @ nTop+3,32 SAY "KS:" GET cKostenstelleKS PICTURE "@!"
+      
+      READ
+      
+      IF LastKey() != 27
+         reb->(Rec_Lock())
+         reb->KS := cKostenstelle
+         reb->(dbUnLock())
+         oBrowse:RefreshAll()
+      ENDIF
+      
+      RestScreen(,,,,cScreen)
+      SetColor(c_one)
+      RETURN .T.
    })
 ENDIF
 

@@ -11,6 +11,7 @@ ENDCLASS
 METHOD New 
    ::cBaseUrl := "https://dliworuqojsjkkxroeqz.supabase.co/"
    ::cKeyName := "LOV-INTERN"
+   ::cApiKeyName  := "LOV-INTAPI"
 RETURN ::Super():New()
 
 METHOD Login
@@ -33,7 +34,8 @@ METHOD Execute(cUrl,cMethod,hData,aMoreHeader)
       aHeader := {}
    ENDIF
 
-   Aadd(aHeader,"apikey: "+"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsaXdvcnVxb2pzamtreHJvZXF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDAxNjkzMjMsImV4cCI6MjA1NTc0NTMyM30.RfTWO9-R7N840CFhLvSPM0ANMeZTyrn_v9jCcjrG9Hk")
+   //Aadd(aHeader,"apikey: "+"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsaXdvcnVxb2pzamtreHJvZXF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDAxNjkzMjMsImV4cCI6MjA1NTc0NTMyM30.RfTWO9-R7N840CFhLvSPM0ANMeZTyrn_v9jCcjrG9Hk")
+   Aadd(aHeader,"apikey: $APIKEY$")
    IF ! Empty(::cToken)
       Aadd(aHeader,"Authorization: Bearer "+::cToken)
    ENDIF

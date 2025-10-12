@@ -3,7 +3,8 @@
 PROC RUN_REPORTS_FIND_PERSON
 LOCAL getlist := {}
 LOCAL cName := Space(50)
-LOCAL oBrowse,bFilter,cGroups
+LOCAL cEmail := Space(255)
+LOCAL oBrowse,bFilter,bWhile,cGroups
 
 IF ! SystemUser():CheckPermission("R","ADR")
    RETURN
@@ -31,30 +32,56 @@ DO WHILE .T.
       RETURN
    ENDIF
 
-   @ 01,00 SAY "Name enth„lt" GET cName
+   @ 01,00 SAY "Name enth„lt" GET cName WHEN Empty(cEmail) 
+   @ 02,00 SAY "Email       " GET cEmail WHEN Empty(cName)
    READ
 
+   IF Empty(cName) .AND. Empty(cEmail)
+      Tr_MsgBox("Bitte Name oder Email angeben")
+      LOOP
+   ENDIF
    If LastKey() == 27 
       Return
    Endif
 
   
-   bFilter := {|| ku->(dbSeek(Str(conts->Address,6))), ku->group $ cGroups .AND. At(Trim(Upper(cName)),Upper(conts->Name)) != 0 .AND. conts->Active}
+   bFilter := {|| 
+      ku->(dbSeek(Str(conts->Address,6)))
+      IF ! ku->group $ cGroups
+         RETURN .F.
+      ENDIF
+      IF ! Empty(cName) .AND. At(Trim(Upper(cName)),Upper(conts->Name)) == 0
+         RETURN .F. 
+      ENDIF
+      RETURN conts->Active
+   }
 
    ku->(dbSetOrder( 8 ))
 
    conts->(dbSetOrder( 3 ))  //lower(email)
-   conts->(dbGoTop())
-   ku->(dbSetORder(8))
-   conts->(__dbLocate(bFilter)) //At(cName,Upper(conts->Name)) != 0
+   IF ! Empty(cEmail)
+      bWhile := {||  Lower(Trim(cEmail)) == Trim(Lower(conts->Email)) }
+      IF ! conts->(dbSeek( Lower(cEmail) ))
+      //IF conts->(EOF()) .OR. Lower(Trim(conts->Email)) != Trim(Lower(cEmail))
+         Tr_MsgBox("Keine Person mit dieser Email gefunden")
+         LOOP
+      ENDIF
+      ku->(dbSeek(Str(conts->Address,6)))
+   ELSE
+      bWhile := {|| .T. }
+      conts->(dbGoTop())
+   ENDIF
    
+   ku->(dbSetORder(8))
+   TxtBox("Suche...")
+   conts->(__dbLocate(bFilter,bWhile)) //At(cName,Upper(conts->Name)) != 0
+   TxtClear()
    IF conts->(EOF())
       Tr_MsgBox("Keine Person gefunden")
       LOOP
    ENDIF
-   
-  
-   oBrowse := TBrowseTr():New(02,00,10,MaxCol())
+
+   oBrowse := conts->(TBrowseTr():New(02,00,10,MaxCol()))
    oBrowse:OneColumn := .T.
    oBrowse:NewColumn("Adresse",{|| Str(conts->Address,6) })
    oBrowse:NewColumn("Matchcode",{|| ku->(dbSeek(Str(conts->Address,6))), ku->Kunde })
@@ -64,6 +91,9 @@ DO WHILE .T.
    oBrowse:NewColumn("Email",{|| conts->Email })
    //oBrowse:cFor := cFilter
    oBrowse:forBlock := bFilter
+   
+   oBrowse:WhileBlock := bWhile
+   
    oBrowse:AddKey(K_ESC,{|| .F. })
    oBrowse:AddKey(K_F9,{|| 
       LOCAL aEnv := SaveEnv()

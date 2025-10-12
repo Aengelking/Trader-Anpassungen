@@ -500,10 +500,10 @@ FUNCTION RUN_FREPPLE_EXPORT()
          IF lIntern    
             IF bom->(dbSeek( Str(aRoutingItems[nI],6) )) .AND. bom->Lot != 0
                nVPE := bom->Lot
-            ELSEIF art->VPE == 0
+            ELSE //IF art->VPE == 0  //Artikel VPE steuert Auftrag -> Auftragsmenge steuert Frepple Losgr”áe
                nVPE := 1
-            ELSE
-               nVPE := art->VPE
+            /*ELSE
+               nVPE := art->VPE*/
             ENDIF
 
             nVPE := CeilingMe(nVPE/(1-_GetScrapRate(aRoutingItems[nI])),Me(art->Me)) //we need to add the scrap to the min/mult to get the quantity without the scrap
@@ -982,7 +982,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
 
             IF lCurrentParts .OR. wer->status >= 1 //either the part list ties up or goods have been supplied (then we do not need a part list in frepple)                           
                cStatus := "" //Trim(oWerExtra:FreppleSta)
-               IF /*wer->status>=1 .OR.*/ (!Empty(wer->Liefma).AND.bes->Confirmed=="Y")  //20.03. removed confirmed for internal routing MO, only Job-MO will be exported as confirmed
+               IF /*wer->status>=1 .OR.*/ (!Empty(wer->Liefma).AND.bes->Confirmed=="Y")  //20.03.25 removed confirmed for internal routing MO, only Job-MO will be exported as confirmed
                   cStatus := "confirmed"
                ELSEIF /*Empty(cStatus) .AND.*/ (!Empty(wer->Liefma).AND. ! bes->Printed )
                   cStatus := "proposed"

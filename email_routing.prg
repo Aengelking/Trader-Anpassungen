@@ -194,7 +194,7 @@ PROCEDURE RUN_EMAIL_ROUTING
                      hDomains[cDomain] := {"KUNDE"=>ku->Kunde,"TEAM"=>ku->Team}
                   ENDIF
                ELSEIF cDomain $ hDomains .AND. hDomains[cDomain]:Team != ku->Team
-                  cError += "NOT UNIQUE Domain: "+cDomain+" "+ku->Kunde+" und "+hDomains[cDomain]:Kunde+CRLF
+                  cError += "NOT UNIQUE Domain: "+cDomain+" "+ku->Kunde+" (Team: "+LTrim(Str(ku->Team))+") und "+hDomains[cDomain]:Kunde+"(Team: "+LTrim(Str(hDomains[cDomain]:Team))+")"+CRLF
                ENDIF
             ENDIF
             conts->(dbSkip())
@@ -213,6 +213,6 @@ PROCEDURE RUN_EMAIL_ROUTING
    ENDIF
 
    ? "Abgeschlossen"
-   Sinkey(0)
+   //Sinkey(0)
 
 RETURN

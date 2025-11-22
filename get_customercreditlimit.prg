@@ -85,6 +85,7 @@ ENDIF
     hDisputedInvoices[69963] := {"UNTIL"=>StoD("20241205")}
     hDisputedInvoices[69725] := {"UNTIL"=>StoD("20250115")} //not really disputed but there is some problem with the invoice
     hDisputedInvoices[71067] := {"UNTIL"=>StoD("20250607")} //addresses where not correct and the due has been reset to 
+    hDisputedInvoices[72029] := {"UNTIL"=>StoD("20250908")} //Preisdifferenz wurde mit Gutschrift 72366/72367 korrigiert
 
    IF lAuftrag      
       hSpecial["EXIDE"] := {"DATE"=>SToD("20211231"),"LIMIT"=>110000} //28.08.2020 bekommen nur 40.000 von der Versicherung, da die Ware aber beim Lieferant bestellt ist will ich auch die Auftr„ge eintragen
@@ -188,7 +189,7 @@ ENDIF
    //hSpecial["SEDLMEIE"]   := {"DATE"=>StoD("20220228"), "LIMIT"=>815} //10.02.22 Erh”hung von 750?, Rating 3.0
    //hSpecial["HEINMESS"]   := {"DATE"=>StoD("20220422"), "LIMIT"=>662} //07.04.22 Wg. Urlaub verl„ngert //08.03.22 Rating liegt bei 3,8 (verbessert von 4,2) - bisher auf Rechnung und pktl. bezahlt
    //hSpecial["SMARTCIT"]   := {"DATE"=>StoD("20220530"), "LIMIT"=>1500} //09.03.22 Keine Bewertung bei CS, zahlt mit Skonto
-   hSpecial["LORENTZ"] := {"DATE"=>StoD("20251031"), "LIMIT"=>3500} //18.09.25 erneuert //14.03.22 Keine Bewertung durch CS, Umsatz in letzten 12 Monaten < 2000?, bisher aber mit Skonto bezahlt      
+   //hSpecial["LORENTZ"] := {"DATE"=>StoD("20251031"), "LIMIT"=>3500} //18.09.25 erneuert //14.03.22 Keine Bewertung durch CS, Umsatz in letzten 12 Monaten < 2000?, bisher aber mit Skonto bezahlt      
    //hSpecial["JETWORX"] := {"DATE"=>StoD("20220422"), "LIMIT"=>1290} //07.04.22 Wg. Urlaub verl„ngert //23.03.22 Startup mit Rating von 3.6
    //hSpecial["EMIKA"] := {"DATE"=>StoD("20220422"), "LIMIT"=>565} //07.04.22 Zahlt schleppend, dieses Limit liegt unter dem akutell offen Betrag. Neue Auftr„ge auf Rechnung werden erst akzeptiert wenn die Rechnung bezahlt ist
    //hSpecial["MCSMEDIC"] := {"DATE"=>StoD("20220503"), "LIMIT"=>1330} //02.05.22 Hat schlechtes Rating (3,9) - bestehender Kunde, hatte frher mit Skonto bezahlt. Steht auf Automahnung

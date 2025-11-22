@@ -56,7 +56,7 @@ PROCEDURE Hook_on_assign_todo(oTodo,lTrigger)
       cText += CRLF+"Beschreibung: "+qs->Beschreibu
    ENDIF
 
-   cText += CRLF+CRLF+"Aufgabe: "+'<a href="trader: -F TodoList('+"'"+Trim(oTodo:UUID)+"'"+')">'+Trim(oTodo:Task)+"</a>"
+   cText += CRLF+CRLF+"Aufgabe: "+'<a href="trader: -F TodoList('+"'"+Trim(oTodo:UUID)+"'"+')" -C 2>'+Trim(oTodo:Task)+"</a>"
    cText += CRLF+"Notizen: "+oTodo:Notes 
    cText += CRLF+"F„llig:  "+DToC(oTodo:Due)
 

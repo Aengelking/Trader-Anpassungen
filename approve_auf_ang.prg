@@ -380,10 +380,11 @@ FOR EACH hProd IN aProducts
          //DbgPrn("EK: "+Str(hProd:nEk)+IF(hProd:Artikel:Bezug >= 5,"manufactured","-"))
          IF hProd:nEk == 0 .AND. hProd:Artikel:Lagerart .AND. hProd:Artikel:Bezug >= 5  //Artikel die eine StÅli haben sollten aber kein EK errechnet werden konnte, da versuchen wir eine Calc-StÅli zu finden
             
-            aCalcCost := RUN_GetCostFromOO(hProd:Artikel:Artikelnr)    
+            cFile := ""
+            aCalcCost := RUN_GetCostFromOO(hProd:Artikel:Artikelnr,,@cFile)    
                 
             IF aCalcCost["ERROR"] == 0
-               nLastQty := 0
+               nLastQty := 0               
                DbgPrn("Calc-Cost: "+ValToPrg(aCalcCost["DATA"]))
                FOR nX := 1 TO Len(aCalcCost["DATA"])
                   IF aCalcCost["DATA",nX,"QTY"] <= hProd:Qty .AND. aCalcCost["DATA",nX,"QTY"] >= nLastQty

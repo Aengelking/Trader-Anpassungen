@@ -4,13 +4,15 @@ LOCAL nRate,nMulti, nX, nManu, lSubDistiGBP := .F., lPackOnly, nVPE, oArt, nWeig
 LOCAL hPrice, nSecs := Seconds(), nTabSecs, nY, hCostOO, nQ, nC, nP
 LOCAL nSubAufschlag := 0.3, nSubSpecial := 0.2, aSubSpecial := {"MONACOR"}
 LOCAL oExtra, cMatch, nEx, nFixRate, aSkonto, nTable, aAddPriceTab, aPartPriceTabs, nAddPrice, cLiefma
+LOCAL oArtExtra,nVPEPack
 LOCAL nVK,nQty
 
 NetUse("ptcache","ptc")
 //use cache if it is not older than a week (or a month for tab 60=Engelking)
-IF ptc->(dbSeek( Str(nArtnr,6) )) .AND. ptc->LastDate >= Date()-IF(nTab==60,30,7) .AND. ptc->Prices != "{}" .AND. Empty(cKundMa)
-   RETURN HB_JsonDecode(ptc->Prices)
-ENDIF
+//we cannot do this here as this function might be called several times per part e.g. geprfter preis
+//IF ptc->(dbSeek( Str(nArtnr,6) )) .AND. ptc->LastDate >= Date()-IF(nTab==60,30,7) .AND. ptc->Prices != "{}" .AND. Empty(cKundMa) .AND. dDate <= Date()
+   //RETURN HB_JsonDecode(ptc->Prices)
+//sENDIF
 
 NetUse("engkund","ku")
 IF ! Empty(cKundma)
@@ -18,7 +20,32 @@ IF ! Empty(cKundma)
    oExtra := ku->(ExtraData():New( ku->Nummer ))
 ENDIF
 
+oArtExtra := art->(ExtraData():New( nArtnr ))
+
 //?? "_ ("+Trim(art->Matchcode)+" "+Ltrim(Str(nTab,2))+") "
+
+//Adjust to VPE and VPEPACK
+IF oArtExtra:VPE != 0
+   nVPE := oArtExtra:VPE
+ELSEIF ! Empty(art->VPE)
+   nVPE := art->VPE
+ELSE
+   nVPE := 50
+ENDIF
+IF oArtExtra:VPEPack != 0
+   nVPEPack := oArtExtra:VPEPack
+ELSE
+   nVPEPack := 20*nVPE
+ENDIF
+AEval(aPriceTabs,{|aTab| 
+   IF aTab[1] < 0
+      aTab[1] := ABS(aTab[1])*nVPE
+      IF aTab[1] > nVPEPack
+         aTab[1] := CeilingMe(aTab[1]/nVPEPack,Me(art->Me))*nVPEPack
+      ENDIF
+   ENDIF
+})
+
 
 IF AT("CMI57",art->Matchcode) == 1   
    NetUse("parts","part")
@@ -472,7 +499,7 @@ ELSEIF nTab == 26
          ENDIF
       NEXT      
    ENDIF
-ELSEIF nTab == 60   
+ELSEIF nTab == 60  //Engelking
    aPriceTabs := {}  
    oExtra := art->(ExtraData():New(art->Artikelnr))
    
@@ -493,9 +520,10 @@ ELSEIF nTab == 60
    ENDIF
    
    //first we try to calculate the price using the parts list, price base 9 = stock based + supplier price for purchasing
-   FOR EACH nQ IN aQty      
+   FOR EACH nQ IN aQty           
       cInfoData := ""
       nP := StCalc(nArtnr,9,,.T.,Date(),,nQ,.T.,@cInfoData)*nMulti //60% margin
+      ? nQ,nP
       IF Tr_Getini(28) == 9
          //MemoEdit(cInfoData)
       ENDIF
@@ -524,14 +552,14 @@ ELSEIF nTab == 60
       oArt := Artikel():New()
       oArt:Load(nArtnr)
       nVK := oArt:GetAvgBuyPrice()*3.33 //70% margin
-      IF nVK > 0 .AND. Len(aPriceTabs) == 0 .OR. nQty < aPriceTabs[1,1]
+      IF nVK > 0 .AND. (Len(aPriceTabs) == 0 .OR. nQty < aPriceTabs[1,1])
          HB_AInS(aPriceTabs,1,{nQty, nVK},.T.)
       
       ENDIF
       //Alert(ValToPRg(hCostOO))
       
    ENDIF
-   IF Len(aPriceTabs) > 0 .AND. nArtnr > 0
+   /*IF Len(aPriceTabs) > 0 .AND. nArtnr > 0 .AND. Empty(cKundma) .AND. dDate <= Date()
       IF ! ptc->(dbSeek( Str(nArtnr,6) ))   
          ptc->(Add_Rec(0))
          ptc->Artnr := nArtnr
@@ -541,7 +569,7 @@ ELSEIF nTab == 60
       ptc->Prices := HB_JsonEncode(aPriceTabs)
       ptc->LastDate := Date()
       ptc->(dbUnLock())
-   ENDIF
+   ENDIF*/
    //Alert(ValToPrg(aPriceTabs))
 ENDIF
 
@@ -555,7 +583,7 @@ IF nTab == 29 .OR. nTab == 14 .OR. ((nTab == 12 .OR. lSubDistiGBP) .AND. oExtra 
    nEx := Currate("P","E")
    nFixRate := nEx
    IF Trim(cKundma) != "KASH"
-      IF Date() >= StoD("20160801") .AND. nEx < 1.25
+      IF Date() >= StoD("20160801") .AND. nEx < 1.22
          nFixRate := 1.2 //275
          IF (AT("PA135",art->Matchcode) == 1 .AND. AT("BK4",art->Matchcode) == 0 .AND. AT("BK6",art->Matchcode) == 0) .OR. AT("PA195",art->Matchcode) == 1
             nFixRate *= 1.05  //5% extra on these products
@@ -571,6 +599,18 @@ IF nTab == 29 .OR. nTab == 14 .OR. ((nTab == 12 .OR. lSubDistiGBP) .AND. oExtra 
       ELSE
          nFixRate := 1.35
       ENDIF
+   ENDIF
+   IF nFixRate != nEx
+      AEval(aPriceTabs,{|aTab| aTab[2] := aTab[2]/nEx*nFixRate })
+   ENDIF
+ENDIF
+
+//FIXED USD RATE
+IF nTab == 9999
+   nEx := Currate("U","E")
+   nFixRate := 0.92
+   IF nEx > nFixRate+0.02
+      nFixRate := 0.92
    ENDIF
    IF nFixRate != nEx
       AEval(aPriceTabs,{|aTab| aTab[2] := aTab[2]/nEx*nFixRate })

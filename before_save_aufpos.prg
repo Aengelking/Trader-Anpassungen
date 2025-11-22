@@ -17,7 +17,7 @@ LOCAL bGetFreigabe := { |nLief,oLief|
    LOCAL cText
    
    oAufPos:Artikel:gotoRec()
-   Alert(art->Matchcode)
+   //Alert(art->Matchcode)
    hFreigabe := GetFreigabeBesState(nLief)   
    IF nLief == 0
       cText := "INTERN "  

@@ -53,8 +53,12 @@ ELSEIF nYear == 2022
    Aadd(aDays,StoD("20221223"))   
 ELSEIF nYear == 2023
    Aadd(aDays,StoD("20231222"))   
-ELSEIF nYear == 2023
-   Aadd(aDays,StoD("20231223"))   
+ELSEIF nYear == 2024
+   Aadd(aDays,StoD("20241223"))   
+ELSEIF nYear == 2025
+   Aadd(aDays,StoD("20251223"))
+ELSEIF nYear == 2026
+   Aadd(aDays,StoD("20260102"))   
 
 ENDIF
 

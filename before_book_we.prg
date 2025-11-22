@@ -29,9 +29,14 @@ FUNCTION HOOK_BEFORE_BOOK_WE(hData,oBesPos,oArt)
       hData:cCharge := cCharge
    ENDIF
    IF Trim(oBesPos:Liefma) == "OPTRIS" .AND. Left(oArt:Matchcode,9) == "KABEL.SAB"
-      Tr_MsgBox("Bitte Lieferschein an Chris (zum einscannen) geben.")
+      Tr_MsgBox("Bitte Lieferschein an Amos (zum einscannen) geben.")
    ENDIF
    IF Trim(oBesPos:Liefma) == "SELT"  .AND. Tr_MsgBox("Kein SELT-Logo auf Karton oder TÅten?",,{"Nein","Ja"}) != 2
       RETURN .F.
+   ENDIF
+   IF Trim(oBesPos:Liefma) == "TJPOWER" .OR. HB_RegexMatch("^CMI?5[7,8].*",Trim(oBesPos:Matchcode))
+      
+      Tr_MsgBox("Alle Logos und Hinweise auf ITW auf der Verpackung entfernen!")
+      
    ENDIF
 RETURN .T.

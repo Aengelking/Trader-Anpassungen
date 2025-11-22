@@ -38,23 +38,30 @@ IF Tr_Getini(28) == 9
    //Alert(cState+" -> "+cNextLevel+IF(lFrei,""," nicht")+" freigegeben")
 ENDIF
 
-IF cNextLevel == "MUS" .OR. ;
+IF Trim(art->Type) == "RHB" .AND. cNextLevel == "DONE"
+   //.AND. Left(art->Matchcode,3) == "pL/" //Litzen fr die Produktion
+   //hRet:nMaxQty     := 1000
+   //ELSEIF Trim(art->Gruppe) == "XX" .AND. Trim(art->Type) == "RHB"
+   //hRet:nMaxQty     := 10000   
+   hRet:nMaxQty := 1000
+   hRet:lBes := .T.   
+ELSEIF cNextLevel == "MUS" .OR. ;
    (nSupplier == 0 .AND. cNextLevel == "KU") .OR.; //Interne Produktion
    (cState == "KU" .AND. cNextLevel == "KU") //das ist der Fall, wenn der Kunde die Muster ablehnt
 	hRet:lBes        := .T.
    hRet:nMaxQty     := 4 //restrict everthing to four pieces, except the expections below 
-
+   IF Tr_Getini(28) == 9
+      //Alert("Musterfreigabe fr "+art->Matchcode)
+   ENDIF
    IF art->Gruppe == "KANK" ; //Netzkabel
-      .OR. Left(art->Gruppe,2) == "KO" .AND. Left(art->Matchcode,3) == "pL/" //Litzen fr die Produktion
+      .OR. Left(art->Gruppe,2) == "KO" 
       hRet:nMaxQty     := 1000
-   ELSEIF Trim(art->Gruppe) == "XX" .AND. Trim(art->Type) == "RHB"
-      hRet:nMaxQty     := 10000   
    ELSEIF oArt:Manufactur == 6 //Engelking
       hRet:nMaxQty     := 500
    ELSEIF oArt:Manufactur == 5 //Engelking China
       hRet:nMaxQty     := 11   //10 for the customer and one for us
    ELSE //IF Left(art->Gruppe,2)=="KO"
-
+      //IF Tr_GetIni(28) == 9;Alert("Here");hRet:nMaxQty := 50;ENDIF
       NetUse("engkund","ku")
       ku->(dbSetOrder( 8 ))
       ku->(dbSeek( Str(nSupplier,6) ))
@@ -63,7 +70,7 @@ IF cNextLevel == "MUS" .OR. ;
          hPrice := oArt:GetBuyPrice(ku->Kunde,-1)
          nPrice := hPrice["price"]/hPrice["unit"]
       ELSE
-         IF Date() <= StoD("20250818")
+         IF Date() <= StoD("20251103")
             hRet:nMaxQty := 11
          ENDIF
          //this needs testing
@@ -77,7 +84,9 @@ IF cNextLevel == "MUS" .OR. ;
          ENDIF*/
       ENDIF
       IF nPrice != 0
-         //Alert(Str(nMaxCost/nPrice))
+         IF Tr_Getini(28) == 9
+            Alert("MaxCost: "+Str(nMaxCost)+" Price: "+Str(nPrice)+" Qty: "+Str(nMaxCost/nPrice))
+         ENDIF         
          hRet:nMaxQty := Max(Round( nMaxCost/nPrice, GetMeDecimals( oArt:Me )),2)
       ELSE
          //hRet:nMaxQty := 10 //nMaxCost

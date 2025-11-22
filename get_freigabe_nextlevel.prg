@@ -28,7 +28,8 @@ FUNCTION HOOK_GET_FREIGABE_NEXT_LEVEL(cState,nArtnr,nSupplier,lNextFrei)
       /*IF Tr_Getini(28) == 9 .AND. ! lNextFrei
          Alert(cState)
       ENDIF*/
-      IF cState == ""
+      
+      IF cState == "" .AND. Trim(oArt:Type) == "WARE"
          RETURN "VMU"
       ELSEIf cState == "VMU" .AND. ! oArt:KuZeichnun  .AND. Trim(oArt:Type) == "WARE"//keine Kundenzeichnung, dann muss diese vom Kunden freigegeben werden, aber nur wenn es Ware ist, d.h. RHB und UNFERT nicht
          RETURN "UNTK"

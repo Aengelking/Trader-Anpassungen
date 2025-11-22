@@ -1,4 +1,4 @@
-FUNC HOOK_GET_DRAWINGFILE( lAW,cZeich,cInd,lKuZeichnung,aFiles )
+ FUNC HOOK_GET_DRAWINGFILE( lAW,cZeich,cInd,lKuZeichnung,aFiles )
 
 LOCAL cDir
 LOCAl aDir,cFile := "",nX,nPos,cNr
@@ -43,7 +43,7 @@ cZeich := Trim(cZeich)
 cInd   := Trim(cInd)
 
 aDir  := Directory(cDir+"*.*")
-//? ValToPrg(aDir)
+
 FOR nX := 1 TO Len(aDir)
 	nPos := At("_",aDir[nX,1])
 	IF nPos == 0
@@ -61,7 +61,7 @@ FOR nX := 1 TO Len(aDir)
 	ENDIF
 NEXT
 
-IF lLP   
+IF lLP //assembled PCB - we need to get all sub-drawings and create a ZIP file
    aEnv := SaveEnv()
    NetUse("parts","part")
    part->(dbSetORder( 1 ))
@@ -76,6 +76,7 @@ IF lLP
    IF ! Empty(cFile)
       Aadd(aFiles,cFile)
    ENDIF
+   //check the parts list for sub-drawings
    IF part->(dbSeek( Str(nListArt,6) ))
       DO WHILE part->ListArt == nListArt .AND. ! part->(EOF())
          IF part->Pos > 0

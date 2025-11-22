@@ -6,6 +6,7 @@ FUNCTION HOOK_ON_AUF_READY( nAbNr,lWish,lNextDue )
    LOCAL nReturn
    LOCAL hMsg := {5=>"Rechnungsempf„nger fehlt",6=>"Kunde gesperrt",7=>"Kreditlimit berschritten",8=>"Abbruch durch einen Hook",9=>"Problem mit der UST-ID des Kunden",10=>"Nicht ausreichend Kredit vorhanden (Vorkasse)"}
    LOCAL cMsg,aTo
+   LOCAL aVorkasseOrders := {67443, 67358, 67357},nOldSkonto
 
    MEMVAR mirenr
 
@@ -32,8 +33,23 @@ FUNCTION HOOK_ON_AUF_READY( nAbNr,lWish,lNextDue )
    IF ! lWish .OR. lNextDue //nur wenn die wirklich f„llig sind (oder bald)
       NetUse("engnr","nr")
       IF ! nr->Inventur
-         //SendMail({{"amos.engelking@engelking.de","Amos"}},"Rechnung wird erstellt fr AB "+LTrim(Str(nAbNr)))
+         IF nAbnr $ aVorkasseOrders
+            oAuftrag := Auftrag():New()
+            oAuftrag:Load(nAbnr)
+            nOldSkonto := oAuftrag:Kunde:Skonto
+            oAuftrag:Kunde:Skonto := 9  //Auf Vorkasse setzen
+            oAuftrag:Kunde:Save()
+
+            SendMail({{"amos.engelking@engelking.de","Amos"}},"Vorkassenrechnung wird erstellt fr AB "+LTrim(Str(nAbNr)))
+         ENDIF
+         
          nReturn := engreab(nAbNr,.F.,,@cMsg)
+
+         IF nAbnr $ aVorkasseOrders
+            oAuftrag:Kunde:Skonto := nOldSkonto //zurcksetzen
+            oAuftrag:Kunde:Save()
+         ENDIF
+
          IF nReturn > 0
             IF nReturn == 12 //Auftrag wird gerade bearbeitet
                RETURN .F.  //dann warten wir bis sp„ter

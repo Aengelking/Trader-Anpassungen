@@ -13,4 +13,7 @@ PROC Hook_Automotive_After_Pack( nNr,lRech)
    UpdateInvoiceDate(nNr,Date())
       
    MBaseRun(Trim(Tr_Getini(1))+"\run\print_vda",{nNr,lRech})
+   IF lRech
+      MBaseRun(Trim(Tr_Getini(1))+"\run\ship_notification",{nNr,1})
+   ENDIF
 RETURN

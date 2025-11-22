@@ -52,6 +52,9 @@ FUNC HOOK_ON_SEND_PAYREMINDER(cState,cKunde,cText,nMaxDaysOver,nMaxRem,aOpenInvo
                RETURN .T.
             })
             IF nTotal > 5 //erst ab 5 EUR
+               IF oExtra:RemCallAft < nMaxRem
+                  cType := "ANRUF! "+cType
+               ENDIF
                SetPrinterMethodType(3)
                StatDr(cKunde,nPerson,IF(nMaxRem>=1,2,3),AddWorkingDays(GetValue("LASTPAY","D"),-1,GetConfigValue("STATE"),.T.),aRecvs)  //08.09.25 Frist 3 Tage, ab der 2.nur 2 Tage 
                
@@ -69,5 +72,7 @@ FUNC HOOK_ON_SEND_PAYREMINDER(cState,cKunde,cText,nMaxDaysOver,nMaxRem,aOpenInvo
             ENDIF
          ENDIF
       ENDIF
+   ELSEIF oExtra:AutoMahn .AND. nMaxRem >= 3 .AND. oExtra:RemCallAft < nMaxRem
+      SendMail(GetConfigEmail("SI-NOPAY"),"Bitte anrufen! "+cType+" wurde NICHT an "+Trim(cKunde)+" versendet",cText,,,2,.T.)
    ENDIF
 RETURN .T.

@@ -498,7 +498,7 @@ IF GetConfigValue("BATCHMODE") .OR. Tr_MsgBox("Run upload script?",,{"Yes","No"}
          aRecipients := {}
       ENDIF
       cSubject := GetChannelSettingWithDefault("notification_settings.error_email.subject", "Upload Error")*/
-      SendMessage("Produktmanagement | Angebotsupload fehlgeschlagen", "Upload fehlgeschlagen: "+cChannel, cData)
+      SendMessage("Produktmanagement | Angebotsupload fehlgeschlagen", "Upload fehlgeschlagen: "+cChannel, cCmd+"<br>"+cData)
    ELSEIF ! GetConfigValue("BATCHMODE")
       Alert("Uploaded successfully")
    ENDIF

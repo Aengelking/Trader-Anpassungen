@@ -8,40 +8,22 @@
 
 
 PROC RUN_ShowUmlaufVerp()
-   LOCAL aArt := {}
    LOCAL cDbId := Pad("ART",5)
    LOCAL cField := Pad("UMLAUF",10)
    LOCAL hVerpack := {=>}
    LOCAL getlist := {}
-   LOCAL nArt,cVerp := "",nCount,aMatch
-   LOCAL nTotal := 0, nVerpackungen := 0, nOffeneMenge := 0
-   LOCAL nInitial := 0, nRemaining
-   LOCAL cExludeLager := "000/0[3,4]A.*"
-   LOCAL oExtra
-   LOCAL hFertigung 
+   LOCAL nTotal, nTotalSent,nTotalLager
+   LOCAL nInitial, nRemaining   
    LOCAL lPrint
-   LOCAL hSupplierTotals := {=>}  // Hash to track totals by supplier
-   LOCAL hSupplierSent := {=>}    // Hash to track boxes already sent to suppliers
+   LOCAL hSupplierTotals // Hash to track totals by supplier
+   LOCAL hSupplierSent     // Hash to track boxes already sent to suppliers
    LOCAL cSupplier, aSuppliers, nSupplierTotal, nSentBoxes
-   LOCAL oBesExtra
+   LOCAL aList,nSort := 1,aEntry
+   LOCAL aData
+   LOCAL cVerp
 
-   LOCAL aInitQty := {"BOXGEH50"=>974,"BOXTAST150"=>100,"BOXROS100"=>136,"BOXBIG50"=>26}
-
-   /** Initial Quantities   
-   BOXGEH50: 
-      Purchased: 1000 (4x220+120)
-      Modified to BOXBIG50: 26
-      Remaining: 974
+   LOCAL aInitQty := GetBoxInitialQuantities()
    
-   BOXTAST150:
-      Purchased: 100
-
-   BOXROS100:
-      Purchased: 136         
-
-   BOXBIG50:
-      Modified from BOXGEH50: 26
-   **/
 
    NetUse("extraval","exv")
    NetUse("artikel","art")
@@ -66,29 +48,31 @@ PROC RUN_ShowUmlaufVerp()
       Head("Umlaufverpackungen")
       @ 01,00 SAY "Verpackung"
       @ 01,11,15,50 GET cVerp LISTBOX hVerpack ASSOCIATIVE
+      @ 02,00 SAY "Sortierung"
+      @ 02,11,15,50  GET nSort LISTBOX {"Artikelnummer","Lagerort"} DROPDOWN
       READ
 
       IF LastKey() == 27
          RETURN
       ENDIF
-
-      //get all parts with Umlaufverpackungen
-      aArt := GetIdsWithExtraField(cDbID,Trim(cField))
-
-      aMatch := HB_Regex("[0-9]+" ,cVerp) // check if cVerp is a number
-      IF Len(aMatch) == 0
-         Tr_MsgBox("Umlaufverpackung enth„lt keine Zahl!")
-         LOOP
-      ENDIF
-
-      nCount := Val(aMatch[1]) // convert to number
-      nTotal := 0  // Reset total for each package selection
-      hFertigung := {=>} // reset production order tracking
-      hSupplierTotals := {=>} // reset supplier totals
-      hSupplierSent := {=>} // reset sent boxes tracking
+      
 
       // Clear screen and prepare for display
       lPrint := Tr_MsgBox("Drucken?",,{"anzeigen","drucken"}) == 2
+
+
+      aData := GetUmlaufStatus(cVerp)
+      IF Empty(aData)
+         LOOP
+      ENDIF
+      aList := aData["LIST"]
+      nTotal := aData["TOTAL"]
+      nTotalSent := aData["SENT"]
+      nTotalLager := aData["LAGER"]
+      //hFertigung := aData["FERTIGUNG"]
+      hSupplierTotals := aData["SUPPLIERS"]
+      hSupplierSent := aData["SUPPLIERS_SENT"]      
+
       IF lPrint
          StartPrint()
          SET PRINTER ON
@@ -113,6 +97,126 @@ PROC RUN_ShowUmlaufVerp()
       ? "Art.Nr Matchcode                 Typ         Nummer    Lagerort/Info   Menge  Verpack  Gelief"
       ? Replicate("-", 110)
 
+      
+
+      // Sort and display the collected list
+      IF nSort == 1
+         ASort(aList,,, {|a,b| a[1] < b[1] } )
+      ELSE
+         ASort(aList,,, {|a,b| a[6] < b[6] } )
+      ENDIF
+      
+      FOR EACH aEntry IN aList   
+         ? Str(aEntry[1],6),;
+            aEntry[2],;
+            PadR( aEntry[3], 10),;
+            PadR( aEntry[4], 6),;
+            PadR( aEntry[5], 3),;
+            PadR( aEntry[6], 12),;
+            PadL( Transform(aEntry[7], Me(art->Me)),8),;
+            Str( aEntry[8], 8),;
+            Str( aEntry[9], 8)
+      NEXT
+      
+
+      ? ""
+      ? Replicate("=", 110)
+      ? PadR("GESAMTSUMME VERPACKUNGEN:", 77) + Str(nTotal, 8)      
+      ? PadR("VERWENDETE  VERPACKUNGEN:", 77) + Str(nTotalSent, 8)      
+      ? PadR("          DAVON IM LAGER:", 77) + Str(nTotalLager, 8)   
+      
+      // Display supplier totals
+      IF Len(hSupplierTotals) > 0
+         ? ""
+         ? "VERPACKUNGEN NACH LIEFERANT:"
+         ? Replicate("-", 80)
+         ? "Lieferant                      Ben”tigt   Gesendet   Noch zu senden"
+         ? Replicate("-", 80)
+         aSuppliers := HGetKeys(hSupplierTotals)
+         ASort(aSuppliers)
+         FOR EACH cSupplier IN aSuppliers
+            nSupplierTotal := hSupplierTotals[cSupplier]
+            nSentBoxes := IF(HHasKey(hSupplierSent, cSupplier), hSupplierSent[cSupplier], 0)
+            ? PadR(cSupplier, 30) + " " + ;
+              Str(nSupplierTotal, 8) + " " + ;
+              Str(nSentBoxes, 8) + " " + ;
+              Str(Max(0, nSupplierTotal - nSentBoxes), 12)
+         NEXT
+         ? Replicate("-", 80)
+      ENDIF
+      
+      // Show calculation with initial quantity
+      IF HHasKey(aInitQty, AllTrim(cVerp))
+         nInitial := aInitQty[AllTrim(cVerp)]
+         nRemaining := nInitial - nTotalSent
+         
+         ? PadR("ANFANGSBESTAND:", 77) + Str(nInitial, 8)
+         ? Replicate("-", 110)
+         
+         IF nRemaining >= 0
+            ? PadR("VERFšGBAR:", 77) + Str(nRemaining, 8) + " Stck"
+         ELSE
+            ? PadR("FEHLEND:", 77) + Str(Abs(nRemaining), 8) + " Stck"
+         ENDIF
+         
+         ? PadR("AUSLASTUNG:", 77) + Str((nTotal * 100.0) / nInitial, 8, 1) + " %"
+      ELSE
+         ? PadR("(Kein Anfangsbestand definiert)", 77)
+      ENDIF
+      
+      ? Replicate("=", 110)
+      ? ""
+      IF lPrint
+         CopyPrint()
+         SET PRINTER OFF
+      ELSE
+         ? "Drcke eine beliebige Taste..."
+         Sinkey(0)
+      ENDIF
+
+      
+   ENDDO
+
+
+   FUNCTION GetUmlaufStatus(cVerp)
+      LOCAL cDbID := Pad("ART",5)
+      LOCAL cField := Pad("UMLAUF",10)
+      LOCAL nVerpackungen,nOffeneMenge
+      LOCAL nTotal := 0 
+      LOCAL nTotalSent := 0 
+      LOCAL nTotalLager := 0
+      LOCAL oExtra
+      LOCAL cSupplier
+      LOCAL oBesExtra
+      LOCAL nSentBoxes
+      LOCAL aArt,nArt
+      LOCAL cExludeLager := "000/0[3,4]A.*"
+      LOCAL hFertigung := {=>} // reset production order tracking
+      LOCAL hSupplierTotals := {=>} // reset supplier totals
+      LOCAL hSupplierSent := {=>} // reset sent boxes tracking
+      LOCAL aList := {}
+      LOCAL nCount
+      LOCAL aMatch
+
+         NetUse("artikel","art")
+   NetUse("lager","lag")
+   NetUse("engbes","bes")
+   NetUse("werks","we")
+   NetUse("werkauf","wer")
+
+
+      aMatch := HB_Regex("[0-9]+" ,cVerp) // check if cVerp is a number
+      IF Len(aMatch) == 0
+         Tr_MsgBox("Umlaufverpackung enth„lt keine Zahl!")
+         RETURN NIL      
+      ENDIF
+
+      nCount := Val(aMatch[1]) // convert to number      
+      
+
+      //get all parts with Umlaufverpackungen
+      aArt := GetIdsWithExtraField(cDbID,Trim(cField))
+
       art->(dbSetOrder( 2 ))
       FOR EACH nArt IN aArt      
          oExtra := art->(ExtraData():New(nArt))
@@ -125,15 +229,10 @@ PROC RUN_ShowUmlaufVerp()
             DO WHILE lag->Artikelnr == nArt
                IF Left(lag->Lagerort,3) != "096" .AND. ! HB_RegexMatch(cExludeLager,Trim(lag->Lagerort))
                   nVerpackungen := Ceiling(lag->LagerMenge/nCount)
-                  ? Str(nArt,6) + " " + ;
-                    art->Matchcode + " " + ;
-                    PadR("LAGER", 10) + " " + ;
-                    PadR("", 6) + " " + ;
-                    PadR("", 3) + " " + ;
-                    PadR(lag->Lagerort, 12) + " " + ;
-                    PadL(Transform(lag->LagerMenge,Me(art->Me)),8) + " " + ;
-                    Str(nVerpackungen, 8)
+                  AAdd(aList, {nArt, art->Matchcode, "LAGER", "","", lag->Lagerort, lag->LagerMenge, nVerpackungen,0})                  
                   nTotal += nVerpackungen
+                  nTotalSent += nVerpackungen
+                  nTotalLager += nVerpackungen
                ENDIF
                lag->(dbSkip())
             ENDDO
@@ -150,6 +249,7 @@ PROC RUN_ShowUmlaufVerp()
                   
                   oBesExtra := bes->(ExtraData():New(bes->Besnr))                     
                   nSentBoxes := oBesExtra:&(cVerp)  // Get sent boxes from extradata
+                  nSentBoxes -= Ceiling(bes->GelQty/nCount) // subtract already returned boxes
                   IF nSentBoxes < 0
                      nSentBoxes := 0
                   ENDIF
@@ -165,18 +265,11 @@ PROC RUN_ShowUmlaufVerp()
                   ENDIF
                   hSupplierTotals[cSupplier] += nVerpackungen
                   hSupplierSent[cSupplier] += nSentBoxes
-                  
-                  ? Str(nArt,6) + " " + ;
-                    art->Matchcode + " " + ;
-                    PadR("BESTELLUNG", 10) + " " + ;
-                    Str(bes->Besnr, 6) + " " + ;
-                    Pad(Ltrim(Str(bes->Posnr, 3)),3) + " " + ;
-                    PadR(AllTrim(bes->Liefma), 12) + " " + ;
-                    PadL(Transform(nOffeneMenge, Me(art->Me)),8)  + " " + ;                    
-                    Str(nVerpackungen, 8) + " " + ;
-                    Str(nSentBoxes,8)  
+
+                  AAdd(aList, {nArt, art->Matchcode, "BESTELLUNG", Str(bes->Besnr,6),Str(bes->Posnr,3), AllTrim(bes->Liefma), nOffeneMenge, nVerpackungen, nSentBoxes})
                     
                   nTotal += nVerpackungen
+                  nTotalSent += nSentBoxes
                ENDIF
                bes->(dbSkip())
             ENDDO
@@ -206,16 +299,10 @@ PROC RUN_ShowUmlaufVerp()
                      // Parts delivery (internal or external) includes packages - mark as sent
                      hSupplierSent[cSupplier] += nVerpackungen
 
-                     ?  Str(nArt,6) + " " + ;
-                        art->Matchcode + " " + ;
-                        PadR("FERTIGUNG", 10) + " " + ;
-                        Str(we->Aufno, 6) + " " + ;
-                        Space(3) + " " + ;
-                        PadR(AllTrim(wer->Liefma), 12) + " " + ;
-                        PadL(Transform(nOffeneMenge, Me(art->Me)),8)  + " " + ;                        
-                        Str(nVerpackungen, 8),;
-                        Str(nVerpackungen,8)
+                     AAdd(aList, {nArt, art->Matchcode, "FERTIGUNG", Str(we->Aufno,6),"", AllTrim(wer->Liefma), nOffeneMenge, nVerpackungen, 0})
+
                      nTotal += nVerpackungen
+                     nTotalSent += nVerpackungen
                   ELSE
                      nOffeneMenge := we->Qty * we->Factor
                      nVerpackungen := Ceiling(nOffeneMenge/nCount)
@@ -251,19 +338,10 @@ PROC RUN_ShowUmlaufVerp()
                   nVerpackungen := Max(0, nVerpackungen - nSentBoxes)
                   
                   IF nVerpackungen > 0
-                     
-                     hSupplierTotals[cSupplier] += nVerpackungen                    
-                    
-                     ? Str(nArt,6) + " " + ;
-                        art->Matchcode + " " + ;
-                        PadR("FERT.PROD.", 10) + " " + ;
-                        Str(wer->Aufno, 6) + " " + ;
-                        Space(3) + " " + ;
-                        PadR(AllTrim(wer->Liefma), 12) + " " + ;
-                        PadL(Transform(nOffeneMenge, Me(art->Me)),8)  + " " + ;                        
-                        Str(nVerpackungen, 8),;
-                        Str(nSentBoxes,8)
+                     hSupplierTotals[cSupplier] += nVerpackungen
+                     AAdd(aList, {nArt, art->Matchcode, "FERT.PROD.", Str(wer->Aufno,6), "", AllTrim(wer->Liefma), nOffeneMenge, nVerpackungen, nSentBoxes})                     
                      nTotal += nVerpackungen
+                     nTotalSent += nSentBoxes
                   ENDIF
                ENDIF
                wer->(dbSkip())
@@ -271,62 +349,30 @@ PROC RUN_ShowUmlaufVerp()
          ENDIF
       NEXT
 
-      
+   RETURN {"TOTAL"=>nTotal,"SENT"=>nTotalSent,"LAGER"=>nTotalLager,"LIST"=>aList,"FERTIGUNG"=>hFertigung,"SUPPLIERS"=>hSupplierTotals,"SUPPLIERS_SENT"=>hSupplierSent}
+   
 
-      ? ""
-      ? Replicate("=", 110)
-      ? PadR("GESAMTSUMME VERPACKUNGEN:", 77) + Str(nTotal, 8)
-      
-      // Display supplier totals
-      IF Len(hSupplierTotals) > 0
-         ? ""
-         ? "VERPACKUNGEN NACH LIEFERANT:"
-         ? Replicate("-", 80)
-         ? "Lieferant                      Ben”tigt   Gesendet   Noch zu senden"
-         ? Replicate("-", 80)
-         aSuppliers := HGetKeys(hSupplierTotals)
-         ASort(aSuppliers)
-         FOR EACH cSupplier IN aSuppliers
-            nSupplierTotal := hSupplierTotals[cSupplier]
-            nSentBoxes := IF(HHasKey(hSupplierSent, cSupplier), hSupplierSent[cSupplier], 0)
-            ? PadR(cSupplier, 30) + " " + ;
-              Str(nSupplierTotal, 8) + " " + ;
-              Str(nSentBoxes, 8) + " " + ;
-              Str(Max(0, nSupplierTotal - nSentBoxes), 12)
-         NEXT
-         ? Replicate("-", 80)
-      ENDIF
-      
-      // Show calculation with initial quantity
-      IF HHasKey(aInitQty, AllTrim(cVerp))
-         nInitial := aInitQty[AllTrim(cVerp)]
-         nRemaining := nInitial - nTotal
-         
-         ? PadR("ANFANGSBESTAND:", 77) + Str(nInitial, 8)
-         ? Replicate("-", 110)
-         
-         IF nRemaining >= 0
-            ? PadR("VERFšGBAR:", 77) + Str(nRemaining, 8) + " Stck"
-         ELSE
-            ? PadR("FEHLEND:", 77) + Str(Abs(nRemaining), 8) + " Stck"
-         ENDIF
-         
-         ? PadR("AUSLASTUNG:", 77) + Str((nTotal * 100.0) / nInitial, 8, 1) + " %"
-      ELSE
-         ? PadR("(Kein Anfangsbestand definiert)", 77)
-      ENDIF
-      
-      ? Replicate("=", 110)
-      ? ""
-      IF lPrint
-         CopyPrint()
-         SET PRINTER OFF
-      ELSE
-         ? "Drcke eine beliebige Taste..."
-         Sinkey(0)
-      ENDIF
+   FUNCTION GetBoxInitialQuantities()
+      LOCAL aInitQty := {"BOXGEH50"=>815,"BOXTAST150"=>100,"BOXROS100"=>136,"BOXBIG50"=>26}   
 
-      
-   ENDDO
+   /** Initial Quantities   
+   BOXGEH50: 
+      Purchased: 1000 (4x220+120) (BE27447,BE29691,BE49655,BE56282,BE60488)
+      Modified to BOXBIG50: 26
+      Remaining: 974
+      Missing: 159 (22.10.25)
+   
+   BOXTAST150:
+      Purchased: 100 (BE60488)
+
+   BOXROS100:
+      Purchased: 136 (BE25490)  
+
+   BOXBIG50:
+      Modified from BOXGEH50: 26
+   **/   
+   
+   RETURN aInitQty
+
 
 

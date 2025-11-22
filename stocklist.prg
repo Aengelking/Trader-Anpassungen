@@ -7,6 +7,7 @@ LOCAL lAvail := .F.,nAvail
 LOCAL nCurWeek := Cweek(Date())
 LOCAL cData,nX,hManu,aEmail,cFileName,aManu,lExclude,nStock,nArtikelnr,nBestand,nRec,aReq
 LOCAL aBes,cMatch,aList,cManuf,aMatch,cKey,aKeys,hPart,cFile,nF
+LOCAL cShopUrl
 
 NetUse("me","me",.F.,0)
 NetUse("artikel","art",.F.,0)
@@ -21,6 +22,7 @@ NetUse("liefstock","lsto")
 NetUSe("waldom","wald")
 NetUse("engauf","auf")
 NetUse("engbes","bes")
+NetUse("shopware","shop")
 
 ali->(dbSetOrder( 1 ))
 ku->(dbSetOrder( 8 ))
@@ -149,11 +151,17 @@ Do While ! art->(Eof())
                NEXT
             ENDIF
 
+            IF shop->(dbSeek( Str(art->Artikelnr,6) ))      
+               cShopUrl := "https://engelking.de/detail/"+Trim(shop->UUID)
+            ELSE
+               cShopUrl := ""
+            ENDIF
+
 
             FOR EACH cMatch IN aList
                cKey := cMatch+StrZero(art->manufactur,3)
                IF ! HHasKey(hParts,cKey)
-                  hParts[cKey] := {"MATCH"=>cMatch,"ME"=>art->Me,"TR"=>Me(art->Me),"STOCK"=>0,"AVAIL"=>0,"MANUF"=>cManuf,"DESCR"=>art->Artikel}
+                  hParts[cKey] := {"MATCH"=>cMatch,"ME"=>art->Me,"TR"=>Me(art->Me),"STOCK"=>0,"AVAIL"=>0,"MANUF"=>cManuf,"DESCR"=>art->Artikel,"SHOPURL"=>cShopUrl}
                ENDIF
                hParts[cKey]["STOCK"] += nStock
                hParts[cKey]["AVAIL"] += nAvail
@@ -172,7 +180,7 @@ IF HHasKey(hManu,1)
    DO WHILE ! wald->(EOF())
       cKey := wald->Part+StrZero(1,3)
       IF ! HHasKey(hParts,cKey)
-         hParts[cKey] := {"MATCH"=>wald->Part,"ME"=>"STCK","TR"=>"999999","STOCK"=>0,"AVAIL"=>0,"MANUF"=>hManu[1],"DESCR"=>""}
+         hParts[cKey] := {"MATCH"=>wald->Part,"ME"=>"STCK","TR"=>"999999","STOCK"=>0,"AVAIL"=>0,"MANUF"=>hManu[1],"DESCR"=>"","SHOPURL"=>""}
       ENDIF      
       hParts[cKey]["STOCK"] += wald->Stock
       hParts[cKey]["AVAIL"] += wald->Stock      
@@ -193,12 +201,14 @@ hPart := NIL
 FOR nX := 1 TO Len(aKeys)
    hPart := hParts[aKeys[nX]]
    IF cTo == "OCTOPART"
-      cData += hPart["MANUF"]+","+Trim(hPart["MATCH"])+","+Trim(hPart["MATCH"])+","+"http://www.engelking.de/kontakt"+","+Ltrim(Transform(hPart["STOCK"],hPart["TR"]))+Chr(13)+Chr(10)
+      cData += hPart["MANUF"]+","+Trim(hPart["MATCH"])+","+Trim(hPart["MATCH"])+","+hPart["SHOPURL"]+","+Ltrim(Transform(hPart["STOCK"],hPart["TR"]))+Chr(13)+Chr(10)
                //,price-break-1,price-usd-1,price-eur-1,price-break-2,price-usd-2,price-eur-2,description,datasheet-url,image-url,attributes,category,moq,order-multiple,on-order-quantity,on-order-eta,packaging,factory-lead-days,factory-pack-quantity,datecode"
    ELSEIF cTo == "ITW" .OR. cTo == "ELEKTRON"
       cData += Trim(hPart["MATCH"])+Chr(59)+/*HB_OemToAnsi(Trim(hPart["DESCR"]))+Chr(59)+*/Ltrim(Transform(hPart["STOCK"],hPart["TR"]))+IF(lAvail,Chr(59)+Transform(hPart["AVAIL"],hPart["TR"]),"")+Chr(13)+Chr(10)
    ELSE
-      cData += Trim(hPart["MATCH"])+Chr(59)+Ltrim(Transform(hPart["STOCK"],hPart["TR"]))+Chr(59)+hPart["MANUF"]+Chr(13)+Chr(10)
+      cData += Trim(hPart["MATCH"])+Chr(59)+Ltrim(Transform(hPart["STOCK"],hPart["TR"]))+Chr(59)+hPart["MANUF"]
+      cData += Chr(59)+hPart["SHOPURL"]+Chr(59)
+      cData += Chr(13)+Chr(10)
    ENDIF
 NEXT
 

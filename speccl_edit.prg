@@ -146,7 +146,13 @@ STATIC FUNCTION _SpecCLEdit(lNew)
    @ 11,22 GET oRec:Active PICTURE "Y"
 
    @ 13,7 SAY "New Comment (required for changes):"
-   @ 14,7 GET cComment PICTURE ("@S" + AllTrim(Str(MaxCol()-16)))
+   @ 14,7 GET cComment PICTURE ("@S" + AllTrim(Str(MaxCol()-16))) VALID {||
+      IF Empty(AllTrim(cComment))
+         Tr_MsgBox("Comment is required when creating or changing credit limits!")
+         RETURN .F.
+      ENDIF
+      RETURN .T. 
+   }
 
    // Display existing comments
    IF ! lNew .AND. ! Empty(spcl->Comments)
@@ -162,12 +168,6 @@ STATIC FUNCTION _SpecCLEdit(lNew)
 
    If Updated() .AND. (LastKey() != 27 .OR. Tr_MsgBox("Save changes?",,{"No","Yes"}) == 2)
       
-      // Validate comment is provided for new records or limit changes
-      IF lLimitChanged .AND. Empty(AllTrim(cComment))
-         Tr_MsgBox("Comment is required when creating or changing credit limits!")
-         RETURN .F.
-      ENDIF
-
       If lNew
          oRec:KuNr := nKuNr      
          oRec:Kunde := cKunde
@@ -184,19 +184,19 @@ STATIC FUNCTION _SpecCLEdit(lNew)
       oRec:Save()
 
       // Add comment to memo field with timestamp if limit changed
-      IF lLimitChanged .AND. ! Empty(AllTrim(cComment))
-         cNewComment := DToC(Date()) + " " + Time() + " [" + SystemUser():Name + "] "
-         IF lNew
-            cNewComment += "CREATED: Limit=" + Transform(oRec:SpecLimit,"999,999.99") + " - "
-         ELSE
-            cNewComment += "CHANGED: " + Transform(nOldLimit,"999,999.99") + " -> " + Transform(oRec:SpecLimit,"999,999.99") + " - "
-         ENDIF
-         cNewComment += AllTrim(cComment) + Chr(13) + Chr(10)
-         
-
-         oRec:Comments := cNewComment + IF(Empty(spcl->Comments),"",oRec:Comments)
-         oRec:Save()
+      cNewComment := DToC(Date()) + " " + Time() + " [" + SystemUser():Name + "] "
+      IF lNew
+         cNewComment += "CREATED: Limit=" + Transform(oRec:SpecLimit,"999,999.99") + " - "
+      ELSEIF nOldLimit != oRec:SpecLimit
+         cNewComment += "CHANGED: " + Transform(nOldLimit,"999,999.99") + " -> " + Transform(oRec:SpecLimit,"999,999.99") + " - "
+      ELSE
+         cNewComment += "EXTENDED: Valid Until=" + DToC(oRec:ValidUntil) + " - "
       ENDIF
+      cNewComment += AllTrim(cComment) + Chr(13) + Chr(10)
+      
+
+      oRec:Comments := cNewComment + IF(Empty(spcl->Comments),"",oRec:Comments)
+      oRec:Save()
    Else
       spcl->(dbGoto(nRec))
    Endif

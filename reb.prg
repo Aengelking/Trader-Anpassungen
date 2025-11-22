@@ -308,7 +308,7 @@ oBrowse:bAnyFun := {||
 
       ASort(aFiles,,,{|x,y| x[6] < y[6] }) //sort according to file name and not date
 
-      IF AT(".PDF",Upper(ATail(aFiles)[6])) != 0
+      IF Len(aFiles) > 0 .AND. Len(ATail(aFiles)) >= 6 .AND.  AT(".PDF",Upper(ATail(aFiles)[6])) != 0
          //Display the invoice
          hb_webview_navigate(nWebView,"file:///"+ATail(aFiles)[6])
 

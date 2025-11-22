@@ -174,6 +174,9 @@ PROC ShopWare_Update_Partno
 
             oBase := OptionBase():New()         
             cPN := Trim(hParentData["data"][1]["attributes"]["productNumber"])
+            IF AT("#",cPN) > 0 //invalid part no
+               cPN := SubStr(cPN,1,AT("#",cPN)-1)
+            ENDIF
 
             lError := .F.
             IF ! HHAsKey(hParentData["data"][1],"attributes")
@@ -252,6 +255,9 @@ PROC ShopWare_Update_Partno
             hParent := hParents[hProdData["data"][nX]["attributes"]["parentId"]]
             //attempting to build part no
             cPN := Trim(hParent["data"]["attributes"]["productNumber"])
+            IF AT("#",cPN) > 0 //invalid part no
+               cPN := SubStr(cPN,1,AT("#",cPN)-1)
+            ENDIF
 
             hProductOptions := {=>}            
             hProductOptionsNames := {=>}

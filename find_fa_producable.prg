@@ -28,7 +28,7 @@ PROC RUN_FIND_FA_PRODUCABLE
          
          WAStatus(@hKWQtys,,CountWorkingDays(Date(),wer->StartDate,GetConfigValue("STATE"),.T.),@cForecastMissing,,@aMissingForecast)
          IF Len(aMissingForecast)  <= nMissing
-            ? wer->Aufno,StrTran(cForecastMissing,Chr(13)+Chr(10)," | ")
+            ? wer->Aufno,wer->Matchcode,wer->Qty,StrTran(cForecastMissing,Chr(13)+Chr(10)," | ")
          ENDIF
 
          

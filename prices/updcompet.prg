@@ -189,30 +189,32 @@ FOR nX := 1 TO Len(aCompet)
    hPrices := aPriceList[nX]
    IF ValType(hPrices) == "H"
       FOR nY := 1 TO Len(hPrices)
-         nMenge := HGetKeyAt(hPrices,nY)*nPE
-         nPrice := HGetValueAt(hPrices,nY)/nPE
-         lUpd := .F.
-         IF ! cmpr->(dbSeek( Str(nArtnr,6)+Str(nMenge,12,4) ))
-            IF lDbg
-               ? "New",nMenge,nPrice,aCompet[nX]
+         IF ValType(HGetKeyAt(hPrices,nY)) == "N"
+            nMenge := HGetKeyAt(hPrices,nY)*nPE
+            nPrice := HGetValueAt(hPrices,nY)/nPE
+            lUpd := .F.
+            IF ! cmpr->(dbSeek( Str(nArtnr,6)+Str(nMenge,12,4) ))
+               IF lDbg
+                  ? "New",nMenge,nPrice,aCompet[nX]
+               ENDIF
+               cmpr->(Add_Rec(0))
+               cmpr->Artikelnr := nArtnr
+               cmpr->Menge := nMenge
+               lUpd := .T.
+            ELSEIF cmpr->Preis > nPrice .OR. cmpr->Datum < Date()
+               IF lDbg
+                  ? "Update",nMenge,nPrice,aCompet[nX]
+               ENDIF
+               cmpr->(Rec_Lock(0))
+               lUpd := .T.
+            ELSEIF lDbg
+               ? "No new price",nMenge,nPrice,aCompet[nX]
             ENDIF
-            cmpr->(Add_Rec(0))
-            cmpr->Artikelnr := nArtnr
-            cmpr->Menge := nMenge
-            lUpd := .T.
-         ELSEIF cmpr->Preis > nPrice .OR. cmpr->Datum < Date()
-            IF lDbg
-               ? "Update",nMenge,nPrice,aCompet[nX]
+            IF lUpd
+               cmpr->Datum := Date()
+               cmpr->Preis := nPrice
+               cmpr->(dbUnLock())
             ENDIF
-            cmpr->(Rec_Lock(0))
-            lUpd := .T.
-         ELSEIF lDbg
-            ? "No new price",nMenge,nPrice,aCompet[nX]
-         ENDIF
-         IF lUpd
-            cmpr->Datum := Date()
-            cmpr->Preis := nPrice
-            cmpr->(dbUnLock())
          ENDIF
       NEXT
    ELSEIF lDbg

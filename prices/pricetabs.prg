@@ -12,7 +12,8 @@ LOCAL nSecs := Seconds()
 
 NetUse("ptcache","ptc")
 //use cache if it is not older than a week
-IF ptc->(dbSeek( Str(nArtnr,6) )) .AND. ptc->LastDate >= Date()-7 .AND. ptc->Prices != "{}"
+//Alert("Here "+DtoC(dDate))
+IF ptc->(dbSeek( Str(nArtnr,6) )) .AND. ptc->LastDate >= Date()-7 .AND. ptc->Prices != "{}" .AND. dDate <= Date()
    IF lDbg
       Alert("Using cached price tab")
    ENDIF
@@ -28,7 +29,7 @@ nDecimals := GetMeDecimals(art->Me)
 aPriceTabs := GetPrices(art->Artikelnr,IF(art->Manufactur == 14,77,IF(art->Manufactur==9,12,1)),dDate)
 
 IF lDbg 
-   Alert(ValToPrg(aPriceTabs))
+   Alert("Standard Pricetabs: ("+Str(IF(art->Manufactur == 14,77,IF(art->Manufactur==9,12,1)))+")"+ValToPrg(aPriceTabs))
 ENDIF
 
 manu->(dbSeek( Str(art->Manufactur,5) ))

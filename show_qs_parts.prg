@@ -11,6 +11,7 @@ FUNCTION RUN_SHOW_QS_PARTS
    LOCAL nLastWeek := AddWeeks(nThisWeek,-1)
    LOCAL nBeforeLastWeek := AddWeeks(nLastWeek,-1)
    LOCAL nQSJob,cQSJob,nQSUsed   
+   LOCAL cBatch,nR,hItem
    LOCAL hColors := {"OVER"=>"N/R*","NOW"=>"N+/GR*","NEXT"=>"N+/G*"}
    LOCAL aList := {}
    LOCAL oBrowse,oBrowseQS
@@ -68,9 +69,16 @@ FUNCTION RUN_SHOW_QS_PARTS
       
       DO WHILE At(aFirm:Lager,lag->Lagerort) == 1
          IF ! lag->Artikelnr $ hItems
-            hItems[lag->Artikelnr] := 0
+            hItems[lag->Artikelnr] := {"QTY"=>0,"BATCHES"=>{=>}}
          ENDIF
-         hItems[lag->Artikelnr] += lag->Lagermenge
+         IF ! Empty(lag->Batch)
+            IF ! lag->Batch $ hItems[lag->Artikelnr]["BATCHES"]
+               hItems[lag->Artikelnr]["BATCHES"][lag->Batch] := lag->Lagermenge
+            ELSE
+               hItems[lag->Artikelnr]["BATCHES"][lag->Batch] += lag->Lagermenge
+            ENDIF
+         ENDIF
+         hItems[lag->Artikelnr]["QTY"] += lag->Lagermenge
          lag->(dbSkip())
       ENDDO
       
@@ -78,9 +86,10 @@ FUNCTION RUN_SHOW_QS_PARTS
       mus->(dbSetOrder( 2 ))
       //SetPos(01,00)
       //?? Pad("Artikel",25),PadL("QS Menge",12),Pad("Dauer(h)",8),"N„chste F„lligkeit" //,PadL("Lagerbestand",12)
-      FOR EACH nQSQty IN hItems
+      FOR EACH hItem IN hItems
          nQSUsed := 0
-         nArtnr := nQSQty:__eNumKey()
+         nArtnr := hItem:__eNumKey()
+         nQSQty := hItem:QTY         
          aKwQty := GetKWQty(nArtnr)  
          nStock := LagGetStock(nArtnr,LAG_STOCK_USABLE)
          art->(dbSetOrder( 2 ))
@@ -91,7 +100,16 @@ FUNCTION RUN_SHOW_QS_PARTS
          
          //? ""
          
-         Aadd(aList,{"MATCH"=>art->Matchcode,"ARTNR"=>art->Artikelnr,"TEXT"=>art->Matchcode+" "+PadL(Transform(nQSQty,Me(art->Me)),12),"STATUS"=>0,"NEXT"=>"ÿ","WE"=>StoD(""),"FIRM"=>aFirm:ID})
+         Aadd(aList,{;
+            "MATCH"=>art->Matchcode,;
+            "ARTNR"=>art->Artikelnr,;
+            "TEXT"=>art->Matchcode+" "+PadL(Transform(nQSQty,Me(art->Me)),12),;
+            "STATUS"=>0,;
+            "NEXT"=>"ÿ",;
+            "WE"=>StoD(""),;
+            "FIRM"=>aFirm:ID,;
+            "BATCHES"=>hItem:BATCHES;
+         })
          /*IF pjob->(dbSeek( Str(art->Artikelnr,6)+Str(nQSJob,6) ))                  
             ATail(aList)["TEXT"] += " "+StrZero(Int(pjob->Seconds*nQSQty/60/60),2)+":"+StrZero(Int(Mod(pjob->Seconds*nQSQty/60,60)),2)+":"+StrZero(Mod(pjob->Seconds*nQSQty,60),2)
          ELSE*/
@@ -286,8 +304,19 @@ FUNCTION RUN_SHOW_QS_PARTS
          oBrowseQS:RefreshAll()
          oBrowseQS:Display()
          oBrowseQS:deHilite()
+         IF Len(oBrowse:CurrentDataRow()["BATCHES"]) > 0
+            SetColor(c_one)
+            @ 10,77 CLEAR TO 19,MaxCol()
+            @ 10,77 SAY PadC(" Chargen im QS Lager ",MaxCol()-77,Chr(196))
+            nR := 10
+            FOR EACH cBatch IN oBrowse:CurrentDataRow()["BATCHES"]
+               nR++
+               @ nR,77 SAY "Charge "+Trim(cBatch:__eNumKey())+": "+Transform(cBatch,Me(art->Me))+" "+art->Me
+            NEXT
+         ENDIF
       ELSE
          SetColor(c_one)
+         @ 10,77 CLEAR TO 19,MaxCol()
          @ 21,77 CLEAR TO MaxRow(),MaxCol()
       ENDIF
       RETURN .T.

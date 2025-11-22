@@ -57,7 +57,8 @@ LOCAL aList,hEntry,cYearPre,aChoice
 
 LOCAL nPersTrader := IF(Date()<=StoD("20210813"),P_SIGRID,P_DANIELA)  //Person die für Trader Rechnungen verantwortlichist
 LOCAL nPersGenehm := IF(Date()<=StoD("20210813"),P_SIGRID,P_AMOS)   //Person die für Genehmigungen zuständig ist
-LOCAL hKS         := {"000"=>"Verwaltung (000)",;
+LOCAL hKS         := {"  "=>"Keine Kosten",;
+                     "000"=>"Verwaltung (000)",;
                      "100"=>"Marketing (100)",;
                      "200"=>"Vertrieb (200)",;
                      "300"=>"Fertigung (300)",;
@@ -66,6 +67,12 @@ LOCAL hKS         := {"000"=>"Verwaltung (000)",;
                      "600"=>"Entwicklung (600)",;
                      "700"=>"Qualit„t (700)",;
                      "800"=>"Lager (800)"}
+
+LOCAL hAutoApprove := {;
+         70423=>500,;    //Amazon, max 500
+         76354=>200,;    //Digital Charging Solutions, max 200
+         72027=>20;      //DHL, max 20
+      }  
 
 LOCAL hKSGenehm  := {"100"=>P_LISA}
 
@@ -248,8 +255,13 @@ IF ! Empty(cMsgPath)  //email
    IF lOneDocOnly .AND. (cType == "SCAN" .OR. Tr_MsgBox(t("Email enthält nur ein Dokument, soll lediglich dieses archiviert werden?"),,{"Nein","Ja"}) == 2)
       cTempPath := GetEnv("temp")
       oAtt := oMsg:Attachments:Item(nDocAtt)      
-      oAtt:CopyOut(cTempPath,StrTran(oAtt:FileName,"?",""))
-      cFileName := cTempPath+"\"+StrTran(oAtt:FileName,"?","")
+      cFileName := StrTran(StrTran(oAtt:FileName,"?",""),"#","") //remove illegal characters
+      oAtt:CopyOut(cTempPath,cFileName)      
+      cFileName := cTempPath+"\"+cFileName
+      IF ! File(cFileName)
+         Tr_MsgBox("Datei konnte nicht gespeichert werden: "+cFileName)
+         RETURN
+      ENDIF
    ENDIF
    FOR EACH hEntry IN aList      
       IF HB_RegexMatch(hEntry["EMAIL"],Lower(oMsg:Fields("SRFrom"):Value)) .AND. (! HHasKey(hEntry,"BETREFF") .OR. HB_RegexMatch(hEntry["BETREFF"],Lower(oMsg:Fields("Subject"):Value)))
@@ -773,7 +785,7 @@ DO WHILE .T.
             lRepeat  := .F.
 
             AddFileToArchive("ER",nID,cFileName)
-            IF nKonto == 70423 .AND. nBetrag <= 500  //special for Amazon
+            IF nKonto $ hAutoApprove .AND. nBetrag <= hAutoApprove[nKonto]  //special for Amazon
                lApprove := .T.
             ELSEIF Empty(cLiefma) .AND. rerep->(dbSeek( Str(nKonto,6)+Str(nBetrag*100,14,0) )) 
                //check to see if this invoice is a reoccuring invoice which can be automatically released         

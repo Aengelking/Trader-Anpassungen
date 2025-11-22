@@ -1,0 +1,160 @@
+[19.10.25 22:28:04] [INFO] Log started: 19.10.25 22:28:04
+[19.10.25 22:28:04] [INFO] Starting Trader User Sync to 2 Supabase databases
+[19.10.25 22:28:04] [INFO] Validating config: Sales
+[19.10.25 22:28:04] [INFO] Auth connection successful for Sales. First user: michelle.pomp@engelking.de
+[19.10.25 22:28:04] [INFO] Connection test successful for Sales
+[19.10.25 22:28:04] [INFO] Validating config: QM
+[19.10.25 22:28:05] [INFO] Auth connection successful for QM. First user: michelle.pomp@engelking.de
+[19.10.25 22:28:05] [INFO] Connection test successful for QM
+[19.10.25 22:28:05] [INFO] Opened trader database with 74 user records
+[19.10.25 22:28:05] [INFO] Syncing to database: Sales
+[19.10.25 22:28:05] [INFO] Processing 74 user records for Sales
+[19.10.25 22:28:05] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:28:05] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:05] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:05] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:05] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:05] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:05] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:05] [DEBUG] Updated auth user: amos.engelking@engelking.de
+[19.10.25 22:28:05] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: ausgeschieden
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:06] [DEBUG] Updated auth user: johannes.engelking@engelking.de
+[19.10.25 22:28:06] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:28:07] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:28:07] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:28:07] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:28:28] [DEBUG] Updated auth user: thimo.hamma@engelking.de
+[19.10.25 22:28:29] [DEBUG] Updated auth user: sigrid.reichmann@engelking.de
+[19.10.25 22:28:29] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:28:29] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:28:29] [INFO] Deleting deactivated user from Supabase: ausgeschieden
+[19.10.25 22:28:29] [DEBUG] User not found in Supabase: samuel.engelking@engelking.de
+[19.10.25 22:28:29] [INFO] Successfully deleted user: samuel.engelking@engelking.de
+[19.10.25 22:28:29] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:28:29] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:28:29] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:28:30] [DEBUG] Updated auth user: sabid.pehlic@engelking.de
+[19.10.25 22:28:30] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:28:30] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:28:31] [DEBUG] Updated auth user: heike.schneckenburger@engelking.de
+[19.10.25 22:28:32] [DEBUG] Updated auth user: joel.engelking@engelking.de
+[19.10.25 22:28:33] [DEBUG] Updated auth user: bertram.merz@engelking.de
+[19.10.25 22:28:33] [DEBUG] Skipping inactive user without email: Manuela Benk
+[19.10.25 22:28:33] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:28:33] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:28:34] [DEBUG] Updated auth user: daniela.babic@engelking.de
+[19.10.25 22:28:34] [INFO] Deleting deactivated user from Supabase: ausgeschieden
+[19.10.25 22:28:34] [DEBUG] User not found in Supabase: celina.engelking@engelking.de
+[19.10.25 22:28:34] [INFO] Successfully deleted user: celina.engelking@engelking.de
+[19.10.25 22:28:34] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:28:34] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:28:34] [INFO] Deleting deactivated user from Supabase: Tina Mantel
+[19.10.25 22:28:34] [DEBUG] User not found in Supabase: tina.mantel@engelking.de
+[19.10.25 22:28:35] [INFO] Successfully deleted user: tina.mantel@engelking.de
+[19.10.25 22:28:56] [DEBUG] Updated auth user: nora.zimmermann@engelking.de
+[19.10.25 22:28:56] [DEBUG] Skipping inactive user without email: Andrea Hauser
+[19.10.25 22:28:57] [DEBUG] Updated auth user: daniel.becker@engelking.de
+[19.10.25 22:28:58] [DEBUG] Updated auth user: mara.henzler@engelking.de
+[19.10.25 22:28:58] [DEBUG] Skipping inactive user without email: ausgeschieden
+[19.10.25 22:28:58] [DEBUG] Skipping inactive user without email: ausgeschieden
+[19.10.25 22:28:58] [DEBUG] Skipping inactive user without email: ausgeschieden
+[19.10.25 22:28:59] [DEBUG] Updated auth user: jens.bender@engelking.de
+[19.10.25 22:28:59] [INFO] Deleting deactivated user from Supabase: Chris Chertes
+[19.10.25 22:29:00] [DEBUG] User not found in Supabase: chris.chertes@engelking.de
+[19.10.25 22:29:00] [INFO] Successfully deleted user: chris.chertes@engelking.de
+[19.10.25 22:29:00] [DEBUG] Updated auth user: lisa.weber@engelking.de
+[19.10.25 22:29:01] [DEBUG] Skipping inactive user without email: Vira Hiermann
+[19.10.25 22:29:01] [DEBUG] Updated auth user: soraya.hennig@engelking.de
+[19.10.25 22:29:04] [DEBUG] Updated auth user: yannick.matthaeus@engelking.de
+[19.10.25 22:29:05] [DEBUG] Skipping inactive user without email: Maria Petrocelli
+[19.10.25 22:29:05] [INFO] Deleting deactivated user from Supabase: ausgeschieden
+[19.10.25 22:29:05] [DEBUG] User not found in Supabase: bettina.sforza@engelking.de
+[19.10.25 22:29:05] [INFO] Successfully deleted user: bettina.sforza@engelking.de
+[19.10.25 22:29:06] [DEBUG] Updated auth user: melanie.bielitzer@engelking.de
+[19.10.25 22:29:08] [DEBUG] Updated auth user: jennifer.lang@engelking.de
+[19.10.25 22:29:08] [DEBUG] Updated auth user: marcel.moessner@engelking.de
+[19.10.25 22:29:30] [DEBUG] Updated auth user: thomas.koenig@engelking.de
+[19.10.25 22:29:31] [DEBUG] Updated auth user: michelle.pomp@engelking.de
+[19.10.25 22:29:31] [INFO] Sync summary for Sales: Processed=74, Synced=21, Deleted=5, Skipped=53
+[19.10.25 22:29:31] [INFO] Successfully synced to: Sales
+[19.10.25 22:29:31] [INFO] Syncing to database: QM
+[19.10.25 22:29:31] [INFO] Processing 74 user records for QM
+[19.10.25 22:29:31] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:29:31] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:31] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:31] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:31] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:31] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:31] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:31] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:32] [DEBUG] Updated auth user: amos.engelking@engelking.de
+[19.10.25 22:29:32] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:32] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:29:32] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:33] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:33] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:33] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:33] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:33] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:33] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:33] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:33] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:33] [DEBUG] Skipping inactive user without email: ausgeschieden
+[19.10.25 22:29:33] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:33] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:33] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:33] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:33] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:33] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:34] [DEBUG] Updated auth user: johannes.engelking@engelking.de
+[19.10.25 22:29:34] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:29:34] [DEBUG] Skipping inactive user without email: 
+[19.10.25 22:29:34] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:29:34] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:29:35] [DEBUG] Updated auth user: thimo.hamma@engelking.de
+[19.10.25 22:29:36] [DEBUG] Updated auth user: sigrid.reichmann@engelking.de
+[19.10.25 22:29:36] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:29:36] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:29:36] [INFO] Deleting deactivated user from Supabase: ausgeschieden
+[19.10.25 22:29:57] [DEBUG] User not found in Supabase: samuel.engelking@engelking.de
+[19.10.25 22:29:57] [INFO] Successfully deleted user: samuel.engelking@engelking.de
+[19.10.25 22:29:57] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:29:57] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:29:57] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:30:19] [DEBUG] Updated auth user: sabid.pehlic@engelking.de
+[19.10.25 22:30:19] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:30:19] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:30:19] [DEBUG] Updated auth user: heike.schneckenburger@engelking.de
+[19.10.25 22:30:20] [DEBUG] Updated auth user: joel.engelking@engelking.de
+[19.10.25 22:30:20] [DEBUG] Updated auth user: bertram.merz@engelking.de
+[19.10.25 22:30:20] [DEBUG] Skipping inactive user without email: Manuela Benk
+[19.10.25 22:30:20] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:30:20] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:30:43] [DEBUG] Updated auth user: daniela.babic@engelking.de
+[19.10.25 22:30:43] [INFO] Deleting deactivated user from Supabase: ausgeschieden
+[19.10.25 22:31:05] [DEBUG] User not found in Supabase: celina.engelking@engelking.de
+[19.10.25 22:31:05] [INFO] Successfully deleted user: celina.engelking@engelking.de
+[19.10.25 22:31:05] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:31:05] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[19.10.25 22:31:05] [INFO] Deleting deactivated user from Supabase: Tina Mantel
+[19.10.25 22:31:05] [DEBUG] User not found in Supabase: tina.mantel@engelking.de
+[19.10.25 22:31:05] [INFO] Successfully deleted user: tina.mantel@engelking.de
+[19.10.25 22:31:05] [DEBUG] Updated auth user: nora.zimmermann@engelking.de
+[19.10.25 22:31:05] [DEBUG] Skipping inactive user without email: Andrea Hauser

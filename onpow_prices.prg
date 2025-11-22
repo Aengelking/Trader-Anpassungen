@@ -329,6 +329,8 @@ FOR EACH hSeries IN aSeries
                   ELSE
                      cArtLief := ali->Artlief
                   ENDIF
+               ELSEIF Empty(cArtLief)
+                  cArtLief := Space(35)  //not sure what to put here but otherwise the loop condition fails
                ENDIF
                #ifdef DEBUG
                IF At(hSeries:Search,cArtLief) != 1

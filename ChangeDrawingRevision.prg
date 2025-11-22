@@ -92,8 +92,12 @@ PROC RUN_ChangeDrawingRevision()
 
          nPOArtnr := art->Artikelnr
          part->(dbSetOrder( 1 ))
-         IF art->Bezug >= 5 .AND. part->(dbSeek( Str(art->Artikelnr,6)+Str(-1,4) )) //Artikel ist eine Baugruppe            
-            nPOArtnr := part->Partart
+         IF art->Bezug >= 5 //Artikel ist eine Baugruppe            
+            IF part->(dbSeek( Str(art->Artikelnr,6)+Str(-1,4) )) 
+               nPOArtnr := part->Partart
+            ELSE
+               Aadd(aSuppliers,Space(8)) //internal production
+            ENDIF
          ENDIF
          
          ali->(dbSetOrder( 4 ))
@@ -242,8 +246,8 @@ PROC RUN_ChangeDrawingRevision()
                auf->(dbSkip())
             ENDDO*/
          ENDIF
-         
-         Bewegung({'ZNG',0,Date(),ART->ARTIKELNR,,0,0,0,art->Bestand,'',0,0,,Tr_Getini(28),Trim(art->Zeichnung)+" "+Trim(art->Zeichindex)})
+         Altd()
+         Bewegung({'STD',0,Date(),ART->ARTIKELNR,,0,0,0,art->Bestand,'',0,0,,Tr_Getini(28),"ZNG alt:"+Trim(art->Zeichnung)+" "+Trim(art->Zeichindex)})
          art->(Rec_Lock(0))
          art->Zeichindex := cIndex
          art->Zeichnung := cDrawing

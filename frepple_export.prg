@@ -74,6 +74,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
    LOCAL bAddPurchaseOrder,nGelQty,bAddManuOrder
    LOCAL nDWeek,nRestockWeeks,nGap,aWeeks,nTotMeld
    LOCAL lHasResource
+   LOCAL dDelWeek,dDelDate
    MEMVAR c_five
 
    LOCAL bAddSupplier := {|cSupplier|   
@@ -714,7 +715,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
                   ENDIF
                   dDate := Max(auf->Besda+IF(art->LZ==0,nDefaultLZ,art->LZ),dDate)                  
                   
-                  Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"MIN",Trim(auf->Kundma),auf->Matchcode,Min(auf->Meldstock,auf->VkQty),Min(auf->Meldstock,auf->VkQty),Frep_DtoC(IF(dDate<=Date().AND.auf->Meldstock <=art->Bestand,Date()+1,dDate),"10:00"),10,cDefaultLocation,"open"})                                 
+                  Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"MIN",Trim(auf->Kundma),auf->Matchcode,Min(auf->Meldstock,auf->VkQty),Min(IF(Art->VPE!=0,art->VPE,auf->Meldstock),auf->VkQty),Frep_DtoC(IF(dDate<=Date().AND.auf->Meldstock <=art->Bestand,Date()+1,dDate),"10:00"),10,cDefaultLocation,"open"})                                 
 
                   IF auf->VkQty-auf->GelQty > auf->Meldstock //Add orders (broken into MinStock) for the remaining quantity at the end date of the frame contract
                      //Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"END",Trim(auf->Kundma),auf->Matchcode,auf->VkQty-auf->GelQty-auf->Meldstock,Min(auf->VkQty-auf->GelQty-auf->Meldstock,auf->MeldStock*2),Frep_DtoC(CalWd(Max(nDelWeek,auf->Wterm)),"10:00"),20,cDefaultLocation,"open"})
@@ -723,7 +724,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
                      DO WHILE nQty > 0
                         ? nQty
                         IF nQty < auf->Meldstock*2 .OR. auf->MeldStock == 0 //we have less than two Minstock left, we plan the rest
-                           Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"END"+LTrim(Str(nX)),Trim(auf->Kundma),auf->Matchcode,nQty,nQty,Frep_DtoC(CalWd(Max(nDelWeek,auf->Wterm)),"10:00"),20,cDefaultLocation,"open"})   
+                           Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"END"+LTrim(Str(nX)),Trim(auf->Kundma),auf->Matchcode,nQty,IF(Art->VPE!=0,art->VPE,nQty),Frep_DtoC(CalWd(Max(nDelWeek,auf->Wterm)),"10:00"),20,cDefaultLocation,"open"})   
                            nQty := 0
                         ELSE
                            Aadd(aSalesOrders,{Ltrim(Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)+"END"+LTrim(Str(nX)),Trim(auf->Kundma),auf->Matchcode,auf->Meldstock,auf->MeldStock,Frep_DtoC(CalWd(Max(nDelWeek,auf->Wterm)),"10:00"),20,cDefaultLocation,"open"})   
@@ -747,8 +748,26 @@ FUNCTION RUN_FREPPLE_EXPORT()
                //   ENDIF
                //   auf->(dbGoto(nRec))
                //ENDIF
+               IF ku->JustinTime .AND. !Empty(auf->BDatum)
+                  IF ! Empty(auf->UBDatum) .AND. auf->UBDatum < auf->BDatum
+                     dDelDate := auf->UBDatum
+                  ELSE
+                     dDelDate := auf->BDatum
+                  ENDIF
+                  dDelDate := GetJITLiefertag(dDelDate,ku->JIT_LZ)
+               ELSE
+                  IF Right(Str(auf->Dterm,4),2)${"97","98"} .OR. Empty(auf->BDatum)
+                     dDelWeek := Max(nDelWeek,auf->WTerm)                     
+                  ELSEIF auf->UBTerm != 0 .AND. auf->UBTerm < auf->Dterm
+                     dDelWeek := auf->UBTerm
+                  ELSE
+                     dDelWeek := auf->Dterm
+                  ENDIF
+                  dDelDate := CalWD(dDelWeek)+4
+               ENDIF
+
                Aadd(aSalesOrders,{Ltrim((Str(auf->Abnr))+"-"+StrZero(auf->Itmnr,3)),Trim(auf->Kundma),auf->Matchcode,auf->VkQty-auf->GelQty,auf->VkQty-auf->GelQty,;
-                                 Frep_DtoC(IF(ku->JustinTime.AND.!Empty(auf->BDatum),GetJITLiefertag(auf->BDatum,ku->JIT_LZ),CalWD(IF(Right(Str(auf->Dterm,4),2)${"97","98"}.OR.Empty(auf->BDatum),Max(nDelWeek,auf->WTerm),auf->Dterm))+4),"15:00"),;
+                                 Frep_DtoC(dDelDate,"15:00"),;
                                  nPrio,cDefaultLocation,"open"})
             ENDIF
          ENDIF

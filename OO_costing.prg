@@ -62,6 +62,8 @@ FUNCTION RUN_GetCostFromOO(nArtnr,lUpdateCur)
    LOCAL nCurCol,nExCol 
    LOCAL lHead,cCur,nCurRow,cSheet
   
+   
+
    Default(@lUpdateCur,.T.)
 
    IF Empty(cFile) .OR. ! File(cFile)
@@ -78,6 +80,7 @@ FUNCTION RUN_GetCostFromOO(nArtnr,lUpdateCur)
       Aadd(aProps,OOProperty(oOO,"ReadOnly",.T.))
       Aadd(aProps,OOProperty(oOO,"Hidden",.T.))
 
+      ? cFile
 
       oDoc := oDesk:loadComponentFromURL("file:\\\"+cFile, "_blank", 0,aProps)
       
@@ -99,7 +102,7 @@ FUNCTION RUN_GetCostFromOO(nArtnr,lUpdateCur)
                FOR nR := 1 To 100 //look in the first x rows
                   IF nCurCol == NIL
                      oCell := oSheet:getCellByPosition(0,nR)
-                     cVal := Upper(Trim(oCell:getFormula()))            
+                     cVal := Upper(Trim(oCell:getFormula()))                                 
                      IF cVal == "ARTIKEL"  //this might be the header row, move right and look for the columns
                         lHead := .F. //might only be the header, still need to find the second column
                         FOR nC := 1 TO 10 //look in the first 20 columns
@@ -111,6 +114,7 @@ FUNCTION RUN_GetCostFromOO(nArtnr,lUpdateCur)
                               EXIT
                            ELSEIF cVal == "W„HRUNG"
                               nCurCol := nC
+                              //Alert("W„hrung column found at "+Str(nCurCol))
                            ELSEIF cVal == "KURS"
                               nExCol := nC
                            ENDIF
@@ -124,8 +128,8 @@ FUNCTION RUN_GetCostFromOO(nArtnr,lUpdateCur)
                      cCur  := Upper(Trim(oCell:getFormula()))
                      IF ! Empty(cCur)               
                         oCell := oSheet:getCellByPosition(nExCol,nR)               
-                        IF cur->(dbSeek( cCur ))                  
-                           oCell:setFormula(1/Currate(cur->Code,"E")) //update the exchange rate
+                        IF cur->(dbSeek( cCur ))                                    
+                           oCell:setFormula(Currate(cur->Code,"E")) //update the exchange rate
                         ENDIF
                      ENDIF
                   ENDIF               
@@ -155,9 +159,9 @@ FUNCTION RUN_GetCostFromOO(nArtnr,lUpdateCur)
             oCell := oSheet:getCellByPosition(1,nR) //get the next right column
             cCur := Upper(Trim(oCell:getFormula()))
          ELSEIF lUpdateCur .AND. nCurRow != 0 .AND. cVal == "KURS"  //this is the exchange rate row matching the currency we found before
-            IF cur->(dbSeek( cCur ))                 
+            IF cur->(dbSeek( cCur ))                              
                oCell := oSheet:getCellByPosition(1,nR) //get the next right column               
-               oCell:setFormula(1/Currate(cur->Code,"E")) //update the exchange rate
+               oCell:setFormula(Currate(cur->Code,"E")) //update the exchange rate
             ENDIF
          ELSEIF lCost
             IF nQtyRow == 0 .AND. cVal == "MENGE"

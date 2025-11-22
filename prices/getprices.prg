@@ -7,6 +7,7 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
    LOCAL aHeaders := {"Authorization: Bearer 9ba19df2-a263-4251-8022-9d70ab149610:993b190c-2209-414c-8698-c50c50adbed7"}
    LOCAL nS,cID,aOffers
    LOCAL nX
+   LOCAL nQty
 
    LOCAL hNimble := {;
       "FARNELL"=>{"URL"=>"https://de.farnell.com/x/x/x/dp/"+Trim(ali->Artlief),"RENDER"=>.T.};
@@ -25,8 +26,8 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
    
    IF lDbg .OR. ! cmp2->(dbSeek( Str(art->Artikelnr,6)+Str(ku->Nummer,6) )) ;
       .OR. AddWorkingDays(cmp2->Datum,HB_RandomInt(15,25)) < Date() ;
-      .OR. ValType(HB_DeSerialize(cmp2->Daten)) != "H" .OR. HGetKeyAt(HB_DeSerialize(cmp2->Daten),1) == 0;
-         .OR. HGetValueAt(HB_DeSerialize(cmp2->Daten),1) == 0
+      .OR. ValType(HB_DeSerialize(cmp2->Daten)) != "H" .OR. ValType(HGetKeyAt(HB_DeSerialize(cmp2->Daten),1)) != "N" .OR. HGetKeyAt(HB_DeSerialize(cmp2->Daten),1) == 0;
+         .OR. ValType(HGetValueAt(HB_DeSerialize(cmp2->Daten),1)) != "N" .OR. HGetValueAt(HB_DeSerialize(cmp2->Daten),1) == 0
    
       IF ! Empty(oExtra:BRAI_ENGIN) .AND. (! Empty(oExtra:BRAI_URL) .OR. Trim(cLief) == "CONRAD")
          IF "%artlief%" $ oExtra:BRAI_URL .AND. (! ali->(Found()) .OR. Empty(ali->Artlief))
@@ -159,13 +160,21 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
                   IF Trim(cLief) != "CONRAD" .OR. hData["results"]["capturesTexts"]["Seller"] != "Engelking"                     
                      IF HHasKey(hData["result"]["capturedLists"],"Preise")           
                         FOR EACH hPrice IN hData["result"]["capturedLists"]["Preise"]
+                           IF ValType(hPrice["Menge"]) == "C"
+                              nQty := hPrice["Menge"]
+                           ELSEIF ValType(hPrice["Menge"]) == "N"
+                              nQty := Val(Str(hPrice["Menge"]))
+                           ELSE
+                              nQty := 0
+                           ENDIF
+
                            //Alert(ValToPrg(hPrice))
                            IF ValType(hPrice["Preis"]) == "C"
-                              hPrices[Val(hPrice["Menge"])] := Val(StrTran(hPrice["Preis"],",","."))
+                              hPrices[nQty] := Val(StrTran(hPrice["Preis"],",","."))
                            ELSEIF ValType(hPrice["Preis"]) == "N"
-                              hPrices[Val(hPrice["Menge"])] := hPrice["Preis"]
+                              hPrices[nQty] := hPrice["Preis"]
                            ELSEIF hPrice["Menge"] != NIL
-                              hPrices[Val(hPrice["Menge"])] := 0
+                              hPrices[nQty] := 0
                            ENDIF
                         NEXT            
                      ENDIF

@@ -326,7 +326,7 @@ STATIC FUNCTION PrepareUserAuthData(hConfig)
    // User metadata - custom fields
    hData["user_metadata"] := {=>}
    hData["user_metadata"]["trader_user_id"] := buy->(Recno())
-   hData["user_metadata"]["full_name"] := AllTrim(buy->Buyer)
+   hData["user_metadata"]["full_name"] := hb_strToUtf8(AllTrim(buy->Buyer))
    hData["user_metadata"]["initials"] := AllTrim(buy->Initials)
    hData["user_metadata"]["short_name"] := AllTrim(buy->Short)
    hData["user_metadata"]["phone"] := AllTrim(buy->Telefon)
@@ -387,7 +387,7 @@ STATIC FUNCTION SyncSingleAuthUser(oSupa, hConfig, hUserData, cLogFile)
                
                cResult := oSupa:Execute(cEndpoint + "/" + cUserId, "PUT", hUpdateData, , .T.)
    #ifdef LOG_ENABLED
-               WriteLog(cLogFile, "DEBUG", "Updated auth user: " + cEmail)
+               WriteLog(cLogFile, "DEBUG", "Updated auth user: " + cEmail+":"+cResult)
    #endif
             ENDIF
          ELSEIF ValType(aExisting) == "A" .AND. Len(aExisting) > 0
@@ -400,7 +400,7 @@ STATIC FUNCTION SyncSingleAuthUser(oSupa, hConfig, hUserData, cLogFile)
             
             cResult := oSupa:Execute(cEndpoint + "/" + cUserId, "PUT", hUpdateData, , .T.)
 #ifdef LOG_ENABLED
-            WriteLog(cLogFile, "DEBUG", "Updated auth user: " + cEmail)
+            WriteLog(cLogFile, "DEBUG", "Updated auth user: " + cEmail+":"+cResult)
 #endif
             
          ELSE

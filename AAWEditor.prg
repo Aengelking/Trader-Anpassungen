@@ -3,8 +3,9 @@
 #define LOCAL_CACHE_PATH "Y:\Technik\Prozessdoku\Arbeitsanweisungen\"
 THREAD STATIC nAWNr
 STATIC pMutex
+
 PROC RUN_AAWEditor(nNr)
-  LOCAL nW
+  //LOCAL nW
    IF ValType(nNr) != "N"
       Alert("UngÅlitge Arbeitsanweisung Nummer")
       RETURN
@@ -16,12 +17,16 @@ PROC RUN_AAWEditor(nNr)
       hb_threadStart({|nNr|         
          
          LOCAL cError
+         MEMVAR nW
+         PUBLIC nW         
+
          HB_gtSelect(HB_GTCREATE("gtcgi"))  //this avoids any problems with things being displayed on the screen
          nW := hb_webview_create(.T.)
 
          ErrorBlock({|oError| 
             LOCAL cError := ErrorMessage(oError)
-            hb_webview_eval(nW, 'window.alert("'+cError+'")')            
+            hb_webview_eval(nW, 'window.alert("'+cError+'")')    
+            RETURN .T.        
          })         
 
          IF LETO_Connect(getConfigValue("leto_server"),HB_UserName()) < 0 
@@ -48,6 +53,7 @@ PROC RUN_AAWEditor(nNr)
          UnLockEntity("AW",nNr)
 
          hb_webview_destroy(nW)
+         RETURN .T.
       },nNr)
    RECOVER      
    ENDSEQUENCE
@@ -61,10 +67,13 @@ RETURN .T.
 FUNC aawEditorLoad()
    LOCAL hReturn
    LOCAL cFileName
+
+   MEMVAR nW
    
    cFileName := AAW_PATH+LTrim(Str(nAWNr))+".json"
    
    IF File(cFileName)
+      hb_webview_eval(nW, 'console.log("Loading: '+StrTran(cFileName,"\","\\")+'")')
       hReturn := HB_JsonDecode(fileStr(cFileName))
       IF ValType(hReturn) != "H"
          hReturn := { "success" => .F., "error" => "Invalid file format" }

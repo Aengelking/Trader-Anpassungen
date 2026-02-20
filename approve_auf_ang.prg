@@ -307,7 +307,7 @@ FOR EACH hProd IN aProducts
                               DbgPrn("TME: "+ValToPrg(hPrice))
                               lTME := .T. //tme has this product, we set lRS to .T. if they are cheap enough
                               FOR EACH nPrice IN hPrice
-                                 IF nPrice:__eNumKey() <= hProd:Qty  .AND. nPrice*1.2  <= hProd:VkPr / Currate( cMoney, "V" )
+                                 IF ValType(nPrice:__eNumKey()) == "N" .AND. nPrice:__eNumKey() <= hProd:Qty  .AND. nPrice*1.2  <= hProd:VkPr / Currate( cMoney, "V" )
                                     hProd:nEK := nPrice
                                     hProd:Margin :=  (hProd:VkPr / Currate( cMoney, "V" ) - nPrice) /  (hProd:VkPr / Currate( cMoney, "V" ))
                                     hProd:Supplier := Pad("TME",8)
@@ -425,11 +425,14 @@ FOR EACH hProd IN aProducts
          .AND. Left(hProd:Artikel:Matchcode,4) != "TEXT" //mehr als eine Staffel vorlauf 30% Marge, bei Staffelvorlauf min. 20%
          cText1 += cPreText+" Margin:"+Str(hProd:Margin*100,6,1)+"% zu niedrig ("+Trim(hProd:Supplier)+" - "+IF(HB_HHasKey(hProd,"NEK"),LTrim(Str(hProd:nEk,12,2)),"")+");"
          IF hProd:Margin <= 0.2
-            IF Trim(cKundma) $ {"SOFTCOM"} .AND. hProd:Margin >= 0.05 //Beistellware fr Produktion
+            IF Trim(cKundma) $ {"SOFTCOM"} .AND. hProd:Margin >= 0.049 //Beistellware fr Produktion
                nLevel := 4
             ELSEIF lHoliday .AND. nLevel > 2 //.AND. hProd:Margin >= 0.12
                nLevel := 2
-            ELSEIF ! lHoliday .AND. nLevel > 1               
+            ELSEIF ! lHoliday .AND. nLevel > 1  
+               IF Trim(cKundma) $ {"SOFTCOM"}  
+                  cText1 += "SOFTCOM nicht unter 5% Marge erlaubt;"
+               ENDIF
                nLevel := 1
             ENDIF
          ELSE

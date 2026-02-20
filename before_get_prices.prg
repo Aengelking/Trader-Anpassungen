@@ -21,4 +21,5 @@ ELSEIF (nTab == 1 .OR. nTab == 2 ) .AND. ! Empty(cKundma) .AND. "|"+Trim(cKundma
 ELSEIF nTab == 26 .AND.  ! Empty(cKundma) .AND. "|"+Trim(cKundma)+"|" $ HB_AnsiToOem("|RAPHAEL|")  //TECHNO Händler
    nTab := 61
 ENDIF
+
 RETURN nTab

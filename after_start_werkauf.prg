@@ -1,5 +1,6 @@
 PROC HOOK_AFTER_START_WERKAUF( nWnr )
    LOCAL lFremdOnly,oExtra
+   LOCAL cConfigDir := "\\EK-SERVER4\Data\Technik\Prozessdoku\TesterTemplates\"
    MEMVAR mirpt,mibesnr
 
 wer->(dbSetOrder(1))
@@ -40,15 +41,15 @@ ELSE //interne Fertigung
 
    art->(dbSetOrder(2))
    art->(dbSeek( Str(wer->Artno,6) ))
-   oExtra := art->(ExtraData():New(art->Artikelnr))
+   oExtra := art->(ExtraData():New(wer->Artno))
    IF art->Gruppe == "SWPM" .AND. ! oExtra:ManualTest
       rst->(dbSetOrder( 1 ))
       rst->(dbSeek( "WA "+Str(wer->Aufno) ))   
       DO WHILE rst->Type == "WA " .AND. rst->No == nWnr
          job->(dbSeek( Str(rst->Job,6) ))
          
-         IF AT("PRFEN",Upper(job->Name)) > 0
-            SendMail({{"chris.chertes@engelking.de","Chris"}},"SD-Karte fr FA "+LTrim(Str(nWnr))+" vorbereiten","Matchcode: "+art->Matchcode)            
+         IF AT("PRFEN",Upper(job->Name)) > 0 .AND. (Empty(oExtra:CFGTMPLT) .OR. File(cConfigDir+Trim(oExtra:CFGTMPLT)+".RC"))
+            SendMail({{"amos.engelking@engelking.de","Amos"}},"Keine Config-Datei fr SD-Karte fr FA "+LTrim(Str(nWnr)),"Matchcode: "+art->Matchcode)            
             EXIT
          ENDIF
          rst->(dbSkip())

@@ -68,5 +68,9 @@ FUNC HOOK_AFTER_MOVE_STOCK(nArtnr,cVonLager,cNachLager,nMenge,cCharge)
       
       //SendMessage("Qualitaet | Artikel gesperrt","Artikel "+Trim(art->Matchcode)+" wurde "+IF(lFromSperr,"ent","ge")+"sperrt","Von Lager: "+cVonLager+CRLF+"Nach Lager:"+cNachLager+CRLF+"Menge: "+Transform(nMenge,Me(art->Me))+CRLF+cGrund)
    ENDIF
+
+   IF ! lFromSperr .AND. lToSperr
+      MBAseRun(Path("run\inform_sales_stock_block"),{nArtnr,nMenge})
+   ENDIF
          
 RETURN NIL

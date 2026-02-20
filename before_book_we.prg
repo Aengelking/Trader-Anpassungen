@@ -29,7 +29,7 @@ FUNCTION HOOK_BEFORE_BOOK_WE(hData,oBesPos,oArt)
       hData:cCharge := cCharge
    ENDIF
    IF Trim(oBesPos:Liefma) == "OPTRIS" .AND. Left(oArt:Matchcode,9) == "KABEL.SAB"
-      Tr_MsgBox("Bitte Lieferschein an Amos (zum einscannen) geben.")
+      Tr_MsgBox("Bitte Lieferschein einscannen und an Joel senden.")
    ENDIF
    IF Trim(oBesPos:Liefma) == "SELT"  .AND. Tr_MsgBox("Kein SELT-Logo auf Karton oder TÅten?",,{"Nein","Ja"}) != 2
       RETURN .F.

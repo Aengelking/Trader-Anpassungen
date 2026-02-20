@@ -8,7 +8,7 @@ FUNCTION HOOK_GET_FREIGABE_NEXT_LEVEL(cState,nArtnr,nSupplier,lNextFrei)
    //if we are here then the product has a drawing number
    //{"UNT"=>"Unterlagen","UNTK"=>"Unt. v. Kunden","MUS"=>"Muster","KU"=>"Vom Kunden"}
    IF Left(oArt:Matchcode,2) == "BA" .OR. Trim(oArt:Matchcode) $ {"KS28074/1","KS36981/1","KS36981/2","KS36981/3","KS36981/4","KS36981/5","KS36981/6","KS36981/7";
-                                             ,"KS36981/8","KS36981/9","KS36981/10","KS36981/11","KS36981/12","KS36981/13","KS36981/17","KS36981/19"}
+                                             ,"KS36981/8","KS36981/9","KS36981/10","KS36981/11","KS36981/12","KS36981/13","KS36981/17","KS36981/19","KS20989/09"}
       IF cState == "" .OR. cState == "UNTK" //UNTK only for existing parts where we have alreeady started
          RETURN "ZNG"
       ELSE
@@ -29,8 +29,12 @@ FUNCTION HOOK_GET_FREIGABE_NEXT_LEVEL(cState,nArtnr,nSupplier,lNextFrei)
          Alert(cState)
       ENDIF*/
       
-      IF cState == "" .AND. Trim(oArt:Type) == "WARE"
-         RETURN "VMU"
+      IF cState == "" 
+         IF Trim(oArt:Type) == "WARE"
+            RETURN "VMU"
+         ELSE
+            RETURN "UNT"
+         ENDIF
       ELSEIf cState == "VMU" .AND. ! oArt:KuZeichnun  .AND. Trim(oArt:Type) == "WARE"//keine Kundenzeichnung, dann muss diese vom Kunden freigegeben werden, aber nur wenn es Ware ist, d.h. RHB und UNFERT nicht
          RETURN "UNTK"
       Elseif oArt:Gruppe != "KANK"  .AND. (cState == "VMU" .OR. cState == "UNTK") //Fremd.-Unterlagen müssen durch uns freigegeben werden, außer bei Netzzuleitungen

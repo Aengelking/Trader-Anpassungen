@@ -2,8 +2,19 @@ FUNCTION HOOK_AFTER_SAVE_AUFTRAG(oAuftrag)
    LOCAL oAddress,oVatAddress
    LOCAL nResult
 
+   MEMVAR mlCGI
+   MEMVAR maHookWarnings
+   
+   IF Type("maHookWarnings") != "A"
+      maHookWarnings := {}
+   ENDIF
+
    IF oAuftrag:Kunde:re_via == "EMAI" .AND. GetInvoiceContact(oAuftrag:Kunde:Nummer) == NIL
-      Tr_MsgBox(t("Bitte Rechnungsempf‰nger festlegen, ohne diese kann keine Rechnung erstellt werden."),,{"OK"})
+      IF ! mlCGI
+         Tr_MsgBox(t("Bitte Rechnungsempf‰nger festlegen, ohne diese kann keine Rechnung erstellt werden."),,{"OK"})
+      ELSE
+         Aadd(maHookWarnings, t("Bitte Rechnungsempf‰nger festlegen, ohne diese kann keine Rechnung erstellt werden."))
+      ENDIF      
    ENDIF
 
    //Check VAT-ID
@@ -17,11 +28,20 @@ FUNCTION HOOK_AFTER_SAVE_AUFTRAG(oAuftrag)
       ELSE
          oVatAddress := oAddress
       ENDIF
-      TxtBox("UST-Id Nr. wird geprÅft...")
+      IF ! mlCGI
+         TxtBox("UST-Id Nr. wird geprÅft...")
+      ENDIF
       nResult := CheckVatID(oAddress:Vatnr,Trim(oVatAddress:cName),Trim(oVatAddress:Town))
-      TxtClear()
+      IF ! mlCGI
+         TxtClear()
+      ENDIF
       IF nResult != 0
-         Tr_MsgBox(Str(nResult,3)+" "+HB_AnsiToOem(getVATIDErrorName(nResult)),"Fehler in der UST-Id.Nr.")
+         IF mlCGI
+            //Tr_MsgBox(t("Die UST-Id.Nr. ist ungÅltig: ")+oAddress:VatNr+" ("+getVATIDErrorName(nResult)+")",,{"OK"})
+            Aadd(maHookWarnings, t("Die UST-Id.Nr. ist ungÅltig: ")+oAddress:VatNr+" ("+getVATIDErrorName(nResult)+")")
+         ELSE
+            Tr_MsgBox(Str(nResult,3)+" "+HB_AnsiToOem(getVATIDErrorName(nResult)),"Fehler in der UST-Id.Nr.")
+         ENDIF
       ENDIF     
    ENDIF
    

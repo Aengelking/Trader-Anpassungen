@@ -17,4 +17,5 @@ LOCAL hTypes  := { ;
    "INV"=>{"PREFIX"=>"INVENTUR","NAME"=>"Inventurliste","DIR"=>"Inventur","KEEPFOR"=>10},;
    "ER"=>{"PREFIX"=>"ER","NAME"=>"Eingangsrechnung","DIR"=>"Eingangsrechnungen","DIV"=>"Y","NUMLEN"=>9,"KEEPFOR"=>10},;
    "COC"=>{"PREFIX"=>"COC","NAME"=>"Werksbescheinigung","DIR"=>"Werksbescheinigung","KEEPFOR"=>10},;
-   "QT"=>{"PREFIX"=>"QT","NAME"=>"Einkaufsangebot","DIR"=>"Eeinkaufsngebote","KEEPFOR"=>10}}
+   "QT"=>{"PREFIX"=>"QT","NAME"=>"Einkaufsangebot","DIR"=>"Eeinkaufsngebote","KEEPFOR"=>10},;
+   "PP"=>{"PREFIX"=>"FA","NAME"=>"Prfprotokoll","DIR"=>"Pruefprotokolle","KEEPFOR"=>10}}

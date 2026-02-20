@@ -10,6 +10,7 @@ LOCAL oArtExtra
 LOCAL cBez,cText,nX
 LOCAL oArt,hFreigabe,nMaxQty,lBes,oLief,hReq
 LOCAL oContrPos,cLine,nY,nStart,nF,cOldText,nLen,nPos,nOldValue
+LOCAL cTodoType,cTodoTask,lTodoExists,oTodo,aTodoEnv
 LOCAL lExtern := .F.,lSampleFound
 LOCAL aFreigabeList
 LOCAL nStock
@@ -24,12 +25,14 @@ LOCAL bGetFreigabe := { |nLief,oLief|
    ELSE
       cText := Trim(oLief:Kunde)+" "
    ENDIF
+   //Alert("Freigabe wird geprÅft fÅr: "+cText)
    IF hFreigabe:lBes       
+      //Alert("bestellbar "+Ltrim(Str(hFreigabe:PPF))+ValToPrg(hFreigabe:aStatus))
       IF ! lBes .AND. hFreigabe:nMaxQty != 0 //noch nicht durch anderen Lieferanten freiggebn um Menge beschrÑnkt
          nMaxQty += hFreigabe:nMaxQty
          cText += "Freigabe fÅr "+LTrim(Str(nMaxQty))+" erteilt. " 
          Aadd(aFreigabeList,cText)
-      ELSEIF lBes .AND. nMaxQty != 0 .AND. hFreigabe:nMaxQty == 0 //andere Freigabe aeber BeschrÑnkt, diese ist unbeschrÑnkt, dann BeschrÑnkung aufheben
+      ELSEIF lBes .AND. (! lBes .AND. nStock < oAufPos:VkQty) .OR. (nMaxQty > 0 .AND. nMaxQty+nStock < oAufPos:VkQty) //hReq["income"]+ //-IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)+hReq["requirement"]); //other orders should already be on 097 - so only this is important != 0 .AND. hFreigabe:nMaxQty == 0 //andere Freigabe aeber BeschrÑnkt, diese ist unbeschrÑnkt, dann BeschrÑnkung aufheben
          nMaxQty := 0
       ENDIF            
       lBes := .T. 
@@ -94,9 +97,9 @@ IF lExtern .AND. oArt:LagerArt .AND. ! ali->(dbSeek( Str(oArt:Artikelnr,6) ))
 ENDIF
 IF AT("KS",oAufPos:Artikel:Matchcode) == 1 .AND. Empty(oAufPos:Artikel:Zeichnung);
    .AND. AT("KS14696/59",oAufPos:Artikel:Matchcode) != 1 ;
-   .AND. ! Trim(oAufPos:Artikel:Matchcode) $ {"KS29269/1","KS29269/2"}
+   .AND. ! oArtExtra:NoSpec //Trim(oAufPos:Artikel:Matchcode) $ {"KS29269/1","KS29269/2"}
 //,{"amos.engelking@engelking.de","Amos"}
-   SendMail({{"chris.chertes@engelking.de","Chris"}},"Bitte Zeichnung/Spezifikation bei "+Trim(oAufPos:Artikel:Matchcode)+" hinterlegen")
+   SendMessage("Projektmanagement | Zeichnung fehlt","Bitte Zeichnung/Spezifikation bei "+Trim(oAufPos:Artikel:Matchcode)+" hinterlegen")
    Tr_MsgBox("Keine Zeichnung/Spezifikation hinterlegt - Meldung wurde an Projektmanagement verschickt.")
    //RETURN .F.
 
@@ -106,21 +109,7 @@ ELSEIF ! Empty(oAufPos:Artikel:Zeichnung) //Freigabe prÅfen
    lBes := .F.
    nMaxQty := 0
    aFreigabeList := {}
-   IF ! lExtern
-      Eval(bGetFreigabe,0)
-   ELSE
-      ali->(dbSeek( Str(oArt:Artikelnr,6) )) 
-      
-      DO WHILE ali->Artikelnr == oArt:Artikelnr 
-         oLief := Adresse():New()
-         oLief:LoadMatchcode(ali->Kunde,"L")
-         
-         Eval(bGetFreigabe,oLief:Nummer,oLief)
-         
-         ali->(dbSkip())
-      ENDDO
-      
-   ENDIF
+   
    //Alert(oAufPos:Artikel:Matchcode+";Max: "+Str(nMaxQty)+";Incoming:"+Str(hReq["income"])+";Requirement:"+Str(hReq["requirement"])+";Stock:"+Str(oAufPos:Artikel:Bestand)+";Qty:"+Str(oAufPos:VkQty-IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)))
    IF art->Lagerart
       nStock := oAufPos:Artikel:Bestand-hReq["requirement"]  //not planned stock
@@ -136,8 +125,25 @@ ELSEIF ! Empty(oAufPos:Artikel:Zeichnung) //Freigabe prÅfen
    IF ! oAufpos:lNew .AND. Right(Str(oAufPos:GetField("DTERM",.T.),4),2) != "97"  //if it was 97 it has already been added
       nStock += IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)
    ENDIF
-   IF (! lBes .AND. nStock < oAufPos:VkQty) .OR. (nMaxQty > 0 .AND. nMaxQty+nStock < oAufPos:VkQty); //hReq["income"]+ //-IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)+hReq["requirement"]); //other orders should already be on 097 - so only this is important
-      .AND. oAufPos:ContrPos == 0
+
+   //nStock is required for bGetFreigabe
+   IF ! lExtern
+      Eval(bGetFreigabe,0)
+   ELSE
+      ali->(dbSeek( Str(oArt:Artikelnr,6) )) 
+      
+      DO WHILE ali->Artikelnr == oArt:Artikelnr 
+         oLief := Adresse():New()
+         oLief:LoadMatchcode(ali->Kunde,"L")
+         
+         Eval(bGetFreigabe,oLief:Nummer,oLief)
+         
+         ali->(dbSkip())
+      ENDDO
+      
+   ENDIF
+
+   IF (! lBes .AND. nStock < oAufPos:VkQty) .OR. (nMaxQty > 0 .AND. nMaxQty+nStock < oAufPos:VkQty) //hReq["income"]+ //-IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)+hReq["requirement"]); //other orders should already be on 097 - so only this is important
 
       auf->(dbSetOrder( 13 ))
       auf->(dbSeek( Str(oAufpos:Artikel:Artikelnr,6) ))
@@ -164,8 +170,48 @@ ELSEIF ! Empty(oAufPos:Artikel:Zeichnung) //Freigabe prÅfen
       ELSE
          //Tr_MsgBox("Freigabe nicht ausreichend, Artikel kann nicht bestellt werden. Maximal: "+LTrim(Transform(nMaxQty+nStock,oAufpos:Artikel:cPicture)))
          //RETURN .F.
+      ENDIF   
+
+      IF oAufPos:IsRahmen .AND. oAufPos:MeldStock != 0 .AND. ;
+         Tr_MsgBox("Freigabe nicht ausreichend, der Meldebestand kann icht bestellt werden!",,{"In Aufgabe umwandeln","belassen"}) != 2
+         cTodoType := "AUF"
+         cTodoTask := "Meldebestand setzen Pos. "+Ltrim(Str(oAufPos:Itmnr))
+         lTodoExists := .F.
+
+         aTodoEnv := SaveEnv()
+         NetUse("todo","todo")
+         todo->(dbSetOrder( 8 ))
+         todo->(dbSeek( Pad(cTodoType,3)+Str(oAufPos:Auftrag:AbNr,6) ))
+         DO WHILE ! todo->(EOF()) .AND. todo->RefType == Pad(cTodoType,3) .AND. todo->Ref == oAufPos:Auftrag:AbNr
+            IF Trim(todo->Task) == cTodoTask
+               lTodoExists := .T.
+               EXIT
+            ENDIF
+            todo->(dbSkip())
+         ENDDO
+         IF ! lTodoExists
+            oTodo := Todo():New(.T.)
+            oTodo:RefType := cTodoType
+            oTodo:Ref := oAufPos:Auftrag:AbNr
+            oTodo:Task := cTodoTask
+            oTodo:User := SystemUser():Id
+            //oTodo:Due := AddWorkingDays(Date(),1,GetConfigValue("STATE"))
+            oTodo:Days := 1
+            oTodo:Trigger := "PROCEED_FREIGABE"
+            oTodo:TrgSetting := hb_Serialize({;
+               {"name"=>"Artikelnummer","comp"=>"==","compStr"=>"==","comp_val"=>0,"value"=>oAufPos:Artikel:Artikelnr,"next"=>"und","LBValue"=>0},;
+               {"name"=>"Freigabestufe","comp"=>"==","compStr"=>"==","comp_val"=>0,"value"=>"DONE","next"=>"","LBValue"=>0}})
+            oTodo:TrgClause := "p[4]=="+LTrim(Str(oAufPos:Artikel:Artikelnr,6))+" && p[3]=='DONE'"
+            oTodo:Notes := "Meldebestand: "+LTrim(Transform(oAufPos:MeldStock,oAufPos:Artikel:cPicture))
+            oTodo:Save()
+         ENDIF
+         RestEnv(aTodoEnv,.F.)
+
+         
+         oAufPos:MeldStock := 0
+      
       ENDIF
-   ENDIF 
+   ENDIF   
 ELSE
    //IF Tr_getini(28) == 9;Alert("alles ok")  ;ENDIF
 ENDIF

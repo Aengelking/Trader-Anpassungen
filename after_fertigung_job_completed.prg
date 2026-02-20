@@ -21,7 +21,7 @@ FUNCTION HOOK_after_fertigung_job_completed(nAufno,nCompleted,nNext)
    IF fjob->(dbSeek( Str(rst->Id,12) ))      
       LoadModule("frepple")
       oFrepple := GetFreppleApi()
-      hResult := oFrepple:patchManufacturingOrder(StrTran(tip_urlEncode(hb_strtoutf8(Trim(fjob->FreppleId))),"+","%20"),{"status"=>"completed"})      
+      hResult := oFrepple:patchWorkOrder(StrTran(tip_urlEncode(hb_strtoutf8(Trim(fjob->FreppleId))),"+","%20"),{"status"=>"completed"})      
       cText += CRLF+"Frepple Auftrag: "+fjob->FreppleId      
       cText += CRLF+"Fertigungsauftrag in Frepple "
       IF ValType(hResult) == "C"

@@ -151,7 +151,8 @@ IF oAddress:lNew
             //oCompany := oNode
             //oAddress:SetCargo("id",oNode:GetAttribute("Id"))
             */
-            cId := CS_Search()
+            LoadPrg(Path("run\creditsafe_search.prg"))
+            cId := hb_ExecFromArray("CS_Search")
             IF Empty(cID)
                IF LastKey() == 27
                   RETURN .F.

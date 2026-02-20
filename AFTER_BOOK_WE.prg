@@ -21,6 +21,8 @@ FUNCTION HOOK_AFTER_BOOK_WE(hData,oBesPos)
          ENDIF 
          SendMail(aTo,Trim(art->Matchcode)+" wurde im WE gesperrt","Lagerort:"+hData:cLagerort+CRLF+"Menge: "+Transform(hData:nMenge,Me(art->Me))+CRLF+cGrund)*/
          SendMessage("Qualitaet | Artikel gesperrt","Artikel "+Trim(art->Matchcode)+" wurde im WE gesperrt","Lagerort:"+hData:cLagerort+CRLF+"Menge: "+Transform(hData:nMenge,Me(art->Me))+CRLF+cGrund)
+
+         MBAseRun(Path("run\inform_sales_stock_block"),{art->Artikelnr,hData:nMenge})
       ENDIF
    ENDIF
    IF AddWeeks(bes->wterm,bes->ShipTime*-1) > CWeek(Date())      

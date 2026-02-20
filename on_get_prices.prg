@@ -6,13 +6,16 @@ LOCAL nSubAufschlag := 0.3, nSubSpecial := 0.2, aSubSpecial := {"MONACOR"}
 LOCAL oExtra, cMatch, nEx, nFixRate, aSkonto, nTable, aAddPriceTab, aPartPriceTabs, nAddPrice, cLiefma
 LOCAL oArtExtra,nVPEPack
 LOCAL nVK,nQty
+LOCAL aData, cInfoData, cDebugInfo
+LOCAL aSubDistis := {=>}
+LOCAL cSupplier,aAvail,nAvailableStock,nEk
 
 NetUse("ptcache","ptc")
 //use cache if it is not older than a week (or a month for tab 60=Engelking)
 //we cannot do this here as this function might be called several times per part e.g. geprfter preis
-//IF ptc->(dbSeek( Str(nArtnr,6) )) .AND. ptc->LastDate >= Date()-IF(nTab==60,30,7) .AND. ptc->Prices != "{}" .AND. Empty(cKundMa) .AND. dDate <= Date()
-   //RETURN HB_JsonDecode(ptc->Prices)
-//sENDIF
+/*IF ptc->(dbSeek( Str(nArtnr,6) )) .AND. ptc->LastDate >= Date()-IF(nTab==60,30,7) .AND. ptc->Prices != "{}" .AND. Empty(cKundMa) .AND. dDate <= Date()
+   RETURN HB_JsonDecode(ptc->Prices)
+ENDIF*/
 
 NetUse("engkund","ku")
 IF ! Empty(cKundma)
@@ -21,6 +24,10 @@ IF ! Empty(cKundma)
 ENDIF
 
 oArtExtra := art->(ExtraData():New( nArtnr ))
+
+
+oArt := Artikel():New()
+oArt:Load(nArtnr)
 
 //?? "_ ("+Trim(art->Matchcode)+" "+Ltrim(Str(nTab,2))+") "
 
@@ -133,10 +140,8 @@ ELSEIF nTab == 12 .OR. nTab == 29
          HB_ADel(aPricetabs,nX+1,.T.)
       ENDIF
    ENDIF
-ELSEIF oExtra != NIL .AND. Len(oExtra:SubDisti) > 0 //HHasKey(aSubDistis,Trim(cKundma))
-   oArt := Artikel():New()
-   oArt:Load(nArtnr)
-
+ELSEIF oExtra != NIL .AND. Len(oExtra:SubDisti) > 0 .AND. (nManu := AScan(oExtra:SubDisti,oArt:Manufactur)) != 0
+   //HHasKey(aSubDistis,Trim(cKundma))
 
    IF Trim(cKundma) $ aSubSpecial
       nMulti := 1+nSubSpecial
@@ -435,13 +440,22 @@ ELSEIF nTab == 15 //Value-Add
          DO WHILE fol->Artikelnr == art->Artikelnr 
             oArt := Artikel():New() 
             oArt:Load(fol->Folgeart)
+            IF Tr_Getini(28) == 9
+            ? oArt:Matchcode
+            ENDIF
             aAddPriceTab := GetPrices(fol->Folgeart,oArt:Table,dDate,cKundma)
+            IF Tr_Getini(28) == 9
+               ? ValToPrg(aAddPriceTab)
+            ENDIF
             IF Len(aPriceTabs) == 0
                aPriceTabs := aAddPriceTab
             ELSE
                FOR nX := 1 TO LEN(aPriceTabs)
                   nY := AScan(aAddPriceTab,{|aTab| aTab[1] <= aPriceTabs[nX,1] })
                   IF nY == 0
+                     IF Tr_Getini(28) == 9
+                        ? "Deleting",aPriceTabs[nX,1]
+                     ENDIF
                      HB_ADel(aPriceTabs,nX,.T.)
                   ELSE
                      aPriceTabs[nX,2] += aAddPriceTab[nY,2]
@@ -450,7 +464,10 @@ ELSEIF nTab == 15 //Value-Add
             ENDIF
             //? fol->Folgeart
             fol->(dbSkip())
-         ENDDO         
+         ENDDO     
+         IF Tr_Getini(28) == 9
+            Sinkey(0)
+         ENDIF    
       ENDIF
    ENDIF
 ELSEIF nTab == 75 .AND. art->Bezug == 5 //Engelking China if it is repacked
@@ -500,10 +517,16 @@ ELSEIF nTab == 26
       NEXT      
    ENDIF
 ELSEIF nTab == 60  //Engelking
+   TxtBox({"Preis wird berechnet",""})
    aPriceTabs := {}  
    oExtra := art->(ExtraData():New(art->Artikelnr))
+   oArt := Artikel():New()
+   oArt:Load(nArtnr)
+   aQty := Hook("GET_CALC_QUANTITIES",{oArt},{})
+   lDebug := .F.
    
-   IF Len(oExtra:CalcQty) > 0
+
+   /*IF Len(oExtra:CalcQty) > 0
       aQty := oExtra:CalcQty
    ELSE
       IF art->VPE != 0 //if there is a packaging unit we use multiple of this
@@ -512,7 +535,8 @@ ELSEIF nTab == 60  //Engelking
          nVPE := 100
       ENDIF
       aQty := {nVPE,nVPE*5,nVPE*10,nVPE*20}
-   ENDIF
+   ENDIF*/
+
    IF oExtra:CalcMargin > 0
       nMulti := 1/(1-oExtra:CalcMargin/100)
    ELSE
@@ -520,32 +544,90 @@ ELSEIF nTab == 60  //Engelking
    ENDIF
    
    //first we try to calculate the price using the parts list, price base 9 = stock based + supplier price for purchasing
-   FOR EACH nQ IN aQty           
+   cDebugInfo := ""
+   FOR EACH nQ IN aQty                 
+      @ MaxRow()/2+1,(MaxCol()-Len(aQty))/2 SAY Replicate(".",nQ:__enumIndex())
       cInfoData := ""
-      nP := StCalc(nArtnr,9,,.T.,Date(),,nQ,.T.,@cInfoData)*nMulti //60% margin
-      ? nQ,nP
-      IF Tr_Getini(28) == 9
-         //MemoEdit(cInfoData)
+      IF art->Bezug == 5               
+         nP := StCalc(nArtnr,9,,.T.,Date(),,nQ,.T.,@cInfoData)      //? nQ,nP
+      ELSE
+         nP := 0
       ENDIF
+      
+      IF nP >= 0
+
+         //add the cost of all folgeartikel
+         NetUse("folgeart","fol")      
+         IF fol->(dbSeek(Str(art->Artikelnr,6)))         
+            /*IF Tr_Getini(28) == 9
+               CLS
+               ? "Calculating price for Folgeartikel"
+               ? "Quantity "+LTrim(Str(nQ,10))            
+            ENDIF*/
+
+            DO WHILE fol->Artikelnr == art->Artikelnr 
+               oArt := Artikel():New() 
+               oArt:Load(fol->Folgeart)
+               /*IF Tr_Getini(28) == 9
+                  ? oArt:Matchcode
+               ENDIF*/
+               cSupplier := ""
+
+               IF oArt:Mindest == 0
+                  aAvail := GetKwQty(oArt:Artikelnr) 
+                  nAvailableStock := ATail(aAvail)[6] //we have stock left at the end
+               ENDIF
+         
+               IF oArt:Mindest > 0 .OR. nAvailableStock >= nQ*fol->Faktor
+                  // Sufficient stock available - use D/S price
+                  nEk := oArt:avpreis*CURRATE(oArt:money,"E")*oArt:pe
+                  IF nEk == 0
+                     nEk := oArt:GetAvgBuyPrice(dDate)*oArt:Pe
+                  ENDIF
+               ELSE
+                  // Insufficient stock - use supplier price
+                  nEk := GetLowestBuyPrice(oArt:Artikelnr,nQ*fol->Faktor,dDate,@cSupplier)*oArt:Pe
+                  IF nEk == 0
+                     nEk := -1 // No supplier price available
+                  ENDIF
+               ENDIF
+               /*IF Tr_Getini(28) == 9
+                  ?? nEk/oArt:PE
+               ENDIF*/
+               IF nEk > 0
+                  nP += nEk*fol->Faktor/oArt:PE
+                  //?? nP
+               ELSE
+                  cDebugInfo += "No price for "+Trim(oArt:Matchcode)+" "+LTrim(Str(nQ,10))+" pieces "+Chr(13)+cInfoData+CHR(13)
+                  nP := -1
+                  EXIT
+               ENDIF
+               
+               fol->(dbSkip())
+            ENDDO 
+         ENDIF   
+         /*IF Tr_Getini(28) == 9
+            ? nP
+            Sinkey(0)
+         ENDIF*/
+
+      ENDIF
+
+      //add margin
+      nP *= nMulti
       IF nP > 0
          Aadd(aPriceTabs,{nQ,nP})
       ELSE
+         cDebugInfo += "No price for "+LTrim(Str(nQ,10))+" pieces "+Chr(13)+cInfoData+CHR(13)
          //MemoEdit(cInfoData)
       ENDIF
    NEXT   
-   
-   /*IF Len(aPriceTabs) == 0 //alternatively we try  a calculation file
-      hCostOO := RUN_GetCostFromOO(nArtnr)
-      IF hCostOO["ERROR"] == 0 .AND. Len(hCostOO["DATA"]) > 0 
-         FOR nC := 1 TO Len(hCostOO["DATA"])
-            nQ := hCostOO["DATA",nC,"QTY"]
-            nP := hCostOO["DATA",nC,"COST"]*2.5 //60% margin
-            AAdd(aPriceTabs, {nQ, nP})
-         NEXT
-      ENDIF
-   ENDIF*/
 
-   //aPriceTabs := {{1, 9999.99}}
+   IF ! Empty(cDebugInfo) .AND. Tr_Getini(28) $ {9,37} .AND. Tr_MsgBox("Debug pricetab calculation?",,{"No","Yes"}) == 2
+      MemoEdit(cDebugInfo)
+   ENDIF
+
+   
    
    nQty := GetKwStock(nArtnr,9999)  //briger Lagerbestand
    IF nQty > 0
@@ -559,18 +641,9 @@ ELSEIF nTab == 60  //Engelking
       //Alert(ValToPRg(hCostOO))
       
    ENDIF
-   /*IF Len(aPriceTabs) > 0 .AND. nArtnr > 0 .AND. Empty(cKundma) .AND. dDate <= Date()
-      IF ! ptc->(dbSeek( Str(nArtnr,6) ))   
-         ptc->(Add_Rec(0))
-         ptc->Artnr := nArtnr
-      ELSE
-         ptc->(Rec_Lock(0))
-      ENDIF
-      ptc->Prices := HB_JsonEncode(aPriceTabs)
-      ptc->LastDate := Date()
-      ptc->(dbUnLock())
-   ENDIF*/
-   //Alert(ValToPrg(aPriceTabs))
+
+   TxtClear()
+
 ENDIF
 
 //FIXED GBP RATE

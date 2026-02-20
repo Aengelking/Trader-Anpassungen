@@ -22,6 +22,7 @@ FUNCTION HOOK_BEFOER_PROCEED_FREIGABE(nNr,cLevel,cNext,nArtnr,nSupplier,aFields,
       Tr_MsgBox({"Wurde die StÅckliste gegen die Anforderungen aus der Liste der kritischen Komponenten geprÅft?"},"KRITISCHE KOMPONENTE",{"Nein","Ja"}) != 2
       RETURN .F.
    ENDIF
+   
 
    IF lFree .AND. Trim(cLevel) $ {"KU","DONE"} .AND. nSupplier != 0
       oArt := Artikel():New()

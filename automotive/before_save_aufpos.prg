@@ -47,6 +47,10 @@ NetUse("artlief","ali")
 NetUse("parts","part")
 NetUse("ppf","ppf")
 
+IF Trim(oAufPos:Artikel:Matchcode) $ {"@","TEXT","PORTO","EINMALKOSTEN"}  //Artikel mit besondererer Funktion k”nnen immer eingepflegt werden
+   RETURN .T.
+ENDIF
+
 aRegexMatch := HB_Regex("KS([0-9]{5,6}).*",Trim(oAufPos:Artikel:Matchcode))
 IF Len(aRegexMatch) == 0 
    
@@ -58,72 +62,73 @@ ELSEIF Val(aRegexMatch[2]) != oAufPos:Auftrag:Kunde:Nummer
    RETURN .F.
 ENDIF
 
-//Freigabe prfen
-hReq := GetProductRequirementAndIncoming(oAufPos:Artikel:Artikelnr)
-lBes := .F.
-nMaxQty := 0
-aFreigabeList := {}
-IF ! oAufpos:Artikel:Lagerart
-   Eval(bGetFreigabe,0)
-ELSE
-   ali->(dbSetOrder( 4))
-   IF ! ali->(dbSeek( Str(oAufPos:Artikel:Artikelnr,6) )) 
-      Alert("Kein Lieferant")
+IF Right(Trim(oAufPos:Artikel:Matchcode),3) != ".PT"  //Sonderbehandlung von Prototypen, diese drfen auch ohne Freigabe bestellt werden
+   //Freigabe prfen
+   hReq := GetProductRequirementAndIncoming(oAufPos:Artikel:Artikelnr)
+   lBes := .F.
+   nMaxQty := 0
+   aFreigabeList := {}
+   IF ! oAufpos:Artikel:Lagerart
+      Eval(bGetFreigabe,0)
    ELSE
-      Alert("Lieferant: "+ali->Kunde)
-   ENDIF
-   
-   DO WHILE ali->Artikelnr == oAufPos:Artikel:Artikelnr 
-      oLief := Adresse():New()
-      oLief:LoadMatchcode(ali->Kunde,"L")      
-      
-      Eval(bGetFreigabe,oLief:Nummer,oLief)
-      
-      ali->(dbSkip())
-   ENDDO
-   
-ENDIF
-IF art->Lagerart
-   nStock := oAufPos:Artikel:Bestand-hReq["requirement"]  //not planned stock
-ELSE
-   nStock := 0
-ENDIF
-IF HHasKey(hReq["months"],Str(0,5)+Str(0,3)) //week > 52, e.g. 97, then this is available too
-   nStock += hReq["months"][Str(0,5)+Str(0,3)]["requirement"]
-ENDIF
-IF ! oAufpos:lNew .AND. Right(Str(oAufPos:GetField("DTERM",.T.),4),2) != "97"  //if it was 97 it has already been added
-   nStock += IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)
-ENDIF
-IF (! lBes .AND. nStock < oAufPos:VkQty) .OR. (nMaxQty > 0 .AND. nMaxQty+nStock < oAufPos:VkQty);  //other orders should already be on 097 - so only this is important
-   .AND. oAufPos:ContrPos == 0
-
-   auf->(dbSetOrder( 13 ))
-   auf->(dbSeek( Str(oAufpos:Artikel:Artikelnr,6) ))
-   lSampleFound := .F.
-   DO WHILE auf->Artikelnr == oAufpos:Artikel:Artikelnr .AND. (auf->Bestat <= 3 .OR. (auf->Bestat >= 4 .AND. auf->Bestat < 6))
-      IF (auf->Bestat != 3 .AND. auf->VkQty <= nMaxQty) .OR. (auf->Bestat == 3 .AND. auf->GelQty <= nMaxQty)
-         lSampleFound := .T.
-      ENDIF         
-      auf->(dbSkip())
-   ENDDO
-   IF ! lSampleFound .AND. oAufPos:lNew
-      IF nMaxQty == 0
-         HB_AIns(aFreigabeList,1,"Keine Freigabe vorhanden",.T.)   
+      ali->(dbSetOrder( 4))
+      IF ! ali->(dbSeek( Str(oAufPos:Artikel:Artikelnr,6) )) 
+         Alert("Kein Lieferant")
       ELSE
-         HB_AIns(aFreigabeList,1,"Zuerst Position mit Erstmuster anlegen. Maximal: "+LTrim(Transform(nMaxQty,oAufpos:Artikel:cPicture)),.T.)
+         Alert("Lieferant: "+ali->Kunde)
       ENDIF
-      Tr_MsgBox(aFreigabeList)
-      RETURN .F.
-   ELSEIF Right(Str(oAufPos:DTerm,4),2) != "97"
-      HB_AIns(aFreigabeList,1,"Freigabe nicht ausreichend - Liefertermin auf 'folgt' (KWxx97) setzen. Maximal: "+LTrim(Transform(nMaxQty+nStock,oAufpos:Artikel:cPicture)),.T.)   
-      Tr_MsgBox(aFreigabeList)
-      RETURN .F.
+      
+      DO WHILE ali->Artikelnr == oAufPos:Artikel:Artikelnr 
+         oLief := Adresse():New()
+         oLief:LoadMatchcode(ali->Kunde,"L")      
+         
+         Eval(bGetFreigabe,oLief:Nummer,oLief)
+         
+         ali->(dbSkip())
+      ENDDO
+      
    ENDIF
-ENDIF 
+   IF art->Lagerart
+      nStock := oAufPos:Artikel:Bestand-hReq["requirement"]  //not planned stock
+   ELSE
+      nStock := 0
+   ENDIF
+   IF HHasKey(hReq["months"],Str(0,5)+Str(0,3)) //week > 52, e.g. 97, then this is available too
+      nStock += hReq["months"][Str(0,5)+Str(0,3)]["requirement"]
+   ENDIF
+   IF ! oAufpos:lNew .AND. Right(Str(oAufPos:GetField("DTERM",.T.),4),2) != "97"  //if it was 97 it has already been added
+      nStock += IF(oAufpos:Bestat<3,oAufPos:GetField("VkQty",.T.),0)
+   ENDIF
+   IF (! lBes .AND. nStock < oAufPos:VkQty) .OR. (nMaxQty > 0 .AND. nMaxQty+nStock < oAufPos:VkQty);  //other orders should already be on 097 - so only this is important
+      .AND. oAufPos:ContrPos == 0
 
+      auf->(dbSetOrder( 13 ))
+      auf->(dbSeek( Str(oAufpos:Artikel:Artikelnr,6) ))
+      lSampleFound := .F.
+      DO WHILE auf->Artikelnr == oAufpos:Artikel:Artikelnr .AND. (auf->Bestat <= 3 .OR. (auf->Bestat >= 4 .AND. auf->Bestat < 6))
+         IF (auf->Bestat != 3 .AND. auf->VkQty <= nMaxQty) .OR. (auf->Bestat == 3 .AND. auf->GelQty <= nMaxQty)
+            lSampleFound := .T.
+         ENDIF         
+         auf->(dbSkip())
+      ENDDO
+      IF ! lSampleFound .AND. oAufPos:lNew
+         IF nMaxQty == 0
+            HB_AIns(aFreigabeList,1,"Keine Freigabe vorhanden",.T.)   
+         ELSE
+            HB_AIns(aFreigabeList,1,"Zuerst Position mit Erstmuster anlegen. Maximal: "+LTrim(Transform(nMaxQty,oAufpos:Artikel:cPicture)),.T.)
+         ENDIF
+         Tr_MsgBox(aFreigabeList)
+         RETURN .F.
+      ELSEIF Right(Str(oAufPos:DTerm,4),2) != "97"
+         HB_AIns(aFreigabeList,1,"Freigabe nicht ausreichend - Liefertermin auf 'folgt' (KWxx97) setzen. Maximal: "+LTrim(Transform(nMaxQty+nStock,oAufpos:Artikel:cPicture)),.T.)   
+         Tr_MsgBox(aFreigabeList)
+         RETURN .F.
+      ENDIF
+   ENDIF 
+ENDIF
 
 //Kundenbezeichnung Pflicht
-IF ! Trim(oAufPos:Artikel:Matchcode) $ {"@","TEXT"} 
+
    aku->( dbSetOrder( 1 ) )
    IF ! aku->( dbSeek( oAufPos:Auftrag:KundMa + Str( oAufPos:Artikelnr, 6 ) ) ) .OR. Empty(aku->Artlief)
       cBez := GetBox(Space(35),"Bitte Kundenbezeichnung hinterlegen")
@@ -142,4 +147,4 @@ IF ! Trim(oAufPos:Artikel:Matchcode) $ {"@","TEXT"}
          RETURN .F.
       ENDIF
    ENDIF
-ENDIF
+

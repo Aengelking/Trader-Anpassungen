@@ -54,7 +54,10 @@ FOR nX := 1 TO Len(aDir)
 	DO WHILE (nPos := At("0",cNr)) == 1
 		cNr := SubStr(cNr,nPos+1)
    ENDDO
+   IF AT("32",aDir[nX,1]) != 0
+      
 
+   ENDIF
    IF cNr == cZeich+cInd .OR. cNr == cZeich+"-"+cInd
 		cFile := cDir+aDir[nX,1]
 		EXIT

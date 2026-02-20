@@ -37,7 +37,7 @@ FUNCTION HOOK_ON_AUF_READY( nAbNr,lWish,lNextDue )
             oAuftrag := Auftrag():New()
             oAuftrag:Load(nAbnr)
             nOldSkonto := oAuftrag:Kunde:Skonto
-            oAuftrag:Kunde:Skonto := 9  //Auf Vorkasse setzen
+            oAuftrag:Kunde:Skonto := 8  //Auf Vorkasse setzen
             oAuftrag:Kunde:Save()
 
             SendMail({{"amos.engelking@engelking.de","Amos"}},"Vorkassenrechnung wird erstellt fÅr AB "+LTrim(Str(nAbNr)))

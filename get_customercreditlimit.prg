@@ -33,7 +33,7 @@ IF Trim(ku->Kunde) == "ENGELKIA"
 ENDIF
 
 IF Trim(ku->Kunde) == "VARTAR" .AND. Tr_Getini(28) == 9
-   //RETURN 35000
+   //RETURN 22000
 ENDIF
 
 
@@ -44,6 +44,8 @@ ENDIF
 IF Trim(ku->Kunde) == "SOFTCOM"
    RETURN 40000
 ENDIF
+
+LoadPrg(Path("run\creditsafe.prg"))
 
 IF Tr_Getini(28) == 9 // .OR. (Tr_Getini(28) == 33 .AND. Date() <= StoD("2020109"))
    //lAuftrag := .T.
@@ -64,7 +66,7 @@ ENDIF
     ***/
 
     nNettoBeitrag := 13214.83 //11522.96 //13712.82 //16430.86 //14961.43 //11844.02 //12511.50 //10879.57 //9460.49 //10766.35 //8610.54
-    dBeitragBis   := SToD("20260131")
+    dBeitragBis   := SToD("20270131")
 
     aInsolv := {"CPL"}
 
@@ -86,7 +88,8 @@ ENDIF
     hDisputedInvoices[69725] := {"UNTIL"=>StoD("20250115")} //not really disputed but there is some problem with the invoice
     hDisputedInvoices[71067] := {"UNTIL"=>StoD("20250607")} //addresses where not correct and the due has been reset to 
     hDisputedInvoices[72029] := {"UNTIL"=>StoD("20250908")} //Preisdifferenz wurde mit Gutschrift 72366/72367 korrigiert
-
+    hDisputedInvoices[71839] := {"UNTIL"=>StoD("20251001")} //War nur telefonisch abgesprochen, gab keine AB oder Bestellung (Ware war fr eigene Verarbeitung anstatt Konfektion) dadurhc kam es zu Problemen in der Rechungsprfung
+    hDisputedInvoices[71859] := {"UNTIL"=>StoD("20251001")}  //wie zuvor
    IF lAuftrag      
       hSpecial["EXIDE"] := {"DATE"=>SToD("20211231"),"LIMIT"=>110000} //28.08.2020 bekommen nur 40.000 von der Versicherung, da die Ware aber beim Lieferant bestellt ist will ich auch die Auftr„ge eintragen
       hSpecial["VIRTENIO"]  := {"DATE"=>StoD("20201231"), "LIMIT"=>95000} //03.12.20 bekommen lediglich ein Limit von 35.000 von der Versicherung
@@ -401,7 +404,7 @@ ENDIF
    //hSpecial["OMC"] := {"DATE"=>SToD("20210330"),"LIMIT"=>70} //16.02.21 Verl„nger und von 210 reduziert, zahlt nicht besonders pkt. //11.11.20 Verl„ngert und von 101 erh”ht //05.10.20 Kunde hatte anscheinden Probleme mit dem Mailserver und haben deswegeen weder Rechnung noch Mahnung bekommen.
    //hSpecial["WASSERWE"] := {"DATE"=>SToD("20201030"),"LIMIT"=>25} //07.10.20 Schlechtes Rating, sehr geringer betrag
 
-   hSpecial["WHTECH"]   := {"DATE"=>StoD("20251231"), "LIMIT"=>5700} //16.07.25 Limit eingetragen, da wegen versp„teter Rechnung kein auslieferung m”glich //12.10.20 Verl„ngert und erh”ht von 300 //14.03.19 Ziehen wir immer von den Rechnungen ab //28.07.16 wenn der weiterhin nicht zahlt, ziehen wir das von den Rechnungen ab!
+   //hSpecial["WHTECH"]   := {"DATE"=>StoD("20251231"), "LIMIT"=>5700} //16.07.25 Limit eingetragen, da wegen versp„teter Rechnung kein auslieferung m”glich //12.10.20 Verl„ngert und erh”ht von 300 //14.03.19 Ziehen wir immer von den Rechnungen ab //28.07.16 wenn der weiterhin nicht zahlt, ziehen wir das von den Rechnungen ab!
     //hSpecial["TILLYTA"]  := {"DATE"=>StoD("20190430"), "LIMIT"=>12500} //12.11.18 šber Factoring wird pnktlich bezahlt, erh”hung auf 12,5K //5.6.18 Werden das zuknftig ber Factoring abwickeln, die haben ein Limit von 10.000 einger„umt //16.04.18 schwieriger Kunde, zahlt sehr unpünktlich und dadruch ist das KL der Versicherung gestrichen.
     
     //hSpecial["EDB"] := {"DATE"=>StoD("20191230"), "LIMIT"=>2200} //13.02.19 verl„ngert, weiterhin Factoring //16.10.18 Rating 3.5 daher Factoring
@@ -526,7 +529,7 @@ ENDIF
 //    hSpecial["VIVEROO"] := {"DATE"=>StoD("20160130"), "LIMIT"=>349} //Rating 3.6, zahlt aber immer pkt. oder sogar mit Skonto
 //    hSpecial["GHL"] := {"DATE"=>StoD("20160331"), "LIMIT"=>2999} //wird engmaschig gemahnt und kriegt vorab Auszug
 //    hSpecial["SETIS"] := {"DATE"=>StoD("20161027"), "LIMIT"=>705} //Rating 3.3, angeboten mit ZZ, daher um 5€ erhöht
-      hSpecial["KWAUTOMO"] := {"DATE"=>SToD("20251030"),"LIMIT"=>14000} //27.08.25 Letzte Rechnung 15 Tage zu sp„t (keine Mahnung) //20.02.15 auf 14 Tage umgestellt; 06.07.15 auf 4999 erhöht, letzte Rechnung "nur" 9 Tage verspätet
+     // hSpecial["KWAUTOMO"] := {"DATE"=>SToD("20251030"),"LIMIT"=>14000} //27.08.25 Letzte Rechnung 15 Tage zu sp„t (keine Mahnung) //20.02.15 auf 14 Tage umgestellt; 06.07.15 auf 4999 erhöht, letzte Rechnung "nur" 9 Tage verspätet
 
 //    hSpecial["GHIELMET"] := {"DATE"=>StoD("20150930"), "LIMIT"=>2195} //bisher nur einmal vorgekommen.
 //    hSpecial["ARNOLDRI"] := {"DATE"=>StoD("20151130"), "LIMIT"=>949} //Rating 3.1 , KL ein wenig erhöht
@@ -777,7 +780,7 @@ ELSE
          IF ku->CountryIso == "DE" //kein Eintrag der WKV, Abruf Daten Creditsafe
             
             IF cs->(dbSeek( Str(ku->Nummer,6))) .OR. (! Empty(ku->CompForm) .AND. ! Empty(ku->Compno) .AND. ! Empty(ku->Gericht))
-               oSOAP := CreditSafe()
+               oSOAP := hb_ExecFromArray({"CreditSafe"})
                     
                IF lDbg
                   ? "Auskunft wird eingeholt (CS-ID: "+Trim(cs->ID)+")"
@@ -861,20 +864,20 @@ ELSE
                   ENDIF
                ELSE
                   cID := cs->ID
-                  IF ! lDbg
+                  IF ! lDbg .AND. ! GetConfigValue("BATCHMODE")
                      TxtClear()
                   ENDIF
                ENDIF
                
                //IF cs->Kunde == ku->Nummer
                IF cID != NIL
-                  oSOAP := CreditSafe()
-                  oReport := CS_GetCompanyReport(oSoap,cID,3)
+                  oSOAP := hb_ExecFromArray({"CreditSafe"})
+                  oReport := HB_ExecFromArray({"CS_GetCompanyReport",oSoap,cID,3})
                   IF oReport == NIL
                      __TxtBox("Fehler beim herunterladen der Auskunft!",.T.)
                      nCredLimit := 1
                   ELSE
-                     CS_SaveReport(ku->Nummer,oReport)
+                     HB_ExecFromArray({"CS_SaveReport",ku->Nummer,oReport})
                   ENDIF
                ENDIF
                //TxtClear()
@@ -905,7 +908,7 @@ ELSE
       IF lDbg
          ? "Creditsafe wird geprft"
       ENDIF
-      oReport := CS_GetCompanyReportFromArchive(ku->Nummer)
+      oReport := HB_ExecFromArray({"CS_GetCompanyReportFromArchive",ku->Nummer})
       IF oReport != NIL
          /*IF  ! cs->(dbSeek( Str(ku->Nummer,6) ))
             cs->(Add_Rec(0))
@@ -1136,6 +1139,9 @@ ENDIF
 
 
 If lToLate //one invoice was paid to late
+   IF lDbg
+      Alert( "Kunde hat zu spät bezahlt. Limit wird reduziert." )
+   ENDIF
    If nToLate <= 15 //small credit limit for 15 further days
 		If ska->Ziel1 == -2 //bankeinzug
 			Return 500
@@ -1148,8 +1154,11 @@ If lToLate //one invoice was paid to late
       RETURN 250
 	Endif
 	Return -6  //no credit
-Elseif ! lSimpleCountry .AND. ! lMoreCountry
+Elseif ! lSimpleCountry .AND. ! lMoreCountry .AND. !lWKV
    //IF Tr_Getini(28) == 9; Alert("Country: "+ku->CountryIso); Endif
+   IF lDbg
+      Alert( "Kein Schutz fr dieses Land vorhanden." )      
+   ENDIF
    IF  HHasKey(hSpecial,Trim(cKunde)) .AND. hSpecial[Trim(cKunde)]:Date >= Date() 
       RETURN Min(500,hSpecial[Trim(cKunde)]:Limit)
    ENDIF
@@ -1178,11 +1187,13 @@ IF lDbg; Alert("NO LIMIT?"); ENDIF
 Return 0
 
 STATIC Function __TxtBox(cTxt,lWait)
-   TxtBox(t(cTxt))
-   IF lWait == .T.
-      Inkey(1,128)
-      TxtClear()
+   IF ! GetConfigValue("BATCHMODE")
+      TxtBox(t(cTxt))
+      IF lWait == .T.
+         Inkey(1,128)
+         TxtClear()
+      ENDIF
    ENDIF
 RETURN NIL
 
-#include 'X:\run\creditsafe.prg'
+//#include 'X:\run\creditsafe.prg'

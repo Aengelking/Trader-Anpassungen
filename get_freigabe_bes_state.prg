@@ -31,7 +31,7 @@ If lFrei .OR. cState == ""
    IF Tr_GetINi(28) == 9
       //Alert(ValToprg({cState,lFrei,lSonder,nMenge,dBis,nVerbraucht,nAddress,nContact,cPrev,nArtnr,nSupplier}))
    ENDIF
-	cNextLevel := GetNextFreigabeLevel(nArtnr,nSupplier,cState)
+	cNextLevel := GetNextFreigabeLevel(nArtnr,nSupplier,cState)   
 Endif
 
 IF Tr_Getini(28) == 9
@@ -94,7 +94,7 @@ ELSEIF cNextLevel == "MUS" .OR. ;
 	ENDIF
 ELSEIF cState == "" //Freigabe noch nicht begonnen, Vorserien Muster
    hRet:lBes        := .T.
-   hRet:nMaxQty     := 6  //1 for the customer and one for us
+   hRet:nMaxQty     := 10 //1 for the customer and one for us
 ELSEIF cNextLevel == "ZNG" .AND. (Left(oArt:Matchcode,2) == "BA" .OR. Trim(oArt:Matchcode) $ {"KS28074/1"})  //Beschaffungsartikel
    hRet:lBes        := .T.
 ELSEIF cState == "DONE"

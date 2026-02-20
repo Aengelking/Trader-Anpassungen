@@ -15,8 +15,8 @@ PROC PRINT_MATNW()
          cText := MemoRead(cFile)         
          nLen := MlCount(cText,nLineLength)   
 
-         IF oPrinter:Data:ReportLine+1+nLen+1 >= frm->par11 //if it does not fit on the current page            
-            frm->(Endpage(,,,,,.T.))
+         IF oPrinter:Data:ReportLine+1+nLen+1 >= frm->par11 //if it does not fit on the current page                        
+            frm->(Endpage(,,,,oPrinter:Data:ReportLine+1+nLen+1 ,.T.))            
          ENDIF
    
          IF oPrinter != NIL .AND. oPrinter:Type == "PDF"            
@@ -37,7 +37,10 @@ PROC PRINT_MATNW()
                   
          Conv("\arial,10\")
       ELSE
-         Alert("File not found")
+         IF Tr_Getini(28) == 9
+            Alert("File "+cFile+" not found for Materialnachweis")
+         ENDIF
+         SendMessage("Qualitaet | Materialnachweis fehlt","Materialnachweis fehlt",StrTran("Hallo,\n\nfr die Artikelnummer "+Str(art->Artikelnr)+" wurde kein Materialnachweis gefunden. Bitte diesen erstellen und im Verzeichnis "+Path("config\texts\parts\")+" ablegen.\n\nVielen Dank!","\n","<br>"))         
       ENDIF
    ENDIF      
 

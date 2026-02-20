@@ -2,6 +2,8 @@
 #define LAG_STOCK_USABLE 2
 #include 'inkey.ch'
 
+#define CRLF ";" //Chr(13)+Chr(10)
+
 FUNCTION RUN_SHOW_QS_PARTS
    LOCAL hItems 
    LOCAL aKwQty,nQSQty,nStock,nX,nArtnr
@@ -104,6 +106,7 @@ FUNCTION RUN_SHOW_QS_PARTS
             "MATCH"=>art->Matchcode,;
             "ARTNR"=>art->Artikelnr,;
             "TEXT"=>art->Matchcode+" "+PadL(Transform(nQSQty,Me(art->Me)),12),;
+            "QTY"=>nQSQty,;
             "STATUS"=>0,;
             "NEXT"=>"ˇ",;
             "WE"=>StoD(""),;
@@ -241,6 +244,22 @@ FUNCTION RUN_SHOW_QS_PARTS
    oBrowse:ColorSpec := "N/W,N+/W,W/N, W/N*,N+/G*,G+/N,N+/GR*,GR+/N,N/R*,R+/N"
    //"OVER"=>"N/R*","NOW"=>"N+/GR*","NEXT"=>""
    oBrowse:AddKey(K_ESC,{|| .F.})
+   oBrowse:AddKey(K_ENTER,{||
+      LOCAL nQSQty := 0, nArtnr := 0, cFirm := ""
+      IF ValType(oBrowse:CurrentDataRow()) == "H" .AND. hHasKey(oBrowse:CurrentDataRow(),"MATCH")         
+         IF hHasKey(oBrowse:CurrentDataRow(),"QTY")
+            nQSQty := oBrowse:CurrentDataRow()["QTY"]
+         ENDIF
+         IF hHasKey(oBrowse:CurrentDataRow(),"ARTNR")
+            nArtnr := oBrowse:CurrentDataRow()["ARTNR"]
+         ENDIF
+         IF hHasKey(oBrowse:CurrentDataRow(),"FIRM")
+            cFirm := oBrowse:CurrentDataRow()["FIRM"]
+         ENDIF
+         ShowWEDeliveryNotes(oBrowse:CurrentDataRow()["MATCH"], nQSQty, nArtnr, aFirms, cFirm)
+      ENDIF
+      RETURN .T.
+   })
    oBrowse:AddKey(K_F8,{||
       IF oBrowse:CurrentDataRow()["FIRM"] == 0
          IF ! Empty(oBrowse:CurrentDataRow()["MATCH"])
@@ -291,6 +310,10 @@ FUNCTION RUN_SHOW_QS_PARTS
       //Aadd(aBrowse,{oBrowse,SaveEnv()})
 
    oBrowse:bAnyFun := {||
+      SetColor(c_one)
+      @ 10,77 CLEAR TO 19,MaxCol()
+      @ 21,77 CLEAR TO MaxRow(),MaxCol()
+
       IF ValType(oBrowse:CurrentDataRow()) == "H" .AND. hHasKey(oBrowse:CurrentDataRow(),"ARTNR")         
          qs->(dbCloseArea())
          IF oBrowse:CurrentDataRow()["FIRM"] == 0
@@ -305,8 +328,8 @@ FUNCTION RUN_SHOW_QS_PARTS
          oBrowseQS:Display()
          oBrowseQS:deHilite()
          IF Len(oBrowse:CurrentDataRow()["BATCHES"]) > 0
-            SetColor(c_one)
-            @ 10,77 CLEAR TO 19,MaxCol()
+            //SetColor(c_one)
+            //@ 10,77 CLEAR TO 19,MaxCol()
             @ 10,77 SAY PadC(" Chargen im QS Lager ",MaxCol()-77,Chr(196))
             nR := 10
             FOR EACH cBatch IN oBrowse:CurrentDataRow()["BATCHES"]
@@ -314,10 +337,7 @@ FUNCTION RUN_SHOW_QS_PARTS
                @ nR,77 SAY "Charge "+Trim(cBatch:__eNumKey())+": "+Transform(cBatch,Me(art->Me))+" "+art->Me
             NEXT
          ENDIF
-      ELSE
-         SetColor(c_one)
-         @ 10,77 CLEAR TO 19,MaxCol()
-         @ 21,77 CLEAR TO MaxRow(),MaxCol()
+      
       ENDIF
       RETURN .T.
    }
@@ -326,3 +346,172 @@ FUNCTION RUN_SHOW_QS_PARTS
 
    //Sinkey(0)
 RETUR NIL
+
+FUNCTION ShowWEDeliveryNotes(cMatchcode, nQSQty, nArtnr, aFirms, nFirmID)
+   LOCAL aEnv := SaveEnv()
+   LOCAL cBeleg := "", nTotalQty := 0, nCurrentQty := 0
+   LOCAL aDeliveries := {},aDelivery
+   LOCAL cMessage := ""
+   LOCAL aBuartTypes := {"WE","WA"}
+   LOCAL aMenuItems := {}, nSelection, cTitle
+   LOCAL nSupplier
+   LOCAL hLagerorte := {=>}, cLagerort, hTrackLagerort := {=>}
+   LOCAL cLagerortFrom, cLagerortTo
+   LOCAL aLagerParts
+   LOCAL i, nFirm, cQSLager, nQty
+   LOCAL cMe := "STCK"
+
+   
+   Default(@nQSQty, 0)
+   Default(@nArtnr, 0)
+   Default(@nFirmID, 0)
+   
+   NetUse("artikel","art")
+   NetUse("lager","lag")
+   NetUse("engabg","abg")
+   NetUse("engkund","ku")
+   
+   // Find the QS LAGER for this firm
+   nFirm := AScan(aFirms, {|x| x["ID"] == nFirmID})
+   IF nFirm > 0
+      cQSLager := aFirms[nFirm]["LAGER"]
+   ELSE
+      cQSLager := ""
+   ENDIF
+   
+   // Get all lagerorte and quantities where this article is stored in the QS lager
+   IF nArtnr > 0
+      art->(dbSetOrder(2))
+      IF art->(dbSeek(Str(nArtnr, 6)))
+         cMe := art->Me
+         
+         
+         // Build hash of lagerorte with quantities for this article
+         lag->(dbSetOrder(1))
+         IF lag->(dbSeek( nArtnr ))
+            DO WHILE lag->Artikelnr == nArtnr .AND. ! lag->(EOF())               
+               // Only include lagerorte that start with the QS lager
+               IF ! Empty(cQSLager) .AND. At(cQSLager, lag->Lagerort) == 1
+                  cLagerort := Trim(lag->Lagerort)
+                  IF ! (cLagerort $ hLagerorte)
+                     hLagerorte[cLagerort] := lag->Lagermenge
+                  ELSE
+                     hLagerorte[cLagerort] += lag->Lagermenge
+                  ENDIF
+               ENDIF
+               lag->(dbSkip())
+            ENDDO
+         ENDIF
+      ENDIF
+   ENDIF
+   
+   // If no specific lagerorte found but we have a QS lager, use that as default
+   IF Len(hLagerorte) == 0 .AND. ! Empty(cQSLager)
+      hLagerorte[cQSLager] := nQSQty
+   ENDIF
+   
+   // Create a mapping hash: current_lagerort => original_delivery_lagerort
+   // Initially, each lagerort maps to itself
+   hTrackLagerort := {=>}
+   FOR EACH cLagerort IN HB_HKeys(hLagerorte)
+      hTrackLagerort[cLagerort] := cLagerort
+   NEXT
+   
+   abg->(dbSetOrder(1))
+   
+   // Search backwards for records with the same matchcode
+   IF abg->(dbSeek(Descend(cMatchcode), .T.))
+      DO WHILE abg->Matchcode == cMatchcode .AND. ! abg->(EOF())
+         // Handle storage location transfers (UMB) to track where goods came from
+         // Only process UMB between QS lager locations
+         IF Trim(abg->Buart) == "UMB"
+            // Format: lagerort_from>lagerort_to in the info field
+            aLagerParts := HB_ATokens(StrTran(abg->Info,"=>",">"),">")
+            IF Len(aLagerParts) >= 2
+               cLagerortFrom := Trim(aLagerParts[1])
+               cLagerortTo := Trim(aLagerParts[2])
+               
+               // Only track movements within the QS lager
+               IF ! Empty(cQSLager) .AND. At(cQSLager, cLagerortFrom) == 1 .AND. At(cQSLager, cLagerortTo) == 1
+                  // If we're tracking the "to" location, update it to point to "from"
+                  // This builds a chain: current -> intermediate -> original
+                  FOR EACH cLagerort IN hTrackLagerort
+                     IF cLagerort == cLagerortTo
+                        // Update the mapping to track back one more step
+                        hTrackLagerort[cLagerort:__EnumKey()] := cLagerortFrom
+                     ENDIF
+                  NEXT
+               ENDIF
+            ENDIF
+         ELSEIF Trim(abg->Buart) $ aBuartTypes
+            // Check if this delivery note belongs to any of our tracked lagerorte
+            FOR EACH cLagerort IN hTrackLagerort
+               // Only include if the info field contains the tracked (original) lagerort
+               IF AT(Trim(cLagerort), Trim(abg->Info)) > 0
+                  nCurrentQty := abg->Menge
+                  nTotalQty += nCurrentQty
+                  
+                  // Check if this is a new delivery note
+                  IF cBeleg != abg->Beleg
+                     cBeleg := abg->Beleg
+                     Aadd(aDeliveries, {;
+                        "BELEG"    => Trim(abg->Beleg),;
+                        "DATE"     => abg->Datum,;
+                        "QTY"      => nCurrentQty,;
+                        "SUPPLIER" => abg->Liefma,;
+                        "INFO"     => abg->Info,;
+                        "LAGERORT" => Trim(cLagerort:__EnumKey()) ;
+                     })                     
+                  ELSE
+                     // Accumulate quantity for same delivery note
+                     ATail(aDeliveries)["QTY"] += nCurrentQty
+                  ENDIF
+                  
+                  // Stop searching once we've reached the QS quantity
+                  IF nQSQty > 0 .AND. nTotalQty >= nQSQty
+                     EXIT
+                  ENDIF
+               ENDIF
+            NEXT
+            
+            IF nQSQty > 0 .AND. nTotalQty >= nQSQty
+               EXIT
+            ENDIF
+         ENDIF
+         abg->(dbSkip())
+      ENDDO
+   ENDIF
+   
+   // Build menu for delivery note selection
+   IF Len(aDeliveries) > 0
+      
+      cTitle := "Lieferscheine auswÑhlen"
+      
+      FOR EACH aDelivery IN aDeliveries
+         Aadd(aMenuItems, PadR(aDelivery["BELEG"], 15) + " " + DtoC(aDelivery["DATE"]) + " " + ;
+               PadL(Transform(aDelivery["QTY"],Me(cMe)), 9) + " " + Trim(aDelivery["SUPPLIER"]) + " " + Trim(aDelivery["LAGERORT"]))
+      NEXT
+      
+      nSelection := AMenu(aMenuItems, , cTitle)
+      
+      IF nSelection > 0
+         IF Empty(Trim(aDeliveries[nSelection]["SUPPLIER"])) //interne Produktion
+            nSupplier := 0
+         ELSE
+            ku->(dbSetOrder(1))
+            IF ! ku->(dbSeek(Pad(aDeliveries[nSelection]["SUPPLIER"],8)+"L"))
+               Tr_MsgBox("Lieferant nicht gefunden")
+            ELSE
+               nSupplier := ku->Nummer
+            ENDIF
+         ENDIF
+         IF nSupplier != NIL
+            wapi_ShellExecute(,"open","https://engelking-qm.lovable.app/wareneingangspruefungen/neu?article="+tip_URLEncode(Trim(cMatchcode))+"&trader_supplier_id="+LTrim(Str(nSupplier))+"&delivery_note="+Trim(aDeliveries[nSelection]["BELEG"]+"&firm_id=1&quantity="+LTrim(Transform(aDeliveries[nSelection]["QTY"],Me(cMe)))),{{" ","%20"}})
+         ENDIF
+      ENDIF
+   ELSE
+      Alert("Keine Lieferscheine gefunden fÅr: " + cMatchcode)      
+   ENDIF
+   
+   RestEnv(aEnv, .T.)
+   RETURN .T.

@@ -758,7 +758,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
                ELSE
                   IF Right(Str(auf->Dterm,4),2)${"97","98"} .OR. Empty(auf->BDatum)
                      dDelWeek := Max(nDelWeek,auf->WTerm)                     
-                  ELSEIF auf->UBTerm != 0 .AND. auf->UBTerm < auf->Dterm
+                  ELSEIF auf->UBTerm != 0 .AND. Val(Right(Str(auf->UBTerm,4),2))<=52 .AND. auf->UBTerm < auf->Dterm
                      dDelWeek := auf->UBTerm
                   ELSE
                      dDelWeek := auf->Dterm
@@ -909,6 +909,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
    wer->(dbGotop())
    DO WHILE ! wer->(EOF())     
       oWerExtra := wer->(ExtraData():New(wer->Aufno))
+      //oWerk := WA():New()
 
       /*nDays := GetValue("FREPPLE_CONFIRM_MO_DAYS",4,"Confirm MO days ahead (0=off)")
       
@@ -918,8 +919,8 @@ FUNCTION RUN_FREPPLE_EXPORT()
       ENDIF*/
 
       IF /*GetValue("FREPPLE_EXPORT_ALL_MO",.F.,"Export all existing MOs");
-         .OR.*/ wer->Status >= 1;
-         .OR.  ! Empty(wer->Liefma) /*.OR. ! Empty(oWerExtra:FreppleSta)*/  //we only add orders which are in production or also can be purchased externaly
+         .OR.*/ (wer->Status >= 1 .OR.  ! Empty(wer->Liefma)) /*.OR. ! Empty(oWerExtra:FreppleSta)*/  //we only add orders which are in production or also can be purchased externaly
+         //.AND. ! oWerk:IsRework() //Ignore Rework orders
 
          @ MaxRow()/2+2,MaxCol()/2-4 SAY "["+Str(wer->Aufno,6)+"]" COLOR c_five     
          IF ! Empty(wer->Liefma)

@@ -108,7 +108,7 @@ PROC CreateXRechung(nRechnr,cFile)
       hData["title"] := IF(cLang!="D","Credit note","Stornorechnung")
       hData["typeCode"] := "384" //Rechnungskorrektur
    ENDIF
-   hData["number"] := re->Rechnr
+   hData["number"] := LTrim(Str(re->Rechnr))
    hData["issueDate"] := _DtoC(re->Rechdat)
    hData["dueDate"] :=  _DtoC(re->Rechdat+sk->(GetSkontoWait(re->skonto,re->rechdat)))
    hData["deliveryDate"] := _DtoC(IF(ups->(dbSeek( Str(re->Rechnr,10) )),ups->Datum,re->Rechdat))

@@ -85,7 +85,9 @@ PROC Run_TimeButler(lDavid,lAutoReply,lFrepple,lOrga)
             oUser:oSettings:AwayUntil := hAbsence["To"]
             oUser:oSettings:AwayFrom := hAbsence["From"]
 
-            nR := AScan(aUsers,{|x| x["User ID"] == hAbsence["User ID of the substitute"]})
+            nR := AScan(aUsers,{|x| 
+               RETURN ! Empty(x["User ID"]) .AND. x["User ID"] == hAbsence["User ID of the substitute"]   //there seems to be a bug in Timebutler API which returns blank Users 
+            })
             IF nR != 0 .AND. ! Empty(aUsers[nR]["Employee number"]) 
                oUser:oSettings:AwaySubst := aUsers[nR]["Employee number"]
             ELSE

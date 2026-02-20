@@ -9,7 +9,7 @@ LOCAL nArtnr := art->Artikelnr
 LOCAL nPole,aMatch,cInlet
 LOCAL cMatch,nPe := 1
 LOCAL nY,nX
-LOCAL lDbg := .F. //Tr_Getini(28) == 9
+LOCAL lDbg := Tr_Getini(28) == 9
 LOCAL lBuerklin := .F.
 //LOCAL aEnv := SaveEnv()
 
@@ -66,7 +66,9 @@ ENDIF
 //400er Series Bulk contacts
 IF AT("/BULK",art->Matchcode) > 0
    cMatch := StrTran(art->Matchcode,"/BULK",Space(5))
-   nPE := 10  //non bulk products are packed in packs of 10
+   IF Left(cMatch,2) == "SA"
+      nPE := 10  //non bulk products are packed in packs of 10
+   ENDIF
    nOrd := art->(dbSetOrder( 1 ))
    IF ! art->(dbSeek( cMatch ))
       art->(dbGoto( nRecno ))
@@ -120,9 +122,11 @@ IF Len(aMatch) > 0
    ENDIF
 ENDIF
 
+
 FOR nX := 1 TO Len(aCompet)
    ku->(dbSetOrder( 1 ))   
    ku->(dbSeek( Pad(Upper(aCompet[nX]),8)+"L" ))
+
 
    IF aCompet[nX] == "FARNELL" .AND. lBuerklin  //we only get prices from Farnell (for speed reasons) if there are no Brklin prices
    ELSEIF (ali->(dbSeek(Pad(Upper(aCompet[nX]),8)+Str(art->Artikelnr,6))) .AND. ! Empty(ali->artlief) .AND. ali->Priority <= 8);

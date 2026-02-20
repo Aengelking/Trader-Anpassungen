@@ -95,7 +95,7 @@ FUNCTION SCN_Sender_Main()
 
    IF Len(aSCNLIST) > 0 .AND. AMenu({"PDFs erstellen und versenden","abbrechen"}) == 1      
       IF SCN_CreateAllPDFs(aSCNList, cSupplierName,oBrowse)
-         SCN_SendAll(aSCNList,hContact)
+         SCN_SendAll(aSCNList,hContact,cLanguage)
       ENDIF
    ENDIF
     
@@ -106,6 +106,7 @@ RETURN .T.
  ******************************************************************************/
 FUNCTION SCN_AddArticle(aSCNList)
    LOCAL cMatchcode := Space(30)
+   LOCAL cZeichnung := Space(30)
    LOCAL cRevision := Space(8)
    LOCAL lStop := .F.
    LOCAL lBOM := .F.
@@ -125,30 +126,33 @@ FUNCTION SCN_AddArticle(aSCNList)
 
    @ 12,26 SAY "Artikel     " GET cMatchcode PICTURE "@K" VALID {|| 
       IF ValidVar( @cMatchcode, 12, 26+12+2, , , , .T. )          
-         @ 13,39 SAY art->Zeichnung
+         cZeichnung := Pad(art->Zeichnung,30)
          
          hItem["ARTIKEL"] := Trim(cMatchcode)
-         hItem["ZEICHNUNG"] := Trim(art->Zeichnung)
 
-         aDrawingFiles := GET_DRAWINGFILES( )
-         IF Len(aDrawingFiles) == 0
-           Tr_MsgBox("Keine Zeichnungsdatei gefunden")
-            RETURN .F.
-         ENDIF
-         cRevision := Pad(ATail(aDrawingFiles)[1],8)
-
-         //cRevision := art->Zeichindex
-         getlist[2]:Display()  //display zeichnungsrevision
+         getlist[2]:Display()  //display zeichnung
          RETURN .T.
       ENDIF
       RETURN .F.
    }
    ATail( getlist ):Reader := {| oGet, oGetlist, oMenu, oGetMsg| SwapReader( oGet, oGetList, oMenu, oGetMsg ) }
 
-   @ 13,26 SAY "Zeichnung: "
+   @ 13,26 SAY "Zeichnung   " GET cZeichnung PICTURE "@K" VALID {||
+      hItem["ZEICHNUNG"] := Trim(cZeichnung)
+      
+      aDrawingFiles := GET_DRAWINGFILES( )
+      IF Len(aDrawingFiles) == 0
+         Tr_MsgBox("Keine Zeichnungsdatei gefunden")
+         RETURN .F.
+      ENDIF
+      cRevision := Pad(ATail(aDrawingFiles)[1],8)
+      
+      getlist[3]:Display()  //display zeichnungsrevision
+      RETURN .T.
+   }
    @ 14,26 SAY "Revision    " GET cRevision VALID {||
       LOCAL cFile
-      cFile := Hook("get_drawingfile",{.F.,Trim(art->Zeichnung),Trim(cRevision),art->Kuzeichnun}) 
+      cFile := Hook("get_drawingfile",{.F.,CharRepl("/\?_-",Trim(cZeichnung)," "),CharRepl("/\?_-",Trim(cRevision)," "),art->Kuzeichnun}) 
       IF Empty(cFile)
          @ 14,48 SAY "Zeichnungsdatei nicht gefunden"
          RETURN .F.
@@ -416,20 +420,20 @@ FUNC GET_DRAWINGFILES( )
    LOCAL cDir,nPos,nPos2,cInd
    LOCAL aSearch,nS
    LOCAL aFiles,nF
-   LOCAL aData := {}
-   LOCAL cZeich := Trim(art->Zeichnung)
-   
+   LOCAL aData := {}   
+   LOCAL cZeich := CharRepl("/\?_-",Trim(art->Zeichnung)," ")
+
    cDir := "\\EK-SERVER4\Data\Technik\Prozessdoku\"+If(art->Kuzeichnun,"Kunden\","")   
    
    aSearch := {cZeich+"*_*.*","0"+cZeich+"*_*.*"}
   
    
    FOR nS := 1 TO Len(aSearch)
-      
+   
       aFiles := Directory(cDir+aSearch[nS])
       
       FOR nF := 1 TO Len(aFiles)
-         nPos := At(cZeich,aFiles[nF,1])+3 //+Len(cZeich)
+         nPos := At(cZeich,aFiles[nF,1])+Len(cZeich)-1
          nPos2 := At("_",aFiles[nF,1])
          IF nPos2 == 0
             nPos2 := RAt(".",aFiles[nF,1])

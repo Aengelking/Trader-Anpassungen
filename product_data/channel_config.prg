@@ -28,7 +28,7 @@ FUNCTION LoadAllChannelConfigs()
    
    // Load each channel configuration
    FOR nX := 1 TO Len(aChannelFiles)
-      cChannelName := Left(aChannelFiles[nX,1], At(".", aChannelFiles[nX,1]) - 1)
+      cChannelName := Lower(Left(aChannelFiles[nX,1], At(".", aChannelFiles[nX,1]) - 1))
       cChannelFile := "x:\run\config\channels\" + aChannelFiles[nX,1]
       
       hChannelConfig := LoadJsonConfig(cChannelFile)
@@ -49,6 +49,8 @@ FUNCTION SetCurrentChannel(cChannelName)
    // Default to Conrad if no channel specified
    IF Empty(cChannelName)
       cChannelName := "conrad"
+   ELSE
+      cChannelName := Lower(cChannelName)
    ENDIF
    
    // Load all configs if not already loaded

@@ -21,6 +21,12 @@ PROCEDURE HRBMAIN
 
    nVertret  := 1
 
+   FOR nX := 1 TO oAutoReply:oReply:Conditions:Count()
+      oCond := oAutoReply:oReply:Conditions:Item(nX-1)
+      ? "Condition "+Str(nX)+": Object="+Str(oCond:Object)+" Comparison="+Str(oCond:Comparision)+" Value="+ValToPrg(oCond:Value)
+   NEXT
+   Sinkey(0)
+
    If oAutoReply:lIsActive .AND. Tr_MsgBox(t("Autoreply bereits aktiv"),,{t("deaktivieren"),t("ändern")}) != 2
       If LastKey() == 27
          Return

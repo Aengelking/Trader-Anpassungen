@@ -1,6 +1,6 @@
 PROC WD_RUN(xProg,lBruecke)
    Default(@lBruecke,.T.)
-   IF ! IsFeiertag(Date(),GetConfigValue("STATE"),lBruecke) .AND. ! StoD(Date()) $ Hook("get_firmclosed",{Year(Date())},{})   
+   IF ! IsFeiertag(Date(),GetConfigValue("STATE"),lBruecke) .AND. ! Date() $ Hook("get_firmclosed",{Year(Date())},{})   
       IF ValType(xProg) == "C"
          MBaseRun(Path("run\"+xProg))
       ELSEIF ValType(xProg) == "B"

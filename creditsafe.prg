@@ -406,11 +406,15 @@ FUNCTION EditCSNumber()
          RETURN NIL
       ENDIF
       IF ! Empty(cCSnr)
-         TxtBox("Auskunft wird geladen")
+         IF ! GetConfigValue("BATCHMODE")           
+            TxtBox("Auskunft wird geladen")
+         ENDIF
          oSOAP := CreditSafe()
          oReport := CS_GetCompanyReport(oSoap,cCsPRE+cCSNr,3)
          IF oReport == NIL
-            Tr_MsgBox("Fehler beim laden...")
+            IF ! GetConfigValue("BATCHMODE")
+               Tr_MsgBox("Fehler beim laden...")
+            ENDIF
          ELSE
             IF cs->(dbSeek( Str(ku->Nummer,6) ))
                cs->(Rec_Lock())
@@ -421,10 +425,14 @@ FUNCTION EditCSNumber()
             cs->Id := cCSPre+cCSNR
             cs->(dbUnlock())
             CS_SaveReport(ku->Nummer,oReport)
-            TxtClear()
+            IF ! GetConfigValue("BATCHMODE")
+               TxtClear()
+            ENDIF
             EXIT
          ENDIF
-         TxtClear()              
+         IF ! GetConfigValue("BATCHMODE")
+            TxtClear()              
+         ENDIF
       ELSEIF cs->(dbSeek( Str(ku->Nummer,6) ))
          cs->(Rec_Lock())
          cs->Id := ""
@@ -434,4 +442,4 @@ FUNCTION EditCSNumber()
       
 RETURN NIL 
 
-#include "x:\run\creditsafe_search.prg"
+//#include "x:\run\creditsafe_search.prg"

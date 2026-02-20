@@ -25,6 +25,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
    LOCAL nD
    LOCAL aText,nChoice
    LOCAL oBes,nBesnr
+   LOCAL aWO
 
    LOCAL cQSStart := Trim(GetValue("FREPPLE_QS_JOBST","QS","QS job names start with"))   
 
@@ -57,6 +58,15 @@ PROCEDURE RUN_FREPPLE_IMPORT()
    ? "Downloading manufacturing orders... "
 
    aData := oFrepple:getManufacturingOrders()
+
+   //Frepple Version 9.13.0 introduces work orders as a separate table
+   //Quick fix is to merge these with the manufacturing orders
+   aWO := oFrepple:getWorkOrders()
+   IF Len(aWO) > 0
+      FOR nX := 1 TO Len(aWO)
+         AAdd(aData,aWO[nX])
+      NEXT
+   ENDIF
    oFrepple := NIL
 
    //gtSetClipboard(HB_JsonEncode(aData))
@@ -86,6 +96,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
          ELSE
             cMatch := aData[nX]["operation"]
          ENDIF
+         cMatch := hb_utf8tostr(cMatch)
          art->(dbSeek(cMatch))
          oArtExtra := art->(ExtraData():New(art->Artikelnr))
          IF Trim(cMatch) == DEBUG_PART
@@ -627,7 +638,10 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                   oBes := NIL
                   IF AllTrim(aList[nX,9]) == "neu"
                      art->(dbSetOrder( 1 ))
-                     art->(dbSeek( cMatch ))
+                     IF ! art->(dbSeek( cMatch ))
+                        Alert("Artikel nicht gefunden: "+cMatch)
+                        LOOP
+                     ENDIF
                      oWerk := WA():New(.T.)
                      oWerk:Date := Date()
                      oWerk:Artno := art->Artikelnr

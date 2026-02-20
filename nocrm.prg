@@ -12,6 +12,10 @@
 
 #define CRLF Chr(13)+Chr(10)
 
+/**
+API Dokumentation: https://www.nocrm.io/api
+**/
+
 FUNCTION NOCRM_Edit(cType)
    LOCAL nNummer := 0
    LOCAL getlist := {}
@@ -75,6 +79,7 @@ FUNCTION noCRM_Interface(lComment,cType)
    LOCAL oExtra,nWeekDay := 1,bCheckWeekday
    LOCAL hUsers 
    LOCAL cTypeName,nNummer,cKunde
+   LOCAL hClientFolder, hUserInfo, hResponse
 
    Default(@lComment,.T.)
    Default(@cType,"ANG")
@@ -168,6 +173,24 @@ FUNCTION noCRM_Interface(lComment,cType)
       RETURN lAdded
    }
 
+   //go to the customer
+      ku->(dbSeek( cKunde+"K" ))      
+
+   //get the extradata
+   oExtra := ku->(ExtraData():New(ku->Nummer))
+
+   //Check if customer has a client folder and suggest the user_id from it
+   IF oExtra:noCRMClien != 0
+      hClientFolder := oNoCRM:Execute("clients/"+LTrim(Str(oExtra:noCRMClien)),"GET")
+      IF hClientFolder != NIL .AND. HHasKey(hClientFolder,"user_id") .AND. hClientFolder["user_id"] != NIL
+         //Get user email from user_id
+         hUserInfo := oNoCRM:Execute("users","GET",{"email"=>Str(hClientFolder["user_id"])})
+         IF hUserInfo != NIL .AND. ValType(hUserInfo) == "A" .AND. Len(hUserInfo) > 0 .AND. HHasKey(hUserInfo[1],"email")
+            cUsrEmail := Trim(hUserInfo[1]["email"])
+         ENDIF
+      ENDIF
+   ENDIF
+
    DO WHILE .T.
       IF cType == "ANG"
          @ 01,00 SAY "Angebotswert: "+LTrim(Transform(aValues[2],"9999999.99"))+IF(aValues[2]<nMinValue," (Wiedervorlage nicht verpflichtend)","")
@@ -219,7 +242,7 @@ FUNCTION noCRM_Interface(lComment,cType)
       @ 25,27,35,60 GET cUsrEmail LISTBOX hUsers ASSOCIATIVE
 
       //Choose a lead        
-      nLeadId := onocrm:ChooseLead(03,00,20,60,oRec:Lead,.T.,cKunde)   
+      nLeadId := onocrm:ChooseLead(03,00,20,MaxRow()-1,oRec:Lead,.T.,cKunde)   
       IF LastKey() == 27 .OR. nLeadId == 0
          IF ! Eval(bExit)
             getlist := {}
@@ -228,11 +251,7 @@ FUNCTION noCRM_Interface(lComment,cType)
          EXIT         
       ENDIF
       
-      //go to the customer
-      ku->(dbSeek( cKunde+"K" ))      
-
-      //get the extradata
-      oExtra := ku->(ExtraData():New(ku->Nummer))
+      
 
       IF nLeadId == -1         
          IF oExtra:noCRMWV == "ST"

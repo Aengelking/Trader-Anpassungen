@@ -118,7 +118,7 @@ DO WHILE re->Rechnr == nRechnr
       ENDIF
       oArtExtra := art->(ExtraData():New(re->Artikelnr))
       cEmail += "<tr><td>"+Trim(re->Aufnr)+"</td><td>"+LTrim(Str(re->Abnr))+"</td><td>"+Trim(re->Matchcode)+"</td><td>"+Transform(re->AoQty,Me(re->Me))+" "+Trim(re->Me)+"</td></tr>"      
-      IF oArtExtra:CoC
+      IF GetConfigValue("FIRMNO") == 1 .AND. oArtExtra:CoC
          IF ! re->Artikelnr $ hCoc
             hCoc[re->Artikelnr] := {}
          ENDIF

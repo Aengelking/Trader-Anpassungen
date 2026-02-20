@@ -318,12 +318,14 @@ STATIC FUNCTION GetAvailableBoxes(cVerpackung)
    LOCAL aData 
    LOCAL aInitQty := GetBoxInitialQuantities()
 
+   LOCAL aReservedBoxes := {"BOXGEH50"=>4,"BOXTAST150"=>2,"BOXROS100"=>0,"BOXBIG50"=>0} //Quantities reserved for internal use
+
    aData := GetUmlaufStatus(cVerpackung)
    IF Empty(aData)
       RETURN 0
    ENDIF
 
-RETURN aInitQty[Trim(cVerpackung)] - aData["SENT"]
+RETURN aInitQty[Trim(cVerpackung)] - aData["SENT"] - IF(HHasKey(aReservedBoxes,Trim(cVerpackung)),aReservedBoxes[Trim(cVerpackung)],0)
 
 /*
  * Get total boxes already sent out (simplified calculation)

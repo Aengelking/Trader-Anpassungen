@@ -1,5 +1,7 @@
 PROC RUN_CHECK_APPROVAL
    LOCAL cText,lNot,lFound,lDel,aTo
+   LOCAL oAuftrag,lWaitApproval
+   LOCAL cBuyer
 
    NetUse("approval","apr")
    NetUse("engauf","auf")
@@ -47,13 +49,46 @@ PROC RUN_CHECK_APPROVAL
       ENDIF
       apr->(dbSkip())
    ENDDO
+
+   apr->(dbClearFilter())
    
    ctext += "</pre>"
    IF lFound
       aTo := {}
-      Aadd(aTo,{"thimo.hamma@engelking.de","Thimo"})
+      add(aTo,{"thimo.hamma@engelking.de","Thimo"})
       Aadd(aTo,{"amos.engelking@engelking.de","Amos","CC"})
-      SendMail(aTo,HB_AnsiToOem("Außstehende Genehmigungen"),cText,,,,.T.)
+      //SendMail(aTo,HB_AnsiToOem("Außstehende Genehmigungen"),cText,,,,.T.)
    ENDIF
 
-//SInkey(0)
+
+   auf->(dbSetFilter({|| auf->Bestat >= 4 .AND. auf->BeStat <= 7}, "Bestat >= 4 .AND. BeStat < 7"))
+   auf->(dbGoTop())
+
+   lFound := .F.
+   cText := "Folgende Auftr„ge warten auf eine Genehmigungsanfrage:<pre>"
+   cText += "<br>Auftrag Benutzer"
+   
+   DO WHILE ! auf->(EOF())
+      oAuftrag := Auftrag():New()
+      oAuftrag:Load(auf->Abnr)
+
+      lWaitApproval := .F.
+      IsApproved("AUF",auf->Abnr,StoT(oAuftrag:LastChange),@lWaitApproval)
+      IF ! lWaitApproval 
+         cBuyer := Trim(Buy(auf->Buyer,.T.))
+         cText += "<br><h1>"+Str(auf->Abnr,6)+" "+cBuyer+"</h1> "
+         cText += GetNotesForEmail("AUF",auf->Abnr,.F.)
+         lFound := .T.         
+      ENDIF
+      DO WHILE ! auf->(EOF()) .AND. auf->Abnr == oAuftrag:AbNr
+         auf->(dbSkip())
+      ENDDO      
+   ENDDO
+
+   IF lFound
+      ctext += "</pre>"
+      aTo := {}
+      Aadd(aTo,{"amos.engelking@engelking.de","Amos"})
+      SendMail(aTo,"Auftr„ge ohne Genehmigungsanfrage",cText,,,,.T.)
+   ENDIF
+

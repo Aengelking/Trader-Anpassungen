@@ -152,8 +152,16 @@ METHOD Set()
    oFilter:Value := 1 //.T.
    oFilter:Operator := DvFilterAnd
 
+   oFilter := ::oReply:Conditions:Add()
+   oFilter:Object := -2147450823 //Field_Sender
+   oFilter:Comparision := 1 //DvItemIsNotEqual
+   oFilter:Value := "*@marketplace.conrad.com"
+   oFilter:Operator := DvFilterAnd
+
+
    ::oForward:Conditions:RemoveAll()
 
+   //Setup Forward Message
    oFilter := ::oForward:Conditions:Add()
    oFilter:Object := 1
    oFilter:Comparision := DvItemIsGreater

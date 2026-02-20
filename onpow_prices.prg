@@ -379,6 +379,14 @@ FOR EACH hSeries IN aSeries
                      ENDIF
                      nFinalPrice := oppl->NoLed+nAddPrice
                      IF ! lArtLiefPassed
+                        #ifndef TEST                  
+                        IF HHasKey(hSeries,"VPE") 
+                           art->(Rec_Lock(0))
+                           art->VPE := hSeries:VPE
+                           art->(dbUnLock())
+                        ENDIF
+                        #endif
+
                         AddPrices(nFinalPrice,hRabatte,cPath,cSup,dStart)
                      ENDIF
                      #ifdef DEBUG
@@ -407,6 +415,15 @@ FOR EACH hSeries IN aSeries
                      #ifdef DEBUG                  
                      ? " ",ali->Artikelnr
                      #endif
+                     
+                     #ifndef TEST                  
+                     IF HHasKey(hSeries,"VPE") 
+                        art->(Rec_Lock(0))
+                        art->VPE := hSeries:VPE
+                        art->(dbUnLock())
+                     ENDIF
+                     #endif
+
                      AddPrices(nFinalPrice,hRabatte,cPath,cSup,dStart)
                   ENDIF
                   #ifdef DEBUG
@@ -551,7 +568,7 @@ FOR EACH hSeries IN aSeries
                   ENDIF
 
                   #ifdef DEBUG
-                  ? " ",cArtLief,Str(nPrice,5,2),"+",Str(nAddPrice,5,2)
+                  ? " ",cArtLief,art->Artikelnr,Str(nPrice,5,2),"+",Str(nAddPrice,5,2)
                   #else
                   IF ! lArtLiefPassed
                      @ 02,37 SAY cArtLief

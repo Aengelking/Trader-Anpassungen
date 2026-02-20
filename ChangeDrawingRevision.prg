@@ -10,6 +10,9 @@ PROC RUN_ChangeDrawingRevision()
    LOCAL lStock,lOpenOrder,lTech,nNr
    LOCAL lWaldom := .F.
    LOCAL cText
+   LOCAL lKuzeichnung := .F.
+   LOCAL oArt,hChanges,cChanges,cTimeStamp
+   LOCAL aList
 
 
    NetUse("artikel","art")
@@ -26,6 +29,7 @@ PROC RUN_ChangeDrawingRevision()
       @ 01,00 SAY "Artikel      " GET cMatchcode PICTURE "@K" Valid {|| 
          IF ValidVar( @cMatchcode, 01, 14, , , , .T. )
             cDrawing := art->Zeichnung
+            lKuzeichnung := art->Kuzeichnun
             RETURN .T.
          ENDIF
          RETURN .F.
@@ -33,6 +37,7 @@ PROC RUN_ChangeDrawingRevision()
       ATail( getlist ):Reader := {| oGet, oGetlist, oMenu, oGetMsg| SwapReader( oGet, oGetList, oMenu, oGetMsg ) }
       @ 02,00 SAY "Zeichnungsnr " GET cDrawing VALID ! Empty(cDrawing)
       @ 03,00 SAY "Neue Revision" GET cIndex //VALID ! Empty(cIndex)
+      @ 04,00 SAY "Kundenzeichnung " GET lKuzeichnung PICTURE "Y"
       
       READ
 
@@ -40,18 +45,19 @@ PROC RUN_ChangeDrawingRevision()
          RETURN
       ENDIF
 
-      art->(dbSetORder( 1 ))
+      art->(dbSetOrder( 1 ))
       IF art->(dbSeek(cMatchcode))
-         IF Trim(cIndex) == Trim(art->Zeichindex) .AND. cDrawing == art->Zeichnung
+         IF Trim(cIndex) == Trim(art->Zeichindex) .AND. cDrawing == art->Zeichnung .AND. lKuzeichnung == art->Kuzeichnun
             Tr_MsgBox("Neue Revision ist identisch mit der aktuellen!")
             LOOP
-         ENDIF
+         ENDIF         
          aSuppliers := {}
          hOpenPO := {=>}
          hOpenMO := {=>}
          
          cFilter := "bestat <= 2 .OR. (bestat >= 6 .AND. bestat <= 8)"
          bes->(dbSetFilter( {|| bes->(&(cFilter)) }, cFilter ))
+         bes->(dbSetOrder( 3 ))
          IF bes->(dbSeek( cMatchcode ))
             IF art->Bezug >= 5 
                Tr_MsgBox("Fertigungsartikel wurde bestellt - jetzt bin ich ratlos!")
@@ -68,6 +74,8 @@ PROC RUN_ChangeDrawingRevision()
             ENDDO            
          ENDIF
          bes->(dbClearFilter())
+
+         //Tr_MsgBox(ValToPrg(hOpenPO))
          
          wer->(dbSetOrder( 2 ))
          cFilter := "status < 4"
@@ -120,7 +128,8 @@ PROC RUN_ChangeDrawingRevision()
          
          lTech := Tr_MsgBox({"Handelt es sich nur im eine Zeichnungskorrektur,","es hat sich also technisch nichts ge„ndert?"},,{"Nein","Ja"}) != 2
       
-         IF (lStock .OR. lOpenOrder) .AND. lTech
+         //IF (lStock .OR. lOpenOrder) .AND. lTech
+         IF lStock .AND. lTech //if in stock and a technical change, then we need to create a new article instead of changing the existing one
             aMsg := {}
             IF lStock
                Aadd(aMsg,"Artikel ist auf Lager")               
@@ -180,7 +189,8 @@ PROC RUN_ChangeDrawingRevision()
                ENDIF
                Aadd(aMsg,cText)               
             ELSE
-               IF hFreigabe:aState[1] == "DONE" .OR. (lTech .AND. hFreigabe:aState[1] == "UNT")
+               IF hFreigabe:aState[1] == "DONE" .OR. (lTech .AND. hFreigabe:aState[1] == "UNT");
+                   .OR. (lTech .AND. nSupplier = 0 .AND. hFreigabe:aState[1] == "UNTK")
                   IF Len(hOpenPO) == 0 .AND. Len(hOpenMO) == 0 //no open orders, then we can change the SO
                      lCanChangeSO := .T.
                   ELSE
@@ -198,9 +208,9 @@ PROC RUN_ChangeDrawingRevision()
                         cNext := GetNextFreigabeLevel(art->Artikelnr,nSupplier,cNext,.F.)
                         aFields := GetFreigabeFields(cNext)
                      ENDDO
-                     Aadd(aMsg,Trim(cLiefma)+" "+IF(!lTech,"vollst„ndge","Liefernantunterlagen-")+"Freigabe notwendig, n„chste Stufe: "+GetFreigabeStatusText({cNext,NIL})+" freigegeben")
-                  ELSEIF ! lUntKunde
-                     IF hFreigabe:aState[1] == "UNTK" 
+                     Aadd(aMsg,Trim(cLiefma)+" "+IF(lTech,"Vollst„ndge ","Fertigungsunterlagen-")+"Freigabe notwendig, n„chste Stufe: "+GetFreigabeStatusText({cNext,NIL})+" freigegeben")
+                  ELSEIF ! lUntKunde                     
+                     IF hFreigabe:aState[1] == "UNTK" .OR. lKuzeichnung
                         lUntKunde := .T.
                      ELSE
                         aOrder := GetFreigabeOrder(art->Artikelnr,nSupplier)                        
@@ -235,23 +245,57 @@ PROC RUN_ChangeDrawingRevision()
                Tr_MsgBox({"Artikel hat offene Auftr„ge - der Kunde muss zuerst die Unterlagen freigeben"})
                LOOP
             ENDIF
-            Tr_MsgBox("Hura! Du hast es geschafft. Jetzt k”nnte die Zeichnungsrevision ge„ndert werden!. Aber ich bin noch nicht so weit!")
-            LOOP
-            /*auf->( dbSetOrder( 13 ) )
-            auf->( dbSeek( Str( art->Artikelnr, 6 ) ) )
-            DO WHILE auf->Artikelnr == art->Artikelnr .AND. auf->beStat < 7
-               IF auf->Bestat != 3
-
-               ENDIF
-               auf->(dbSkip())
-            ENDDO*/
+            //Tr_MsgBox("Hura! Du hast es geschafft. Jetzt k”nnte die Zeichnungsrevision ge„ndert werden!. Aber ich bin noch nicht so weit!")
+            //LOOP
+            IF Tr_MsgBox("Zeichnungsrevision in allen offenen Auftr„gen „ndern?",,{"Nein","Ja"}) == 2
+               aList := {"Ge„nderte Auftr„ge","Auftrag Pos."}
+               auf->( dbSetOrder( 13 ) )
+               auf->( dbSeek( Str( art->Artikelnr, 6 ) ) )
+               DO WHILE auf->Artikelnr == art->Artikelnr .AND. auf->beStat < 7
+                  IF auf->Bestat != 3
+                     Aadd(aList, Str(auf->Abnr,6)+" "+Str(auf->Itmnr,4))
+                     art->( Rec_Lock( 0 ) )
+                     art->Zeichnung := cDrawing
+                     art->Zeichindex := cIndex                     
+                     art->( dbUnlock() )
+                  ENDIF
+                  auf->(dbSkip())
+               ENDDO
+               Tr_MsgBox(aList)
+            ELSE
+               LOOP
+            ENDIF
          ENDIF
-         Altd()
-         Bewegung({'STD',0,Date(),ART->ARTIKELNR,,0,0,0,art->Bestand,'',0,0,,Tr_Getini(28),"ZNG alt:"+Trim(art->Zeichnung)+" "+Trim(art->Zeichindex)})
-         art->(Rec_Lock(0))
+
+         oArt := Artikel():New()
+         oArt:Load(art->Artikelnr)
+
+         oArt:Zeichindex := cIndex
+         oArt:Zeichnung := cDrawing
+         oArt:Kuzeichnun := lKuzeichnung
+
+
+         hChanges := oArt:GetCurrentFieldValues()
+         cChanges := HB_Serialize(hChanges)
+         IF ! Empty(cChanges)
+            cTimeStamp := TtoS(DateTime())
+            NetUSe("log","log")
+            log->(Add_Rec(0))
+            log->Alias     := "ART"
+            log->ID        := oArt:Artikelnr
+            log->TimeStamp := cTimeStamp
+            log->Data      := cChanges
+            log->(dbUnLock())
+
+            Bewegung({'STD',0,Date(),ART->ARTIKELNR,,0,0,0,art->Bestand,cTimeStamp,0,0,,Tr_Getini(28),"ZNG ge„ndert"})
+         ENDIF
+
+         /*art->(Rec_Lock(0))
          art->Zeichindex := cIndex
          art->Zeichnung := cDrawing
-         art->(dbUnlock())
+         art->Kuzeichnun := lKuzeichnung
+         art->(dbUnlock())*/
+         oArt:Save()
          Tr_MsgBox("Zeichnungsrevision wurde ge„ndert!")
          
       ELSE

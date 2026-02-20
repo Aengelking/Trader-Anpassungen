@@ -81,7 +81,7 @@ DO WHILE .T.
          ENDIF
       NEXT
       IF nCount > 0
-         IF nDistribute == 0 .AND. ((nTotal < 0 .AND. nTotal < aOps[nLastNeg]:Rest) .OR. (nTotal >= 0 .AND. nTotal > aOps[nLastPos]:Rest))
+         IF nDistribute == 0 .AND. ((nLastNeg != 0 .AND. nTotal < 0 .AND. nTotal < aOps[nLastNeg]:Rest) .OR. (nLastPos != 0 .AND.nTotal >= 0 .AND. nTotal > aOps[nLastPos]:Rest))
             Tr_MsgBox(t("Restbetrag ("+LTrim(Str(nTotal))+") "+IF(nTotal<0,"kleiner","größer")+" als der letzte Betrag ("+LTrim(Str(IF(nTotal<0,aOps[nLastNeg]:Rest,aOps[nLastPos]:Rest)))+"). Verrechnung kann nicht durchgeführt werden"))
             RETURN .T.
          ENDIF         

@@ -4,6 +4,7 @@ LOCAL aParts,nRef,cPart
 LOCAL hTablesRef,cBase
 LOCAL hReferences := {=>}
 LOCAL oOptBase,cArt,cRef
+LOCAL cAdd
 
 IF ValType(cMatch) != "C" .OR. nLength == 0
    IF art->Length == 0 .OR. art->Length == Len(Trim(art->matchcode))
@@ -23,7 +24,7 @@ oOptBase:Load( cBase )
 
 hReferences["SERIES"] := {"10/"=>"GQ16","11/"=>"GQ16P","20/"=>"GQ19","21/"=>"GQ19P","22/"=>"GQ19S","23/"=>"GQ19SP","25/"=>"LAS1GQ","26/"=>"LAS1GQP",;
                            "30/"=>"LAS1-AGQ","31/"=>"LAS1-AGQP","35/"=>"GQ22","36/"=>"GQ22P","37/"=>"GQ22F","38/"=>"GQ22PF","40/"=>"GQ25","41/"=>"GQ25P",;
-                           "45/"=>"GQ28","46/"=>"GQ28P","50/"=>"GQ30","51/"=>"GQ30P"}
+                           "45/"=>"GQ28","46/"=>"GQ28P","50/"=>"GQ30","51/"=>"GQ30P","27/"=>"LCA19"}
 IF cBase $ {"CKI"}
    hReferences["SERIES"] := {"20/"=>"TS19","21/"=>"TS19","35/"=>"TS22","36/"=>"TS22","40/"=>"TS25","41/"=>"TS25"}
 ELSEIF cBase == "CI"
@@ -102,6 +103,7 @@ IF cBase != "CKI" .AND. aParts[1] $ {"35/","36/","40/","41/","45/","46/","50/","
 ENDIF
 
 cPart := ""
+cAdd  := ""
 FOR EACH nRef IN hTablesRef
    //? nRef:__enumKey()   
    IF HHasKey(hReferences[nRef:__enumKey()],aParts[nRef])
@@ -130,7 +132,7 @@ FOR EACH nRef IN hTablesRef
             hReferences["MATERIAL"]["BN/"] := "/C"
          ENDIF
          IF cBase != "CI"
-            IF cRef $ {"LAS1GQ","LAS1GQP","GQ22","GQ22P","GQ25","GQ25P","GQ28","GQ28P","GQ30","GQ30P"}
+            IF cRef $ {"LAS1GQ","LAS1GQP","GQ22","GQ22P","GQ25","GQ25P","GQ28","GQ28P","GQ30","GQ30P","LCA19"}
                hReferences["IP"] := {"M/"=>"/FP"}
             ELSEIF cRef $ {"LAS2GQ","LAS2GQP","LAS1-AGQ16","LAS1-AGQ16P"}
                hReferences["IP"] := {"M/"=>"/FP","L/"=>"/FP"}
@@ -140,6 +142,11 @@ FOR EACH nRef IN hTablesRef
             hReferences["BUTTON"]["F/"] := "A/" 
          ELSEIF cRef $ {"TS22","TS25"}
             hReferences["BUTTON"] := {"F/"=>"D/" ,"G/"=>"E/"}
+         ELSEIF cRef $ {"LCA19"}
+            hReferences["BUTTON"] := {"F/"=>"-"}
+         ENDIF
+         IF cRef == "LCA19"
+            cAdd := "-OMRON"
          ENDIF
       ELSEIF nRef:__enumKey() == "LEDTYPE" .AND. cRef $ {"DT","ET"} .AND. ! hReferences["SERIES"][aParts[hTablesRef["SERIES"]]] $ {"LAS2GQ","LAS1-AGQ16","LAS1-AGQ16P"}
          hReferences["IP"] := {=>}
@@ -148,6 +155,7 @@ FOR EACH nRef IN hTablesRef
             hReferences["SPECIALFUNCTION"] := {"M/"=>"-5W","L/"=>"-5W"}
          ENDIF
       ENDIF
-   ENDIF
+   ENDIF   
 NEXT
+cPart += cAdd
 RETURN cPart

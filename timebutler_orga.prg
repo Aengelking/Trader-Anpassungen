@@ -35,7 +35,7 @@ PROC Timbutler_orga(aUsers)
    ENDIF
    
    AEval(aUsers,{|x| 
-      IF x["User ID"] == x[cManagerKey]
+      IF ! Empty(x["User ID"]) .AND. x["User ID"] == x[cManagerKey]
          x["level"] := 0
          __CreateLevels(aUsers,0,x["User ID"])
       ENDIF

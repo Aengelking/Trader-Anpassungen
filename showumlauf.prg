@@ -282,7 +282,7 @@ PROC RUN_ShowUmlaufVerp()
 
                IF wer->(dbSeek( Str(we->Aufno,6) )) 
                   IF wer->Status >= 1 .AND. wer->Status < 4                  
-                     nOffeneMenge := we->BookQty * we->Factor
+                     nOffeneMenge := we->BookQty * we->Factor - IF(wer->Qty>0,(wer->GelQty * we->BookQty / wer->Qty * we->Factor),0) // calculate open quantity based on booked quantity and progress
                      nVerpackungen := Ceiling(nOffeneMenge/nCount)
 
                      // Track supplier total for external production
@@ -353,17 +353,27 @@ PROC RUN_ShowUmlaufVerp()
    
 
    FUNCTION GetBoxInitialQuantities()
-      LOCAL aInitQty := {"BOXGEH50"=>815,"BOXTAST150"=>100,"BOXROS100"=>136,"BOXBIG50"=>26}   
+      LOCAL aInitQty := {"BOXGEH50"=>870,"BOXTAST150"=>98,"BOXROS100"=>136,"BOXBIG50"=>26}   
 
    /** Initial Quantities   
    BOXGEH50: 
       Purchased: 1000 (4x220+120) (BE27447,BE29691,BE49655,BE56282,BE60488)
       Modified to BOXBIG50: 26
       Remaining: 974
-      Missing: 159 (22.10.25)
+      Missing: 159 (22.10.25) + 9 (01.12.25) = 168
+      Found: 26 (16.12.25)
+      Found: 32+37 (20.01.26)
+      Found: 3 (21.01.26)
+      Calculation corrected 12.02.26, it was not taking into account when production orders where partially delivered
+      Corrected by: -22
+      -----------------
+      Missing after correction: 104 
+      
+      
    
    BOXTAST150:
       Purchased: 100 (BE60488)
+      Missing: 2 (20.01.26)
 
    BOXROS100:
       Purchased: 136 (BE25490)  

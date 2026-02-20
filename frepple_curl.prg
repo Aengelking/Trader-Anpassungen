@@ -95,6 +95,7 @@ FUNCTION RUN_FREPPLE_CURL
       cCmd += ' -F "'+aFiles[nX]+"=@"+cDir+aFiles[nX]+'"'
    NEXT
    cCmd += ' "'+oFrepple:cBaseUrl+'/execute/uploadtofolder/0/"'
+   //? cCmd
    cData := ""
    nProc := HB_OpenProcess(cCmd,,@nStdOut,,.T.)
    IF nProc <= 0
@@ -108,11 +109,14 @@ FUNCTION RUN_FREPPLE_CURL
       cData += SubStr(cLine,1,nBytes)
    ENDDO
    ? " ",StrTran(StrTran(StrTran(cData,"<strong>",""),"</strong>",""),"<br>",Chr(13)+Chr(10)+"  ")
-
+   
    ? "Syncing absences to frePPLe "
    cScreen := SaveScreen()
+   nRow := Row()
+   nCol := Col()
    Run_TimeButler(.F.,.F.,.T.,.F.) //re-sync timebutler calendars with frepple
    RestScreen(,,,,cScreen)
+   SetPos(nRow,nCol)
    ?? "completed"
    
    ? "Importing data. "
@@ -125,27 +129,6 @@ FUNCTION RUN_FREPPLE_CURL
    ENDIF
    ?? "done"
 
-   /*? "Update time of current tasks "
-   rst->(dbSetOrder( 6 ))
-   wat->(dbSetOrder( 4 ))
-   job->(dbSetOrder( 1 ))
-   aOpPlan := {}
-   Select("wer")
-   SET FILTER TO Empty(wer->Liefma) .AND. wer->Status == 3 .AND. wer->Qty-wer->PlanBad > 0 .AND. Right(Str(wer->TerminFrue,4),2) != "99"
-   wer->(dbGoTop())
-   DO WHILE ! wer->(EOF())         
-      IF rst->(dbSeek( "WA "+Str(wer->Aufno,6) )) .AND. wat->(dbSeek( Str(wer->Aufno,6)+Str(rst->Job,6) )) //look for first entry in watime      
-         job->(dbSeek( Str(rst->Job) ))
-         ? rst->No, " ", rst->Type, " ", rst->Start, " ", rst->End
-         Aadd(aOpPlan,{"id"=>"FA"+LTrim(Str(wer->Aufno))+"-"+Trim(job->Name),"startdate"=>FREP_StoT(rst->Start)})
-         rst->(dbSkip())
-      ENDIF
-      wer->(dbSkip())
-   ENDDO
-   ? oFrepple:updateOperationPlan(aOpPlan)
-   ?? "done"
-   Sinkey(0)
-   wer->(dbClearFilter())*/
 
    ? "Executing plan. "
    DO WHILE ! oFrepple:waitEndOfTask(oFrepple:RunPlan(),Row(),Col())
@@ -155,19 +138,62 @@ FUNCTION RUN_FREPPLE_CURL
       ENDIF
    ENDDO
 
+
+   ? "Update time of current tasks "
+   rst->(dbSetOrder( 6 ))
+   wat->(dbSetOrder( 4 ))
+   job->(dbSetOrder( 1 ))
+   aOpPlan := {}
+   Select("wer")
+   SET FILTER TO Empty(wer->Liefma) .AND. wer->Status == 3 .AND. wer->Qty-wer->PlanBad > 0 .AND. Right(Str(wer->TerminFrue,4),2) != "99"
+   wer->(dbGoTop())
+   DO WHILE ! wer->(EOF())             
+      IF rst->(dbSeek( "WA "+Str(wer->Aufno,6) )) 
+        DO WHILE rst->No == wer->Aufno .AND. Trim(rst->Type) == "WA" .AND. rst->Complete .AND. ! rst->(EOF())  //look for first uncompleted entry in restime            
+            rst->(dbSkip())
+         ENDDO
+         IF rst->No == wer->Aufno .AND. Trim(rst->Type) == "WA" .AND. wat->(dbSeek( Str(wer->Aufno,6)+Str(rst->Job,6) )) .AND. ! Empty(wat->Start)
+            
+            job->(dbSeek( Str(rst->Job) ))
+
+            cTime := SubStr(wat->Start,9,6)
+
+            cSec  := Right ( cTime, 2 )
+            cMin  := SubStr( cTime, 3, 2 )
+            cHour := Left  ( cTime, 2 )
+
+            nSecs := TimeToSec(cHour+":"+cMin+":"+cSec) //Val( cHour ) * 3600 + Val( cMin ) * 60 + Val( cSec )
+            nSecs += 10 //add one second to retrigger the planning
+
+            //? cHour+":"+cMin+":"+cSec,nSecs,SecToTime(nSecs)
+
+            cDateTime := SubStr(wat->Start,1,4)+"-"+SubStr(wat->Start,5,2)+"-"+SubStr(wat->Start,7,2)+" "+SecToTime(nSecs) //add one second to retrigger the planning
+            
+            ? "FA"+LTrim(Str(wer->Aufno))+"-"+Trim(job->Name),rst->No, " ", rst->Type, " ", wat->Start, " ", cDateTime
+            Aadd(aOpPlan,{"id"=>"FA"+LTrim(Str(wer->Aufno))+"-"+Trim(job->Name),"startdate"=>cDateTime})
+            rst->(dbSkip())
+         ENDIF
+      ENDIF
+      wer->(dbSkip())
+   ENDDO
+   IF Len(aOpPlan) == 0
+      ?? "no updates needed"
+   ELSE
+      ? ValToPrg(oFrepple:updateOperationPlan(aOpPlan))
+   ENDIF
+   ?? "done"
    
+   wer->(dbClearFilter())
 
-   /*? "Executing plan a second time (until the bug with the manufacturing orders is solved). "
-   IF ! oFrepple:waitEndOfTask(oFrepple:RunPlan(),Row(),Col())
-      Alert("failed")
-      RETURN NIL
-   ENDIF*/
-
-   /*? "Exporting results "
-   IF ! oFrepple:waitEndOfTask(oFrepple:ExportToFolder(),Row(),Col())
-      Alert("failed")
-      RETURN NIL
-   ENDIF*/
+   ? "Executing plan second time. "
+   DO WHILE ! oFrepple:waitEndOfTask(oFrepple:RunPlan(),Row(),Col())
+      IF GetConfigValue("BATCHMODE") .OR. Tr_MsgBox("Executing plan failed",,{"try again","cancel"}) != 1
+         UnLockEntity("PPLUP",0)
+         RETURN .F.         
+      ENDIF
+   ENDDO
+   ?? "done"   
+   
 
    ? "Downloading file"
    cDir := "x:\import\frepple\"

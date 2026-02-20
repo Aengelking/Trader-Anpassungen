@@ -14,6 +14,9 @@ FUNCTION RUN_LNE_VK(oPrinter)
       IF oPrinter:posinfo["val"] == 0
          oPrinter:posinfo["val"] := oArt:Letzte_Ek/oArt:PE*IF(ku->Group=="K",1.5,1)
       ENDIF
+      IF oPrinter:posinfo["val"] == 0
+         oPrinter:posinfo["val"] := 0.1
+      ENDIF
    ENDIF
 
    RestEnv(aEnv,.F.)

@@ -22,6 +22,7 @@ FUNCTION ExportCustomerPriceList()
    LOCAL getlist := {}
    LOCAL hMatch, aMatchList,cKuArt
    LOCAL nP,nY
+   LOCAL hData := {=>}
 
    Head("Kundenpreisliste exportieren")
 
@@ -68,24 +69,28 @@ FUNCTION ExportCustomerPriceList()
 
    // Build header row (adjust language if needed based on ku->Language)
    IF ku->Language == "E"
-      Aadd(aData, {"Part No.", "Matchcode", "Customer Part No.", ;
+      Aadd(aData, {"Part No.", "Matchcode","Delivery time", "Customer Part No.", ;
                    "Unit"})
    ELSE
-      Aadd(aData, {"Artikelnr", "Matchcode", "Kunden-Artikelnr", ;
+      Aadd(aData, {"Artikelnr", "Matchcode", "Lieferzeit", "Kunden-Artikelnr", ;
                     "Mengeneinheit"})
    ENDIF
+
+   hData["IEC-LOCK"] := AClone(aData)
+   hData["ENGELKING"] := AClone(aData)
 
    // Query customer article assignments
    aku->(dbSetOrder(1))  // Index by customer+article
   
    aMatchList := {;
-      {"MATCH_START"=>"NZ/","MANUFACTURER"=>9},;
-      {"MATCH_START"=>"PA","MANUFACTURER"=>9},;
-      {"MATCH_START"=>"CM","MANUFACTURER"=>5};
+      {"MATCH_START"=>"NZ/","MANUFACTURER"=>9,"LIST"=>"IEC-LOCK"},;
+      {"MATCH_START"=>"PA","MANUFACTURER"=>9,"LIST"=>"IEC-LOCK"},;
+      {"MATCH_START"=>"CM","MANUFACTURER"=>5,"LIST"=>"ENGELKING"} ;
    }
    art->(dbSetOrder(1)) // Index by Matchcode
    FOR EACH hMatch IN aMatchList
       art->(dbSeek(hMatch["MATCH_START"]))
+      aData := hData[hMatch["LIST"]]
       DO WHILE ! art->(Eof()) .AND. Left(Trim(art->Matchcode), Len(hMatch["MATCH_START"])) == hMatch["MATCH_START"]
          IF art->Manufactur == hMatch["MANUFACTURER"]
             @ MaxRow(),00 SAY art->Matchcode
@@ -104,11 +109,11 @@ FUNCTION ExportCustomerPriceList()
                ENDIF
 
                hRow := Array(Len(aData[1]))
-               hRow[1] := art->Artikelnr
+               hRow[1] := "#"+LTrim(Str(art->Artikelnr,6))
                hRow[2] := Trim(art->Matchcode)
-               hRow[3] := cKuArt
-               hRow[4] := Trim(art->Me)
-
+               hRow[3] := art->LZ
+               hRow[4] := cKuArt
+               hRow[5] := Trim(art->Me)
                   
                FOR nX := 1 TO Len(aPrices)
                   nP := AScan(aData[1],{|x| ValType(x) == "N" .AND. x == aPrices[nX,1] })
@@ -164,7 +169,7 @@ FUNCTION ExportCustomerPriceList()
    ENDIF
 
    // Export to XLSX
-   IF SaveToOO(cFile, aData, , "XLSX", .F.)
+   IF SaveToOO(cFile, hData, , "XLSX", .F.)
       TxtClear()
       Tr_MsgBox({"Preisliste exportiert: " + cFile, ;
                 "Anzahl Positionen: " + Ltrim(Str(nCount))})

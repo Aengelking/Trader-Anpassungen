@@ -1,6 +1,7 @@
 #include 'y:\hb32\include\hbmxml.ch'
 #include 'x:\run\product_data\channel_config.ch'
 
+
 PROCEDURE ProductDataXML(lPrices,lUploadOnly,cChannel)
 
 // Local variables
@@ -334,7 +335,7 @@ IF ! lUploadOnly
    CLS
 
    //all parts we know are listed on Conrad anyway
-   IF GetConfigValue("BATCHMODE") .OR. Tr_MsgBox("Artikel mit Conrad-Artikelnr",,{"Ja","Nein"}) == 1
+   IF cChannel == "conrad" .AND. (GetConfigValue("BATCHMODE") .OR. Tr_MsgBox("Artikel mit Conrad-Artikelnr",,{"Ja","Nein"}) == 1)
 
       Select("art")
       SET FILTER TO art->Manufactur == 1  
@@ -400,11 +401,13 @@ IF ! lUploadOnly
             IF Len(aPrices) >= 1 .AND. aPrices[1,2] != 0  //nur Artikel mit Preisen werden hinzugefgt
                ?? " prices generated without part"
                FOR nX := 1 TO Len(aPrices)
-                  aPrices[nX,2] := aPrices[nX,2]*oArtikel:VkPe/nPriceMulti  //this gets multiplied again later
+                  //aPrices[nX,2] := aPrices[nX,2]*oArtikel:VkPe/nPriceMulti  //this gets multiplied again later
+                  aPrices[nX,2] := aPrices[nX,2]/nPriceMulti  //this gets multiplied again later
                NEXT
             
 
-               hPriceData["price"] :=  aPrices[1,2]/oArtikel:VkPe*nMwSt*nPriceMulti //Preis fr ein Stck
+               //hPriceData["price"] :=  aPrices[1,2]/oArtikel:VkPe*nMwSt*nPriceMulti //Preis fr ein Stck
+               hPriceData["price"] :=  aPrices[1,2]*nMwSt*nPriceMulti //Preis fr ein Stck
                hPriceData["min-order-quantity"] := Max(1,aPrices[1,1]) //Mindestbestellmenge auf die erste Staffel setzten
 
                hPriceData["discount-ranges"] := ""
@@ -413,7 +416,8 @@ IF ! lUploadOnly
                      IF nX > 2
                         hPriceData["discount-ranges"] += ","
                      ENDIF   
-                     hPriceData["discount-ranges"] += LTrim(Str(aPrices[nX,1],12,0))+"|"+lTrim(Str(aPrices[nX,2]/oArtikel:VkPe*nMwSt*nPriceMulti))
+                     //hPriceData["discount-ranges"] += LTrim(Str(aPrices[nX,1],12,0))+"|"+lTrim(Str(aPrices[nX,2]/oArtikel:VkPe*nMwSt*nPriceMulti))
+                     hPriceData["discount-ranges"] += LTrim(Str(aPrices[nX,1],12,0))+"|"+lTrim(Str(aPrices[nX,2]*nMwSt*nPriceMulti))
                   ENDIF
                NEXT
          
@@ -442,14 +446,26 @@ IF ! lUploadOnly
    FClose(nH2)
 
    //SaveAsCSV(cPDFile,aData,.T.)
-   SaveAsCSV(cQuoteFile,aPriceData,.T.)
+   IF GetChannelSettingWithDefault("upload_settings.method", "API") == "DIGIKEY_API"
+      MemoWrit(cQuoteFile,HB_JsonEncode(aPriceData))
+   ELSE
+      SaveAsCSV(cQuoteFile,aPriceData,.T.)
+   ENDIF 
+ELSE
+   //Alert("Upload only mode, skipping data preparation")
+   IF GetChannelSettingWithDefault("upload_settings.method", "API") == "DIGIKEY_API"
+      aPriceData := HB_JsonDecode(MemoRead(cQuoteFile))
+   ENDIF
 ENDIF
 
 
 
 IF GetConfigValue("BATCHMODE") .OR. Tr_MsgBox("Run upload script?",,{"Yes","No"}) == 1
    // Get upload method from configuration
-   IF GetChannelSettingWithDefault("upload_settings.method", "API") == "API"
+   IF GetChannelSettingWithDefault("upload_settings.method", "API") == "DIGIKEY_API"
+      lSuccess := DigiKey_UploadOffersV2(aPriceData, cChannel)
+      cData := IF(lSuccess, "OK", "DigiKey upload failed")
+   ELSEIF GetChannelSettingWithDefault("upload_settings.method", "API") == "API"
       // Build API upload command from configuration
       cCmd := GetChannelSettingWithDefault("upload_settings.api.curl_path", "c:\curl\bin\curl")
       cCmd += " -s -X POST " + GetChannelSetting("upload_settings.api.url")
@@ -468,27 +484,29 @@ IF GetConfigValue("BATCHMODE") .OR. Tr_MsgBox("Run upload script?",,{"Yes","No"}
    /*gtSetClipboard(cCmd+" "+cParam)
    WAPI_ShellExecute(,"open",cCmd,cParam)*/    //-hostkey="ssh-rsa 2048 '+cFTPHostKey+'"'+;
    
-   nStdOUT := 0   
-   nProc := HB_OpenProcess(cCmd,,@nStdOut,,.T.)
-   cData := ""
+   IF GetChannelSettingWithDefault("upload_settings.method", "API") != "DIGIKEY_API"
+      nStdOUT := 0   
+      nProc := HB_OpenProcess(cCmd,,@nStdOut,,.T.)
+      cData := ""
 
-   nSecond := Seconds()
-   DO WHILE HB_ProcessValue(nProc,.F.) == -1
-      cLine := Space( 1000 )
-      nBytes := Fread( nStdOUT, @cLine, Len(cLine) )         
-      cData += SubStr(cLine,1,nBytes)       
-      IF Seconds() - nSecond > GetChannelSettingWithDefault("upload_settings.api.timeout_seconds", 30)
-         ? "timeout"
-         EXIT
+      nSecond := Seconds()
+      DO WHILE HB_ProcessValue(nProc,.F.) == -1
+         cLine := Space( 1000 )
+         nBytes := Fread( nStdOUT, @cLine, Len(cLine) )         
+         cData += SubStr(cLine,1,nBytes)       
+         IF Seconds() - nSecond > GetChannelSettingWithDefault("upload_settings.api.timeout_seconds", 30)
+            ? "timeout"
+            EXIT
+         ENDIF
+      ENDDO            
+      
+      // Check success based on upload method
+      IF GetChannelSettingWithDefault("upload_settings.method", "API") == "API"
+         hData := HB_JsonDecode(cData)
+         lSuccess := ValType(hData) == "H" .AND. HHasKey(hData,"import_id")
+      ELSE //FTP
+         lSuccess := AT("100%",cData) != 0
       ENDIF
-   ENDDO            
-   
-   // Check success based on upload method
-   IF GetChannelSettingWithDefault("upload_settings.method", "API") == "API"
-      hData := HB_JsonDecode(cData)
-      lSuccess := ValType(hData) == "H" .AND. HHasKey(hData,"import_id")
-   ELSE //FTP
-      lSuccess := AT("100%",cData) != 0
    ENDIF
    
    IF ! lSuccess
@@ -498,7 +516,7 @@ IF GetConfigValue("BATCHMODE") .OR. Tr_MsgBox("Run upload script?",,{"Yes","No"}
          aRecipients := {}
       ENDIF
       cSubject := GetChannelSettingWithDefault("notification_settings.error_email.subject", "Upload Error")*/
-      SendMessage("Produktmanagement | Angebotsupload fehlgeschlagen", "Upload fehlgeschlagen: "+cChannel, cCmd+"<br>"+cData)
+      SendMessage("Produktmanagement | Angebotsupload fehlgeschlagen", "Upload fehlgeschlagen: "+cChannel, "Response:<br>"+cData)
    ELSEIF ! GetConfigValue("BATCHMODE")
       Alert("Uploaded successfully")
    ENDIF
@@ -567,3 +585,4 @@ RETURN aPriceTab
 #include 'onpow_part_no.prg'
 #include 'onpow_prices.prg'
 #include 'x:\run\product_data\channel_config.prg'
+#include 'x:\run\product_data\digikey_api.prg'

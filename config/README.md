@@ -11,6 +11,7 @@ This directory contains the configuration files for the product data export syst
 - `channels/` - Directory containing individual channel configuration files
   - `conrad.json` - Conrad B2B marketplace configuration
   - `amazon.json` - Amazon Business marketplace configuration (example)
+  - `digikey.json` - DigiKey Quote API configuration
 
 ## Configuration Files
 

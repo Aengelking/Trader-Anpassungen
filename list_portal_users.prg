@@ -1,5 +1,5 @@
 #include 'inkey.ch'
-#include 'trader.ch'
+//#include 'trader.ch'
 
 /*
    FUNCTION: RUN_ListPortalUsers

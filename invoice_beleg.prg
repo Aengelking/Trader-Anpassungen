@@ -90,6 +90,40 @@ LOCAL oExtra
 
 MEMVAR c_two,c_one
 
+
+bDrawImage := {||
+   LOCAL nRatio,nWidth
+   LOCAL cScreen
+   IF ! Empty(cImageFile)
+      //A4 = 210x297mm
+//      @ 30,60 SAY HB_GTINFO( HB_GTI_FONTWIDTH)
+//      @ 31,60 SAy HB_GTINFO( HB_GTI_FONTSIZE)
+
+      /*210/width    x
+      ....      ==
+      297/size     47  */
+      nRatio := (210/HB_GTINFO( HB_GTI_FONTWIDTH))/(297/HB_GTINFO( HB_GTI_FONTSIZE))
+
+      nWidth :=  Int(nRatio*(47-10))  //30
+
+      nImageTop := 10
+      nImageBottom := nImageTopDiff+47*nScale
+      nImageRight := nWidth*nScale
+
+      IF nImageTopDiff < 0
+         cScreen := SaveScreen(00,00,09,MaxCol())
+      ENDIF
+
+      Wvt_DrawImage( nImageTop+nImageTopDiff,00+nImageRightDiff,nImageBottom,nImageRight+nImageRightDiff, StrTran(cImageFile,"%d",LTrim(str(nPage))), {00, 00, 00, Mod(nRatio,47-10)*72*nScale } )
+
+      IF nImageTopDiff < 0
+         RestScreen(00,00,09,MaxCol(),cScreen)
+      ENDIF
+
+   ENDIF
+   RETURN NIL
+}
+
 SetKey(1014,{||
    nScale++
    Eval(bDrawImage)
@@ -357,38 +391,7 @@ IF lAuto .AND. (Empty(cBeleg) .OR. (Empty(cLiefma) .AND. Empty(cKonto)))
 ENDIF
 
 
-bDrawImage := {||
-   LOCAL nRatio,nWidth
-   LOCAL cScreen
-   IF ! Empty(cImageFile)
-      //A4 = 210x297mm
-//      @ 30,60 SAY HB_GTINFO( HB_GTI_FONTWIDTH)
-//      @ 31,60 SAy HB_GTINFO( HB_GTI_FONTSIZE)
 
-      /*210/width    x
-      ....      ==
-      297/size     47  */
-      nRatio := (210/HB_GTINFO( HB_GTI_FONTWIDTH))/(297/HB_GTINFO( HB_GTI_FONTSIZE))
-
-      nWidth :=  Int(nRatio*(47-10))  //30
-
-      nImageTop := 10
-      nImageBottom := nImageTopDiff+47*nScale
-      nImageRight := nWidth*nScale
-
-      IF nImageTopDiff < 0
-         cScreen := SaveScreen(00,00,09,MaxCol())
-      ENDIF
-
-      Wvt_DrawImage( nImageTop+nImageTopDiff,00+nImageRightDiff,nImageBottom,nImageRight+nImageRightDiff, StrTran(cImageFile,"%d",LTrim(str(nPage))), {00, 00, 00, Mod(nRatio,47-10)*72*nScale } )
-
-      IF nImageTopDiff < 0
-         RestScreen(00,00,09,MaxCol(),cScreen)
-      ENDIF
-
-   ENDIF
-   RETURN NIL
-}
 //SetKey( 1101, bDrawImage)
 Aadd(aPaint,{ "Image" , bDrawImage , { WVT_BLOCK_IMAGE,  10, 00, 47, (210/HB_GTINFO( HB_GTI_FONTWIDTH))/(297/HB_GTINFO( HB_GTI_FONTSIZE))*(47-10) } })
 WvtSetPaint(aPaint)

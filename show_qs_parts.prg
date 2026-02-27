@@ -349,7 +349,7 @@ RETUR NIL
 
 FUNCTION ShowWEDeliveryNotes(cMatchcode, nQSQty, nArtnr, aFirms, nFirmID)
    LOCAL aEnv := SaveEnv()
-   LOCAL cBeleg := "", nTotalQty := 0, nCurrentQty := 0
+   LOCAL cBeleg := "", cLastBeleg := "", nTotalQty := 0, nCurrentQty := 0
    LOCAL aDeliveries := {},aDelivery
    LOCAL cMessage := ""
    LOCAL aBuartTypes := {"WE","WA"}
@@ -452,10 +452,16 @@ FUNCTION ShowWEDeliveryNotes(cMatchcode, nQSQty, nArtnr, aFirms, nFirmID)
                   nTotalQty += nCurrentQty
                   
                   // Check if this is a new delivery note
-                  IF cBeleg != abg->Beleg
+                  IF Trim(abg->Buart) == "WA" .AND. Empty(abg->Liefma)
+                     cBeleg := LTrim(Str(abg->Besnr))
+                  ELSE
                      cBeleg := abg->Beleg
+                  ENDIF
+                  
+                  IF cLastBeleg != cBeleg
+                     cLastBeleg := cBeleg
                      Aadd(aDeliveries, {;
-                        "BELEG"    => Trim(abg->Beleg),;
+                        "BELEG"    => Trim(cBeleg),;
                         "DATE"     => abg->Datum,;
                         "QTY"      => nCurrentQty,;
                         "SUPPLIER" => abg->Liefma,;

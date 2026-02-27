@@ -87,26 +87,31 @@ FUNC aawEditorLoad()
 
 RETURN hReturn
 
-FUNC aawEditorSave(hData)
+FUNC aawEditorSave(cData)
    LOCAL cFileName
    LOCAL lSuccess := .T., cError := "" 
+   LOCAL cDataString
+   LOCAL hData,nBytes
+
+   cDataString := hb_utf8tostr(hb_base64Decode(cData))
+   hData := HB_JsonDecode(cDataString)
 
    IF ValType(hData) == "H" .AND. HHAsKey(hData,"sections")
       cFileName := AAW_PATH+LTrim(Str(nAWnr))+".json"
-      lSuccess := .F.
-      cError := "Error saving file "+cFileName
-      IF ! MemoWrit( cFileName, HB_JsonEncode(hData), .T. )
+      IF ! MemoWrit( cFileName, cDataString, .T. )
          lSuccess := .F.
          cError := "Error saving file "+cFileName
       ELSE
          //also save the locally cached file
          cFileName := LOCAL_CACHE_PATH+"\"+LTrim(Str(nAWnr))+".json"
-         IF ! MemoWrit( cFileName,HB_JsonEncode(hData), .T.)
+         //IF ! MemoWrit( cFileName,HB_JsonEncode(hData), .T.)
+         nBytes := StrFile( cDataString ,cFileName,.F.,, .T.)
+         IF nBytes != Len(cDataString)
             lSuccess := .F.
-            cError := "Error saving local cache file "+cFileName
+            cError := "Error saving local cache file "+cFileName+" Bytes written: "+LTrim(Str(nBytes))+" Expected: "+LTrim(Str(Len(cDataString)))
          ELSE
             //verify by reading it back
-            /*IF HB_JsonDecode(StrFile(cFileName)) != hData
+            /*IF HB_JsonDecode(FileStr(cFileName)) != hData
                lSuccess := .F.
                cError := "Verification error saving file "+cFileName
             ENDIF*/

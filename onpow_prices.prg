@@ -310,6 +310,9 @@ FOR EACH hSeries IN aSeries
       oppl->(dbGoTop())
 
       DO WHILE (! lNewAli .OR. nFinalPrice == 0) .AND. ! oppl->(EOF())
+         #ifdef DEBUG               
+            ? "Part on Price list: ",oppl->Part
+         #endif
          IF oppl->(FieldPos("NOLED")) != 0 .AND. ! Empty(oppl->NoLed)
             IF HHasKey(hSeries,"REGEXNOLED")
                aCompare := HB_Regex("([^\/]*(?:\/[JL])?)(\/[ANS])(\/FP)?",oppl->Part)
@@ -318,7 +321,8 @@ FOR EACH hSeries IN aSeries
                ENDIF
 
                #ifdef DEBUG               
-               ? oppl->Part,"NO LED"               
+               ? "Part on Price list: ",oppl->Part
+               ? "Looking for parts with NO LED using Regex: ",hSeries:RegexNoLed
                #endif               
                IF ! lNewAli 
                   IF ! ali->(dbSeek( cSup+hSeries:Search, .T. ))
@@ -340,19 +344,19 @@ FOR EACH hSeries IN aSeries
                DO WHILE (lArtLiefPassed .OR. ali->Kunde == cSup) .AND. At(hSeries:Search,cArtLief) == 1
                   IF ! lArtLiefPassed
                      art->(dbSeek( Str(ali->Artikelnr,6) ))  //need to use artikel DB as some ali->Matchcode's have not been updated on a change!
-
+                     
                      IF Left(art->Matchcode,2) $ "CS KS"
                         IF ! lNewAli
                            ali->(dbSkip())
                            LOOP
                         ELSE
-                           RETURN
+                           RETURN NIL
                         ENDIF
                      ENDIF
                   ENDIF
                   IF Upper(Chr(Inkey())) == "S"
                      IF Upper(Chr(Sinkey(0))) == "C"
-                        RETURN
+                        RETURN NIL
                      ENDIF
                   ENDIF
 
@@ -360,7 +364,7 @@ FOR EACH hSeries IN aSeries
 
                   IF aMatches != NIL .AND. Len(aMatches) > 0 .AND. Eval(hSeries:MatchNoLed,aMatches,aCompare)
                      #ifdef DEBUG
-                     ? " ",cArtLief
+                     ? " Found Onpow part:",cArtLief
                      #else
                      @ 02,37 SAY cArtLief
                      #endif
@@ -394,8 +398,8 @@ FOR EACH hSeries IN aSeries
                      Sinkey(0)
                      #endif
                   ELSE
-                     #ifdef DEBUG
-                        ?? " no price found"
+                     #ifdef DEBUG                        
+                        //?? " no price found"
                      #endif
                   ENDIF
                   IF ! lNewAli
@@ -447,6 +451,8 @@ FOR EACH hSeries IN aSeries
                #ifdef DEBUG
                ? "Not found"
                #endif
+            ELSE
+               cArtlief := ali->Artlief
             ENDIF
             #ifdef DEBUG
             IF At(hSeries:Search,cArtLief) != 1
@@ -595,7 +601,7 @@ FOR EACH hSeries IN aSeries
                   
                ELSE
                   #ifdef DEBUG
-                     ?? " no price found" //,"Matches:",ValToPrg(aMatches),"Compare:",ValToPrg(aCompare)
+                     //?? " no price found" //,"Matches:",ValToPrg(aMatches),"Compare:",ValToPrg(aCompare)
                   #endif
                ENDIF
                IF ! lNewAli

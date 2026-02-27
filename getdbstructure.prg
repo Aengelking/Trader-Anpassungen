@@ -70,6 +70,8 @@ FUNCTION RUN_GetDBStructure
    @ 12,00 SAY "Tables: " + AllTrim(Str(Len(HB_HKeys(hData))))
    @ 13,00 SAY ""
    @ 14,00 SAY "Press any key..."
-   Inkey(0,128)
+   IF ! GetConfigValue("BATCHMODE")
+      Inkey(0,128)
+   ENDIF
    
 RETURN .T.

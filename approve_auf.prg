@@ -11,8 +11,8 @@ LOCAL nPreStart := 5 //Monate bis Rahmenbegin
 LOCAL nLaufzeit
 LOCAL oContract
 LOCAL cText1,nLevel,nTotal,oContr,nVk,nArtikelnr,nP,nMargin,nQty,nEK,nX,nGewinn
-LOCAL aDels := {},nCoc := 0,oExtra
-LOCAL nWeek
+LOCAL aDels := {},nCoc := 0,oExtra 
+LOCAL oABExtra
 
 LOCAL hLaufZeit := { ; //Sonderlaufzeiten
    46872=>24,;
@@ -32,6 +32,12 @@ oExtra := ku->(ExtraData():New(oAuftrag:Kunde:Nummer))
 IF ValType(oAuftrag) != "O"   
    oAuftrag := Auftrag():New()
    oAuftrag:Load(auf->AbNr)
+ENDIF
+
+oABExtra := auf->(ExtraData():New(auf->Abnr))
+
+IF oABExtra:CUST_APR  //Kudenfreigabe erforderlich
+   RETURN {"Kundenfreigabe erforderlich",{33,9}}  //Genehmigsungsanforderung ohne Genehmiger
 ENDIF
 
 IF Tr_getIni(28) == 9

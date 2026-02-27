@@ -470,7 +470,13 @@ ELSEIF nTab == 15 //Value-Add
          ENDIF    
       ENDIF
    ENDIF
-ELSEIF nTab == 75 .AND. art->Bezug == 5 //Engelking China if it is repacked
+ELSEIF nTab == 75 .OR. nTab == 10
+   IF dDate >= StoD("20260401")
+      AEval(aPriceTabs,{|aTab| 
+         aTab[2] *= 1.05 //general price increase of 5% from April 1st, 2026 due to increased costs for raw materials and logistics         
+      }) 
+   ENDIF
+   IF art->Bezug == 5 //Engelking China if it is repacked
    
       NetUse("parts","part")
       NetUSe("manufact","manu")
@@ -503,6 +509,7 @@ ELSEIF nTab == 75 .AND. art->Bezug == 5 //Engelking China if it is repacked
          ENDIF
          part->(dbSkip())
       ENDDO
+   ENDIF
 ELSEIF nTab == 26   
    NetUse("artlief","ali")
    ali->(dbSetOrder( 5 ))

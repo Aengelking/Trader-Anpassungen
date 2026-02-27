@@ -45,6 +45,8 @@ IF Trim(ku->Kunde) == "SOFTCOM"
    RETURN 40000
 ENDIF
 
+
+
 LoadPrg(Path("run\creditsafe.prg"))
 
 IF Tr_Getini(28) == 9 // .OR. (Tr_Getini(28) == 33 .AND. Date() <= StoD("2020109"))
@@ -762,6 +764,9 @@ ELSEIF lSimpleCountry .AND. ((nTotalPaid >= 4000 .AND. nCredLimit <= 20000) .OR.
       ? "Limit durch L„ndervereinfachung:",LTrim(Str(nCredLimit,12,0))
    ENDIF
 ELSE
+   IF lDbg
+      ? "Kein WKV Limit"
+   ENDIF
    nRow := Row()
    nCol := Col()
 
@@ -890,7 +895,10 @@ ELSE
       ENDIF
    ENDIF
 
-   IF (! cs->(dbSeek( Str(ku->Nummer,6))) .OR. Empty(cs->ID))      
+   IF (! cs->(dbSeek( Str(ku->Nummer,6))) .OR. Empty(cs->ID))  
+      IF lDbg
+         ? "Keine CS Auskunft vorhanden"    
+      ENDIF
       IF HHasKey(hSpecial,Trim(cKunde)) .AND. hSpecial[Trim(cKunde)]:Date >= Date()
          nCredLimit := Min(5000,hSpecial[Trim(cKunde)]["LIMIT"])
       
@@ -903,6 +911,11 @@ ELSE
          ELSE
             nCredLimit := 0.2
          ENDIF
+      ELSE
+         IF lDbg
+            ? "Kein Sonderlimit und nicht aus Deutschland"
+         ENDIF
+         nCredLimit := 0.3
       ENDIF
    ELSE
       IF lDbg
@@ -975,9 +988,9 @@ ELSE
                oIter:Rewind()
                oNode := oIter:Find("CompanyStatus")     
                
-               IF oNode != NIL .AND. oNode:GetAttribute("Code") == "Other" .AND. oNode:cData $ "active aktiv" .AND.  HHasKey(hSpecial,Trim(cKunde)) //aktiv aber unbewertet
+               IF oNode != NIL .AND. oNode:GetAttribute("Code") == "Other" .AND. oNode:cData $ {"active","aktiv"} .AND.  HHasKey(hSpecial,Trim(cKunde)) //aktiv aber unbewertet
                   nCredLimit := Min(hSpecial[Trim(cKunde)]["LIMIT"],100)
-               ELSEIF oNode == NIL .OR. oNode:GetAttribute("Code") != "Active" .OR. (! Empty(oNode:cData) .AND. ! Lower(oNode:cData) $ {"active","aktiv","aktive firma","active company","in activity"})
+               ELSEIF oNode == NIL .OR. oNode:GetAttribute("Code") != "Active" .OR. (! Empty(oNode:cData) .AND. ! Lower(oNode:cData) $ {"active","aktiv","aktive firma","active company","in activity","economically active"})
                   nCredLimit := -2
                ELSEIF nRating < 3  //Deckung durch die R+V
                   IF nRating < 2

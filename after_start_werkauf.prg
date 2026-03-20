@@ -48,7 +48,7 @@ ELSE //interne Fertigung
       DO WHILE rst->Type == "WA " .AND. rst->No == nWnr
          job->(dbSeek( Str(rst->Job,6) ))
          
-         IF AT("PRFEN",Upper(job->Name)) > 0 .AND. (Empty(oExtra:CFGTMPLT) .OR. File(cConfigDir+Trim(oExtra:CFGTMPLT)+".RC"))
+         IF AT("PRFEN",Upper(job->Name)) > 0 .AND. Empty(oExtra:CFGTMPLT) //.OR. File(cConfigDir+Trim(oExtra:CFGTMPLT)+".RC"))
             SendMail({{"amos.engelking@engelking.de","Amos"}},"Keine Config-Datei fr SD-Karte fr FA "+LTrim(Str(nWnr)),"Matchcode: "+art->Matchcode)            
             EXIT
          ENDIF

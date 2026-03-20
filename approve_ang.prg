@@ -76,7 +76,7 @@ ku->(dbSeek( ang->Kundma+"K" ))
 IF sk->(IsPrePay(ku->Skonto)) .AND. ! lPorto .AND. ! ku->Versandart $ {10,44,46,49,56}
    oExtra := ku->(ExtraData():New(ku->Nummer))
    IF oExtra:OnlineKauf
-      cText1 += t("Kein Porto berechnet (fr Onlinekauf notwendig)")+";"
+      cText1 += "Kein Porto berechnet (fr Onlinekauf notwendig)"+";"
       IF nLevel > 2
          nLevel := 2
       ENDIF

@@ -14,6 +14,7 @@ LOCAL cTodoType,cTodoTask,lTodoExists,oTodo,aTodoEnv
 LOCAL lExtern := .F.,lSampleFound
 LOCAL aFreigabeList
 LOCAL nStock
+LOCAL lSaveTodo := .F.
 LOCAL bGetFreigabe := { |nLief,oLief|
    LOCAL cText
    
@@ -192,7 +193,7 @@ ELSEIF ! Empty(oAufPos:Artikel:Zeichnung) //Freigabe prfen
          IF ! lTodoExists
             oTodo := Todo():New(.T.)
             oTodo:RefType := cTodoType
-            oTodo:Ref := oAufPos:Auftrag:AbNr
+            
             oTodo:Task := cTodoTask
             oTodo:User := SystemUser():Id
             //oTodo:Due := AddWorkingDays(Date(),1,GetConfigValue("STATE"))
@@ -201,9 +202,10 @@ ELSEIF ! Empty(oAufPos:Artikel:Zeichnung) //Freigabe prfen
             oTodo:TrgSetting := hb_Serialize({;
                {"name"=>"Artikelnummer","comp"=>"==","compStr"=>"==","comp_val"=>0,"value"=>oAufPos:Artikel:Artikelnr,"next"=>"und","LBValue"=>0},;
                {"name"=>"Freigabestufe","comp"=>"==","compStr"=>"==","comp_val"=>0,"value"=>"DONE","next"=>"","LBValue"=>0}})
-            oTodo:TrgClause := "p[4]=="+LTrim(Str(oAufPos:Artikel:Artikelnr,6))+" && p[3]=='DONE'"
+            oTodo:TrgClause := "p[4]=="+LTrim(Str(oAufPos:Artikel:Artikelnr,6))+" .AND. p[3]=='DONE'"
             oTodo:Notes := "Meldebestand: "+LTrim(Transform(oAufPos:MeldStock,oAufPos:Artikel:cPicture))
-            oTodo:Save()
+            //oTodo:Save()
+            lSaveTodo := .T.  //set the flag to save the todo after all checks have been done and the order can be saved
          ENDIF
          RestEnv(aTodoEnv,.F.)
 
@@ -493,3 +495,13 @@ IF oContrPos != NIL .AND. oExtra:AufLos //"|"+Trim(oAufPos:Auftrag:Kundma)+"|" $
       //,GetMeDecimals( oAufPos:Artikel:Me ))
    ENDIF
 ENDIF
+
+IF lSaveTodo  //we only want to save the todo if all checks have been passed and the order can be saved, otherwise we would have open todos for orders that have not been saved and might never be saved.     
+   IF oAufPos:Auftrag:AbNr == 0
+      oAufPos:Auftrag:Save() //we need an AbNr for the reference, so we save the order first if it is not saved yet. This should not cause any issues, because we are still in the before save event and can still cancel the save if needed.
+   ENDIF
+   oTodo:Ref := oAufPos:Auftrag:AbNr 
+   oTodo:Save()
+ENDIF
+
+RETURN .T.

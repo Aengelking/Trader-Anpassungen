@@ -1007,8 +1007,7 @@ ELSE
                      ? "Bewertung anhand Rating: "+LTrim(Transform(nCredLimit,cPic))
                   ENDIF
 
-               ELSEIF HHasKey(hSpecial,Trim(cKunde)) .AND. hSpecial[Trim(cKunde)]:Date >= Date()    
-                  ? "Sonderlimit"              
+               ELSEIF HHasKey(hSpecial,Trim(cKunde)) .AND. hSpecial[Trim(cKunde)]:Date >= Date()                      
                   nCredLimit := Min(hSpecial[Trim(cKunde)]["LIMIT"],IF(lAuftrag,5000,3000))
                ELSEIF ! oExtra:Factoring //keine R+V Deckung, dann aufgrund positive Zahlungserfahrung bewerten                  
                   //bewerten das nur nach Zahlungserfahrung

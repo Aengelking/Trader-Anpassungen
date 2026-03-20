@@ -178,6 +178,11 @@ FOR EACH hProd IN aProducts
                   nLevel := 4
                ELSEIF nLevel > 2
                   nLevel := 2
+                  IF Len(aPrices) >= nPrice .AND. nPrice > 0
+                     cText1 += cPreText+" Preis nur knapp Åber Staffelpreis ("+LTrim(Str(hProd:VkPr / Currate( cMoney, "V" ),12,2))+"<"+Ltrim(str(aPrices[nPrice,2]/hProd:Artikel:VkPe,12,2))+");"
+                  
+                  ENDIF
+                  
                ENDIF
                IF hProd:Artikel:Manufactur == 9
                   nLevel := IF(lHoliday,2,1)

@@ -5,7 +5,7 @@ PROC Hook_Automotive_After_Pack( nNr,lRech)
 
    re->(dbSetOrder( 4 ))
    IF ! re->(dbSeek( Str(nNr,6) ))
-      oErr := Error():New(101,"Rechnung nicht gefunden")
+      oErr := Error("TRADER",101,0,"PACK_INVOICE","Rechnung nicht gefunden")
       Throw( oErr )
    ENDIF
 

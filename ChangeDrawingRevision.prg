@@ -148,6 +148,7 @@ PROC RUN_ChangeDrawingRevision()
          aMsg := {}        
          lUntKunde := .F. 
          FOR EACH cLiefma IN aSuppliers
+            
             IF ! Empty(cLiefma)
                ku->(dbSeek( cLiefma+"L" ))
                nSupplier := ku->Nummer
@@ -160,6 +161,7 @@ PROC RUN_ChangeDrawingRevision()
             ENDIF
             
             hFreigabe := GetArtikelFreigabeStatus(nSupplier,.F.,cDrawing,cIndex)
+            
             IF hFreigabe:nNummer == 0 .AND. Tr_MsgBox("Freigabelauf "+IF(nSupplier==0,"intern","fr "+Trim(cLiefma))+" starten?",,{"Nein","Ja"}) == 2
                ppf->(dbSetOrder( 3 )) //Str(nummer,10)
                ppf->(dbGoBottom())
@@ -174,6 +176,7 @@ PROC RUN_ChangeDrawingRevision()
                ppf->ZeichIndex := cIndex
                ppf->(dbUnLock())
                hFreigabe := GetArtikelFreigabeStatus(nSupplier,.F.,cDrawing,cIndex)
+               
             ENDIF
             IF hFreigabe:nNummer == 0
                aOrder := GetFreigabeOrder(art->Artikelnr,nSupplier)
@@ -189,7 +192,7 @@ PROC RUN_ChangeDrawingRevision()
                ENDIF
                Aadd(aMsg,cText)               
             ELSE
-               IF hFreigabe:aState[1] == "DONE" .OR. (lTech .AND. hFreigabe:aState[1] == "UNT");
+               IF hFreigabe:aState[1] == "DONE" .OR. (!lTech .AND. hFreigabe:aState[1] $ {"UNT","MUS"});
                    .OR. (lTech .AND. nSupplier = 0 .AND. hFreigabe:aState[1] == "UNTK")
                   IF Len(hOpenPO) == 0 .AND. Len(hOpenMO) == 0 //no open orders, then we can change the SO
                      lCanChangeSO := .T.
@@ -204,25 +207,29 @@ PROC RUN_ChangeDrawingRevision()
                ELSE  //not approved
                   IF cLiefma $ hOpenPO .OR. cLiefma $ hOpenMO
                      cNext := hFreigabe:aState[1]
-                     DO WHILE cNext == hFreigabe:aState[1] .OR. ("ignore" $ aFields .AND. ! "forcesonderonignore" $ aFields)
-                        cNext := GetNextFreigabeLevel(art->Artikelnr,nSupplier,cNext,.F.)
-                        aFields := GetFreigabeFields(cNext)
-                     ENDDO
-                     Aadd(aMsg,Trim(cLiefma)+" "+IF(lTech,"Vollst„ndge ","Fertigungsunterlagen-")+"Freigabe notwendig, n„chste Stufe: "+GetFreigabeStatusText({cNext,NIL})+" freigegeben")
-                  ELSEIF ! lUntKunde                     
-                     IF hFreigabe:aState[1] == "UNTK" .OR. lKuzeichnung
-                        lUntKunde := .T.
-                     ELSE
-                        aOrder := GetFreigabeOrder(art->Artikelnr,nSupplier)                        
-                        IF AScan(aOrder,"UNTK") < AScan(aOrder,hFreigabe:aState[1])
-                           lUntKunde := .T.
-                        ENDIF
+                     IF hFreigabe:aState[2]  //if this step has been approved look for the next 
+                        DO WHILE cNext == hFreigabe:aState[1] .OR. ("ignore" $ aFields .AND. ! "forcesonderonignore" $ aFields)
+                           cNext := GetNextFreigabeLevel(art->Artikelnr,nSupplier,cNext,.T.)
+                           ? cNext
+                           aFields := GetFreigabeFields(cNext)
+                        ENDDO
                      ENDIF
+                     Aadd(aMsg,Trim(cLiefma)+" "+IF(lTech,"Vollst„ndge ","Fertigungsunterlagen-")+"Freigabe notwendig, n„chste Stufe: "+GetFreigabeStatusText({cNext,NIL})+" freigegeben")
                   ENDIF
+               ENDIF
+               IF ! lUntKunde                     
+                  IF hFreigabe:aState[1] == "UNTK" .OR. lKuzeichnung
+                     lUntKunde := .T.
+                  ELSE
+                     aOrder := GetFreigabeOrder(art->Artikelnr,nSupplier)                        
+                     IF AScan(aOrder,"UNTK") < AScan(aOrder,hFreigabe:aState[1])
+                        lUntKunde := .T.
+                     ENDIF
+                  ENDIF                  
                ENDIF
                //Alert(ValToPrg(hFreigabe))
             ENDIF            
-         NEXT
+         NEXT         
          IF Len(aMsg) != 0
             Tr_MsgBox(aMsg)
             LOOP

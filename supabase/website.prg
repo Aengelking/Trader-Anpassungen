@@ -1,0 +1,530 @@
+PROC SYNC_Supabase_Website()
+   LOCAL oRest := RestApi():New()
+
+   Head("Sync Supabase Website")
+
+   oRest:cBaseUrl := "https://kooxwelqbqplbryoxbya.supabase.co/"
+   oRest:cApiKeyName := "WEBSITE"
+
+   //_SyncOptionsToSupabase(oRest)
+   _SyncProductsToSupabase(oRest)
+
+   IF ! GetConfigValue("BATCHMODE")
+      ? "Sync abgeschlossen. Drcken Sie eine Taste, um fortzufahren."
+      SInkey(0)
+   ENDIF
+RETURN
+
+STATIC PROCEDURE _SyncOptionsToSupabase(oRest)
+   LOCAL cUrl := "functions/v1/erp-options-sync"
+   LOCAL cResponse
+   LOCAL aHeader := {}
+   LOCAL hData := _BuildOptionsJson()
+
+   ? "Sende Options-Daten zu Supabase..."   
+
+   AAdd(aHeader, "Authorization: Bearer $APIKEY$")   
+
+   //gtSetClipboard(HB_JsonEncode(hData)) //debug: copy the json to clipboard
+
+   cResponse := oRest:Execute(cUrl, "POST", hData, aHeader, .T.)
+
+   IF ! Empty(cResponse)
+      ? "OPTIONS erfolgreich synchronisiert"
+      _PrintSyncResponse(cResponse)
+   ELSE
+      ? "Fehler: leere Antwort von Supabase"
+   ENDIF
+
+RETURN
+
+STATIC PROCEDURE _SyncProductsToSupabase(oRest)
+   LOCAL cUrl := "functions/v1/erp-product-sync"
+   LOCAL cResponse
+   LOCAL aHeader := {}
+   LOCAL hData := _BuildProductsJson()
+   LOCAL aProducts := {}
+   LOCAL aBatch
+   LOCAL hBatchData
+   LOCAL nTotalProducts
+   LOCAL nBatchSize := 200   
+   LOCAL nStart
+   LOCAL nEnd
+   LOCAL nX
+   LOCAL nBatchNo := 0
+   LOCAL nBatchCount
+   LOCAL lBatchSuccess
+   LOCAL nFailedBatches := 0
+   LOCAL nProductsUpdated := 0
+   LOCAL nProductsSkipped := 0
+   LOCAL nTierPricesUpserted := 0
+
+   ? "Sende Produktdaten zu Supabase..."
+
+   AAdd(aHeader, "Authorization: Bearer $APIKEY$")
+
+   IF HHasKey(hData, "products") .AND. ValType(hData["products"]) == "A"
+      aProducts := hData["products"]
+   ENDIF
+
+   nTotalProducts := Len(aProducts)
+   IF nTotalProducts == 0
+      ? "Keine Produkte zum Synchronisieren gefunden"
+      RETURN
+   ENDIF
+
+   nBatchCount := Int((nTotalProducts + nBatchSize - 1) / nBatchSize)
+
+   FOR nStart := 1 TO nTotalProducts STEP nBatchSize
+      nEnd := Min(nStart + nBatchSize - 1, nTotalProducts)
+      nBatchNo++
+
+      aBatch := {}
+      FOR nX := nStart TO nEnd
+         AAdd(aBatch, aProducts[nX])
+      NEXT
+
+      hBatchData := {=>}
+      hBatchData["products"] := aBatch
+      hBatchData["batch_id"] := nBatchNo
+      hBatchData["is_last_batch"] := (nBatchNo == nBatchCount)
+
+      ? "Batch " + LTrim(Str(nBatchNo)) + "/" + LTrim(Str(nBatchCount)) + " (" + LTrim(Str(Len(aBatch))) + " Produkte)"
+
+      cResponse := oRest:Execute(cUrl, "POST", hBatchData, aHeader, .T.)
+      IF Empty(cResponse)
+         nFailedBatches++
+         ? "Fehler: leere Antwort von Supabase (Batch " + LTrim(Str(nBatchNo)) + ")"
+      ELSE
+         lBatchSuccess := .F.
+         _AccumulateProductSyncResponse(cResponse, @nProductsUpdated, @nProductsSkipped, @nTierPricesUpserted, @lBatchSuccess)
+         IF ! lBatchSuccess
+            nFailedBatches++
+            ? "Fehlerhafte Antwort in Batch " + LTrim(Str(nBatchNo))
+            ? "Antwort: " + cResponse
+         ENDIF
+      ENDIF
+   NEXT
+
+   IF nFailedBatches == 0
+      ? "PRODUKTE erfolgreich in Batches synchronisiert"
+   ELSE
+      ? "Synchronisierung mit Fehlern abgeschlossen"
+      ? "Fehlgeschlagene Batches: " + LTrim(Str(nFailedBatches))
+   ENDIF
+
+   ? "Upserted products: " + LTrim(Str(nProductsUpdated))
+   ? "Skipped products (no changes): " + LTrim(Str(nProductsSkipped))
+   ? "Upserted tier prices: " + LTrim(Str(nTierPricesUpserted))
+
+RETURN
+
+STATIC FUNCTION _BuildOptionsJson()
+   LOCAL aEnv := SaveEnv()
+   LOCAL hResult := {=>}
+   LOCAL aBases := {}, aTables := {}, aKeys := {}
+   LOCAL oBase
+   LOCAL hBase, hTable, hKey
+
+   @ 01,00 SAY "Lese Options-Daten aus ERP..."
+
+   hResult["bases"]  := aBases
+   hResult["tables"] := aTables
+   hResult["keys"]   := aKeys
+
+   NetUse("optbas", "opb")
+   opb->(dbGoTop())
+
+   DO WHILE ! opb->(EOF())
+      IF ! Empty(Trim(opb->MODEL))
+         hBase := {=>}
+         hBase["model"]          := Trim(opb->MODEL)
+         hBase["model_ref"]      := Trim(opb->MODEL1)
+         hBase["matchcode"]      := Trim(opb->MATCHCODE)
+         hBase["price_domestic"] := opb->PRICE
+         hBase["price_export"]   := opb->PRICEX
+         hBase["article_nr"]     := IF(opb->ARTIKELNR > 0, opb->ARTIKELNR, NIL)
+         AAdd(aBases, hBase)
+
+         oBase := OptionBase():New()
+         IF oBase:Load(opb->MODEL)
+            oBase:oTables:Each({|oTable|            
+               IF oTable:ID != 0
+                  @ 02,00 SAY "Verarbeite Tabelle: " + Trim(oTable:Funktion)
+                  hTable := {=>}
+                  hTable["model"]      := Trim(oTable:Model)
+                  hTable["table_nr"]   := oTable:Table
+                  hTable["key_length"] := oTable:Length
+                  hTable["label"]      := hb_StrToUTF8(Trim(oTable:Funktion))
+                  AAdd(aTables, hTable)
+
+
+
+                  oTable:oKeys:Each({|oKey|     
+                     IF oKey:ID != 0
+                        hKey := {=>}
+                        hKey["model"]         := Trim(oKey:oTable:Model)
+                        hKey["table_nr"]      := oKey:oTable:Table
+                        hKey["tab_key"]        := Trim(oKey:TabKey)
+                        hKey["description"]    := hb_StrToUTF8(Trim(oKey:Descript))
+                        hKey["matchcode"]      := Trim(oKey:MatchCode)
+                        hKey["price_domestic"] := oKey:Price
+                        hKey["price_export"]   := oKey:Pricex
+                        hKey["code"]           := oKey:Code
+                        hKey["article_nr"]     := IF(oKey:Artikelnr > 0, oKey:Artikelnr, NIL)
+                        AAdd(aKeys, hKey)
+                     ENDIF
+                     RETURN NIL
+                  })
+               ENDIF
+               RETURN NIL               
+            })
+         ENDIF
+      ENDIF
+      opb->(dbSkip())
+   ENDDO
+
+   USE
+   //RestEnv(aEnv,.F.)
+RETURN hResult
+
+STATIC FUNCTION _BuildProductsJson()
+   LOCAL aEnv := SaveEnv()
+   LOCAL hResult := {=>}
+   LOCAL aProducts := {}
+   LOCAL hProducts := {=>}
+   LOCAL cProductNumber
+   LOCAL oArtikel
+   LOCAL aPrices
+   LOCAL nX
+   LOCAL hTier
+   LOCAL hProduct
+   LOCAL aTierPrices
+   LOCAL nQty
+   LOCAL nPriceNet
+   LOCAL aOnpowPrices
+   LOCAL nCurWeek := CWeek(Date())
+   LOCAL cWaldom := Pad("WALDOM",8)
+   LOCAL nTotal,nCount := 0
+
+
+   @ 01,00 SAY "Lese Produktdaten aus ERP..."
+
+   hResult["products"] := aProducts
+
+   NetUse("shopware", "shop")
+   NetUse("ptcache", "ptc")
+   NetUse("liefstock", "lsto")
+   NetUse("buyprice", "bpr")
+   NetUse("engkund","ku")  //ONPOW_PRICING uses this
+   NetUse("stafprei","stpr")
+   bpr->(dbSetOrder(2))
+   
+   shop->(dbSetOrder(0))
+   nTotal := shop->(LastRec())
+   
+   shop->(dbSetOrder(3))
+   shop->(dbGoTop())
+   //shop->(dbSeek("PX0587"))
+   DO WHILE ! shop->(EOF()) //.AND. Len(aProducts) < 10
+      nCount++
+      @ 03,00 SAY Str(nCount)+"/"+LTrim(Str(nTotal))
+      IF shop->Artikelnr != 0
+         cProductNumber := StrTran(Trim(shop->Matchcode), "#MT", "")
+         @ 02,00 SAY Pad(cProductNumber,25)         
+         IF ! Empty(cProductNumber)
+            IF ! HHasKey(hProducts, cProductNumber)
+               hProduct := {=>}
+               aTierPrices := {}
+               hProduct["product_number"] := hb_StrToUTF8(cProductNumber)
+               hProduct["erp_article_nr"] := shop->Artikelnr
+               hProduct["stock"] := 0
+               hProduct["manufacturer_stock"] := 0
+               hProduct["delivery_time"] := 0               
+               hProducts[cProductNumber] := hProduct
+               AAdd(aProducts, hProduct)
+            ELSE
+               hProduct := hProducts[cProductNumber]
+               aTierPrices := hProduct["tier_prices"]
+            ENDIF
+
+            oArtikel := Artikel():New()
+            oArtikel:Load(shop->Artikelnr)
+
+            _ApplyProductStockData(hProduct, oArtikel, nCurWeek, cWaldom)
+            
+            IF StoT(shop->LastPrUpd) < DateTime()-7*24*3600 //only update every 7 days 
+               hProduct["tier_prices"] := aTierPrices
+               
+               aPrices := oArtikel:GetSellPrices(Date())
+
+               IF Len(aPrices) > 0
+                  DO WHILE Len(aPrices) > 0 .AND. aPrices[1,1] == 0
+                     HB_ADel(aPrices, 1, .T.)
+                  ENDDO
+               ENDIF
+
+               FOR nX := 1 TO Len(aPrices)
+                  nQty := aPrices[nX,1]
+                  nPriceNet := Round(aPrices[nX,2] / Max(1, oArtikel:VkPe), 2)
+                  IF nQty > 0 .AND. nPriceNet > 0
+                     hTier := {=>}
+                     hTier["min_quantity"] := nQty
+                     hTier["price_net"] := nPriceNet
+                     AAdd(aTierPrices, hTier)
+                  ENDIF
+               NEXT
+               IF Len(hTier) > 0
+                  shop->(Rec_Lock())
+                  shop->LastPrUpd := DateTime()
+                  shop->(dbUnLock())
+               ENDIF
+            ENDIF
+         ENDIF
+      ELSEIF Left(Trim(shop->Matchcode), 2) == "CM"
+         cProductNumber := Trim(shop->Matchcode)
+         @ 02,00 SAY Pad(cProductNumber,25)         
+         IF ! Empty(cProductNumber)
+            IF ! HHasKey(hProducts, cProductNumber)
+               hProduct := {=>}
+               aTierPrices := {}
+               hProduct["product_number"] := hb_StrToUTF8(cProductNumber)
+               hProduct["stock"] := 0
+               hProduct["manufacturer_stock"] := 0
+               hProduct["delivery_time"] := 4               
+               hProducts[cProductNumber] := hProduct
+               AAdd(aProducts, hProduct)
+            ELSE
+               hProduct := hProducts[cProductNumber]
+               aTierPrices := hProduct["tier_prices"]
+            ENDIF
+
+            IF StoT(shop->LastPrUpd) < DateTime()-7*24*3600 //only update every 7 days
+               hProduct["tier_prices"] := aTierPrices
+               aOnpowPrices := ONPOW_PRICING(Trim(shop->Matchcode))
+               FOR nX := 1 TO Len(aOnpowPrices)
+                  nQty := aOnpowPrices[nX,1]
+                  nPriceNet := Round(aOnpowPrices[nX,2], 2)
+                  IF nQty > 0 .AND. nPriceNet > 0
+                     hTier := {=>}
+                     hTier["min_quantity"] := nQty
+                     hTier["price_net"] := nPriceNet
+                     AAdd(aTierPrices, hTier)
+                  ENDIF
+               NEXT
+               IF Len(hTier) > 0
+                  shop->(Rec_Lock())
+                  shop->LastPrUpd := DateTime()
+                  shop->(dbUnLock())
+               ENDIF
+            ENDIF
+         ENDIF
+      ENDIF
+      shop->(dbSkip())      
+   ENDDO
+
+   RestEnv(aEnv,.F.)
+RETURN hResult
+
+STATIC PROCEDURE _AccumulateProductSyncResponse(cResponse, nProductsUpdated, nProductsSkipped, nTierPricesUpserted, lBatchSuccess)
+   LOCAL hResp := NIL
+   LOCAL hResults := NIL
+
+   lBatchSuccess := .F.
+
+   IF Empty(cResponse)
+      RETURN
+   ENDIF
+
+   HB_JsonDecode(cResponse, @hResp)
+
+   IF ValType(hResp) != "H"
+      RETURN
+   ENDIF
+
+   IF ! (HHasKey(hResp, "success") .AND. hResp["success"])
+      RETURN
+   ENDIF
+
+   IF HHasKey(hResp, "results") .AND. ValType(hResp["results"]) == "H"
+      hResults := hResp["results"]
+
+      IF HHasKey(hResults, "products_updated") .AND. ValType(hResults["products_updated"]) == "N"
+         nProductsUpdated += hResults["products_updated"]
+      ENDIF
+
+      IF HHasKey(hResults, "products_skipped") .AND. ValType(hResults["products_skipped"]) == "N"
+         nProductsSkipped += hResults["products_skipped"]
+      ENDIF
+
+      IF HHasKey(hResults, "tier_prices_upserted") .AND. ValType(hResults["tier_prices_upserted"]) == "N"
+         nTierPricesUpserted += hResults["tier_prices_upserted"]
+      ENDIF
+   ENDIF
+
+   lBatchSuccess := .T.
+RETURN
+
+STATIC PROCEDURE _ApplyProductStockData(hProduct, oArtikel, nCurWeek, cWaldom)
+   LOCAL nArtLZ
+   LOCAL aAvail
+   LOCAL nStock
+   LOCAL nX
+   LOCAL nOwnStock
+   LOCAL nManufacturerStock := 0
+   LOCAL nDeliveryTime
+
+   nArtLZ := IF(oArtikel:LZ == 0, 12, oArtikel:LZ)
+   aAvail := GetKwQty(oArtikel:Artikelnr)
+
+   nStock := oArtikel:Bestand
+   FOR nX := 1 TO Len(aAvail)
+      IF aAvail[nX,1] <= AddWeeks(nCurWeek, nArtLZ + 1)
+         nStock := Min(nStock, aAvail[nX,6])
+      ENDIF
+   NEXT
+
+   IF oArtikel:Bestand > 0 .AND. nStock > 0
+      nOwnStock := Max(0, Min(nStock, oArtikel:Bestand))      
+   ELSE
+      nOwnStock := 0
+   ENDIF
+   nDeliveryTime := (nArtLZ + 1)
+   
+
+   IF lsto->(dbSeek(cWaldom + Str(oArtikel:Artikelnr,6))) .AND. lsto->Stock > 0 ;
+      .AND. bpr->(dbSeek(Str(oArtikel:Artikelnr,6) + cWaldom))      
+      nManufacturerStock := lsto->Stock
+   ENDIF
+
+   hProduct["stock"] := nOwnStock
+   hProduct["manufacturer_stock"] := nManufacturerStock
+   hProduct["delivery_time"] := nDeliveryTime
+RETURN
+
+STATIC PROCEDURE _PrintSyncResponse(cResponse)
+   LOCAL hResp := NIL
+   LOCAL hResults := NIL
+   LOCAL nBases := 0
+   LOCAL nTables := 0
+   LOCAL nKeys := 0
+
+   IF Empty(cResponse)
+      RETURN
+   ENDIF
+
+   HB_JsonDecode(cResponse, @hResp)
+
+   IF ValType(hResp) != "H"
+      ? "Antwort (kein JSON): " + cResponse
+      RETURN
+   ENDIF
+
+   IF HHasKey(hResp, "success") .AND. hResp["success"]
+      IF HHasKey(hResp, "results") .AND. ValType(hResp["results"]) == "H"
+         hResults := hResp["results"]
+
+         IF HHasKey(hResults, "bases") .AND. ValType(hResults["bases"]) == "H" .AND. HHasKey(hResults["bases"], "upserted")
+            nBases := hResults["bases"]["upserted"]
+         ENDIF
+
+         IF HHasKey(hResults, "tables") .AND. ValType(hResults["tables"]) == "H" .AND. HHasKey(hResults["tables"], "upserted")
+            nTables := hResults["tables"]["upserted"]
+         ENDIF
+
+         IF HHasKey(hResults, "keys") .AND. ValType(hResults["keys"]) == "H" .AND. HHasKey(hResults["keys"], "upserted")
+            nKeys := hResults["keys"]["upserted"]
+         ENDIF
+      ENDIF
+
+      ? "Upserted bases : " + LTrim(Str(nBases))
+      ? "Upserted tables: " + LTrim(Str(nTables))
+      ? "Upserted keys  : " + LTrim(Str(nKeys))
+
+      IF HHasKey(hResp, "synced_at")
+         ? "Synced at: " + hb_ValToStr(hResp["synced_at"])
+      ENDIF
+   ELSE
+      ? "Sync-Response meldet success = false"      
+   ENDIF
+RETURN
+
+STATIC PROCEDURE _PrintProductSyncResponse(cResponse)
+   LOCAL hResp := NIL
+   LOCAL hResults := NIL
+
+   IF Empty(cResponse)
+      RETURN
+   ENDIF
+
+   HB_JsonDecode(cResponse, @hResp)
+
+   IF ValType(hResp) != "H"
+      ? "Antwort (kein JSON): " + cResponse
+      RETURN
+   ELSE
+    //  ? "Antwort: " + cResponse
+   ENDIF
+
+   IF HHasKey(hResp, "success") .AND. hResp["success"]
+      IF HHasKey(hResp, "results") .AND. ValType(hResp["results"]) == "H"
+         hResults := hResp["results"]
+         IF HHasKey(hResults, "products_updated")
+            ? "Upserted products: " + LTrim(Str(hResults["products_updated"]))
+         ELSE
+            ? "No products updated"
+         ENDIF
+         IF HHasKey(hResults, "products_skipped")
+            ? "Skipped products (no changes): " + LTrim(Str(hResults["products_skipped"]))
+         ENDIF
+         IF HHasKey(hResults, "tier_prices_upserted")
+            ? "Upserted tier prices: " + LTrim(Str(hResults["tier_prices_upserted"]))
+         ENDIF
+            
+      ENDIF
+
+      
+      IF HHasKey(hResp, "synced_at")
+         ? "Synced at: " + hb_ValToStr(hResp["synced_at"])
+      ENDIF
+   ELSE
+      ? "Product-Sync meldet success = false"
+      ? "Antwort: " + cResponse
+   ENDIF
+RETURN
+
+FUNC ONPOW_PRICING(cMatch)   //this is only used to get prices for parts that are not in the database yet
+   LOCAL cOnPow,nBuyPrice
+   LOCAL nTab := 75,cSupplier := Pad("ONPOW",8)
+   LOCAL aPriceTab := {},nX,nBasis,nPrice
+   LOCAL cTab,cProz
+
+   cOnpow := OnpowPartno(cMatch,IF(Left(cMatch,3)=="CMI",3,2))   //try to get the Onpow part number
+   IF Empty(cOnPow)
+      RETURN aPriceTab
+   ENDIF
+   nBasis := OnpowPrices(cOnPow)
+   
+   ku->(dbSetOrder( 1 ))
+   ku->(dbSeek( cSupplier+"L" ))
+
+   nBasis *= Currate(ku->Money,"E") //convert to Euro if needed
+   
+   IF stpr->(dbSeek( Str(nTab,2) ))
+      nBasis += nBasis*stpr->BasicProz //add basic price percentage
+
+      For nX := 1 To 10
+			cTab := "TAB"+LTrim(Str(nX))
+			cProz := "PROZ"+LTrim(Str(nX))
+			If stpr->&cTab != 0
+				nPrice := nBasis*stpr->&cProz/100
+
+				Aadd(aPriceTab,{stpr->&cTab,nPrice})
+			Endif
+		Next
+   ENDIF
+RETURN aPriceTab
+
+
+#include '..\onpow_part_no.prg'
+#include '..\onpow_prices.prg'

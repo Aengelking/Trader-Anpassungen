@@ -28,6 +28,7 @@ PROCEDURE Check_Invoices
    NetUse("rebnotes","rebn")
    NetUse("rebprot","rebp")
    NetUse("skontob","skb")
+   NetUse("lagerne","lne")
 
 CLS
 
@@ -91,10 +92,16 @@ DO WHILE ! abg->(EOF())
             bes->(Rec_Lock(0))
             bes->BeStat := 3
             bes->(dbUnLock())
-         ELSEIF ((bes->GelQty < 0 .AND. bes->ZoQty < 0) .OR. (bes->GelQty > 0 .AND. bes->ZoQty > IF(bes->GelQty>bes->BeQty,bes->GelQty-bes->BeQty,0) .AND. bes->EkPr != 0) .OR. (! art->Lagerart .AND. bes->BeQty < 0)) .AND. Year(bes->Besda) >= 2018 //.AND. bes->Besda < Date()-30
+   
+         ELSEIF (;
+                  (bes->GelQty < 0 .AND. bes->ZoQty < 0) ;
+                  .OR. (bes->GelQty > 0 .AND. bes->ZoQty > IF(bes->GelQty>bes->BeQty,bes->GelQty-bes->BeQty,0) .AND. bes->EkPr != 0);
+                  .OR. (! art->Lagerart .AND. bes->BeQty < 0);
+                ) .AND. Year(bes->Besda) >= 2018 
+            
             cKey := bes->Liefma+Str(bes->Besnr,6)+Str(bes->PosNr,3) //abg->Matchcode
             ? "Suche Lieferschein",bes->Besnr,bes->Posnr
-            IF HHAsKey(hDelNotes,cKey)
+            IF /*bes->GelQty > 0 .AND.*/ HHAsKey(hDelNotes,cKey)
                dLastDel := CToD("")
                FOR EACH hDel IN hDelNotes[cKey]
                   IF hDel["date"] > dLastDel
@@ -106,9 +113,11 @@ DO WHILE ! abg->(EOF())
 
                IF skb->(IsPrepay( ku->Skonto ))                  
                   lDue := dLastDel < Date()-15
+                  lIsPrePay := .T.
                ELSE
                   aSkonto := skb->(GetSkonto(ku->Skonto,dLastDel))                                    
                   lDue := dLastDel+IF(aSkonto[1,2]==0.AND.Len(aSkonto)>1,aSkonto[2,2],aSkonto[1,2])-nDaysBeforePayment <= Date()
+                  lIsPrePay := .F.
                ENDIF
 
                
@@ -136,15 +145,27 @@ DO WHILE ! abg->(EOF())
                ELSE
                   ? "Zahlung noch nicht bald f„llig"                  
                ENDIF
-            ELSE
+            ELSE               
                cBeleg := Replicate("-",15)               
                cMisKey := bes->Liefma+"B"+LTrim(Str(bes->Besnr))+"/"+Ltrim(Str(bes->Posnr))
-               nMenge := IF(!art->Lagerart.AND.bes->BeQty<0,bes->BeQty,bes->GelQty)
+               nMenge := IF(!art->Lagerart.AND.bes->BeQty<0,bes->BeQty,bes->ZoQty)
                IF ! HHasKey(hMissing,cMisKey)
-                  hMissing[cMisKey] := {{"beleg"=>cBeleg,"liefma"=>bes->Liefma,"besnr"=>bes->Besnr,"date"=>bes->Besda,"menge"=>nMenge,"matchcode"=>bes->Matchcode,"AB"=>bes->Abnr}}
+                  hMissing[cMisKey] := {{"beleg"=>cBeleg,"liefma"=>bes->Liefma,"besnr"=>bes->Besnr,"date"=>bes->Besda,"menge"=>nMenge,"matchcode"=>bes->Matchcode,"AB"=>bes->Abnr,"prepay"=>lIsPrePay}}
                ELSE
                   hMissing[cMisKey][1]["menge"] += nMenge
                ENDIF
+
+               IF bes->GelQty < 0
+                  lne->(dbSetORder(7))
+                  IF lne->(dbSeek( "BE"+Str(bes->Besnr,6)+Str(bes->Posnr,3) ))
+                     DO WHILE lne->RefTyp == "BE" .AND. lne->RefBeleg == bes->Besnr .AND. lne->Refpos == bes->Posnr
+                        lne->(dbSkip())
+                     ENDDO
+                     lne->(dbSkip(-1))
+                     hMissing[cMisKey][1]["date"] := lne->Datum
+                  ENDIF                  
+               ENDIF
+
       //         ?? "Kein LS"
             ENDIF
          ENDIF
@@ -194,12 +215,15 @@ ENDDO
   NEXT
 
   rech->(dbClearFilter())
-
+  IF ! GetConfigValue("BATCHMODE")
+     Sinkey(0)
+   ENDIF
 RETURN
 
 STATIC FUNCTION __SendMessage( cLiefma,hBes,cText,nX )   
    LOCAL nBesnr
    IF ! Empty(cLiefma) .AND. Len(hBes) > 0
+      ? "Sende Nachricht ber "+If(nX==1,"fehlende Gutschriften","nicht gebuchte Rechnungen")+" von "+cLiefma
       ku->(dbSeek( cLiefma+"L" ))
 
       cText += __GetUnbookedInvoices()

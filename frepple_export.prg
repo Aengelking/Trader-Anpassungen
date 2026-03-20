@@ -24,7 +24,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
    LOCAL nI
    LOCAL lDummy
    /* LISTS */
-   LOCAL aOperations := {{"Name","Item","Duration per unit","Duration","Type","Owner","Priority","Location","Size minimum","Size multiple","Size maximum","Post-Op Time"}}
+   LOCAL aOperations := {{"Name","Item","Duration per unit","Duration","Type","Owner","Priority","Location","Size minimum","Size multiple","Size maximum","Post-Op Time","Batching Window"}}
    LOCAL aBom := {{"Item","Quantity","Fixed Quantity","Operation","Type"}}
    LOCAL aItemSuppliers := {{"Item-ID","Item","Supplier","Location","Lead time","Size minimum","Size multiple","Cost","Priority","Resource"}}
    LOCAL aItems := {{"Item-ID","Name","Description"}}   
@@ -39,6 +39,8 @@ FUNCTION RUN_FREPPLE_EXPORT()
    LOCAL aResource := {{"Name","Owner","Location","Type","Maximum Calendar"}}
    LOCAL aCalendars := {{"Name","Default Value"}}
    LOCAL aCalBuckets := {{"Calendar","Start Date","End Date","Value","Priority","Monday","Tuesday","Wednesday","Thursday","Friday"}} //{"Calendar","Start Date","End Date","Value","Priority","Monday","Tuesday"}}
+   LOCAL aSkills := {{"Name"}}
+   LOCAL aResourceSkills := {{"Resource","Skill"}}
    /* END OF LISTS */
    LOCAL lHasSupplier, lBuyOnline,oExtra,oWerExtra,aManuSubOrders
    LOCAL aThisBom
@@ -89,14 +91,27 @@ FUNCTION RUN_FREPPLE_EXPORT()
 
    LOCAL bAddOpResources :=  {|nJob,cMain|
       LOCAL lFromJob := .F.
+      LOCAL cSkillName := "Any"
+      LOCAL nSkill
       res->(dbSetOrder( 1 ))
+      nSkill := pjob->Skill
+      IF nSkill == 0 .AND. job->(FieldPos("SKILL")) != 0
+         job->(dbSeek( Str(nJob,6) ))
+         nSkill := job->Skill
+      ENDIF
+      IF nSkill != 0
+         ski->(dbSetOrder( 1 ))
+         IF ski->(dbSeek( Str(nSkill,6) ))
+            cSkillName := Trim(ski->Name)
+         ENDIF
+      ENDIF
       IF pjore->(dbSeek( Str(art->Artikelnr,6)+Str(nJob,6) ))
          DO WHILE pjore->Job == nJob .AND. pjore->Artikelnr == art->Artikelnr .AND. ! pjore->(EOF())               
             IF pjore->Resource == 0
                lFromJob := .T.
             ELSE
                res->(dbSeek( Str(pjore->Resource,6) ))
-               Aadd(aOperationResources,{cMain,res->Name,1,"Any","MINCOSTPENALTY"})
+               Aadd(aOperationResources,{cMain,res->Name,1,cSkillName,"MINCOSTPENALTY"})
             ENDIF
             pjore->(dbSkip())
          ENDDO
@@ -108,7 +123,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
          DO WHILE jore->Job == nJob .AND. ! jore->(EOF())               
          
             res->(dbSeek( Str(jore->Resource,6) ))
-            Aadd(aOperationResources,{cMain,res->Name,1,"Any","MINCOSTPENALTY"})
+            Aadd(aOperationResources,{cMain,res->Name,1,cSkillName,"MINCOSTPENALTY"})
          
             jore->(dbSkip())
          ENDDO
@@ -123,7 +138,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
          job->(dbSeek( Str(pjob->Job,6) ))  
          IF (! lQS .AND. AT(cQSStart,job->Name) != 1) .OR. (lQS .AND. AT(cQSStart,job->Name) == 1)
             
-            Aadd(aOperations,{Trim(art->Matchcode)+cOpSeparator+Trim(job->Name),"",pjob->Seconds,pjob->Fixed*60,IF(!Empty(pjob->Fixed),"fixed_time","time_per"),cRouting,pjob->Pos,cDefaultLocation,0,0,0,0})
+            Aadd(aOperations,{Trim(art->Matchcode)+cOpSeparator+Trim(job->Name),"",pjob->Seconds,pjob->Fixed*60,IF(!Empty(pjob->Fixed),"fixed_time","time_per"),cRouting,pjob->Pos,cDefaultLocation,0,0,0,0,0})
             
                         
             Eval(bAddOpResources,pJob->Job,ATail(aOperations)[1])
@@ -146,7 +161,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
          Aadd(aItems,{art->Artikelnr,Trim(art->Matchcode),Trim(art->Artikel)})
          oArtExtra := art->(ExtraData():New(art->Artikelnr))
          //Aadd(aBuffers,{art->Artikelnr,Trim(art->Matchcode),cDefaultLocation,LagGetStock(art->Artikelnr,LAG_STOCK_USABLE)+LagGetStock(art->Artikelnr,LAG_STOCK_ADDRESS,nSelf)+HLAGER(art->Artikelnr,Pad("090/",12)),art->Mindest,oArtExtra:MinInterval}) //LagGetStock(art->Artikelnr,LAG_STOCK_TEMPBLOCK)
-         Aadd(aBuffers,{art->Artikelnr,Trim(art->Matchcode),cDefaultLocation,LagGetStock(art->Artikelnr,LAG_STOCK_USABLE)+LagGetStock(art->Artikelnr,LAG_STOCK_ADDRESS,nSelf)+LagGetStock(art->Artikelnr,LAG_STOCK_TEMPBLOCK),art->Mindest,oArtExtra:MinInterval}) //LagGetStock(art->Artikelnr,LAG_STOCK_TEMPBLOCK)         
+         Aadd(aBuffers,{art->Artikelnr,Trim(art->Matchcode),cDefaultLocation,LagGetStock(art->Artikelnr,LAG_STOCK_USABLE)+LagGetStock(art->Artikelnr,LAG_STOCK_ADDRESS,nSelf)+LagGetStock(art->Artikelnr,LAG_STOCK_TEMPBLOCK),art->Mindest,oArtExtra:MinInterval*24*60*60}) //LagGetStock(art->Artikelnr,LAG_STOCK_TEMPBLOCK)         
          hOtherStock := LagGetStock(art->Artikelnr,LAG_STOCK_OTHER_LOCATIONS,0,.T.)
          ku->(dbSetOrder( 8))
          FOR EACH nOtherStock IN hOtherStock
@@ -330,9 +345,30 @@ FUNCTION RUN_FREPPLE_EXPORT()
    NetUse("restime","rst")
    NetUse("folgeart","fol")
    NetUse("besdel","bdel")
+   NetUse("skills","ski")
+   NetUse("resskills","rski")
 
 
    CLS
+
+   //Populate skills and resource-skill lists for frePPLe
+   ski->(dbSetOrder( 2 ))
+   ski->(dbGoTop())
+   DO WHILE ! ski->(EOF())
+      Aadd(aSkills,{Trim(ski->Name)})
+      ski->(dbSkip())
+   ENDDO
+
+   rski->(dbSetOrder( 1 ))
+   rski->(dbGoTop())
+   DO WHILE ! rski->(EOF())
+      res->(dbSetOrder( 1 ))
+      res->(dbSeek( Str(rski->Resource,6) ))
+      ski->(dbSetOrder( 1 ))
+      ski->(dbSeek( Str(rski->Skill,6) ))
+      Aadd(aResourceSkills,{Trim(res->Name),Trim(ski->Name)})
+      rski->(dbSkip())
+   ENDDO
 
    job->(dbSetOrder( 2 ))
    cQSStart := Trim(GetValue("FREPPLE_QS_JOBST","QS","QS job names start with"))   
@@ -498,20 +534,22 @@ FUNCTION RUN_FREPPLE_EXPORT()
          art->(dbSeek( Str(aRoutingItems[nI],6) ))
          pjob->(dbSetOrder( 2 ))
 
-         IF lIntern    
-            IF bom->(dbSeek( Str(aRoutingItems[nI],6) )) .AND. bom->Lot != 0
+         nBatchWindow := 0
+         nVPE := 1
+         IF bom->(dbSeek( Str(aRoutingItems[nI],6) )) 
+            IF bom->Lot != 0
                nVPE := bom->Lot
-            ELSE //IF art->VPE == 0  //Artikel VPE steuert Auftrag -> Auftragsmenge steuert Frepple Losgr”áe
-               nVPE := 1
-            /*ELSE
-               nVPE := art->VPE*/
             ENDIF
+            nBatchWindow := bom->BatchWin*24*60*60
+         ENDIF
+
+         IF lIntern    
 
             nVPE := CeilingMe(nVPE/(1-_GetScrapRate(aRoutingItems[nI])),Me(art->Me)) //we need to add the scrap to the min/mult to get the quantity without the scrap
 
             //nVPE := IF(art->VPE==0,1,art->VPE)/(1-_GetScrapRate(aRoutingItems[nI]))
 
-            Aadd(aOperations,{Trim(art->Matchcode), cMatch,0,0,"routing","",20,cDefaultLocation,nVPE,nVPE,0,0 })
+            Aadd(aOperations,{Trim(art->Matchcode), cMatch,0,0,"routing","",20,cDefaultLocation,nVPE,nVPE,0,0,nBatchWindow }) //we add the batch window as extra info for frepple, it is not used in the current version of the export but will be used in the next one to set the batch window in frepple based on this value
             
             IF lDummy  //if we need a DUMMY position (parts not assigned to a JOB), we add it here
                Aadd(aOperations,{Trim(art->Matchcode)+cOpSeparator+"DUMMY", "",0,1000,"time_per",Trim(art->Matchcode),0,cDefaultLocation,0,0,0,0 })
@@ -541,7 +579,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
                   oExtra := ku->(ExtraData():New(ku->Nummer))
 
                   //add a operation to the operation list. For external production we only need this one. It will contain all parts
-                  Aadd(aOperations,{Trim(art->Matchcode)+cOpSeparator+"EXT:"+Trim(ali->Kunde), cMatch,0,(IF(ali->LZ>0,ali->LZ,IF(art->LZ==0,nDefaultLZ,art->LZ))+nAddWeeks)*7*24*60*60,"fixed_time","",10,Trim(ali->Kunde),ali->Min,ali->Vpe,0,0 })
+                  Aadd(aOperations,{Trim(art->Matchcode)+cOpSeparator+"EXT:"+Trim(ali->Kunde), cMatch,0,(IF(ali->LZ>0,ali->LZ,IF(art->LZ==0,nDefaultLZ,art->LZ))+nAddWeeks)*7*24*60*60,"fixed_time","",10,Trim(ali->Kunde),ali->Min,ali->Vpe,0,0,nBatchWindow })
 
                   //add the output position for each supplier, without scrap rate as this is only used internnally
                   Aadd(aBom,{cMatch,1,0,Trim(art->Matchcode)+cOpSeparator+"EXT:"+Trim(ali->Kunde),"end"})
@@ -1123,7 +1161,9 @@ FUNCTION RUN_FREPPLE_EXPORT()
       "resource.csv"=>aResource,;
       "calendar.csv"=>aCalendars,;
       "calendar bucket.csv"=>aCalBuckets,;
-      "resource detail.csv"=>aResourceDetail;
+      "resource detail.csv"=>aResourceDetail,;
+      "skill.csv"=>aSkills,;
+      "resourceskill.csv"=>aResourceSkills;
    }
    lCancel := .F.
    FOR EACH aData IN hFiles      

@@ -208,7 +208,7 @@ hKontoGenehm[70171] := P_SIGRID  //EON (Strom Johannes)
 
 hKontoGenehm[70423] := P_DANIEL
 hKontoGenehm[76167] := P_DANIEL  //Amazon Marketplace
-hKontoGenehm[74222] := P_DANIEL  //Zisch Frisch
+hKontoGenehm[74222] := P_SIGRID  //Zisch Frisch
 
 hKontoGenehm[77511] := P_LISA  //intoCommerce
 

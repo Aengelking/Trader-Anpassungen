@@ -278,18 +278,10 @@ IF ! lUploadOnly
 
                //set min order quantity to the qty we get from waldom, do this in the cloned hash
                nKey := AScan(aPriceData[1],"min-order-quantity") //search in header for column
-               //Atail(aPriceData)[nKey] := bpr->Qty //set to Waldom MOQ
-               //Atail(aPriceData)[nKey] := 1
-
-               IF Trim(art->Matchcode) == "FX0385"  //change warehouse for drop shipping items
-                  //nKey := AScan(aPriceData[1],"warehouse") //search in header for column
-                  //Atail(aPriceData)[nKey] := 2 //drop shipping form Waldom
-               ENDIF
             ELSE
                hPriceData["quantity"] := 0
                hPriceData["leadtime-to-ship"] := 0
                hPriceData["update-delete"] := "delete"
-               //AddHash(aPriceData,hPriceData) //upload this, to make sure that the stock will be reset if there was any   
             ENDIF         
             
 

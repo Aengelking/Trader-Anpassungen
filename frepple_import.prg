@@ -708,7 +708,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                      ENDIF
                      oBes:ShipTime := 1
                      oBes:Lterm    := oWerk:End-oBes:ShipTime
-                     oBes:Wterm    := oWerk:End-oBes:ShipTime
+                     oBes:Wterm    := oWerk:Termin-oBes:ShipTime
                      oBes:Released := .T.
 
                      GetBuyPrice(oBes:Liefma,oBes:Artikelnr,oBes:Qty,@oBes:EkPr,@oBes:Pe,.T.)

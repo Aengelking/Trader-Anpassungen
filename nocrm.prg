@@ -180,14 +180,18 @@ FUNCTION noCRM_Interface(lComment,cType)
    oExtra := ku->(ExtraData():New(ku->Nummer))
 
    //Check if customer has a client folder and suggest the user_id from it
-   IF oExtra:noCRMClien != 0
-      hClientFolder := oNoCRM:Execute("clients/"+LTrim(Str(oExtra:noCRMClien)),"GET")
+   IF oExtra:noCRMClien != 0      
+      hClientFolder := oNoCRM:Execute("clients/"+LTrim(Str(oExtra:noCRMClien)),"GET")      
       IF hClientFolder != NIL .AND. HHasKey(hClientFolder,"user_id") .AND. hClientFolder["user_id"] != NIL
          //Get user email from user_id
-         hUserInfo := oNoCRM:Execute("users","GET",{"email"=>Str(hClientFolder["user_id"])})
-         IF hUserInfo != NIL .AND. ValType(hUserInfo) == "A" .AND. Len(hUserInfo) > 0 .AND. HHasKey(hUserInfo[1],"email")
-            cUsrEmail := Trim(hUserInfo[1]["email"])
+         hUserInfo := oNoCRM:Execute("users/"+LTrim(Str(hClientFolder["user_id"])),"GET")
+         IF hUserInfo != NIL .AND. ValType(hUserInfo) == "H" .AND. HHasKey(hUserInfo,"email")
+            cUsrEmail := Trim(hUserInfo["email"])
+         ELSE
+            Tr_MsgBox("Benutzer des Kundenordners nicht gefunden "+ValToPrg(hUserInfo))
          ENDIF
+      ELSE
+         Tr_MsgBox("Kundenordner nicht in noCRM gefunden. Bitte Kundenordner-Nummer prÅfen.")
       ENDIF
    ENDIF
 

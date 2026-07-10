@@ -51,17 +51,22 @@ FOR nX := 1 TO Len(aDir)
 	ENDIF
 
 	cNr := SubStr(aDir[nX,1],1,nPos-1)
-	DO WHILE (nPos := At("0",cNr)) == 1
-		cNr := SubStr(cNr,nPos+1)
-   ENDDO
-   IF AT("32",aDir[nX,1]) != 0
-      
 
-   ENDIF
+   //with leading 0
    IF cNr == cZeich+cInd .OR. cNr == cZeich+"-"+cInd
 		cFile := cDir+aDir[nX,1]
 		EXIT
 	ENDIF
+
+   //remove the leading 0 (one-by-one) until we find a match or there are no more leading zeros
+	DO WHILE (nPos := At("0",cNr)) == 1      
+		cNr := SubStr(cNr,nPos+1)
+      IF cNr == cZeich+cInd .OR. cNr == cZeich+"-"+cInd
+         cFile := cDir+aDir[nX,1]
+         EXIT
+      ENDIF
+   ENDDO
+   
 NEXT
 
 IF lLP //assembled PCB - we need to get all sub-drawings and create a ZIP file

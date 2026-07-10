@@ -471,7 +471,7 @@ IF ! Empty(cText1)
       nLevel := 4
    ENDIF
    IF lDbg
-      Alert("Level: "+Str(nLevel)+";"+cText1)
+      //Alert("Level: "+Str(nLevel)+";"+cText1)
    ENDIF
 ELSE
    nLevel := 4

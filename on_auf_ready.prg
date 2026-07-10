@@ -8,7 +8,7 @@ FUNCTION HOOK_ON_AUF_READY( nAbNr,lWish,lNextDue )
    LOCAL cMsg,aTo
    LOCAL aVorkasseOrders := {67443, 67358, 67357},nOldSkonto
 
-   MEMVAR mirenr
+   MEMVAR mirenr,mcInvoiceError
 
    IF lWish .AND. oExtra:NoWish //diese Kunden m”chten keine direkte Lieferung zum Wunschterm sondern es muss zun„chst einer Termin„nderung erfolgen
       
@@ -58,11 +58,14 @@ FUNCTION HOOK_ON_AUF_READY( nAbNr,lWish,lNextDue )
             aTo := GetConfigEmail("SO-READY")
 
             cText := "Hallo,<br><br>"
-            cText += 'ich wollte Auftrag <a href="trader: -F EngAuft('+Ltrim(Str(nAbNr))+')">'+LTrim(Str(nAbNr))+'</a> verschicken, aber es gab das folgende Problem:<br><br>'
+            cText += 'ich wollte Auftrag <a href="'+TraderUrl('EngAuft('+Ltrim(Str(nAbNr))+')')+'">'+LTrim(Str(nAbNr))+'</a> verschicken, aber es gab das folgende Problem:<br><br>'
             IF ! Empty(cMsg)
                cText += StrTran(cMsg,";","<br>")
             ELSEIF HHasKey(hMsg,nReturn)
                cText += hMsg[nReturn]
+               IF nReturn == 8 .AND. Type("mcInvoiceError") == "C"
+                  cText += "<br><br>Details: "+mcInvoiceError
+               ENDIF
             ELSEIF nReturn == 13
                aTo := {{"amos.engelking@engelking.de","Amos"}}
                cText += "Die Rechnung h„tte keine Positionen."

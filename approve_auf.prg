@@ -12,7 +12,10 @@ LOCAL nLaufzeit
 LOCAL oContract
 LOCAL cText1,nLevel,nTotal,oContr,nVk,nArtikelnr,nP,nMargin,nQty,nEK,nX,nGewinn
 LOCAL aDels := {},nCoc := 0,oExtra 
-LOCAL oABExtra
+LOCAL oABExtra,aReturn
+LOCAL bSendAppr
+LOCAL lCustApr := .F.
+LOCAL nZins := 0.1
 
 LOCAL hLaufZeit := { ; //Sonderlaufzeiten
    46872=>24,;
@@ -37,7 +40,7 @@ ENDIF
 oABExtra := auf->(ExtraData():New(auf->Abnr))
 
 IF oABExtra:CUST_APR  //Kudenfreigabe erforderlich
-   RETURN {"Kundenfreigabe erforderlich",{33,9}}  //Genehmigsungsanforderung ohne Genehmiger
+   //RETURN {"Kundenfreigabe erforderlich",{}}  //Genehmigsungsanforderung ohne Genehmiger
 ENDIF
 
 IF Tr_getIni(28) == 9
@@ -134,10 +137,10 @@ oAuftrag:Positions:Each({|oPos|
          ENDIF
          IF (nP := AScan(aProducts,{|x| x:Artikel:Artikelnr == nArtikelnr .AND. x:VkPr == nVk })) == 0    
             //Altd()      
-            nMargin := oPos:GetMargin(@cSupplier)
-            Aadd(aProducts,{"ARTIKEL"=>oPos:Artikel,"QTY"=>0,"VKPR"=>oPos:VkPr/oPos:Pe*(1-oPos:Rabatt/100),"MARGIN"=>0,"KW"=>nWeek,"SUPPLIER"=>cSupplier,"ADD"=>.F.})
+            //nMargin := oPos:GetMargin(@cSupplier)
+            Aadd(aProducts,{"ARTIKEL"=>oPos:Artikel,"QTY"=>0,"VKPR"=>oPos:VkPr/oPos:Pe*(1-oPos:Rabatt/100),"MARGIN"=>0,"KW"=>nWeek,"SUPPLIER"=>"","ADD"=>.F.,"MARGINDIFF"=>0})
             nP := Len(aProducts)
-         ENDIF
+         ENDIF         
          IF oPos:IsRahmen
             nQty := oPos:ContrQty-IF(oPos:Bestat==3,oPos:VkQty,0)
 
@@ -156,14 +159,26 @@ oAuftrag:Positions:Each({|oPos|
                cText1 += Str(oPos:Itmnr,3)+". "+Trim(oPos:Artikel:Matchcode)+t(" Rahmenbeginn über 5 Monate in der Zukunft;")
                nLevel := 1
             ENDIF
-
-
-            IF oPos:MeldStock < oPos:VkQty-oPos:GelQty .AND. oPos:MeldStock/(oPos:VkQty-oPos:GelQty) > 1/3 //Lagerbestand für 3 Monate //Min(oPos:VkQty-oPos:GelQty,oPos:MinStock)*oPos:VkPr/oPos:Pe*(1-oPos:Rabatt/100) > 2500
+            nAufLaufzeit := MonthsBetween(oPos:SDatum,CalWD(oPos:WTerm))
+            IF Tr_Getini(28) == 9
+               Alert("Maximaler Meldebestand: "+Str(oPos:ContrQty/nAufLaufzeit*oPos:Artikel:LZ*2/4.33)+"; Aktueller Meldebestand: "+Str(oPos:MeldStock)+"; Restemenge: "+Str(oPos:VkQty-oPos:GelQty)+";Laufzeit: "+LTrim(Str(nAufLaufzeit)))
+            ENDIF
+            //Meldebestand ist gr”áer als Bedarf fr doppelte Lieferzeit
+            IF Min(oPos:MeldStock,oPos:VkQty-oPos:GelQty) > oPos:ContrQty/nAufLaufzeit*oPos:Artikel:LZ*2/4.33
+               //> 1/3
+                //Lagerbestand für 3 Monate 
+                //Min(oPos:VkQty-oPos:GelQty,oPos:MinStock)*oPos:VkPr/oPos:Pe*(1-oPos:Rabatt/100) > 2500
+                
                IF ! lHoliday
-                  //cText1 += Str(oPos:Itmnr,3)+". "+Trim(oPos:Artikel:Matchcode)+" Hoher Mindestbestand ("+LTrim(str(oPos:MinStock/(oPos:VkQty-oPos:GelQty)*100,12,2))+"%);" //t(" Wert Mindestbestand über EUR 2500;")
-                  //nLevel := 1
+                  cText1 += Str(oPos:Itmnr,3)+". "+Trim(oPos:Artikel:Matchcode)+" Hoher Meldebestand ("+LTrim(str(Min(oPos:MeldStock,oPos:VkQty-oPos:GelQty)/oPos:ContrQty*100,12,2))+"%);" //t(" Wert Mindestbestand über EUR 2500;")
+                  nLevel := 1
                ENDIF
             ENDIF
+
+            IF oPos:MeldStock > 0
+               aProducts[nP]:MARGINDIFF := nZins * nAufLaufzeit / 12 * oPos:MeldStock/oPos:ContrQty  + nZins/24
+            ENDIF
+
          ELSE
             nQty := IF(oPos:Bestat==3,oPos:GelQty,oPos:VkQty)
          ENDIF
@@ -190,9 +205,21 @@ oAuftrag:Positions:Each({|oPos|
          ENDIF         
       ENDIF
    ENDIF*/
+   IF oPos:ReqPr != 0 .AND. oPos:ReqPr != oPos:VkPr
+      cText1 += Str(oPos:Itmnr,3)+". "+Trim(oPos:Artikel:Matchcode)+" Bestellpreis weicht von best„tigtem ab (Kundenfreigabe);"
+      nLevel := 0  //Kundenfreigabe erforderlich
+      lCustApr := .T.      
+   ENDIF
 
    RETURN NIL
 })
+
+IF oABExtra:CUST_APR != lCustApr
+   oABExtra:CUST_APR := lCustApr
+   oABExtra:Save()
+ENDIF
+
+
 
 /*IF oExtra:WerksBesch        
    IF Len(aDels) > nCoc
@@ -221,6 +248,8 @@ FOR nX := 1 TO Len(aProducts)
    
    nEk := hProd:Artikel:getBuyPriceForMargin(hProd:Qty,hProd:Add,oAuftrag:Besda,hProd:KW,@cSupplier)
 
+   hProd:Supplier := cSupplier
+
    IF hProd:Artikel:Manufactur $ {12} //Elcom Mindermenge
       nVK -= 60/hProd:Qty
    ENDIF
@@ -246,8 +275,10 @@ FOR nX := 1 TO Len(aProducts)
    ENDIF
 
    IF nVk != 0
-      hProd:Margin := ( nGewinn / nVk ) //* 100
+      hProd:Margin := ( nGewinn / nVk ) - hProd:MARGINDIFF
    ENDIF
+
+   
 
    IF nEk == 0 .AND. hProd:Artikel:Lagerart  //this should now be covered by nGewinn == 0
       //nLevel := IF(lHoliday,2,1)
@@ -284,10 +315,63 @@ IF  sk->(IsPrePay(oAuftrag:Kunde:Skonto)) .AND. ! lPorto .AND. ! oAuftrag:Versan
    ENDIF
 ENDIF
 
+
+bSendAppr := {|| 
+   LOCAL aMsg := HB_ATokens(aReturn[1],";")
+   IF Empty(Atail(aMsg))
+      HB_ADel(aMsg,Len(aMsg),.T.)
+   ENDIF
+   FOR nX := 1 TO Len(aMsg)
+      IF AT("Kundenfreigabe",aMsg[nX]) != 0
+         HB_ADel(aMsg,nX,.T.)
+         nX--
+      ENDIF
+   NEXT
+      
+   HB_AIns(aMsg,1,"Kundenfreigabe der Preis„nderung erforderlich",.T.)
+   HB_AIns(aMsg,2,"Mitteilung an Kunden senden?",.T.)
+   IF Len(aMsg) > 3 .OR. (Len(aMsg) == 3 .AND. aMsg[3] != "")
+      HB_AIns(aMsg,3,"FOLGENDE INTERNE GENEHMIGUNG wird danach ben”tigt:"+LTrim(Str(AT("(Kundenfreigabe)",aMsg[3]) )),.T.)
+      HB_AIns(aMsg,3,"",.T.)
+   ELSE
+
+   ENDIF
+   IF ! GetConfigValue("BATCHMODE") .AND. Tr_MsgBox(aMsg,,{"Nein","Ja"}) == 2
+      LoadPrg(Path("run\send_customer_approval"))
+      HB_ExecFromArray({"Run_Send_Customer_approval",oAuftrag})
+   ENDIF
+}
+
 IF Len(aProducts) == 0 .AND. Empty(cText1)
-   RETURN {"",{Tr_Getini(28)}}
+   aReturn := {"",{Tr_Getini(28)}} 
+   IF oABExtra:CUST_APR  //Kudenfreigabe erforderlich      
+      Eval(bSendAppr)
+      RETURN {"Kundenfreigabe erforderlich",{}}  //Genehmigsungsanforderung ohne Genehmiger
+   ENDIF
+   RETURN aReturn //Keine Genehmigungsanforderung
 ENDIF
 
-RETURN  Hook("approve_auf_ang",{aProducts,cText1,nLevel,oAuftrag:Kundma,oAuftrag:Besda,oAuftrag:Money,.T.})
+aReturn := Hook("approve_auf_ang",{aProducts,cText1,nLevel,oAuftrag:Kundma,oAuftrag:Besda,oAuftrag:Money,.T.})
+IF oABExtra:CUST_APR  //Kudenfreigabe erforderlich   
+   Eval(bSendAppr)
+   RETURN {"Kundenfreigabe erforderlich;"+aReturn[1],{}}  //Genehmigsungsanforderung ohne Genehmiger
+ENDIF
+
+RETURN aReturn
+
+FUNCTION MonthsBetween(d1,d2)
+   LOCAL nMonths := 0
+   IF d1 > d2
+      WHILE d1 > d2
+         d1 := AddMonth(d1,-1)
+         nMonths++
+      ENDDO
+   ELSEIF d2 > d1
+      WHILE d2 > d1
+         d2 := AddMonth(d2,-1)
+         nMonths++
+      ENDDO
+   ENDIF
+   RETURN nMonths
 
 #include 'x:\run\getupsimportcost.prg'

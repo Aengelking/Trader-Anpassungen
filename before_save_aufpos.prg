@@ -65,7 +65,7 @@ oArtExtra := art->(ExtraData():New(oAufpos:Artikelnr))
    RETURN .F.
 ENDIF*/  //gibt es lt. Yannick wieder 4.7.25
 
-IF ! oAufPos:Artikel:Manufactur $ {5,6} .AND. oExtra:WerksBesch .AND. ! oArtExtra:CoC .AND. ! (oAufPos:Auftrag:Kunde:Kunde == "RMWKABEL" .AND. Trim(art->Matchcode) == "PX0587")
+IF ! oAufPos:Artikel:Manufactur $ {5,6} .AND. oExtra:WerksBesch .AND. ! oArtExtra:CoC .AND. ! (oAufPos:Auftrag:Kunde:Kunde == "RMWKABEL" .AND. Trim(art->Matchcode) == "PX0587") .AND. art->Lagerart
    Tr_MsgBox({"Dieser Artikel hat keine Werksbescheinigungen (CoC).","Dieser Kunde m”chte nur Artikel mit CoC."})
    RETURN .F.
 ENDIF

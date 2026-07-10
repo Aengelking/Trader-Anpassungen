@@ -1,11 +1,17 @@
 FUNCTION HOOK_ON_WA_READY(nWaNr)
    LOCAL cMissing,oExtra,cText
+   LOCAL oArtExtra
    
    NetUse("engkund","ku")
 
    IF Right(Str(wer->End,4),2) == "99"
       RETURN .T. //send message
    ENDIF
+
+   NetUse("artikel","art")
+   art->(dbSetOrder(2))
+   art->(dbSeek( Str(wer->Artno,6) ))
+
    
    IF ! Empty(wer->Liefma)
       ku->(dbSeek( wer->Liefma+"L" ))
@@ -14,6 +20,12 @@ FUNCTION HOOK_ON_WA_READY(nWaNr)
 
       IF Date() >= AddWorkingDays(ku->St_Holiday,oExtra:ShipTime*-1) .AND. Date() <= AddWorkingDays(ku->En_Holiday,oExtra:ShipTime*-1) //will arrive in the suppliers holiday
          RETURN .F. //do nothing
+      ENDIF
+
+      //Special case for chaos customers
+      oArtExtra := art->(ExtraData():New(art->Artikelnr))
+      IF oArtExtra:WaManual
+         RETURN .T. //send message
       ENDIF
 
       IF oExtra:WaDay != 0 .AND. (DoW(Date()) != oExtra:WaDay .OR. Time() > "15:00:00")
@@ -35,13 +47,11 @@ FUNCTION HOOK_ON_WA_READY(nWaNr)
          wer->RemindStat := "READY"
          wer->RemindDate := Date()
          wer->(dbUnLock())
-         NetUse("artikel","art")
-         art->(dbSetOrder(2))
-         art->(dbSeek( Str(wer->Artno,6) ))
-         cText := 'Auftrag: <a href="trader: -F WerkAuf('+LTrim(Str(nWaNr))+')">'+LTrim(Str(nWaNr))+"</a><br>"
-         cText += 'Artikel: <a href="trader: -F BrowseArtikel('+"'"+Trim(art->Matchcode)+"'"+')">'+Trim(art->Matchcode)+"</a> (#"+LTrim(Str(art->Artikelnr))+")<br>"
+         cText := 'Auftrag: <a href="'+TraderUrl('WerkAuf('+LTrim(Str(nWaNr))+')')+'">'+LTrim(Str(nWaNr))+"</a><br>"
+         cText += 'Artikel: <a href="'+TraderUrl('BrowseArtikel("'+Trim(art->Matchcode)+'")')+'">'+Trim(art->Matchcode)+"</a> (#"+LTrim(Str(art->Artikelnr))+")<br>"
          cText += "GrÅnde<br>"+StrTran(cMissing,Chr(13)+Chr(10),"<br>")
          SendMail(GetConfigEmail("PROD-READY"),t("WA "+LTrim(Str(nWaNr))+" konnte nicht ausgelˆst werden " ),cText,,,,.T.)
+         SendMessage("Fertigung | Auftrag konnte nicht ausgelîst werden","FA "+LTrim(Str(nWaNr))+" konnte nicht ausgelîst werden. GrÅnde: "+cMissing)
       ENDIF
       //RETURN .T.  //return .T. still sends email
    ENDIF

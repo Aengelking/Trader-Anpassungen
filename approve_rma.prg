@@ -19,6 +19,10 @@ oRMA:oPositions:Each({|oPos|
    ENDIF
 })
 
+IF Trim(oRMA:Grund) == "ADR"
+   RETURN {"",{Tr_Getini(28)}}
+ENDIF
+
 IF Trim(oRMA:Grund) == "DEF" .AND. nTotAvg < 200
    RETURN {"",{Tr_Getini(28)}}
 ENDIF

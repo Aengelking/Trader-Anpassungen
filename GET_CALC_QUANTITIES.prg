@@ -13,6 +13,20 @@ FUNCTION HOOK_GET_CALC_QUANTITIES(oArtikel)
             nVPE := 100
          ENDIF
          aCalcQuantities := {nVPE,nVPE*5,nVPE*10,nVPE*20}
+         IF Left(oArtikel:Matchcode,2) == "KS"
+            NetUse("Angebot","ang")
+            ang->(dbSetOrder( 3 ))
+            ang->(dbSetFilter({|| ang->Bestat < 3 }, "BESTAT < 3") ) //only open items
+            IF ang->(dbSeek( oArtikel:Matchcode ))
+               DO WHILE ang->Matchcode == oArtikel:Matchcode .AND. ! ang->(EOF())
+                  IF ang->VKQty > 0 .AND. AScan(aCalcQuantities,ang->VkQty) == 0
+                     Aadd(aCalcQuantities,ang->VKQty)
+                  ENDIF
+                  ang->(dbSkip())
+               ENDDO
+            ENDIF
+            ang->(dbClearFilter())
+         ENDIF
       ENDIF
    ENDIF
      

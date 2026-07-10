@@ -132,6 +132,7 @@ DO WHILE bes->Besnr == nBesnr .AND. ! bes->(Eof())
                ENDIF
                nQty := nOver-nMindest
                cText += cBaseText+" "+LTrim(Transform(nQty,Me(oArt:Me)))+" "+oArt:Me+" zu viel bestellt;"
+               
                //+IF(DEBUG,Str(nQty)+Str(nOver)+Str(nMindest),"")
 
                IF Tr_Getini(28) == 9

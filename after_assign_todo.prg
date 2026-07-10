@@ -30,7 +30,7 @@ PROCEDURE Hook_on_assign_todo(oTodo,lTrigger)
          EXIT
    END
    IF ! Empty(cLink)
-      cText += ': <a href="trader: -F '+cLink+'">'+Ltrim(Str(oTodo:Ref,6))+'</a>'
+      cText += ': <a href="'+TraderUrl(cLink)+'">'+Ltrim(Str(oTodo:Ref,6))+'</a>'
    ELSE
       cText += ": "+Ltrim(Str(oTodo:Ref,6))
    ENDIF
@@ -56,7 +56,7 @@ PROCEDURE Hook_on_assign_todo(oTodo,lTrigger)
       cText += CRLF+"Beschreibung: "+qs->Beschreibu
    ENDIF
 
-   cText += CRLF+CRLF+"Aufgabe: "+'<a href="trader: -F TodoList('+"'"+Trim(oTodo:UUID)+"'"+')">'+Trim(oTodo:Task)+"</a>"
+   cText += CRLF+CRLF+"Aufgabe: "+'<a href="'+TraderUrl('TodoList("'+Trim(oTodo:UUID)+'")')+'">'+Trim(oTodo:Task)+"</a>"
    cText += CRLF+"Notizen: "+oTodo:Notes 
    cText += CRLF+"F„llig:  "+DToC(oTodo:Due)
 

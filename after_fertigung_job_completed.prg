@@ -3,6 +3,7 @@ FUNCTION HOOK_after_fertigung_job_completed(nAufno,nCompleted,nNext)
    LOCAL cText := "Auftrag: "+LTrim(Str(nAufno))+CRLF
    LOCAL cCompleted,oFrepple,hResult
    LOCAL lOK := .F.
+   LOCAL cFreppleId,nX
    
    NetUSe("artikel","art")
    NetUse( "jobs",   "job" )
@@ -21,20 +22,30 @@ FUNCTION HOOK_after_fertigung_job_completed(nAufno,nCompleted,nNext)
    IF fjob->(dbSeek( Str(rst->Id,12) ))      
       LoadModule("frepple")
       oFrepple := GetFreppleApi()
-      hResult := oFrepple:patchWorkOrder(StrTran(tip_urlEncode(hb_strtoutf8(Trim(fjob->FreppleId))),"+","%20"),{"status"=>"completed"})      
-      cText += CRLF+"Frepple Auftrag: "+fjob->FreppleId      
-      cText += CRLF+"Fertigungsauftrag in Frepple "
-      IF ValType(hResult) == "C"
-         hResult := hb_jsondecode(hResult)
-      ENDIF
-      IF ValType(hResult) == "H" .AND. HHasKey(hResult,"status") .AND. hResult["status"] == "completed"
-         cText += "erfolgreich"
-         oFrepple:LoadPlan()
-         lOK := .T.
-      ELSE
-         cText += "fehlerhaft"
-      ENDIF
-      cText += " abgeschlossen"
+      cFreppleId := Trim(fjob->FreppleId)
+      FOR nX := 1 TO 2
+         hResult := oFrepple:patchWorkOrder(StrTran(tip_urlEncode(hb_strtoutf8(cFreppleId)),"+","%20"),{"status"=>"completed"})      
+         cText += CRLF+"Frepple Auftrag: "+cFreppleId
+         cText += CRLF+"Fertigungsauftrag in Frepple "
+         IF ValType(hResult) == "C"
+            hResult := hb_jsondecode(hResult)
+         ENDIF
+         IF ValType(hResult) == "H" .AND. HHasKey(hResult,"status") .AND. hResult["status"] == "completed"
+            cText += "erfolgreich abgeschlossen"
+            oFrepple:LoadPlan()
+            lOK := .T.
+            EXIT
+         ELSE
+            cText += "nicht abgeschlossen: "+ValToPrg(hResult)            
+            
+            IF LTrim(Str(Val(cFreppleId))) != cFreppleId //Not a numeric ID, then exit
+               EXIT
+            ELSE //build a new Frepple ID, we guess that the order has been updated 
+               job->(dbSeek( Str(nCompleted,6) ))
+               cFreppleId := "FA"+LTrim(Str(wer->Aufno))+"-"+Trim(job->Name)
+            ENDIF
+         ENDIF  
+      NEXT    
       //cText += CRLF+ValToPrg(hResult)
    ENDIF
    IF ! lOK

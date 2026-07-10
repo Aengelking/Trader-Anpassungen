@@ -26,6 +26,10 @@ PROC HOOK_AFTER_CHANGE_ADR_MATCHCODE(cOldMatch,cMatch,cGroup)
       TxtClear()
    ENDIF
 
+   IF oAddress:Group $ {"K","L"}
+      //OdooSync_EnqueueAddress(oAddress,"MATCHCODE")
+   ENDIF
+
    ku->(dbSetOrder(nOrd))
    
 RETURN

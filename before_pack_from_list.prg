@@ -6,7 +6,7 @@ LOCAL cEtiPath,aOptions,aState,nChoice,lAusland,lEG,lAtlas,cNewState
 LOCAL cFile,nStickqty,nX,cEti,nLate,dJitTag,aShipWith
 LOCAL lRet := .T.
 
-MEMVAR mcHookName,mirpt,mibesnr
+MEMVAR mcHookName,mirpt,mibesnr,mnQty
 
 #ifndef __XHARBOUR__
 	#xtranslate ShellExecute([<x,...>])        => Wapi_ShellExecute(<x>)
@@ -145,6 +145,7 @@ If ! lInUse .OR. (nChoice := Tr_MsgBox("Dieser Vorgang wird bereits bearbeitet",
 					   IF lAutoPrint
    						SetPrinterMethodType(5) //stickers
    					ENDIF
+                  mnQty := re->AoQty
 						StickPrint("WARE",1)
 						IF lAutoPrint
    						SetPrinterMethodType(0)
@@ -218,7 +219,6 @@ If ! lInUse .OR. (nChoice := Tr_MsgBox("Dieser Vorgang wird bereits bearbeitet",
                      Alert("Bitte Arbeitsanweisung und Bestellung der Sendung beilegen!")
                   ELSE
                      Alert("Bitte Bestellung der Sendung beilegen!")
-      //                 Alert("Keine Arbeitsanweisung gefunden! "+art->Matchcode+bes->Matchcode)
                   ENDIF
                ELSE  //interner Auftrag
                   art->(dbSetOrder( 2 ))
@@ -261,6 +261,26 @@ If ! lInUse .OR. (nChoice := Tr_MsgBox("Dieser Vorgang wird bereits bearbeitet",
             SetPrinterMethodType(0)
            ENDIF
            UnlockEntity("LNE",nNr)
+
+           TxtBox("Etiketten")
+           lne->(dbSetORder(1))
+           lne->(dbSeek( nNr ))
+           Do While lne->Nummer == nNr               
+               art->(dbSeek( lne->Matchcode ))               
+               If art->Lagerart                  
+                  IF lAutoPrint
+                     SetPrinterMethodType(5) //stickers
+                  ENDIF
+                  mnQty := lne->Menge
+                  StickPrint("WARE",1)
+                  IF lAutoPrint
+                     SetPrinterMethodType(0)
+                  ENDIF
+               Endif
+
+					lne->(dbSkip())
+            Enddo
+            TxtClear()
          ELSE
             mcHookName := ""
             SET DEVICE TO SCREEN
@@ -273,8 +293,6 @@ If ! lInUse .OR. (nChoice := Tr_MsgBox("Dieser Vorgang wird bereits bearbeitet",
 			lne->(Rec_Lock(0))
 			lne->State := aState[nChoice-2]
 			IF Trim(lne->State) == "" .OR. lne->State == "PICK"
-/*				lne->Status := 0
-			ELSEIF lne->State == "PICK"*/
 				lne->Status := 1
 			ENDIF
 			lne->(dbUnLock())

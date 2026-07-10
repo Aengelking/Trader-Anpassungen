@@ -12,6 +12,11 @@ IF oBesPos:BeQty < 0 //Rcksendung
    oBesPos:AbNr := GetBox(IF(oBesPos:lNew,Space(10),oBesPos:AbNr),"RMA Nr.")
 ENDIF
 
+
+IF ! oBesPos:lNew .AND. oBesPos:Printed .AND. oBesPos:Pe != 0 .AND. oBesPos:GetField("PE",.T.) != 0 .AND. Round(oBesPos:EkPr/oBesPos:Pe,2) > Round(oBesPos:GetField("EKPR",.T.)/oBesPos:GetField("PE",.T.),2)
+   SendMail({{"amos.engelking@engelking.de","Amos"}},"Preis„nderung bei Position "+LTrim(Str(oBesPos:Posnr,3))+" von Bestellung "+LTrim(Str(oBesPos:Besnr)),"Von: "+Ltrim(Str(oBesPos:GetField("EkPr",.T.)))+" auf: "+LTrim(Str(oBesPos:EkPr))) 
+ENDIF
+
 IF ! oBesPos:lNew
    RETURN .T.
 ENDIF
@@ -178,9 +183,14 @@ ENDIF
 ENDIF*/
    #define CRLF CHr(13)+Chr(10)
    NetUse("zeichpruef","zeipr")
-   IF ! Empty(oBesPos:oArtikel:Zeichnung) .AND. Trim(oBesPos:Liefma) == "WHTECH".AND. (! zeipr->(dbSeek(oBesPos:oArtikel:Zeichnung+oBesPos:oArtikel:ZeichIndex+IF(oBesPos:oArtikel:KuZeichnun,"Y","N"))) .OR. zeipr->Datum < StoD("20230914"))
+   IF ! Empty(oBesPos:oArtikel:Zeichnung) .AND. Trim(oBesPos:Liefma) == "WHTECH" ;
+      .AND. (;
+         ! zeipr->(dbSeek(oBesPos:oArtikel:Zeichnung+oBesPos:oArtikel:ZeichIndex+IF(oBesPos:oArtikel:KuZeichnun,"Y","N")));
+         .OR. zeipr->Datum < StoD("20230914");
+      )
+
       cText := "Hi Heike,"+CRLF+CRLF+"Bitte prfe ob der folgenden Zeichnung die Kabel-/Litzenhersteller bestimmt sind"+CRLF
-      cText += "Zeichnung: "+oBesPos:oArtikel:Zeichnung+CRLF
+      cText += "Zeichnung: "+oBesPos:oArtikel:Zeichnung+" Ind. "+oBesPos:oArtikel:ZeichIndex+CRLF
       cText += "Artikel: "+oBesPos:oArtikel:Matchcode+" (eventuell noch weitere!)"+CRLF
       
       SendMail({{"heike.scheckenburger@engelking.de","Heike"}},"Zeichnung prfen",cText,,,,,"amos.engelking@engelking.de")
@@ -196,6 +206,7 @@ ENDIF*/
       zeipr->(dbUnLock())
 
    ENDIF
+
 
    
 

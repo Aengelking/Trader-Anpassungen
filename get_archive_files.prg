@@ -52,6 +52,7 @@ FOR EACH nNo IN hTyp
    //cDir := cArchDir+"\"+hTypes[cTyp]:Dir+"\"
    aSearchDirs := GetArchiveDirList(hTypes[cTyp])   
    FOR EACH cDir IN aSearchDirs
+      
       aTemp := Directory(cDir+GetArchivePrefix(hTypes[cTyp],nNo)+"*.*")
       AEval(aTemp,{|aFile|
          Aadd(aFile,cDir+aFile[1])         

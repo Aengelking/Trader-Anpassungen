@@ -3,6 +3,7 @@ FUNCTION HOOK_After_Pack( nNr,lRech,nVersandArt,nPerson,aPakete,aGewichte,aPreis
 LOCAL oExtra
 LOCAL lUpdateFreight,oRechnung,nPorto,lPorto,nNetto
 LOCAL cMessage,aContact,cNr
+LOCAL oKunde
 
 HB_SYMBOL_UNUSED( nPerson )
 HB_SYMBOL_UNUSED( aGewichte )
@@ -22,6 +23,7 @@ IF lRech //Rechnung
    re->(dbSeek( Str(nNr,6)+Str(0,3) ))
    ku->(dbSetOrder( 1 ))
    ku->(dbSeek( re->Kunde+"K" ))
+
    oExtra := ku->(ExtraData():New( ku->Nummer ))
    IF ! sk->(IsPrePay(re->Skonto)) .AND. (re->PosWt > 0 .OR. Trim(re->Kunde) == "TEST")//nur bei rechnungen
       lUpdateFreight := .F.
@@ -33,9 +35,9 @@ IF lRech //Rechnung
       oRechnung:Versandt := .F.
       oRechnung:Save()
 
-      IF (Trim(ku->Kunde) == "FP" .AND. nVersandart == 2) .OR. oExtra:PortoAufwa
+      IF (Trim(oRechnung:oKunde:Kunde) == "FP" .AND. nVersandart == 2) .OR. oExtra:PortoAufwa
          lUpdateFreight := .T.
-      ELSEIF ! ku->Portok $ "Nn" .AND. ! nVersandart $ {10,44,46,49,56}
+      ELSEIF ! oRechnung:oKunde:Portok $ "Nn" .AND. ! nVersandart $ {10,44,46,49,56}
          lPorto := .T.
          IF oExtra:PortoUnter != 0
             nNetto := oRechnung:Brutto

@@ -24,11 +24,7 @@ FUNCTION HOOK_GET_FREIGABE_NEXT_LEVEL(cState,nArtnr,nSupplier,lNextFrei)
             RETURN "KU"
          ENDIF
       ENDIF   
-   ELSE //Kaufteil oder externe Prodkution
-      /*IF Tr_Getini(28) == 9 .AND. ! lNextFrei
-         Alert(cState)
-      ENDIF*/
-      
+   ELSE //Kaufteil oder externe Prodkution      
       IF cState == "" 
          IF Trim(oArt:Type) == "WARE"
             RETURN "VMU"
@@ -39,19 +35,20 @@ FUNCTION HOOK_GET_FREIGABE_NEXT_LEVEL(cState,nArtnr,nSupplier,lNextFrei)
          RETURN "UNTK"
       Elseif oArt:Gruppe != "KANK"  .AND. (cState == "VMU" .OR. cState == "UNTK") //Fremd.-Unterlagen m¸ssen durch uns freigegeben werden, auﬂer bei Netzzuleitungen
          RETURN "UNT"
-      ELSEIF cState == "UNT" .OR. cState == "UNTK" //.OR. cState == "MUS" .AND. 
+      ELSEIF cState == "UNT" .OR. cState == "UNTK" 
          RETURN  "MUS"
-      ELSEIF cState == "MUS" .AND. Trim(oArt:Type) == "WARE" .AND. (Left(oArt:Matchcode,2) $ "QX KS" .OR. "TEST" $ oArt:Matchcode) //nur bei Kundenspez. Artikeln         
+      ELSEIF cState == "MUS" .AND. Trim(oArt:Type) == "WARE";
+         .AND. (Left(oArt:Matchcode,2) $ "QX KS" .OR. "TEST" $ oArt:Matchcode) //nur bei Kundenspez. Artikeln  
+
          IF ! lNextFrei //Kunde hat Muster abgelehnt, dann mÅssen wir neue Muster freigeben
             RETURN "MUS"
          ELSE
             RETURN "KU"
          ENDIF
+
       ENDIF
 
    ENDIF
-   
-   //? 
-   //@ Row(),92 SAY Str(Seconds()-nSec)
-
+ 
+ 
 Return "DONE" //default

@@ -20,7 +20,7 @@ PROCEDURE Hook_After_Pack_From_List(nNr,lRech,lInUse)
 
 	Endif
 	SetPrinterMethodType(0)
-	If Tr_MsgBox("Lagermengen korrigieren?",,{"Nein","Ja"}) == 2
+	/*If Tr_MsgBox("Lagermengen korrigieren?",,{"Nein","Ja"}) == 2
 		EINFUG(If(lRech,nNr,NIL),If(!lRech,nNr,NIL),.T.,.F.)
-	Endif
+	Endif*/
 RETURN

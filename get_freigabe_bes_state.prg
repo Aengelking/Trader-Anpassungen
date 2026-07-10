@@ -38,11 +38,7 @@ IF Tr_Getini(28) == 9
    //Alert(cState+" -> "+cNextLevel+IF(lFrei,""," nicht")+" freigegeben")
 ENDIF
 
-IF Trim(art->Type) == "RHB" .AND. cNextLevel == "DONE"
-   //.AND. Left(art->Matchcode,3) == "pL/" //Litzen fr die Produktion
-   //hRet:nMaxQty     := 1000
-   //ELSEIF Trim(art->Gruppe) == "XX" .AND. Trim(art->Type) == "RHB"
-   //hRet:nMaxQty     := 10000   
+IF Trim(art->Type) == "RHB" .AND. cNextLevel $ {"DONE","MUS"}
    hRet:nMaxQty := 1000
    hRet:lBes := .T.   
 ELSEIF cNextLevel == "MUS" .OR. ;
@@ -51,17 +47,15 @@ ELSEIF cNextLevel == "MUS" .OR. ;
 	hRet:lBes        := .T.
    hRet:nMaxQty     := 4 //restrict everthing to four pieces, except the expections below 
    IF Tr_Getini(28) == 9
-      //Alert("Musterfreigabe fr "+art->Matchcode)
+      //Alert("Musterfreigabe fr "+art->Matchcode+" Gruppe: "+art->Gruppe)
    ENDIF
-   IF art->Gruppe == "KANK" ; //Netzkabel
-      .OR. Left(art->Gruppe,2) == "KO" 
+   IF art->Gruppe == "KANK" //Netzkabel            
       hRet:nMaxQty     := 1000
    ELSEIF oArt:Manufactur == 6 //Engelking
       hRet:nMaxQty     := 500
    ELSEIF oArt:Manufactur == 5 //Engelking China
       hRet:nMaxQty     := 11   //10 for the customer and one for us
-   ELSE //IF Left(art->Gruppe,2)=="KO"
-      //IF Tr_GetIni(28) == 9;Alert("Here");hRet:nMaxQty := 50;ENDIF
+   ELSE      
       NetUse("engkund","ku")
       ku->(dbSetOrder( 8 ))
       ku->(dbSeek( Str(nSupplier,6) ))
@@ -88,9 +82,12 @@ ELSEIF cNextLevel == "MUS" .OR. ;
             Alert("MaxCost: "+Str(nMaxCost)+" Price: "+Str(nPrice)+" Qty: "+Str(nMaxCost/nPrice))
          ENDIF         
          hRet:nMaxQty := Max(Round( nMaxCost/nPrice, GetMeDecimals( oArt:Me )),2)
-      ELSE
-         //hRet:nMaxQty := 10 //nMaxCost
+      ELSEIF Left(art->Gruppe,2)=="KO"
+         hRet:nMaxQty := 10
       ENDIF      
+      IF Tr_Getini(28) == 9
+      //   Alert("Freigabe fr "+art->Matchcode+" mit Preis "+Str(nPrice)+" und MaxQty "+Str(hRet:nMaxQty))
+      ENDIF
 	ENDIF
 ELSEIF cState == "" //Freigabe noch nicht begonnen, Vorserien Muster
    hRet:lBes        := .T.

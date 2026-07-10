@@ -6,12 +6,18 @@ LOCAL cFile
 cFile    := cEtiPath+cName+".lbex"
 IF File(cFile)
    IF Tr_GetIni(28) == 9
-      Alert("PRINTING "+cFile)
+      //Alert("PRINTING "+cFile)
    ENDIF
    MBaseRun(Trim(Tr_getini(1))+"\run\labelstar",{cFile,nCount})
+   IF Upper(cName) == "WARE" .AND. Select("art") != 0 .AND. Left(art->Matchcode,2) == "NZ" .AND. art->Manufactur == 9 
+      IF Tr_GetIni(28) == 9
+         //Alert("PRINTING GPSR Label")
+      ENDIF
+      MBaseRun(Trim(Tr_getini(1))+"\run\labelstar",{cEtiPath+"GPSR_scolmore.lbex",nCount})
+   ENDIF
    RETURN .F.
 ELSE
-   Alert("NO FILE FOUND "+cFile)
+   //Alert("NO FILE FOUND "+cFile)
 ENDIF
 
 RETURN .T.

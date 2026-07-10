@@ -8,6 +8,9 @@ LOCAL nGewinn,lRet
 LOCAL lPorto := .F.
 LOCAL cText1 := "",nLevel := 3
 LOCAL oExtra
+LOCAL nMaxLZ := 12 //Maximale Rahmenlaufzeit
+LOCAL nZins := 0.1 //Zinssatz fr Margenreduktion durch Zinskosten
+LOCAL nMelde,nMarginDiff
 
 NetUse("engkund","ku")
 
@@ -56,18 +59,36 @@ DO WHILE ang->Angnr == nAngnr
      nGewinn := ( nVk * ( 100 - ang->Rabatt ) / 100 ) - ( nEk * ( 100 -oArtikel:rabatt ) / 100 )
      nMargin := IF(nVk!=0,nGewinn/nVk,0)
 
+     IF ang->LZ > nMaxLZ
+        cText1 += Trim(oArtikel:Matchcode)+" hat eine Laufzeit von "+LTrim(Str(ang->LZ))+" Monaten;"
+        nLevel := 1
+     ENDIF
+
+     IF ang->LZ > 0
+         //Meldebestand kann im Auftrag nicht definiert werden, daher berechnen wir das anhand der Lieferzeit
+         nMelde  := IF(oArtikel:LZ>0,oArtikel:LZ,12) / 4.35 * ang->VkQty / ang->LZ * 2 //Rechnerisch ausreichend fr doppelte Lieferzeit
+         //Margenreduktion durch Zinskosten sch„tzen
+         nMarginDiff := nZins * ang->LZ / 12 * nMelde/ang->VkQty  + nZins/24
+         IF Tr_GetIni(28) == 9
+            cDbg += "Meldebestand "+Trim(oArtikel:Matchcode)+": "+LTrim(Str(nMelde))+";Margenreduktion durch Zinskosten: "+LTrim(Str(nMarginDiff*100,6,2))+"%;"
+         ENDIF
+         nMargin -= nMarginDiff
+     ELSE
+         nMarginDiff := 0
+     ENDIF
+
      IF lDbg
          Alert(oArtikel:Matchcode+";Lieferant: "+cSupplier+";"+"Menge: "+LTrim(Str(ang->VkQty))+";EK: "+LTrim(Str(nEk))+";"+"VK:"+LTrim(Str(nVk))+";"+"Gewinn:"+Ltrim(Str(nGewinn))+";Margin:"+LTrim(str(nMargin*100,6,2)))
      ENDIF
 
-     Aadd(aProducts,{"ARTIKEL"=>oArtikel,"QTY"=>ang->VkQty,"GELQTY"=>0,"VKPR"=>ang->VkPr/ang->Pe,"MARGIN"=>nMargin,"KW"=>AddWeeks(Val(CalWeek(ang->Besda)),ang->Dterm),"SUPPLIER"=>cSupplier,"NEK"=>nEk})
+     Aadd(aProducts,{"ARTIKEL"=>oArtikel,"QTY"=>ang->VkQty,"GELQTY"=>0,"VKPR"=>ang->VkPr/ang->Pe,"MARGIN"=>nMargin,"KW"=>AddWeeks(Val(CalWeek(ang->Besda)),ang->Dterm),"SUPPLIER"=>cSupplier,"NEK"=>nEk,"FINCOST"=>nMarginDiff})
    ENDIF
    ang->(dbSkip())
 ENDDO
 ang->(dbSeek( Str(nAngnr,6) ))
 
 IF ! Empty(cDbg)
-   //Alert(cDbg)
+   Alert(cDbg)
 ENDIF
 
 ku->(dbSetOrder( 1 ))
@@ -75,12 +96,6 @@ ku->(dbSeek( ang->Kundma+"K" ))
 
 IF sk->(IsPrePay(ku->Skonto)) .AND. ! lPorto .AND. ! ku->Versandart $ {10,44,46,49,56}
    oExtra := ku->(ExtraData():New(ku->Nummer))
-   IF oExtra:OnlineKauf
-      cText1 += "Kein Porto berechnet (fr Onlinekauf notwendig)"+";"
-      IF nLevel > 2
-         nLevel := 2
-      ENDIF
-   ENDIF
 ENDIF
 
 lRet := Hook("approve_auf_ang",{aProducts,cText1,nLevel,ang->Kundma,ang->Besda,ang->Money,.F.})

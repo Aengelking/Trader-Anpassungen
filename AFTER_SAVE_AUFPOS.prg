@@ -12,6 +12,6 @@ FUNC HOOK_AFTER_SAVE_AUFPOS(oAufPos,lNew)
          cText += "Position: "+Ltrim(Str(oAufpos:Itmnr))+CRLF
          cText += "Artikel: "+Trim(oAufPos:Artikel:Matchcode)+CRLF
          cText += "Stckzahl: "+LTrim(Transform(oAufPos:VkQty,Me(oAufpos:Artikel:Me)))+CRLF         
-         SendMail({{"chris.chertes@engelking.de","Chris"}},"Auftrag fr Projekt "+LTrim(Str(proj->Nummer)),cText)      
+         //SendMail({{"chris.chertes@engelking.de","Chris"}},"Auftrag fr Projekt "+LTrim(Str(proj->Nummer)),cText)      
       ENDIF
    ENDIF

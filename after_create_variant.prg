@@ -7,7 +7,7 @@ FUNCTION HOOK_AFTER_CERATE_VARIANT(oArtikel)
    NetUse("buyer","buy")
    
    cText := "Hallo,<br><br>folgender Varianten Artikel wurde von "+Trim(oUsr:Buyer)+" angelegt:<br><br>"
-   cText += 'Matchcode:  <a href="trader: -F BrowseArtikel('+"'"+Trim(oArtikel:Matchcode)+"'"+')">'+oArtikel:Matchcode+"</a><br>"
+   cText += 'Matchcode:  <a href="'+TraderUrl('BrowseArtikel("'+Trim(oArtikel:Matchcode)+'")')+'">'+oArtikel:Matchcode+"</a><br>"
    cText += "Artikelnr.: "+LTrim(Str(oArtikel:Artikelnr))   
    
    IF Left(oArtikel:Matchcode,2) $ {"CM","CI"}

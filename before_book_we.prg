@@ -28,6 +28,13 @@ FUNCTION HOOK_BEFORE_BOOK_WE(hData,oBesPos,oArt)
       ENDIF
       hData:cCharge := cCharge
    ENDIF
+
+   //Netzkabel mit US-Leitung sollten ein UL Label haben
+   IF HB_regexMatch("NZ\/.{3}\/.{3}\/(210|211|212|213|230|231|240|241|242|590|600|610|620)\/.*",oArt:Matchcode) ;
+      .AND. Tr_MsgBox("UL Label auf allen Kartons vorhanden?",,{"Nein","Ja"}) != 2
+      RETURN .F.
+   ENDIF
+
    IF Trim(oBesPos:Liefma) == "OPTRIS" .AND. Left(oArt:Matchcode,9) == "KABEL.SAB"
       Tr_MsgBox("Bitte Lieferschein einscannen und an Joel senden.")
    ENDIF

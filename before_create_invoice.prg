@@ -1,6 +1,9 @@
 FUNC HOOK_BEFORE_CREATE_INVOICE(oRechnung,lCredit)
-   LOCAL oExtra
+   LOCAL hContacts
    LOCAL aMsg
+
+   MEMVAR mcInvoiceError
+   PUBLIC mcInvoiceError
 
    Default(@lCredit,.F.)
 
@@ -18,6 +21,9 @@ FUNC HOOK_BEFORE_CREATE_INVOICE(oRechnung,lCredit)
       IF Len(aMsg) > 0
          IF ! GetConfigValue("BATCHMODE")
             Tr_MsgBox(aMsg,"Kontaktdaten fehlen")
+         ELSE
+            mcInvoiceError := "Kontaktdaten fehlen: "
+            AEval(aMsg,{|cMsg| mcInvoiceError += cMsg+"; "})
          ENDIF
          RETURN .F.
       ENDIF

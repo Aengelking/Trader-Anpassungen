@@ -4,6 +4,7 @@ LOCAL lChange,nRec,cName,lJur
 LOCAL lEG,nResult
 LOCAL aList,oRechnung,nRechnr
 LOCAL oCustom,oExtra,lUpDated,cError
+LOCAL nNewSkonto
 
 NetUse("rechnung","reh")
 NetUse("englsre","re")
@@ -52,18 +53,27 @@ IF oAddress:GROUP == "K" //nur Bei Kunden
    ENDIF
 
    lChange := .F.
+   nNewSkonto := 8
+   oExtra := ku->(ExtraData():New(oAddress:Nummer))
    nRec := ku->(Recno())
    IF ku->Skonto != 8
-      IF GetCustomerCreditLimit(ku->Kunde) == 0
-         Tr_MsgBox("Zahlungsbedingungen wegen fehlendem Kreditlimit auf Onlinekauf umgestellt")
+      IF oExtra:Factoring .AND. ! ku->Skonto $ {0,7,9} //When factoring then only without cash discount possible
+         Tr_MsgBox("Dieser Kunde ist fr Factoring angemeldet, daher k”nnen keine Zahlungsbedingungen mit Skonto gew„hlt werden auf 14 Tage netto umgestellt.")
          lChange := .T.
-      ELSEIF lNew
-         cName := Upper(Trim(ku->Name1)+" "+ku->Name2)
-         lJur := "MBH" $ cName .OR. "AG" $ cName .OR. "EG" $ cName .OR. "AKTIENGESELLSCHAFT" $ cName
-         IF (ku->CountryIso != "DE" .OR. ! lJur) .AND. Tr_MsgBox("Zahlungsbedingungen auf Onlinekauf stellen?",,{"JA","Nein"}) != 2
+         nNewSkonto := 7
+      ELSE
+         IF GetCustomerCreditLimit(ku->Kunde) == 0
+            Tr_MsgBox("Zahlungsbedingungen wegen fehlendem Kreditlimit auf Vorkasse umgestellt")
             lChange := .T.
+         ELSEIF lNew
+            cName := Upper(Trim(ku->Name1)+" "+ku->Name2)
+            lJur := "MBH" $ cName .OR. "AG" $ cName .OR. "EG" $ cName .OR. "AKTIENGESELLSCHAFT" $ cName
+            IF (ku->CountryIso != "DE" .OR. ! lJur) .AND. Tr_MsgBox("Zahlungsbedingungen auf Vorkasse stellen?",,{"JA","Nein"}) != 2
+               lChange := .T.
+            ENDIF
          ENDIF
       ENDIF
+      
    ENDIF
 
    NetUse("skontoa","ska")
@@ -108,11 +118,8 @@ IF oAddress:GROUP == "K" //nur Bei Kunden
    IF lChange
       ku->(dbGoto( nRec ))
       ku->(Rec_Lock())
-      ku->Skonto := 8
+      ku->Skonto := nNewSkonto
       ku->(dbUnLock())
-      oExtra := ku->(ExtraData():New(ku->Nummer))
-      oExtra:OnlineKauf := .T.
-      oExtra:Save()
    ENDIF   
 
    IF ku->Money != "E"
@@ -162,6 +169,10 @@ IF oAddress:Group $ {"K","L"} .AND. (lNew .OR. oAddress:FieldUpdatedLastSave("NA
       //Tr_MsgBox({"Fehler beim Speichern der Adresse in Agorum Core.",oCustom:cErrorText})
    ENDIF
    TxtClear()
+ENDIF
+
+IF oAddress:Group $ {"K","L"}
+   //OdooSync_EnqueueAddress(oAddress,IF(lNew,"CREATE","UPSERT"))
 ENDIF
 
 #include "X:\run\agorum.prg"

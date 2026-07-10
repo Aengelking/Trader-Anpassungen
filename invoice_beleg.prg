@@ -16,7 +16,7 @@
 #define P_DANIEL IF(Date()>=Stod("20220701").AND.Date()<=StoD("20220707"),9,57)
 #define P_DANIELA IF(Date()>=StoD("20250730").AND.Date()<=StoD("20250813"),66,50)
 #define P_AMOS 9
-#define P_LISA 64
+#define P_LISA 76
 
 #command @ <top>,<left>,<bottom>,<right> GET <var> LISTBOX <hash> ASSOCIATIVE ;
 	[VALID <valid>];
@@ -205,10 +205,11 @@ hKontoGenehm[74930] := P_SIGRID  //Payrexx
 hKontoGenehm[76157] := P_SIGRID  //Conrad - Webhelp
 hKontoGenehm[72031] := P_SIGRID  //DKV
 hKontoGenehm[70171] := P_SIGRID  //EON (Strom Johannes)
+hKontoGenehm[74222] := P_SIGRID  //Zisch Frisch
 
 hKontoGenehm[70423] := P_DANIEL
 hKontoGenehm[76167] := P_DANIEL  //Amazon Marketplace
-hKontoGenehm[74222] := P_SIGRID  //Zisch Frisch
+
 
 hKontoGenehm[77511] := P_LISA  //intoCommerce
 

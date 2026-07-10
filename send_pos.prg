@@ -9,7 +9,7 @@ FUNCTION RUN_SEND_POS()
    NetUse("manufact","manu")
 
    IF nMonth > 1
-      nMonth := nMonth-1
+      nMonth := 5 //nMonth-1
    ELSE
       nMonth := 12
       nYear -= 1

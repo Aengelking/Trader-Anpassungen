@@ -13,7 +13,7 @@
       "waldom": {
         "name": "WALDOM",
         "code": "WALDOM",
-        "default_delivery_days": 5
+        "default_delivery_days": 7
       },
       "onpow": {
         "name": "ONPOW", 

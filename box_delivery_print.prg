@@ -11,8 +11,8 @@
 PROCEDURE PrintBoxDeliveryNote(nBesnr, cVerpackung)
 
 LOCAL getlist := {}
-LOCAL nBoxesToDeliver := 0, nMaxBoxes := 0
-LOCAL nOpenQty, nBoxesNeeded, nBoxesAvailable
+LOCAL aPositions := {}, aDeliveryPositions
+LOCAL nRow, nPos, nTotalBoxesToDeliver
 LOCAL cScreen := SaveScreen()
 LOCAL lPrint := .T.
 LOCAL dDeliveryDate := Date()
@@ -48,34 +48,30 @@ DO WHILE .T.
    ENDIF
    
    IF nBesnr > 0 .AND. bes->(dbSeek(Str(nBesnr,6)))
-      @ 01,20 SAY "Lieferant: " + AllTrim(bes->Liefma)
-      
-      // Get packaging types for this supplier
-      IF Empty(cVerpackung)
-         cVerpackung := GetPackagingForPO(nBesnr)
+      @ 01,22 SAY "Lieferant: " + AllTrim(bes->Liefma)
+      aPositions := GetPackagingPositionsForPO(nBesnr, cVerpackung)
+
+      IF Empty(aPositions)
+         @ 03,00 SAY "Keine offenen Umlaufverpackungen fr diese Bestellung gefunden."
+      ELSE
+         @ 03,00 SAY PadR("Verpackung", 20) + PadL("Offene Menge", 14) + PadL("Ben”tigt", 12) + PadL("Verfgbar", 12) + PadL("Max.", 8) + "  Zu liefern"
+         @ 04,00 SAY Replicate("-", 82)
+
+         FOR nPos := 1 TO Len(aPositions)
+            nRow := 04 + nPos
+            @ nRow,00 SAY PadR(aPositions[nPos][1], 20)
+            @ nRow,21 SAY PadL(Transform(aPositions[nPos][2], "999,999.99"), 14)
+            @ nRow,36 SAY PadL(Transform(aPositions[nPos][3], "999,999"), 12)
+            @ nRow,49 SAY PadL(Transform(aPositions[nPos][4], "999,999"), 12)
+            @ nRow,62 SAY PadL(Transform(aPositions[nPos][5], "999,999"), 8)
+            @ nRow,72 GET aPositions[nPos][6] PICTURE "999999" VALID aPositions[GetActive():Cargo][6] >= 0 .AND. aPositions[GetActive():Cargo][6] <= aPositions[GetActive():Cargo][5]
+            Atail(getlist):Cargo := nPos
+         NEXT
       ENDIF
-      
-      @ 02,00 SAY "Verpackung "+cVerpackung // PICTURE "@!" VALID !Empty(cVerpackung)
-      
-      IF !Empty(cVerpackung)
-         // Calculate how many boxes are needed and available
-         nOpenQty := GetOpenQtyForPO(nBesnr, cVerpackung)
-         nBoxesNeeded := GetBoxesNeededForPO(nBesnr, cVerpackung)
-         nBoxesAvailable := GetAvailableBoxes(cVerpackung)
-         nMaxBoxes := Min(nBoxesNeeded, nBoxesAvailable)
-         
-         @ 03,00 SAY "Offene Menge ben”tigt:" + Str(nOpenQty)
-         @ 04,00 SAY "Ben”tigte Verpackungen:" + Str(nBoxesNeeded)
-         @ 05,00 SAY "Verfgbare Verpackungen:" + Str(nBoxesAvailable)
-         @ 06,00 SAY "Max. zu liefern:" + Str(nMaxBoxes)
-         
-         nBoxesToDeliver := nMaxBoxes
-         @ 07,00 SAY "Anzahl zu liefern" GET nBoxesToDeliver PICTURE "999999" VALID nBoxesToDeliver >= 0 .AND. nBoxesToDeliver <= nMaxBoxes
-      ENDIF
-      
    ENDIF
-   
-   @ 08,00 SAY "Lieferdatum" GET dDeliveryDate
+
+   nRow := Max(8, 06 + Len(aPositions))
+   @ nRow,00 SAY "Lieferdatum" GET dDeliveryDate
    //@ 09,00 SAY "Lieferschein Nr." GET cDeliveryNote PICTURE "@!"
    
    //@ 11,00 SAY "Drucken?" GET lPrint PICTURE "Y"
@@ -85,15 +81,18 @@ DO WHILE .T.
    IF LastKey() == 27
       EXIT
    ENDIF
-   
-   IF nBesnr > 0 .AND. !Empty(cVerpackung) .AND. nBoxesToDeliver > 0
+
+   aDeliveryPositions := GetSelectedDeliveryPositions(aPositions)
+   nTotalBoxesToDeliver := GetTotalBoxesToDeliver(aDeliveryPositions)
+
+   IF nBesnr > 0 .AND. Len(aDeliveryPositions) > 0 .AND. nTotalBoxesToDeliver > 0
       IF lPrint
          // Print the delivery note (PDF only)
-         IF PrintBoxDeliveryDocument(nBesnr, cVerpackung, nBoxesToDeliver, dDeliveryDate, cDeliveryNote,@lPreview)
+         IF PrintBoxDeliveryDocument(nBesnr, aDeliveryPositions, dDeliveryDate, cDeliveryNote, @lPreview)
             IF ! lPreview
                // Update the tracking only if printing was successful
-               UpdateBoxDeliveryTracking(nBesnr, cVerpackung, nBoxesToDeliver)
-               Tr_MsgBox("Lieferschein erstellt und " + Ltrim(Str(nBoxesToDeliver)) + " Verpackungen geliefert.")
+               UpdateBoxDeliveryTracking(nBesnr, aDeliveryPositions)
+               Tr_MsgBox("Lieferschein erstellt: " + Ltrim(Str(Len(aDeliveryPositions))) + " Position(en), " + Ltrim(Str(nTotalBoxesToDeliver)) + " Verpackungen geliefert.")
             ENDIF
          ELSE
             Tr_MsgBox("Lieferschein konnte nicht erstellt werden.")
@@ -101,14 +100,14 @@ DO WHILE .T.
          ENDIF
       ELSE
          // Update tracking even without printing
-         //UpdateBoxDeliveryTracking(nBesnr, cVerpackung, nBoxesToDeliver)
-         Tr_MsgBox("Tracking aktualisiert: " + Str(nBoxesToDeliver) + " Verpackungen als geliefert markiert.")
+         //UpdateBoxDeliveryTracking(nBesnr, aDeliveryPositions)
+         Tr_MsgBox("Tracking aktualisiert: " + Ltrim(Str(nTotalBoxesToDeliver)) + " Verpackungen in " + Ltrim(Str(Len(aDeliveryPositions))) + " Position(en).")
       ENDIF
       
       // Reset for next entry
       nBesnr := 0
       cVerpackung := ""
-      nBoxesToDeliver := 0
+      aPositions := {}
    ENDIF
 ENDDO
 
@@ -119,9 +118,11 @@ RETURN
 /*
  * Print the actual delivery note document
  */
-STATIC FUNCTION PrintBoxDeliveryDocument(nBesnr, cVerpackung, nBoxesToDeliver, dDeliveryDate, cDeliveryNote,lPreview)
+STATIC FUNCTION PrintBoxDeliveryDocument(nBesnr, aDeliveryPositions, dDeliveryDate, cDeliveryNote, lPreview)
 
 LOCAL oPrinter
+LOCAL nRow, nNoticeRow
+LOCAL aPosition
 
 // Start printing - only accept PDF printers for consistent formatting
 // and to ensure proper handling of special characters
@@ -192,23 +193,98 @@ oPrinter:Data:NewLine(1)
 
 // Items data
 oPrinter:Data:Normal()
-oPrinter:Data:AtSay("1", 27, 20)
-oPrinter:Data:AtSay(PadR(cVerpackung, 30), 27, 50)
-oPrinter:Data:AtSay(Transform(nBoxesToDeliver, "999,999"), 27, 90)
-oPrinter:Data:NewLine(1)
+
+nRow := 27
+FOR EACH aPosition IN aDeliveryPositions
+   oPrinter:Data:AtSay(LTrim(Str(aPosition:__enumIndex())), nRow, 20)
+   oPrinter:Data:AtSay(PadR(aPosition[1], 30), nRow, 50)
+   oPrinter:Data:AtSay(Transform(aPosition[6], "999,999"), nRow, 90)
+   nRow ++
+NEXT
+
+nNoticeRow := Max(51, nRow + 4)
 
 // Important notices in a box
 oPrinter:Data:SetFont("HELVETICA",0,9)
 oPrinter:Data:Bold()
-oPrinter:Data:AtSay("WICHTIGE HINWEISE:", 51, 20)
+oPrinter:Data:AtSay("WICHTIGE HINWEISE:", nNoticeRow, 20)
 oPrinter:Data:Normal()
-oPrinter:Data:AtSay("Diese Verpackungen sind Eigentum der Engelking Elektronik GmbH.", 53,20)
-oPrinter:Data:AtSay("Nur fr die Lieferung unserer Drehteile verwenden.", 55,20)
-oPrinter:Data:AtSay("Bei Verlust oder Besch„digung erfolgt Berechnung.", 57,20)
+oPrinter:Data:AtSay(HB_OemToAnsi("Diese Verpackungen sind Eigentum der Engelking Elektronik GmbH."), nNoticeRow + 2, 20)
+oPrinter:Data:AtSay(HB_OemToAnsi("Nur fr die Lieferung unserer Drehteile verwenden."), nNoticeRow + 4, 20)
+oPrinter:Data:AtSay(HB_OemToAnsi("Bei Verlust oder Besch„digung erfolgt Berechnung."), nNoticeRow + 6, 20)
 
 CopyPrint()
 
 RETURN .T.
+
+/*
+ * Build a list of packaging positions for this purchase order
+ */
+STATIC FUNCTION GetPackagingPositionsForPO(nBesnr, cOnlyVerpackung)
+
+LOCAL aPositions := {}
+LOCAL hPackaging := {=>}
+LOCAL aKeys := {}
+LOCAL aData
+LOCAL oExtra
+LOCAL oBesExtra
+LOCAL cCurrentPackaging
+LOCAL nOpenQty, nBoxesAvailable, nMaxBoxes, nCountPerBox, nSentBoxes, nBoxesNeeded
+LOCAL aMatch
+LOCAL cPackagingKey
+
+bes->(dbSetOrder(1))
+IF ! bes->(dbSeek(Str(nBesnr,6)))
+   RETURN aPositions
+ENDIF
+
+DO WHILE bes->Besnr == nBesnr .AND. ! bes->(EOF())
+   IF bes->BeStat < 3 .AND. bes->BeQty > bes->GelQty .AND. bes->Artikelnr > 0
+      art->(dbSetOrder(2))
+      
+      IF art->(dbSeek(Str(bes->Artikelnr,6)))
+         oExtra := art->(ExtraData():New(bes->Artikelnr))
+         cCurrentPackaging := AllTrim(oExtra:Umlauf)
+         cPackagingKey := AllTrim(cCurrentPackaging)
+
+         IF ! Empty(cPackagingKey) .AND. (Empty(cOnlyVerpackung) .OR. cPackagingKey == AllTrim(cOnlyVerpackung))
+            IF ! HHasKey(hPackaging, cPackagingKey)
+               aMatch := HB_Regex("[0-9]+", cPackagingKey)
+               IF Len(aMatch) > 0
+                  nCountPerBox := Val(aMatch[1])
+               ELSE
+                  nCountPerBox := 1
+               ENDIF
+
+               oBesExtra := bes->(ExtraData():New(bes->Besnr))
+               nSentBoxes := oBesExtra:&(cPackagingKey)
+               IF ValType(nSentBoxes) != "N"
+                  nSentBoxes := 0
+               ENDIF
+
+               hPackaging[cPackagingKey] := {0, nSentBoxes, nCountPerBox}
+               AAdd(aKeys, cPackagingKey)
+            ENDIF
+
+            aData := hPackaging[cPackagingKey]
+            nOpenQty := bes->BeQty - bes->GelQty
+            aData[1] += nOpenQty
+            hPackaging[cPackagingKey] := aData
+         ENDIF
+      ENDIF
+   ENDIF
+   bes->(dbSkip())
+ENDDO
+
+FOR EACH cPackagingKey IN aKeys
+   aData := hPackaging[cPackagingKey]
+   nBoxesAvailable := GetAvailableBoxes(cPackagingKey)
+   nBoxesNeeded := Max(0, Ceiling(aData[1] / aData[3]) - aData[2])
+   nMaxBoxes := Min(nBoxesNeeded, nBoxesAvailable)
+   AAdd(aPositions, {cPackagingKey, aData[1], nBoxesNeeded, nBoxesAvailable, nMaxBoxes, nMaxBoxes})
+NEXT
+
+RETURN aPositions
 
 /*
  * Get the packaging type used for this purchase order
@@ -238,80 +314,6 @@ ENDDO
 RETURN cVerpackung
 
 /*
- * Get total open quantity for PO that needs this packaging
- */
-STATIC FUNCTION GetOpenQtyForPO(nBesnr, cVerpackung)
-
-LOCAL nTotalOpenQty := 0
-LOCAL oExtra
-
-bes->(dbSeek(Str(nBesnr,6)))
-
-DO WHILE bes->Besnr == nBesnr .AND. !bes->(EOF())
-   IF bes->BeStat < 3 .AND. bes->BeQty > bes->GelQty
-      IF bes->Artikelnr > 0
-         art->(dbSetOrder(2))
-         IF art->(dbSeek(Str(bes->Artikelnr,6)))
-            oExtra := art->(ExtraData():New(bes->Artikelnr))
-            IF AllTrim(oExtra:Umlauf) == cVerpackung
-               nTotalOpenQty += (bes->BeQty - bes->GelQty)
-            ENDIF
-         ENDIF
-      ENDIF
-   ENDIF
-   bes->(dbSkip())
-ENDDO
-
-RETURN nTotalOpenQty
-
-/*
- * Calculate how many boxes are needed for this PO
- */
-STATIC FUNCTION GetBoxesNeededForPO(nBesnr, cVerpackung)
-
-LOCAL nBoxesNeeded := 0
-LOCAL nOpenQty, nCountPerBox, nSentBoxes
-LOCAL oExtra, oBesExtra
-LOCAL aMatch
-
-// Get count per box from packaging name
-aMatch := HB_Regex("[0-9]+", cVerpackung)
-IF Len(aMatch) > 0
-   nCountPerBox := Val(aMatch[1])
-ELSE
-   nCountPerBox := 1
-ENDIF
-
-bes->(dbSeek(Str(nBesnr,6)))
-
-DO WHILE bes->Besnr == nBesnr .AND. !bes->(EOF())
-   IF bes->BeStat < 3 .AND. bes->BeQty > bes->GelQty
-      IF bes->Artikelnr > 0
-         art->(dbSetOrder(2))
-         IF art->(dbSeek(Str(bes->Artikelnr,6)))
-            oExtra := art->(ExtraData():New(bes->Artikelnr))
-            IF AllTrim(oExtra:Umlauf) == cVerpackung
-               nOpenQty := bes->BeQty - bes->GelQty
-               
-               // Check how many boxes already sent
-               oBesExtra := bes->(ExtraData():New(bes->Besnr))
-               nSentBoxes := oBesExtra:&(cVerpackung)
-               nSentBoxes -= Ceiling(bes->GelQty/nCountPerBox) // subtract already returned boxes
-               IF nSentBoxes < 0
-                  nSentBoxes := 0
-               ENDIF
-               
-               nBoxesNeeded += Max(0, Ceiling(nOpenQty/nCountPerBox) - nSentBoxes)
-            ENDIF
-         ENDIF
-      ENDIF
-   ENDIF
-   bes->(dbSkip())
-ENDDO
-
-RETURN nBoxesNeeded
-
-/*
  * Get available boxes of this type (simplified - could check actual inventory)
  */
 STATIC FUNCTION GetAvailableBoxes(cVerpackung)
@@ -322,6 +324,10 @@ STATIC FUNCTION GetAvailableBoxes(cVerpackung)
 
    aData := GetUmlaufStatus(cVerpackung)
    IF Empty(aData)
+      RETURN 0
+   ENDIF
+
+   IF ! HHasKey(aInitQty, Trim(cVerpackung))
       RETURN 0
    ENDIF
 
@@ -366,9 +372,26 @@ STATIC FUNCTION UpdateBoxDeliveryTracking(nBesnr, cVerpackung, nBoxesToDeliver)
 
 LOCAL oBesExtra
 LOCAL nCurrentSent
+LOCAL aPosition
 
 // Get current tracking for this PO
 oBesExtra := bes->(ExtraData():New(nBesnr))
+
+IF ValType(cVerpackung) == "A"
+   FOR EACH aPosition IN cVerpackung
+      IF aPosition[6] > 0
+         nCurrentSent := oBesExtra:&(aPosition[1])
+         IF ValType(nCurrentSent) != "N"
+            nCurrentSent := 0
+         ENDIF
+
+         oBesExtra:&(aPosition[1]) := nCurrentSent + aPosition[6]
+      ENDIF
+   NEXT
+
+   oBesExtra:Save()
+   RETURN .T.
+ENDIF
 
 // Get current count
 nCurrentSent := oBesExtra:&(cVerpackung)
@@ -398,5 +421,35 @@ IF Len(aMatch) > 0
 ENDIF
 
 RETURN nCount
+
+/*
+ * Filter positions with a quantity to deliver
+ */
+STATIC FUNCTION GetSelectedDeliveryPositions(aPositions)
+
+LOCAL aSelected := {}
+LOCAL aPosition
+
+FOR EACH aPosition IN aPositions
+   IF aPosition[6] > 0
+      AAdd(aSelected, {aPosition[1], aPosition[2], aPosition[3], aPosition[4], aPosition[5], aPosition[6]})
+   ENDIF
+NEXT
+
+RETURN aSelected
+
+/*
+ * Sum selected box quantities
+ */
+STATIC FUNCTION GetTotalBoxesToDeliver(aPositions)
+
+LOCAL nTotal := 0
+LOCAL aPosition
+
+FOR EACH aPosition IN aPositions
+   nTotal += aPosition[6]
+NEXT
+
+RETURN nTotal
 
 #include 'showumlauf.prg'

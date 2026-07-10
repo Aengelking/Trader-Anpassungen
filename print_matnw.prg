@@ -1,5 +1,6 @@
 PROC PRINT_MATNW()
    LOCAL oEK:=ku->(ExtraData():New(ku->Nummer))
+   LOCAL oEA := art->(ExtraData():New(art->Artikelnr))
    LOCAL oPrinter
    LOCAL cFile
    LOCAL cText
@@ -36,9 +37,9 @@ PROC PRINT_MATNW()
          NEXT
                   
          Conv("\arial,10\")
-      ELSE
+      ELSEIF ! oEA:Get("NOMAT")
          IF Tr_Getini(28) == 9
-            Alert("File "+cFile+" not found for Materialnachweis")
+            //Alert("File "+cFile+" not found for Materialnachweis")
          ENDIF
          SendMessage("Qualitaet | Materialnachweis fehlt","Materialnachweis fehlt",StrTran("Hallo,\n\nfr die Artikelnummer "+Str(art->Artikelnr)+" wurde kein Materialnachweis gefunden. Bitte diesen erstellen und im Verzeichnis "+Path("config\texts\parts\")+" ablegen.\n\nVielen Dank!","\n","<br>"))         
       ENDIF

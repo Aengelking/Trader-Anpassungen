@@ -173,7 +173,7 @@ Aadd(aAutoOC,{;
 })
 
 
-Aadd(aAutoOC,{;
+/*Aadd(aAutoOC,{;
    "EMAIL"=>"@techno.it$",;
    "FILE"=>"\.pdf$",;
    "BLOCK"=>{|oMsg,cFile|
@@ -191,7 +191,7 @@ Aadd(aAutoOC,{;
       ENDIF
       RETURN .F.
    };
-})
+})*/
 
 Aadd(aAutoOC,{;
    "EMAIL"=>"@itw.*\.com$",;

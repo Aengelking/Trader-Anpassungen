@@ -56,8 +56,12 @@ PROC RUN_ListPortalUsers
    // ESC to exit
    oBrowse:AddKey(K_ESC, {|| .F. })
 
-   // ENTER to show details inline
-   oBrowse:AddKey(K_ENTER, {|| _ShowPortalUserDetails(), .T. }, "Show Details")
+   // SPACE to show details inline
+   oBrowse:AddKey(K_SPACE, {|| _ShowPortalUserDetails(), .T. }, "Show Details")
+
+   oBrowse:AddKey(K_ENTER, {|| _EditPortalUserDetails(), .T. }, "Konto zuordnen")
+
+   oBrowse:AddKey(K_DEL, {|| _DeletePortalUser(), .T. }, "L”schen")
 
    // F11 for filter
    oBrowse:AddKey(K_F11, {||
@@ -116,6 +120,14 @@ PROC RUN_ListPortalUsers
       RETURN PadR(cLastLogin, 10)
    })
 
+   oBrowse:NewColumn("", {||      
+      IF ! Empty(pusr->JWT_JTI) .AND. StoT(pusr->JWT_EXP) >= Date()
+         RETURN Pad("angemeldet",10)
+      ENDIF
+      RETURN Pad("", 10)
+      //RETURN pusr->JWT_EXP 
+   })
+
    // Search by typing functionality - bRestFun
    oBrowse:bRestFun := {||
       LOCAL nKey := LastKey()
@@ -163,7 +175,7 @@ PROC RUN_ListPortalUsers
    }
 
    // Status bar with instructions
-   @ MaxRow(), 0 SAY "Type=Search BS=Clear Space=Reset F11=Filter F10=Export ENTER=Details ESC=Exit"
+   @ MaxRow(), 0 SAY "Type=Search BS=Clear Space=Reset Del=Delete F11=Filter F10=Export ENTER=Details ESC=Exit"
 
    oBrowse:goTop()
    oBrowse:EventLoop()
@@ -210,16 +222,16 @@ RETURN cName
 STATIC FUNCTION _ShowPortalUserDetails()
    LOCAL nRow := 2
    LOCAL cCol
+   LOCAL aEnv := SaveEnv()
    MEMVAR c_five
 
    IF pusr->(EOF())
       RETURN .T.
    ENDIF
 
-   cCol := SetColor(c_five)
-
-   @ 1, 0 CLEAR TO 10, MaxCol()
-   @ 1, 0 TO 10, MaxCol()
+   SetColor(c_five)
+   @ 1, 0 CLEAR TO 11, MaxCol()
+   @ 1, 0 TO 11, MaxCol()
 
    @ nRow, 2 SAY "Email:" + PadR(pusr->Email, 50)
    nRow++
@@ -241,6 +253,235 @@ STATIC FUNCTION _ShowPortalUserDetails()
 
    Inkey(0, 128)
 
-   SetColor(cCol)
+   RestEnv(aEnv,.T.)
 
+RETURN .T.
+
+/*
+   Helper function: Edit portal user details (e.g. assign to customer)   
+*/
+STATIC FUNCTION _EditPortalUserDetails()
+   LOCAL hAddress := {=>}
+   LOCAL cGroup   := "K"
+   LOCAL nX,aChoice := {},aSelectable := {},nChoice
+   LOCAL hPeople := {=>}
+   LOCAL lSelectable := .F.
+   LOCAL nRec := pusr->(RecNo())
+   LOCAL lSuccess
+
+
+   IF pusr->(EOF())
+      RETURN .T.
+   ENDIF
+
+   
+
+   IF pusr->Address != 0      
+      IF ! pusr->Active
+         IF Tr_MsgBox("Zugang aktivieren?",,{"Nein","Ja"}) == 2
+            pusr->(Rec_Lock(0))
+            pusr->Active := .T.
+            pusr->(dbUnlock())         
+            __SendActivationEmail()
+         ENDIF
+         RETURN .T.
+      ENDIF
+      Tr_MsgBox("Dieser Benutzer ist bereits einem Kunden/Lieferanten zugeordnet. Eine erneute Zuordnung ist nicht m”glich.")
+   ELSE      
+      NetUse("engkund","ku")
+      NetUse("contacts","conts")
+
+      conts->(dbSetOrder( 3 )) //lower(email)
+      ku->(dbSetOrder( 8 ))   
+      conts->(dbSetRelation("ku",{|| Str(conts->Address,6) },"Str(address,6)"))      
+      conts->(dbSeek(Trim(Lower(pusr->Email)))) //
+      DO WHILE Trim(Lower(pusr->Email)) == Trim(Lower(conts->Email))      
+         IF ku->Group == cGroup 
+
+            IF ! HB_HHasKey(hAddress,conts->Address) 
+               hAddress[conts->Address] := { "count"=> 1,"usedAsGeneral"=>.F.,"active"=>conts->Active }
+            ELSE
+               hAddress[conts->Address]["count"]++
+               IF ! conts->Active
+                  hAddress[conts->Address]["active"] := .F.
+               ENDIF
+            ENDIF
+               
+            IF conts->Anrede == 0  //it is a general contact, not linked to a specific person, we want to ignore this if there is a specific one for the same email
+               hAddress[conts->Address]["usedAsGeneral"] := .T.                           
+            ENDIF
+
+         ENDIF
+         conts->(dbSkip())
+      ENDDO   
+
+      IF Len(hAddress) == 0  //Keine Kontakte gefunden, dann erlauben wir die „nderung von bestehenden Benutzern ohne Zuordnung
+         conts->(dbSetOrder( 4 )) //domain
+         conts->(dbSeek(Trim(Lower(SubStr(pusr->Email, At("@", pusr->Email) + 1)))))
+         DO WHILE Trim(Lower(SubStr(pusr->Email, At("@", pusr->Email) + 1))) == Trim(Lower(SubStr(conts->Email, At("@", conts->Email) + 1)))
+            IF ku->Group == cGroup
+               IF ! pusr->(dbSeek(Trim(Lower(conts->Email)))) //noch kein Portalbenutzer
+                  IF ! HB_HHasKey(hPeople,Trim(Lower(conts->Email))) 
+                     hPeople[Trim(Lower(conts->Email))] := { "count"=> 1,"usedAsGeneral"=>.F.,"address"=>conts->Address,"active"=>conts->Active }
+                  ELSE
+                     hPeople[Trim(Lower(conts->Email))]["count"]++
+                     IF hPeople[Trim(Lower(conts->Email))]["address"] != conts->Address
+                        hPeople[Trim(Lower(conts->Email))]["address"] := 0
+                     ENDIF
+                     IF ! conts->Active
+                        hPeople[Trim(Lower(conts->Email))]["active"] := .F.
+                     ENDIF
+                  ENDIF
+                  IF conts->Anrede == 0  //it is a general contact, not linked to a specific person, we want to ignore this if there is a specific one for the same email
+                     hPeople[Trim(Lower(conts->Email))]["usedAsGeneral"] := .T.                           
+                  ENDIF                  
+               ENDIF
+               pusr->(dbGoTo(nRec))
+            ENDIF
+            conts->(dbSkip())
+         ENDDO
+      ENDIF
+      conts->(dbClearRelation())
+
+
+      IF Len(hAddress) != 0
+         IF Len(hAddress) == 1 
+            IF HGetValueAt(hAddress,1)["count"] > 1
+               Alert("Es gibt mehrere Kontakte mit der gleichen Email-Adresse. Bitte zuerst die Zuordnung der Kontakte kl„ren, bevor diesem Benutzer ein Kunde/Lieferant zugeordnet werden kann.")
+               RETURN .T.            
+            ELSEIF ! HGetValueAt(hAddress,1)["active"]
+               Tr_MsgBox("Der Kontakt, der diesem Benutzer zugeordnet werden k”nnte, ist inaktiv. Bitte zuerst Kontakt aktivieren.")
+               RETURN .T.               
+            ELSEIF HGetValueAt(hAddress,1)["usedAsGeneral"]
+               Tr_MsgBox("Der Kontakt, der diesem Benutzer zugeordnet werden k”nnte, ist ein allgemeiner Kontakt. Bitte zuerst eine konkrete Person anlegen und diesem Benutzer zuordnen.")
+               RETURN .T.
+            ENDIF
+         ELSE         
+            FOR nX := 1 TO Len(hAddress)
+               ku->(dbSeek(Str(HGetKeyAt(hAddress,nX),6)))
+               Aadd(aChoice, ku->Kunde)
+               IF hAddress[HGetKeyAt(hAddress,nX)]["usedAsGeneral"] 
+                  aChoice[Len(aChoice)] := ATail(aChoice)+" (als allgemeiner Kontakt verwendet)"
+                  Aadd(aSelectable, .F.)         
+               ELSEIF hAddress[HGetKeyAt(hAddress,nX)]["count"] != 1            
+                  aChoice[Len(aChoice)] := ATail(aChoice)+" (verwendet von "+Str(hAddress[HGetKeyAt(hAddress,nX)]["count"],3)+" Kontakten)"
+                  Aadd(aSelectable, .F.)
+               ELSE
+                  Aadd(aSelectable, .T.)
+                  lSelectable := .T.
+               ENDIF
+            NEXT
+            IF Len(aChoice) == 0 .OR. ! lSelectable
+               Tr_MsgBox("Keine passenden Kunden/Lieferanten gefunden, die diesem Benutzer zugeordnet werden k”nnten.")
+               RETURN .T.
+            ENDIF
+            @ 09,09 CLEAR TO 21,101
+            @ 09,09 TO 21,101
+            @ 09,10 SAY "[ Kunde ausw„hlen ]"
+            nChoice := AChoice(10,10,20,100,aChoice,aSelectable) 
+            IF nChoice == 0 .OR. LastKey() == 27
+               RETURN .T.
+            ENDIF
+            pusr->(Rec_Lock())
+            pusr->Address := HGetKeyAt(hAddress,nChoice)
+            pusr->Active := .T.
+            pusr->(dbUnLock())
+            ku->(dbSeek(Str(pusr->Address,6)))
+            lSuccess := __SendActivationEmail()
+            Tr_MsgBox("Benutzer "+Trim(pusr->Email)+" wurde Kunde "+ku->Kunde+" zugeordnet"+IF(lSuccess, " und der Benutzer wurde ber die Aktivierung informiert.", ""))
+         ENDIF
+      ELSE
+         FOR nX := 1 TO Len(hPeople)
+            Aadd(aChoice, HGetKeyAt(hPeople,nX))
+            IF hPeople[HGetKeyAt(hPeople,nX)]["usedAsGeneral"] 
+               aChoice[Len(aChoice)] := ATail(aChoice)+" (als allgemeiner Kontakt verwendet)"
+               Aadd(aSelectable, .F.)         
+            ELSEIF hPeople[HGetKeyAt(hPeople,nX)]["count"] != 1            
+               aChoice[Len(aChoice)] := ATail(aChoice)+" (verwendet von "+Str(hPeople[HGetKeyAt(hPeople,nX)]["count"],3)+" Kontakten)"
+               Aadd(aSelectable, .F.)
+            ELSE
+               Aadd(aSelectable, .T.)
+               lSelectable := .T.
+            ENDIF
+         NEXT
+         IF Len(aChoice) == 0 .OR. ! lSelectable
+            Tr_MsgBox("Keine passenden Personen gefunden, die diesem Benutzer zugeordnet werden k”nnten.")
+            RETURN .T.
+         ENDIF
+         @ 09,09 CLEAR TO 21,101
+         @ 09,09 TO 21,101
+         @ 09,10 SAY "[ Email-Adresse die ersetzt wird ]"
+         nChoice := AChoice(10,10,20,100,aChoice,aSelectable)
+         IF nChoice == 0 .OR. LastKey() == 27
+            RETURN .T.
+         ENDIF
+         pusr->(dbGoto(nRec))
+         pusr->(Rec_Lock())
+         pusr->Address := hPeople[HGetKeyAt(hPeople,nChoice)]["address"]
+         pusr->Active := .T.
+         pusr->(dbUnLock())
+         conts->(dbSetOrder(3))
+         conts->(dbSeek(Trim(Lower(HGetKeyAt(hPeople,nChoice)))))
+         conts->(Rec_Lock(0))
+         conts->Email := pusr->Email
+         conts->(dbUnLock())
+         lSuccess := __SendActivationEmail()
+         Tr_MsgBox("Benutzer "+Trim(pusr->Email)+" wurde "+Trim(conts->Name)+" zugeordnet"+IF(lSuccess, " und der Benutzer wurde ber die Aktivierung informiert.", ""))
+      ENDIF
+   ENDIF
+RETURN .T.
+
+/*
+   Helper function: Delete selected portal user
+*/
+STATIC FUNCTION _DeletePortalUser()
+   LOCAL lDeleted := .F.
+
+   IF pusr->(EOF())
+      RETURN .T.
+   ENDIF
+
+   IF Tr_MsgBox("Portalbenutzer " + Trim(pusr->Email) + " wirklich l”schen?",, {"Nein", "Ja"}) != 2
+      RETURN .T.
+   ENDIF
+
+   IF pusr->(Rec_Lock(0))
+      pusr->(dbDelete())
+      pusr->(dbUnlock())
+      lDeleted := .T.
+   ENDIF
+
+   IF lDeleted
+      Tr_MsgBox("Portalbenutzer wurde gel”scht.")
+      pusr->(dbSkip())
+      IF pusr->(EOF())
+         pusr->(dbGoBottom())
+      ENDIF
+   ELSE
+      Tr_MsgBox("Portalbenutzer konnte nicht gel”scht werden.")
+   ENDIF
+
+RETURN .T.
+
+STATIC FUNCTION __SendActivationEmail()
+   LOCAL aTo,cName,cAnrede
+
+   LoadPrg(Path("\www\api\index.prg"))
+
+   conts->(dbSetOrder(3))
+   conts->(dbSeek(Trim(Lower(pusr->Email))))   
+
+   ku->(dbSetOrder(8))
+   ku->(dbSeek(Str(pusr->Address,6)))
+
+   cName := hb_strToUtf8(Trim(conts->Name))
+   cAnrede := hb_strToUtf8(GetContactAnrede(conts->Number))
+
+   aTo := {"email"=>Trim(pusr->Email),"name"=>cName}
+   //aTo := {"email"=>"amos.engelking@engelking.de","name"=>cName}
+ 
+   IF ! HB_ExecFromArray({"SendMailTemplate",aTo, IF(ku->Language=="D",21,22),{"anrede"=>cAnrede}})
+      Tr_MsgBox("Fehler beim Senden der E-Mail. Bitte manuell informieren.")
+      RETURN .F.
+   ENDIF
 RETURN .T.

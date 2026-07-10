@@ -23,11 +23,13 @@ FUNCTION ExportCustomerPriceList()
    LOCAL hMatch, aMatchList,cKuArt
    LOCAL nP,nY
    LOCAL hData := {=>}
+   LOCAL dDate := Date()
 
    Head("Kundenpreisliste exportieren")
 
    // Get customer code
    @ 5, 10 SAY "Kunde:" GET cKunde PICTURE "@!" VALID ! Empty(cKunde)
+   @ 6, 10 SAY "Datum:" GET dDate VALID dDate >= Date()
    READ
 
    IF LastKey() == K_ESC .OR. Empty(cKunde)
@@ -84,9 +86,10 @@ FUNCTION ExportCustomerPriceList()
   
    aMatchList := {;
       {"MATCH_START"=>"NZ/","MANUFACTURER"=>9,"LIST"=>"IEC-LOCK"},;
-      {"MATCH_START"=>"PA","MANUFACTURER"=>9,"LIST"=>"IEC-LOCK"},;
-      {"MATCH_START"=>"CM","MANUFACTURER"=>5,"LIST"=>"ENGELKING"} ;
+      {"MATCH_START"=>"PA","MANUFACTURER"=>9,"LIST"=>"IEC-LOCK"};
    }
+   //,;
+     // {"MATCH_START"=>"CM","MANUFACTURER"=>5,"LIST"=>"ENGELKING"} 
    art->(dbSetOrder(1)) // Index by Matchcode
    FOR EACH hMatch IN aMatchList
       art->(dbSeek(hMatch["MATCH_START"]))
@@ -98,7 +101,7 @@ FUNCTION ExportCustomerPriceList()
             // Get customer-specific prices using Artikel class
             oArtikel := Artikel():New(.F.)
             oArtikel:Load(art->Artikelnr)
-            aPrices := oArtikel:GetSellPrices(Date(), cKunde)
+            aPrices := oArtikel:GetSellPrices(dDate, cKunde)
 
             // Add a row for each price tier
             IF Len(aPrices) > 0 .AND. aPrices[1,2] > 0

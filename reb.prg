@@ -19,6 +19,7 @@ STATIC oFilter
 PROCEDURE REB
 LOCAL oBrowse,oBrowse2
 LOCAL oBooked,oGenehm,bEditNotes,bRebuild,oYears,oPerson,nYear := 1,aYears,hPeople2
+LOCAL bAddNote
 LOCAL cCol    := Replicate("N/W*,",3)+"B+/W*"
 LOCAL cKonto,nLiefnr,cLiefma,hAccounts,cScreen,lOK,nKonto := 0
 LOCAL bSkip
@@ -46,8 +47,11 @@ LOCAL hKS         := {"000"=>"Verwaltung (000)",;
 
 /*** SETTINGS ***/
 LOCAL lCanApprove := Tr_Getini(28) $ GetValue("REB_APPROVER",{9,57},"Genehmiger (Benutzernummer)")
-LOCAL lPreApprove := Tr_Getini(28) $ GetValue("REB_PREAPPROVER",{64},"Vorprfer (Benutzernummer)")
-LOCAL hApprKto    := /*GetValue("REB_APRACC",*/ {34=>{72031,70171,71804,70887,74186,70062,70302,70141,70814,70911,70866,70995,76056,76236,76254,76239,76269,76393,76126,76168,76019,74245,76218,74930,76157}} /*,"Konten fr Genehmiger")*/ //Value Editing programm needs working on
+LOCAL lPreApprove := Tr_Getini(28) $ GetValue("REB_PREAPPROVER",{76},"Vorprfer (Benutzernummer)")
+LOCAL hApprKto    := {;
+            34=>{72031,70171,71804,70887,74186,70062,70302,70141,70814,70911,70866,70995,76056,76236,;
+                 76254,76239,76269,76393,76126,76168,76019,74245,76218,74930,76157,74222};
+         } /*,"Konten fr Genehmiger")*//*GetValue("REB_APRACC",*/  //Value Editing programm needs working on
 LOCAL nPersOnApprove := 34 //automatically assign to this person on approval
 LOCAL nPersOnPreApprove := 9 //automatically assign to this person on pre-approval
 LOCAL aAdmin      := {9}
@@ -214,12 +218,15 @@ bTermin := {||
 oBrowse := reb->(TBrowseTr():New(03,00,MaxRow()-11,MaxCol()))
 oBrowse:OneColumn := .T.
 //IF Tr_Getini(28) == 9
-   oBrowse:ColorSpec := GetClrPair(c_one,1)+","+GetClrPair(c_one,5)+",R+/W*,GR+/BG,"+GetClrPair(c_one,2)
+   oBrowse:ColorSpec := GetClrPair(c_one,1)+","+GetClrPair(c_one,5)+",R+/W*,GR+/BG,"+GetClrPair(c_one,2)+",W/W*,N/W"
 //ENDIF
 oBrowse:lBox := .F.
 //oBrowse:NoRefreshBug := .T.
 oBrowse:NewColumn("G",{|| IF(reb->Status < 8,IF(reb->Liefnr == 0,"!","-")," ") },{|| 
    //HB_SymbolUnused(oBrowse)
+   IF reb->Stapel
+      RETURN {6,7}
+   ENDIF
    IF ! oBooked:Buffer .AND. Eval(bTermin) <= Date()
       RETURN {3,4}
    ENDIF
@@ -271,12 +278,15 @@ oBrowse:NewColumn("Betrag",{||
 })
 
 oBrowse:NewColumn("KS",{||
-   LOCAL cKS := IF(Empty(reb->KS),"",reb->KS)
+   LOCAL cKS := Trim(IF(Empty(reb->KS),"",reb->KS))
    LOCAL cDesc := ""
-   IF ! Empty(cKS) .AND. HHasKey(hKS,cKS)
-      cDesc := " "+Left(hKS[cKS],10)
+   IF ! Empty(cKS) .AND. HHasKey(hKS,cKS)      
+      cDesc := " "+Left(hKS[cKS],20)
+      IF AT("(",cDesc) != 0
+         cDesc := SubStr(cDesc,1,AT("(",cDesc)-1)+SubStr(cDesc,AT(")",cDesc),Len(cDesc)-AT(")",cDesc))
+      ENDIF
    ENDIF
-   RETURN cKS+cDesc
+   RETURN Pad(cKS+cDesc,20)
 },,15,"@!",Space(20),{|x| Upper(Trim(x)) })
 
 
@@ -333,7 +343,7 @@ oBrowse:bAnyFun := {||
             @ nTop+2,nL SAY rebp->Grund
          ELSE
             @ nTop,nL SAY Pad("BUCHUNGEN",nW)
-            aBookings := LX_GetBookingsForID("ER"+Str(reb->ID,9))
+            aBookings := LX_GetBookingsForID("ER"+Str(reb->ID,9),.T.)
             FOR nX := 1 TO Len(aBookings)
                IF aBookings[nX,"HABEN"] != 0 //ignore split bookings
                   @ nTop+nR+2,nL SAY DtoC(aBookings[nX,"BUCHDATUM"])+" "+Str(aBookings[nX,"HABEN"],6)+" "+Pad(aBookings[nX,"TEXT"],MaxCol()-41-8-1-6-1)
@@ -445,6 +455,23 @@ bEditNotes := {||
    RETURN NIL
 }
 
+bAddNote := {|cText|   
+   IF ! Empty(cText)
+      IF rebn->(dbSeek( Str(reb->Id,9) ))
+         rebn->(Rec_Lock(0))
+      ELSE
+         rebn->(Add_Rec())
+         rebn->ID := reb->ID
+      ENDIF
+      IF ! Empty(rebn->Notes)
+         cText := hb_eol()+cText
+      ENDIF
+      rebn->Notes := Trim(rebn->Notes)+cText+"["+Trim(SystemUser():Initials)+" "+DtoC(Date())+"]"
+      rebn->(dbUnLock())
+   ENDIF   
+   Eval(oBrowse:bAnyFun)
+}
+
 oBrowse:AddKey(K_ALT_N,bEditNotes)
 
 
@@ -522,8 +549,24 @@ oBrowse:AddKey(K_ENTER,{||
    
    ASort(aFiles,,,{|x,y| x[6] < y[6] }) //sort according to file name and not date
    IF reb->Status <= 8
-      IF reb->Liefnr != 0 .OR. reb->Status == 8
-         nChoice := Tr_MsgBox("Buchen?",,{"Ja","abrechen",cZuText,cFirmText})
+      IF reb->Stapel 
+         IF Len(LX_GetBookingsForID("ER"+Str(reb->Id,9),.T.)) == 0  //not booked yet, stapel was deleted
+            //Alert("Nicht mehr im Stapel")
+            reb->(Rec_Lock(0))
+            reb->Stapel := .F.
+            reb->(dbUnLock())
+         ELSEIF Len(LX_GetBookingsForID("ER"+Str(reb->Id,9),.F.)) > 0  //im Journal?
+            //Alert("Noch im stapel")
+            reb->(Rec_Lock(0))                                  
+	         reb->Status := 9    //mark as booked
+            reb->Stapel := .F.
+            reb->(dbUnLock())
+            Tr_MsgBox("Rechnung wurde in das Journal gebucht und als verbucht markiert.")
+            RETURN .T.
+         ENDIF
+      ENDIF
+      IF reb->Liefnr != 0 .OR. reb->Status == 8                  
+         nChoice := Tr_MsgBox("Buchen?",,{"Ja","abrechen",cZuText,cFirmText})         
          IF nChoice == 1
             IF Len(aFiles) == 0
                Tr_MsgBox("Keine Rechnungsdatei gefunden")
@@ -539,9 +582,14 @@ oBrowse:AddKey(K_ENTER,{||
             ELSE //Lexware
                Tr_MsgBox(t("Bitte über Lexware buchen"))
                IF Len(LX_GetBookingsForID("ER"+Str(reb->Id,9),.T.)) > 0
-	              reb->(Rec_Lock(0))
-	              reb->Status := 9    //mark as booked
-	              reb->(dbUnLock())
+	              reb->(Rec_Lock(0))                 
+                 IF Len(LX_GetBookingsForID("ER"+Str(reb->Id,9),.F.)) > 0
+	                  reb->Status := 9    //mark as booked
+                     reb->Stapel := .F.
+                 ELSE
+                     reb->Stapel := .T.
+                 ENDIF
+	              reb->(dbUnLock())               
 	            ENDIF
 	         ENDIF
 	         IF reb->Status == 9 .AND. ! oBooked:Buffer
@@ -713,8 +761,9 @@ oBrowse:AddKey(K_ENTER,{||
          @ nTop+4,36,nTop+15,54 GET oRec:Person LISTBOX hPeople ASSOCIATIVE
          READ
          IF LastKey() != 27
-            oRec:Save()
-            
+            Eval(bAddNote,"Person von "+Trim(hPeople[oRec:GetField("Person",.T.)])+" zu "+Trim(hPeople[oRec:Person])+" ge„ndert.")
+
+            oRec:Save()            
             Eval(bSkip)
          ENDIF
          RestScreen(,,,,cScreen)
@@ -788,8 +837,17 @@ oBrowse:AddKey(K_ENTER,{||
       @ 13,08 SAY Pad("Ok?",9) GET lOk PICTURE "Y" VALID lOk
       READ
       IF LastKey() != 27
-         reb->(Rec_Lock())
-         IF ! Empty(cLiefma)
+         IF ! Empty(cLiefma) .AND. reb->Konto != 0
+            Eval(bAddNote,"Von Konto "+LTrim(Str(reb->Konto))+" auf Lieferant "+Trim(cLiefma)+" ge„ndert.")
+         ELSEIF Empty(cLiefma) .AND. reb->Konto != 0
+            Eval(bAddNote,"Konto von "+LTrim(Str(reb->Konto))+" auf "+LTrim(Str(nKonto,12,0))+" ge„ndert.")
+         ELSEIF ! Empty(cLiefma) .AND. reb->Konto == 0
+            Eval(bAddNote,"Lieferant von "+LTrim(Str(reb->Liefnr))+" auf "+Trim(cLiefma)+" ge„ndert.")
+         ELSE
+            Eval(bAddNote,"Von Lieferant "+LTrim(Str(reb->Liefnr))+" auf Konto "+LTrim(Str(nKonto,12,0))+" ge„ndert.")
+         ENDIF
+         reb->(Rec_Lock())         
+         IF ! Empty(cLiefma)            
             reb->Liefnr := ku->Nummer
             reb->Konto  := 0
          ELSE
@@ -866,7 +924,7 @@ IF lIsAdmin
          RETURN .T.
       ENDIF
 
-      cKostenstelle := IF(Empty(reb->KS),"KS000",reb->KS)
+      cKostenstelle := IF(Empty(reb->KS),"000",reb->KS)
       
       SetColor(c_five)
       @ nTop,30 CLEAR TO nTop+4,65
@@ -874,7 +932,7 @@ IF lIsAdmin
       @ nTop+1,32 SAY "Kostenstelle „ndern"
       @ nTop+2,30 SAY Chr(199)+Replicate(Chr(196),34)+Chr(182)
       
-      @ nTop+3,32 SAY "KS:" GET cKostenstelle PICTURE "@!"
+      @ nTop+3,32 SAY "KS:" GET cKostenstelle PICTURE "999"
       
       READ
       

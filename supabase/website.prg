@@ -223,8 +223,16 @@ STATIC FUNCTION _BuildProductsJson()
    shop->(dbSetOrder(0))
    nTotal := shop->(LastRec())
    
-   shop->(dbSetOrder(3))
+   shop->(dbSetOrder(3))   
    shop->(dbGoTop())
+   
+   IF shop->(EOF())
+      ? "Keine Produkte in der Datenbank gefunden."
+      ? nTotal," datens„tze insgesamt."
+      Sinkey(0)
+      RETURN hResult
+   ENDIF
+   
    //shop->(dbSeek("PX0587"))
    DO WHILE ! shop->(EOF()) //.AND. Len(aProducts) < 10
       nCount++
@@ -274,9 +282,9 @@ STATIC FUNCTION _BuildProductsJson()
                      AAdd(aTierPrices, hTier)
                   ENDIF
                NEXT
-               IF Len(hTier) > 0
+               IF ValType(hTier) == "H" .AND. Len(hTier) > 0
                   shop->(Rec_Lock())
-                  shop->LastPrUpd := DateTime()
+                  shop->LastPrUpd := TtoS(DateTime())
                   shop->(dbUnLock())
                ENDIF
             ENDIF
@@ -312,9 +320,9 @@ STATIC FUNCTION _BuildProductsJson()
                      AAdd(aTierPrices, hTier)
                   ENDIF
                NEXT
-               IF Len(hTier) > 0
+               IF ValType(hTier) == "H" .AND. Len(hTier) > 0
                   shop->(Rec_Lock())
-                  shop->LastPrUpd := DateTime()
+                  shop->LastPrUpd := Ttos(DateTime())
                   shop->(dbUnLock())
                ENDIF
             ENDIF

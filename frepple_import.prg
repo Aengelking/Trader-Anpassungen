@@ -26,6 +26,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
    LOCAL aText,nChoice
    LOCAL oBes,nBesnr
    LOCAL aWO
+   LOCAL nLastPosnr
 
    LOCAL cQSStart := Trim(GetValue("FREPPLE_QS_JOBST","QS","QS job names start with"))   
 
@@ -52,6 +53,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
    NetUse("restime","rst")
    NetUse("jobs","job") 
    NetUse("resource","res")   
+   NetUse("folgeart","fol")
    
    NetUse("frepjobs","fjob")
 
@@ -440,12 +442,12 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                Aadd(aError,"Frepple ID: "+hOrders[wer->Aufno]:ID)
                Tr_MsgBox(aError)
             ENDIF
-         ELSEIF wer->Status == 0            
+         ELSEIF wer->Status == 0            //„ndern
             aRow := Array(9)
             AFill(aRow,"")   
 
             aRow[1] := wer->Aufno         
-            aRow[6] := .T.           
+            aRow[6] := .T.           //bernehmen
 
             dOldStart := IF(Empty(wer->Liefma),wer->Startdate,CalWD(wer->Termin))
             dOldEnd := IF(Empty(wer->Liefma),wer->Enddate,CalWD(wer->End))
@@ -544,11 +546,9 @@ PROCEDURE RUN_FREPPLE_IMPORT()
          aRow[3] := LTrim(Transform(aData[nX]:BadQty,Me(art->Me)))
          aRow[4] := Dtoc(aData[nX]:Start)
          aRow[5] := DtoC(aData[nX]:End)
-         aRow[6] := .T.
+         aRow[6] := .T.  //bernehmen?
          aRow[7] := aData[nX]         
          Aadd(aList,aRow)
-         //Aadd(aCSV,{,"neu",aData[nX]:Id,aData[nX]:Supplier,Trim(art->Matchcode),0,aData[nX]:Qty,"",aData[nX]:Start,"",aData[nX]:End})
-         //Eval(bAddJobs,aData[nX]:Jobs)
       NEXT
 
       IF Len(aList) > 0
@@ -676,6 +676,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                      ENDIF
                      oWerk := WA():New()
                      oWerk:Load(aList[nX,1])
+                     bes->(dbSetOrder(1))
                      IF oWerk:Besnr != 0  .AND. bes->(dbSeek( Str(oWerk:besnr,6)+Str(oWerk:bespos,3)))
                         IF ! LockEntity("BES",oWerk:besnr) 
                            LOOP
@@ -693,7 +694,7 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                         oBes:Qty := aList[nX,7]:Qty
                      ENDIF
                   ENDIF
-                  oWerk:Save()
+                  oWerk:Save()  //this also updates Termin and End
 
                   IF Alltrim(aList[nX,9]) == "neu"
                      oWerk:CreatePartList()
@@ -716,6 +717,50 @@ PROCEDURE RUN_FREPPLE_IMPORT()
                         oBes:Pe := 1
                      ENDIF
                      oBes:Save()
+
+                     IF Alltrim(aList[nX,9]) == "neu" .AND. fol->(dbSeek(Str(oBes:Artikelnr,6)))
+                        nLastPosnr := 1
+                        Do While oBes:Artikelnr == fol->Artikelnr .AND. ! fol->( EOF() )
+                           art->(dbSetOrder(2))
+                           art->(dbSeek(Str(fol->Folgeart,6)))
+                           art->(dbSetOrder(1))
+
+                           If ! art->(Found())                              
+                              fol->(dbSkip())
+                              LOOP
+                           Endif
+
+                           nLastPosnr++
+
+                           bes->(Add_Rec(0))
+                           bes->besnr     := nBesnr
+                           bes->posnr     := nLastPosnr
+                           bes->liefma    := oBes:Liefma
+                           bes->besda     := oBes:BesDa
+                           bes->matchcode := art->matchcode
+                           bes->artikelnr := art->Artikelnr
+                           bes->buyer     := oBes:Buyer
+                           bes->confirmed := IF(EMPTY(oBes:AbNr),"N","Y")
+                           bes->pay       := oBes:Pay
+                           bes->abnr      := oBes:AbNr
+                           bes->person    := oBes:Person
+                           bes->Printed   := .F.
+                           bes->beqty    := oBes:Qty*fol->Faktor
+                           bes->wterm     := oBes:WTerm
+                           bes->LTerm := oBes:LTerm
+                           bes->Mahnen  := .F.
+                           bes->Pe := 1
+                           bes->money     := oBes:Money
+                           bes->rate      := currate(oBes:Money,"E")
+                           bes->FolgeTo    := oBes:Posnr
+                           bes->FolgeFakto  := fol->Faktor
+                           bes->ShipTime  := oBes:Shiptime
+                           bes->Released  := .T.
+                           bes->( dbUnlock() )
+
+                           fol->(dbSkip())
+                        Enddo
+                     ENDIF
                   ENDIF
 
                   //do not set the status to approved, otherwise Frepple cannot plan on the next import

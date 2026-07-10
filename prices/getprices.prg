@@ -160,20 +160,20 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
                   IF Trim(cLief) != "CONRAD" .OR. hData["results"]["capturesTexts"]["Seller"] != "Engelking"                     
                      IF HHasKey(hData["result"]["capturedLists"],"Preise")           
                         FOR EACH hPrice IN hData["result"]["capturedLists"]["Preise"]
-                           IF ValType(hPrice["Menge"]) == "C"
+                           IF HHasKey(hPrice,"Menge") .AND. ValType(hPrice["Menge"]) == "C"
                               nQty := hPrice["Menge"]
-                           ELSEIF ValType(hPrice["Menge"]) == "N"
+                           ELSEIF HHasKey(hPrice,"Menge") .AND. ValType(hPrice["Menge"]) == "N"
                               nQty := Val(Str(hPrice["Menge"]))
                            ELSE
                               nQty := 0
                            ENDIF
 
                            //Alert(ValToPrg(hPrice))
-                           IF ValType(hPrice["Preis"]) == "C"
+                           IF HHasKey(hPrice,"Preis") .AND. ValType(hPrice["Preis"]) == "C"
                               hPrices[nQty] := Val(StrTran(hPrice["Preis"],",","."))
-                           ELSEIF ValType(hPrice["Preis"]) == "N"
+                           ELSEIF HHasKey(hPrice,"Preis") .AND. ValType(hPrice["Preis"]) == "N"
                               hPrices[nQty] := hPrice["Preis"]
-                           ELSEIF hPrice["Menge"] != NIL
+                           ELSEIF HHasKey(hPrice,"Preis") .AND. hPrice["Menge"] != NIL
                               hPrices[nQty] := 0
                            ENDIF
                         NEXT            

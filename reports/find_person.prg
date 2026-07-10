@@ -4,6 +4,7 @@ PROC RUN_REPORTS_FIND_PERSON
 LOCAL getlist := {}
 LOCAL cName := Space(50)
 LOCAL cEmail := Space(255)
+LOCAL cDomain := Space(255)
 LOCAL oBrowse,bFilter,bWhile,cGroups
 
 IF ! SystemUser():CheckPermission("R","ADR")
@@ -32,18 +33,20 @@ DO WHILE .T.
       RETURN
    ENDIF
 
-   @ 01,00 SAY "Name enth„lt" GET cName WHEN Empty(cEmail) 
-   @ 02,00 SAY "Email       " GET cEmail WHEN Empty(cName)
+   @ 01,00 SAY "Name enth„lt" GET cName WHEN Empty(cEmail) .AND. Empty(cDomain)
+   @ 02,00 SAY "Email       " GET cEmail WHEN Empty(cName) .AND. Empty(cDomain)
+   @ 03,00 SAY "Domain      " GET cDomain WHEN Empty(cName) .AND. Empty(cEmail)
    READ
 
-   IF Empty(cName) .AND. Empty(cEmail)
-      Tr_MsgBox("Bitte Name oder Email angeben")
-      LOOP
-   ENDIF
    If LastKey() == 27 
       Return
    Endif
 
+
+   IF Empty(cName) .AND. Empty(cEmail) .AND. Empty(cDomain)
+      Tr_MsgBox("Bitte Name oder Email angeben")
+      LOOP
+   ENDIF
   
    bFilter := {|| 
       ku->(dbSeek(Str(conts->Address,6)))
@@ -58,8 +61,17 @@ DO WHILE .T.
 
    ku->(dbSetOrder( 8 ))
 
-   conts->(dbSetOrder( 3 ))  //lower(email)
-   IF ! Empty(cEmail)
+
+   IF ! Empty(cDomain)
+      conts->(dbSetOrder( 4 )) //domain
+      bWhile := {|| Trim(cDomain) == Trim(SubStr(conts->Email,At("@",conts->Email)+1)) }
+      IF ! conts->(dbSeek( cDomain ))
+         Tr_MsgBox("Keine Person mit dieser Domain gefunden")
+         LOOP
+      ENDIF
+      ku->(dbSeek(Str(conts->Address,6)))
+   ELSEIF ! Empty(cEmail)
+      conts->(dbSetOrder( 3 ))  //lower(email)
       bWhile := {||  Lower(Trim(cEmail)) == Trim(Lower(conts->Email)) }
       IF ! conts->(dbSeek( Lower(cEmail) ))
       //IF conts->(EOF()) .OR. Lower(Trim(conts->Email)) != Trim(Lower(cEmail))
@@ -68,6 +80,7 @@ DO WHILE .T.
       ENDIF
       ku->(dbSeek(Str(conts->Address,6)))
    ELSE
+      conts->(dbSetOrder( 3 )) 
       bWhile := {|| .T. }
       conts->(dbGoTop())
    ENDIF
@@ -81,7 +94,7 @@ DO WHILE .T.
       LOOP
    ENDIF
 
-   oBrowse := conts->(TBrowseTr():New(02,00,10,MaxCol()))
+   oBrowse := conts->(TBrowseTr():New(04,00,MaxRow(),MaxCol()))
    oBrowse:OneColumn := .T.
    oBrowse:NewColumn("Adresse",{|| Str(conts->Address,6) })
    oBrowse:NewColumn("Matchcode",{|| ku->(dbSeek(Str(conts->Address,6))), ku->Kunde })

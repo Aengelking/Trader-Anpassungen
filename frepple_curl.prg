@@ -8,6 +8,7 @@ FUNCTION RUN_FREPPLE_CURL
    LOCAL oFrepple
    LOCAL aOldBuckets ,aOldBucket        
    LOCAL cScreen,aOpPlan
+   LOCAL nSecs,oErr
 
    oFrepple := GetFreppleApi()  
 
@@ -103,21 +104,28 @@ FUNCTION RUN_FREPPLE_CURL
       UnLockEntity("PPLUP",0)
       RETURN .F.
    ENDIF
-   DO WHILE HB_ProcessValue(nProc,.F.) == -1
-      //nBytes := 1000
-      //DO WHILE nBytes == 1000
-         cLine := Space( 1000 )
-         nBytes := Fread( nStdOUT, @cLine, Len(cLine) )
-         cData += SubStr(cLine,1,nBytes)
-      //ENDDO
-      /*nBytes := 1000
-      DO WHILE nBytes == 1000
-         cLine := Space( 1000 )
-         nBytes := Fread( nStdERR, @cLine, Len(cLine) )
-         cData += SubStr(cLine,1,nBytes)
-      ENDDO*/
+   nSecs := Seconds()
+   ? " "
+   DO WHILE HB_ProcessValue(nProc,.F.) == -1      
+      cLine := Space( 1000 )
+      nBytes := Fread( nStdOUT, @cLine, Len(cLine) )
+      ?? StrTran(StrTran(StrTran(cLine,"<strong>",""),"</strong>",""),"<br>",Chr(13)+Chr(10)+"  ")
+      
+      cLine := Space( 1000 )
+      nBytes := Fread( nStdERR, @cLine, Len(cLine) )
+      cData += SubStr(cLine,1,nBytes)
+      
+      IF Seconds() - nSecs > 30 //timeout after 30 seconds
+         HB_CloseProcess(nProc)
+         oErr := ErrorNew()
+         oErr:SubSystem   := "frePPLe-Upload"
+         oErr:Description := "Upload process timed out"+Chr(13)+Chr(10)+"StdErr:"+cData
+         oErr:Args        := {}
+         Throw(oErr)          
+      ENDIF
    ENDDO
-   ? " ",StrTran(StrTran(StrTran(cData,"<strong>",""),"</strong>",""),"<br>",Chr(13)+Chr(10)+"  ")
+   HB_CloseProcess(nProc)
+   //? " ",StrTran(StrTran(StrTran(cData,"<strong>",""),"</strong>",""),"<br>",Chr(13)+Chr(10)+"  ")
    
    ? "Syncing absences to frePPLe "
    cScreen := SaveScreen()

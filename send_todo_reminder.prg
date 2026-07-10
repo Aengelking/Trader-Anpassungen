@@ -110,7 +110,7 @@ FUNCTION _BUILD_TASK_HTML(hTask, nTaskNum)
 
    cHTML := "<!-- Task Item " + LTrim(Str(nTaskNum)) + " -->" + CRLF
    cHTML += '<div class="task-item">' + CRLF
-   cHTML += '  <div class="task-name"><a href="trader: -F TodoList('+"'"+hTask["UUID"]+"'"+')">' + hTask["task"] + '</a></div>' + CRLF
+   cHTML += '  <div class="task-name"><a href="'+TraderUrl('TodoList('+"'"+hTask["UUID"]+"'"+')')+'">' + hTask["task"] + '</a></div>' + CRLF
    cHTML += '  <div class="task-details">' + CRLF
    cHTML += '    <span class="task-priority priority-' + Lower(hTask["priority"]) + '">' + cDueText + '</span> - '   
    cHTML += '<strong>' + hTask["reftype"] + " "+LTrim(Str(hTask["ref"]))+'</strong>'+ CRLF
@@ -419,7 +419,7 @@ FUNCTION _EMAIL_FOOTER()
             </div>
             <!-- Action Section -->
             <div class="action-section">
-                <a href="trader: -F TodoList" class="cta-button">
+                <a href="trader://-F&TodoList" class="cta-button">
                     Aufgaben verwalten
                 </a>
             </div>

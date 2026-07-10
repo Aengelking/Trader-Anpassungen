@@ -24,6 +24,11 @@ NetUse("engkund","ku")
 NetUSe("artikel","art")
 NetUse("auftrag","ab")
 
+IF Tr_Getini(28) == 9 .AND. Tr_MsgBox("Versandbenachrichtigung wirklich senden?",,{"Nein","Ja"}) != 2
+   RestEnv(aEnv,.F.)
+   RETURN .F.
+ENDIF
+
 re->(dbSetOrder( 12 ))
 IF ! re->(dbSeek( Str(nRechnr,6)+Str(0,3) ))  .OR. re->PosWt <= 0
    RestEnv(aEnv,.F.)

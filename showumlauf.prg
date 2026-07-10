@@ -353,7 +353,7 @@ PROC RUN_ShowUmlaufVerp()
    
 
    FUNCTION GetBoxInitialQuantities()
-      LOCAL aInitQty := {"BOXGEH50"=>870,"BOXTAST150"=>98,"BOXROS100"=>136,"BOXBIG50"=>26}   
+      LOCAL aInitQty := {"BOXGEH50"=>982,"BOXTAST150"=>98+15+10,"BOXROS100"=>86,"BOXBIG50"=>26}   
 
    /** Initial Quantities   
    BOXGEH50: 
@@ -368,15 +368,20 @@ PROC RUN_ShowUmlaufVerp()
       Corrected by: -22
       -----------------
       Missing after correction: 104 
+      Found 112 (02.07.26 this does not tie up - but we cannto findout what)
       
       
    
    BOXTAST150:
       Purchased: 100 (BE60488)
       Missing: 2 (20.01.26)
+      15 currently not used (parts in blister) 02.07.26
+      Found 10 (02.07.26) but we cannot work out from where
 
    BOXROS100:
       Purchased: 136 (BE25490)  
+      Missing: 48 (24.04.26)
+      Missing: 2 (02.07.26)
 
    BOXBIG50:
       Modified from BOXGEH50: 26

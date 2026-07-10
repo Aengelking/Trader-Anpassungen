@@ -44,7 +44,10 @@ PROCEDURE RUN_LEX_WAEHRUNGSDIFF
       hCur := {"U"=>Round(1/1.1077,4),"P"=>Round(1/0.86910,4),"Y"=>Round(1/156.81,4)}
    ELSEIF nYear == 2024
       hCur := {"U"=>Round(1/1.0411,4),"P"=>Round(1/0.82831,4),"Y"=>Round(1/163.01,4)}
-   ELSE
+   ELSEIF nYear == 2025
+      hCur := {"U"=>Round(1/1.17401,4),"P"=>Round(1/0.87257,4),"Y"=>Round(1/184.125,4)}
+
+   ELSE      
       Alert("Bitte Wechselkurs in lex_wahrungsdiff.prg hinterlegen. Devisenmittelkurs z.B. von der Commerzbank")
       //https://www.commerzbank.de/konzern/service/kursinformationen/devisenmarktkurse/
       RETURN

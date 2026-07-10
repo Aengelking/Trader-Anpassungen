@@ -43,11 +43,11 @@ PROC RUN_RECH_FACTOR_APPROVE
          oExtra:Save()
       ENDIF
 
-      IF Trim(oExtra:Factorer) $  {"FUNDFLOW"} //reset state, this causes the invoice to be sent
+      IF oRech:State == "FINA" //reset state, this causes the invoice to be sent
          
          oRech := Rechnung():New()
          oRech:Load(nNr)
-         Alert(Str(oRech:Rechnr))
+         //Alert(Str(oRech:Rechnr))
          oRech:State := ""
          oRech:Save()
       ENDIF

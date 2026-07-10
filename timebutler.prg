@@ -108,7 +108,11 @@ PROC Run_TimeButler(oWidget)
                oWidget:WriteAt(nR,41, Pad(hAbsenceTypes[aList[nR]["Type"]],20) )
             ENDIF
          ELSEIF Tr_Getini(28) == 9
-            oWidget:WriteAt(nR,41, Pad(aList[nR]["Type"],20) )
+            IF lFullDisplay
+               @ nR+2,42 SAY aList[nR]["Type"]
+            ELSE
+               oWidget:WriteAt(nR,41, Pad(aList[nR]["Type"],20) )
+            ENDIF
          ENDIF
       NEXT
       IF lFullDisplay

@@ -24,7 +24,7 @@ Default(@lForce,.F.)
 IF.F. // Tr_Getini(28) == 9
    aCompet := {"TME"}
 ELSE
-   aCompet := {"BUERKLIN","RS","ARROW","FARNELL","TME" } //"Schukat","Conrad", "Reichelt","Mouser" does not work
+   aCompet := {"ARROW","TME" } //"BUERKLIN" 3.7.26 does not work //"RS" - currently does not work //"Schukat","Conrad", "Reichelt","Mouser" does not work
 ENDIF
 
 IF lDisp
@@ -146,7 +146,7 @@ FOR nX := 1 TO Len(aCompet)
          IF ! aCompet[nX] $ "Schukat TME" .AND. (aCompet[nX] != "Mouser" .OR. ValType(hPrices) != "H" .OR. Len(hPrices) != 2)
             IF lDisp
                IF  ValType(hPrices) == "H" //NIL is used for connection errors
-                  IF Date() <= GetValue("HOLIDAY-AMOS-START") .OR. Date() >= GetValue("HOLIDAY-AMOS-END")
+                  IF Date() < GetValue("HOLIDAY-AMOS-START") .OR. Date() > GetValue("HOLIDAY-AMOS-END")
                      SendMail({{"amos.engelking@engelking.de","Amos"}},"Preise von "+aCompet[nX]+" konnten fuer "+Trim(art->Matchcode)+" nicht geladen werden")
                   ENDIF
                ENDIF

@@ -53,7 +53,7 @@ ENDIF
 
 nWaldomLZ := GetGeneralSetting("suppliers.waldom.default_delivery_days")
 IF nWaldomLZ == NIL
-   nWaldomLZ := 5
+   nWaldomLZ := 7
 ENDIF
 
 nConradLiefnr := GetChannelSetting("inventory_settings.supplier_number")

@@ -1,14 +1,24 @@
 FUNCTION RUN_SYNC_SUPABASE_LIQUIDITY(cUserId)
    LOCAL oRest := RestApi():New()
    LOCAL aItems := {}
+   LOCAL aItemBatches
    LOCAL aInvItems
    LOCAL aCustOrdItems
    LOCAL aCustInvItems
    LOCAL aBookings
-   LOCAL hBody := {=>}
+   LOCAL aBookingBatches
+   LOCAL hBody
    LOCAL aHeader := {}
    LOCAL cResponse
    LOCAL hResponse
+   LOCAL nBatchSize := 100
+   LOCAL nBatchCount
+   LOCAL nBatch
+   LOCAL aBatchItems
+   LOCAL aBatchBookings
+   LOCAL nItemsSynced := 0
+   LOCAL nBookingsSynced := 0
+   LOCAL nErrors := 0
 
    Default(@cUserId, "")
 
@@ -34,32 +44,32 @@ FUNCTION RUN_SYNC_SUPABASE_LIQUIDITY(cUserId)
   ? "Purchase Invoices gesammelt:", Len(aInvItems)
   AEval(aInvItems, {|hItem| AAdd(aItems, hItem)})
 
-  /*aCustOrdItems := _CollectCustomerOrderItems()
+  aCustOrdItems := _CollectCustomerOrderItems()
   ? "Customer Orders gesammelt:", Len(aCustOrdItems)
   AEval(aCustOrdItems, {|hItem| AAdd(aItems, hItem)})
 
   aCustInvItems := _CollectCustomerInvoiceItems()
   ? "Customer Invoices gesammelt:", Len(aCustInvItems)
   AEval(aCustInvItems, {|hItem| AAdd(aItems, hItem)})
-
-  aBookings := _CollectLexwareBookings()
-  ? "Lexware Buchungen gesammelt:", Len(aBookings)*/
+  
+  IF GetConfigValue("FIRMNO") == 1
+     aBookings := _CollectLexwareBookings(2026)
+     ? "Lexware Buchungen gesammelt:", Len(aBookings)
+  ENDIF
 
    ? "Gesamt Items fÅr Upload:", Len(aItems)
 
-   /*IF Len(aItems) == 0
+   aItemBatches := _SplitIntoBatches(aItems, nBatchSize)
+   aBookingBatches := _SplitIntoBatches(aBookings, nBatchSize)
+   nBatchCount := Max(Len(aItemBatches), Len(aBookingBatches))
+
+   IF nBatchCount == 0
       ? "Keine offenen Daten fÅr Liquidity gefunden"
       IF ! GetConfigValue("BATCHMODE")
          Sinkey(0)
       ENDIF
       RETURN .T.
-   ENDIF*/
-
-   hBody["user_id"] := cUserId
-   hBody["items"] := aItems
-   hBody["bookings"] := aBookings
-   hBody["replace_all"] := .T.
-   hBody["replace_all_bookings"] := .T.
+   ENDIF
 
    oRest:cBaseUrl := "https://fhyvjvjyszbqzefwvtpz.supabase.co/"
    oRest:cApiKeyName := "LIQUIDITY"
@@ -69,60 +79,80 @@ FUNCTION RUN_SYNC_SUPABASE_LIQUIDITY(cUserId)
    AAdd(aHeader, "content-type: application/json")
 
    ? "Sende Daten an Supabase Funktion: functions/v1/erp-push"
+   ? "Batching aktiv - Grî·e:", nBatchSize, "Items:", Len(aItemBatches), "Bookings:", Len(aBookingBatches), "Gesamt:", nBatchCount
 
-   cResponse := oRest:Execute("functions/v1/erp-push", "POST", hBody, aHeader, .T.)
+   FOR nBatch := 1 TO nBatchCount
+      aBatchItems := IF(nBatch <= Len(aItemBatches), aItemBatches[nBatch], {})
+      aBatchBookings := IF(nBatch <= Len(aBookingBatches), aBookingBatches[nBatch], {})
 
-   IF Empty(cResponse)
-      ? "Liquidity Sync fehlgeschlagen: keine Antwort"
-      IF ! GetConfigValue("BATCHMODE")
-         Sinkey(0)
+      hBody := {=>}
+      hBody["user_id"] := cUserId
+      hBody["items"] := aBatchItems
+      hBody["bookings"] := aBatchBookings
+      hBody["replace_all"] := (nBatch == 1)
+      hBody["replace_all_bookings"] := .F.
+
+      ? "Sende Batch", nBatch, "von", nBatchCount, "(Items:", Len(aBatchItems), "Bookings:", Len(aBatchBookings), ")"
+
+      cResponse := oRest:Execute("functions/v1/erp-push", "POST", hBody, aHeader, .T.)
+
+      IF Empty(cResponse)
+         ? "Liquidity Sync Batch fehlgeschlagen: keine Antwort (Batch", nBatch, ")"
+         IF ! GetConfigValue("BATCHMODE")
+            Sinkey(0)
+         ENDIF
+         RETURN .F.
       ENDIF
-      RETURN .F.
-   ENDIF
 
-   hResponse := HB_JsonDecode(cResponse)
-   IF ValType(hResponse) == "H" .AND. HHasKey(hResponse, "success") .AND. hResponse["success"]
-      ? "Liquidity Sync erfolgreich."
+      hResponse := HB_JsonDecode(cResponse)
+      IF ValType(hResponse) != "H" .OR. ! HHasKey(hResponse, "success") .OR. ! hResponse["success"]
+         ? "Liquidity Sync Batch fehlgeschlagen:", nBatch
+         ? "Batch Antwort:", cResponse
+         IF ! GetConfigValue("BATCHMODE")
+            Sinkey(0)
+         ENDIF
+         RETURN .F.
+      ENDIF
+
       IF HHasKey(hResponse, "items_synced")
-         ? "ERP Elemente: "+LTrim(Str(hResponse["items_synced"]))
+         nItemsSynced += hResponse["items_synced"]
       ENDIF
       IF HHasKey(hResponse, "bookings_synced")
-         ? "Kostenbuchungen: "+LTrim(Str(hResponse["bookings_synced"]))
+         nBookingsSynced += hResponse["bookings_synced"]
       ENDIF
-      //MemoEdit(cResponse)
-
-      IF HHasKey(hResponse, "errors")     
-         ? "Fehler: "+LTrim(Str(Len(hResponse["errors"])))
+      IF HHasKey(hResponse, "errors")
+         nErrors += Len(hResponse["errors"])
          IF Len(hResponse["errors"]) > 0
-            //? "Error Details:", HB_JsonEncode(hResponse["errors"])
+            ? "Batch", nBatch, "Fehler:", Len(hResponse["errors"])
             ? "Beispiel Fehler:", HB_JsonEncode(hResponse["errors"][1])
-         ENDIF    
+         ENDIF
       ENDIF
-      IF ! GetConfigValue("BATCHMODE")
-         Sinkey(0)
-      ENDIF
-      //? "Antwort:", cResponse
-      RETURN .T.
-   ENDIF
+   NEXT
 
-   ? "Liquidity Sync Antwort:", cResponse
+   ? "Liquidity Sync erfolgreich."
+   ? "ERP Elemente:", LTrim(Str(nItemsSynced))
+   ? "Kostenbuchungen:", LTrim(Str(nBookingsSynced))
+   ? "Fehler:", LTrim(Str(nErrors))
+
    IF ! GetConfigValue("BATCHMODE")
       Sinkey(0)
-   ENDIF  
-RETURN .F.
+   ENDIF
+RETURN .T.
 
-STATIC FUNCTION _CollectLexwareBookings()
+STATIC FUNCTION _CollectLexwareBookings(nYear)
    LOCAL aBookings := {}
    LOCAL aLxBookings
    LOCAL hCostCenters
    LOCAL hBooking
    LOCAL hItem
-   LOCAL nYear := Year(Date())
+   
    LOCAL nScanned := 0
    LOCAL nRelevant := 0
    LOCAL hNummern := {=>}
    LOCAL xCostCenterName
    LOCAL cCostCenter
+
+   Default(@nYear,Year(Date()))
 
    ? "[BU][LX] Sammle Buchungen mit Kostenstelle aus Lexware..."
 
@@ -149,6 +179,9 @@ STATIC FUNCTION _CollectLexwareBookings()
          hItem["erp_reference"] := "BU-" + StrZero(hBooking["JAHR"],4) + "-" + StrZero(hBooking["NR"],8)+"-"+StrZero(hNummern[hBooking["NR"]],2)
          hItem["booking_date"] := _IsoDate(hBooking["DATUM"])
          hItem["amount"] := Round(hBooking["NETTO"] + hBooking["UST"], 2)
+         hItem["net_amount"] := Round(hBooking["NETTO"], 2)
+         hItem["vat_amount"] := Round(hBooking["UST"], 2) 
+         hItem["vat_handling"] := "standard"
          hItem["currency"] := "EUR"
          hItem["account_debit"] := LTrim(Str(hBooking["SOLL"]))
          hItem["account_credit"] := LTrim(Str(hBooking["HABEN"]))
@@ -166,6 +199,7 @@ STATIC FUNCTION _CollectLexwareBookings()
          ENDIF
          hItem["cost_center"] := cCostCenter
          hItem["description"] := hb_StrToUTF8(AllTrim(hBooking["TEXT"]))
+         hItem["company_id"] := GetConfigValue("FIRMNO")
          AAdd(aBookings, hItem)
       ENDIF
    NEXT
@@ -183,14 +217,19 @@ STATIC FUNCTION _CollectPurchaseOrderItems()
    LOCAL nScanned := 0
    LOCAL nRelevant := 0
    LOCAL nOpenQty
+   LOCAL nShipQty
+   LOCAL nZoQty
    LOCAL nAmount
    LOCAL nUnitPrice
    LOCAL nWait
    LOCAL dDelDate
    LOCAL dPayDate
    LOCAL cCurrency
+   LOCAL cBaseRef
+   LOCAL cRef
    LOCAL nItem
    LOCAL lSpread_over_period
+   LOCAL lImport, nMwst, nVatRate
 
    NetUse("engbes", "bes")
    NetUse("engkund", "ku")
@@ -204,53 +243,107 @@ STATIC FUNCTION _CollectPurchaseOrderItems()
 
    DO WHILE ! bes->(EOF())
       nScanned++
-      nOpenQty := bes->BeQty - bes->GelQty + bes->zoQty  //unerechnete Menge berÅcksichtigen
+      nShipQty := bes->BeQty - bes->GelQty
+      nZoQty := bes->zoQty
+      nOpenQty := nShipQty + nZoQty
 
-      IF nOpenQty > 0 .AND. (bes->Bestat < 3 .OR. (bes->Bestat > 5 .AND. bes->Bestat < 9)) .AND. Val(Right(Str(bes->Lterm),2)) <= 52
+      IF nOpenQty > 0 .AND. (bes->Bestat < 3 .OR. (bes->Bestat > 5 .AND. bes->Bestat < 9)) //.AND. Val(Right(Str(bes->Lterm),2)) <= 52
          nRelevant++
          IF Right(Str(bes->Lterm),2) != "99"  //keine Rahmenpositionen
-            dDelDate := CalWD(bes->LTerm+bes->ShipTime)
+            dDelDate := CalWD(bes->LTerm) //+bes->ShipTime)
             lSpread_over_period := .F.
          ELSE
             dDelDate := Stod("20"+Left(Str(bes->Lterm,4),2)+"1231")
             lSpread_over_period := .T.
          ENDIF
-         IF Empty(dDelDate) .OR. dDelDate < Date()
-            dDelDate := EoY(Date()) 
+         IF Empty(dDelDate) //.OR. dDelDate < Date()
+            dDelDate := Date()
          ENDIF
 
-         IF ku->(dbSeek(bes->Liefma + "L")) .AND. ! skb->(IsPrePay(ku->Skonto))
-            nWait := skb->(GetSkontoWait(ku->Skonto, dDelDate, Date()))
-         ELSE
-            nWait := 0
+         lPrePay := .F.
+         nWait := 0
+         IF ku->(dbSeek(bes->Liefma + "L")) 
+            lPrePay := skb->(IsPrePay(ku->Skonto))
+            IF ! lPrepay
+               nWait := skb->(GetSkontoWait(ku->Skonto, dDelDate, Date()))
+            ENDIF
          ENDIF
          dPayDate := dDelDate + nWait
 
+         IF ! lPrePay
          nUnitPrice := bes->EkPr / Max(bes->Pe, 1) * (1 - bes->Rabatt / 100)
-         nAmount := Round(nOpenQty * nUnitPrice, 2)
+         cCurrency := _CurrencyISO(IF(Empty(bes->Money), "E", bes->Money))
+         taxit(ku->TaxCode,@nMwst,dDelDate,.F.)
+         lImport := ku->TaxCode == 0
+         nVatRate := IF(lImport,19,nMwst)
+         cBaseRef := "BE" + StrZero(bes->Besnr, 6) +"W"+ Str(bes->LTerm,4)
 
-         IF nAmount != 0
-            IF (nItem := AScan(aItems,{|x| x["erp_reference"] == "BE" + StrZero(bes->Besnr, 6) +"W"+ Str(bes->LTerm,4) })) > 0
-               aItems[nItem]["amount"] += nAmount
-            ELSE
-               cCurrency := _CurrencyISO(IF(Empty(bes->Money), "E", bes->Money))
-               hItem := {=>}
-               hItem["erp_reference"] := "BE" + StrZero(bes->Besnr, 6) +"W"+ Str(bes->LTerm,4)
-               hItem["type"] := "supplier_order"
-               hItem["counterparty_name"] := _GetSupplierName(bes->Liefma, hSupplierNames)
-               hItem["amount"] := nAmount
-               hItem["currency"] := cCurrency
-               hItem["due_date"] := _IsoDate(dPayDate)
-               hItem["payment_probability"] := 1.0
-               
-               hItem["status"] := "open"
-               hItem["paid_amount"] := 0
-               hItem["spread_over_period"] := lSpread_over_period
-               IF lSpread_over_period
-                  hItem["spread_start_date"] := _IsoDate(Date()+30) //Annahme: Verteilung startet in 30 Tagen, wenn Åber Zeitraum verteilt
+         IF nShipQty > 0
+            nAmount := Round(nShipQty * nUnitPrice, 2)
+            IF nAmount != 0
+               cRef := cBaseRef 
+               IF (nItem := AScan(aItems,{|x| x["erp_reference"] == cRef })) > 0
+                  aItems[nItem]["amount"] += nAmount*(1+nMwst/100)
+                  aItems[nItem]["vat_amount"] += Round(nAmount*nVatRate/100, 2)
+               ELSE
+                  //lEG := ! lImport .AND. Trim(Upper(v->text)) == "EG"
+                  //lReverse := ! lImport .AND. Trim(Upper(v->text)) == "REVERSE"
+                  hItem := {=>}
+                  hItem["erp_reference"] := cRef
+                  hItem["type"] := "supplier_order"
+                  hItem["counterparty_name"] := _GetSupplierName(bes->Liefma, hSupplierNames)
+                  hItem["amount"] := nAmount*(1+nMwst/100)  //wir rechnen immer mit 19%, da bei Einfuhr auch 19% MwSt. anfÑllt
+                  hItem["vat_key"] := nMwst
+                  hItem["vat_amount"] := Round(nAmount*nVatRate/100, 2)
+                  hItem["vat_handling"] := IF(lImport,"import","standard")
+                  hItem["currency"] := cCurrency
+                  hItem["due_date"] := _IsoDate(IF(dDelDate<Date(),Date()+nWait,dPayDate))  //we have not received this yet, so we assume the payment date is the delivery date + skonto wait time
+                  hItem["payment_probability"] := 1.0
+                  
+                  hItem["status"] := "open"
+                  hItem["paid_amount"] := 0
+                  hItem["spread_over_period"] := lSpread_over_period
+                  IF lSpread_over_period
+                     hItem["spread_start_date"] := _IsoDate(Date()+30) //Annahme: Verteilung startet in 30 Tagen, wenn Åber Zeitraum verteilt
+                  ENDIF
+                  hItem["company_id"] := GetConfigValue("FIRMNO")
+                  AAdd(aItems, hItem)
                ENDIF
-               AAdd(aItems, hItem)
             ENDIF
+         ENDIF
+
+         IF nZoQty > 0
+            nAmount := Round(nZoQty * nUnitPrice, 2)
+            IF nAmount != 0
+               cRef := cBaseRef + "-MI"
+               IF (nItem := AScan(aItems,{|x| x["erp_reference"] == cRef })) > 0
+                  aItems[nItem]["amount"] += nAmount*(1+nMwst/100)
+                  aItems[nItem]["vat_amount"] += Round(nAmount*nVatRate/100, 2)
+               ELSE
+                  hItem := {=>}
+                  hItem["erp_reference"] := cRef
+                  hItem["type"] := "supplier_order"
+                  hItem["counterparty_name"] := _GetSupplierName(bes->Liefma, hSupplierNames)
+                  hItem["amount"] := nAmount*(1+nMwst/100)  //wir rechnen immer mit 19%, da bei Einfuhr auch 19% MwSt. anfÑllt
+                  hItem["vat_key"] := nMwst
+                  hItem["vat_amount"] := Round(nAmount*nVatRate/100, 2)
+                  hItem["vat_handling"] := IF(lImport,"import","standard")
+                  hItem["currency"] := cCurrency
+                  hItem["due_date"] := _IsoDate(Min(Date()+nWait,dPayDate))
+                  hItem["payment_probability"] := 1.0
+                  
+                  hItem["status"] := "open"
+                  hItem["paid_amount"] := 0
+                  hItem["spread_over_period"] := lSpread_over_period
+                  IF lSpread_over_period
+                     hItem["spread_start_date"] := _IsoDate(Date()+30) //Annahme: Verteilung startet in 30 Tagen, wenn Åber Zeitraum verteilt
+                  ENDIF
+                  hItem["company_id"] := GetConfigValue("FIRMNO")
+                  AAdd(aItems, hItem)
+               ENDIF
+            ENDIF
+         ENDIF
+
          ENDIF
       ENDIF
 
@@ -273,6 +366,7 @@ STATIC FUNCTION _CollectCustomerOrderItems()
    LOCAL nWait
    LOCAL dDelDate
    LOCAL dDueDate
+   LOCAL nMwSt
    LOCAL cCurrency
    LOCAL nItem
    LOCAL lSpread_over_period
@@ -294,44 +388,60 @@ STATIC FUNCTION _CollectCustomerOrderItems()
       IF nOpenQty > 0 
          ku->(dbSeek(auf->Kundma + "K"))
          nRelevant++
+         
 
          nUnitPrice := auf->VkPr / Max(auf->Pe, 1) * (1 - auf->Rabatt / 100)
          nAmount := Round(nOpenQty * nUnitPrice, 2)
 
 
-         IF nAmount != 0 .AND. Val(Right(Str(auf->Dterm),2)) <= 52
+         IF nAmount != 0 //.AND. Val(Right(Str(auf->Dterm),2)) <= 52
             IF (nItem := AScan(aItems,{|x| x["erp_reference"] == "AB" + StrZero(auf->Abnr, 6)+"W"+Str(auf->Dterm,4) })) > 0
-               aItems[nItem]["amount"] += nAmount
+               aItems[nItem]["amount"] += nAmount*(1+aItems[nItem]["vat_key"]/100)
             ELSE
-               IF Right(Str(auf->Dterm),2) != "99"  //keine Rahmenpositionen
-                  dDelDate := IF(ku->JustInTime,auf->BDatum, CalWD(auf->DTerm))
+               hItem := {=>}
+               IF Right(Str(auf->Dterm),2) $ {"97","98"}
+                  dDelDate := Date() + 90
                   lSpread_over_period := .F.
+                  hItem["payment_probability"] := 0.5
+               ELSEIF Right(Str(auf->Dterm),2) != "99"  //keine Rahmenpositionen
+                  dDelDate := IF(ku->JustInTime,auf->BDatum, CalWD(auf->DTerm))
+                  lSpread_over_period := .F.       
+                  hItem["payment_probability"] := 0.9        
                ELSE
                   dDelDate := CalWD(auf->wTerm)
                   lSpread_over_period := .T.
+                  hItem["payment_probability"] := 0.9
                ENDIF
-               IF Empty(dDelDate) //.OR. dDelDate < Date()
-                  dDelDate := Date()
+               IF Empty(dDelDate) .OR. dDelDate < Date()
+                  dDelDate := EoY(Date())
                ENDIF
 
-               nWait := sk->(GetSkontoWait(ku->Skonto, dDelDate, Date()))      
+               taxit(ku->TaxCode,@nMwst,dDelDate,.F.)
+
+               nWait := sk->(GetSkontoWait(ku->Skonto, dDelDate, Date()))     
+               //nWait := GetCustomerPayTime(ku->Kunde) 
                dDueDate := dDelDate + nWait
 
                cCurrency := _CurrencyISO(IF(Empty(auf->Money), "E", auf->Money))
-               hItem := {=>}
+               
                hItem["erp_reference"] := "AB" + StrZero(auf->Abnr, 6)+"W"+Str(auf->Dterm,4)
                hItem["type"] := "customer_order"
                hItem["counterparty_name"] := _GetCustomerName(auf->Kundma, hCustomerNames)
-               hItem["amount"] := nAmount
+               hItem["amount"] := nAmount*(1+nMwst/100)
+               hItem["net_amount"] := nAmount
+               hItem["vat_key"] := nMwSt
+               hItem["vat_amount"] := Round(nAmount*nMwst/100, 2)
+               hItem["vat_handling"] := "standard"
                hItem["currency"] := cCurrency
                hItem["due_date"] := _IsoDate(dDueDate)
-               hItem["payment_probability"] := 0.9
+               
                hItem["status"] := "open"
                hItem["paid_amount"] := 0
                hItem["spread_over_period"] := lSpread_over_period
                IF lSpread_over_period
-                  hItem["spread_start_date"] := _IsoDate(Date()+30) //Annahme: Verteilung startet in 30 Tagen, wenn Åber Zeitraum verteilt
+                  hItem["spread_start_date"] := _IsoDate(Max(auf->Sdatum,Date()+30)) //Annahme: Verteilung startet in 30 Tagen, wenn Åber Zeitraum verteilt
                ENDIF
+               hItem["company_id"] := GetConfigValue("FIRMNO")
                AAdd(aItems, hItem)
             ENDIF
          ENDIF
@@ -408,6 +518,7 @@ STATIC FUNCTION _CollectCustomerInvoiceItems()
             nWait := sk->(GetSkontoWait(ku->Skonto, _FieldValue("reh", "RECHDAT", Date()), Date()))
             ku->(dbSetOrder(8))
          ENDIF
+         //nWait := GetCustomerPayTime(ku->Kunde)
          dDueDate := oRechnung:Rechdat + nWait
          
          hItem := {=>}
@@ -416,6 +527,10 @@ STATIC FUNCTION _CollectCustomerInvoiceItems()
          hItem["type"] := "customer_invoice"
          hItem["counterparty_name"] := hb_StrToUTF8(Trim(cCustomerName))
          hItem["amount"] := oRechnung:Brutto
+         hItem["net_amount"] := oRechnung:Brutto - oRechnung:Mwst
+         hItem["vat_key"] := oRechnung:MwstRate
+         hItem["vat_amount"] := oRechnung:Mwst
+         hItem["vat_handling"] := "standard"
          hItem["currency"] := cCurrency
          hItem["due_date"] := _IsoDate(dDueDate)
          IF Date()-365 > oRechnung:Rechdat //alte Gutschriften eher unwahrscheinlich
@@ -427,6 +542,7 @@ STATIC FUNCTION _CollectCustomerInvoiceItems()
          ENDIF
          hItem["status"] := "open"
          hItem["paid_amount"] := Max(0, Round(oRechnung:Zahlbetrag, 2))
+         hItem["company_id"] := GetConfigValue("FIRMNO")
          AAdd(aItems, hItem)
       ENDIF
 
@@ -469,6 +585,7 @@ STATIC FUNCTION _CollectPurchaseInvoiceItemsFromLexware()
 
    NetUse("fibu", "fibu")
    NetUse("engkund", "ku")
+   Netuse("skontob", "skb")
 
    
    ku->(dbSetOrder(8))
@@ -483,65 +600,80 @@ STATIC FUNCTION _CollectPurchaseInvoiceItemsFromLexware()
 
    hOpSummen := LX_GetOffenePostenSummen(.F.)
    ? "[PI][LX] Kreditoren mit OP:", Len(hOpSummen)
-   FOR EACH nKonto IN hOpSummen
+   FOR EACH nKonto IN hOpSummen      
       nAccounts++
       cCurrency := "E"
       cLiefma := ""
       cSupplierName := ""
+      lPrePay := .F.
 
       fibu->(dbSetOrder(2))
-      IF fibu->(dbSeek(Str(nKonto:__eNumKey(), 6)))
+      ku->(dbSetOrder(8))
+      //? nKonto:__eNumKey()
+      IF fibu->(dbSeek(Str(nKonto:__eNumKey(), 6)))         
          cCurrency := IF(Empty(fibu->Currency), "E", fibu->Currency)
-         IF fibu->Adresse != 0 .AND. ku->(dbSeek(Str(fibu->Adresse, 6)))
+         IF fibu->Adresse != 0 .AND. ku->(dbSeek(Str(fibu->Adresse, 6)))            
             cLiefma := ku->Kunde
+            lPrePay := skb->(IsPrePay(ku->Skonto)) //PrePay prÅfen
             cSupplierName := _GetSupplierName(cLiefma, hSupplierNames)
+            //?? "",cSupplierName
+         ELSE
+            //?? " kein Lieferant",fibu->Adresse
          ENDIF
-      ELSE
+      ELSE         
          fibu->(dbSetOrder(3))
          IF fibu->(dbSeek(Str(nKonto:__eNumKey(), 6)))  //WD Konto, kann ignoriert werden
+            //?? " WÑhrungsdifferenz Konto",fibu->Konto
             LOOP
          ENDIF
+         //?? " kein Fibu"
       ENDIF
-
-      IF Empty(cSupplierName)
-         cSupplierName := "Kreditor " + LTrim(Str(nKonto:__eNumKey()))
-      ENDIF
-
-      aOps := LX_GetOffenePosten(nKonto:__eNumKey(), .F.)
-      nOps += Len(aOps)
-      FOR nX := 1 TO Len(aOps)
-         hOp := aOps[nX]
-         nAmount := Round(hOp["BETRAG"], 2)
-
-         IF nAmount != 0
-            nPaidAmount := Max(0, Round(hOp["BETRAG"] - hOp["REST"], 2))
-
-            hItem := {=>}
-            cBeleg := Trim(hOp["BELEGNR"])
-            IF Empty(cBeleg)
-               cBeleg := "OP"+Ltrim(Str(hOP["NR"]))
-            ENDIF
-            IF ! Empty(cLiefma)
-               cRef := "ER-" + Trim(cLiefma) + "-" + cBeleg
-            ELSE
-               cRef := "ER-KONTO-" + LTrim(Str(nKonto:__eNumKey())) + "-" + cBeleg
-            ENDIF
-            hItem["erp_reference"] := cRef
-            hItem["type"] := "supplier_invoice"
-            hItem["counterparty_name"] := hb_StrToUTF8(Trim(cSupplierName))
-            hItem["amount"] := nAmount
-            hItem["currency"] := _CurrencyISO(cCurrency)
-            hItem["due_date"] := _IsoDate(hOp["FAELLIG"])
-            IF nAmount < 0 .AND. hOp["FAELLIG"] < Date()-365 //vermutlich Gutschrift, die schon lange ÅberfÑllig ist
-               hItem["payment_probability"] := 0.01
-            ELSE
-               hItem["payment_probability"] := 1.0
-            ENDIF
-            hItem["status"] := "open"
-            hItem["paid_amount"] := nPaidAmount
-            AAdd(aItems, hItem)
+      IF ! lPrePay
+         IF Empty(cSupplierName)
+            cSupplierName := "Kreditor " + LTrim(Str(nKonto:__eNumKey()))
          ENDIF
-      NEXT
+
+         aOps := LX_GetOffenePosten(nKonto:__eNumKey(), .F.)
+         nOps += Len(aOps)
+         FOR nX := 1 TO Len(aOps)
+            hOp := aOps[nX]
+            nAmount := Round(hOp["BETRAG"], 2)
+
+            IF nAmount != 0  .AND. hOp["FAELLIG"] >= Date()-30 
+               nPaidAmount := Round(hOp["BETRAG"] - hOp["REST"], 2)
+
+               hItem := {=>}
+               cBeleg := Trim(hOp["BELEGNR"])
+               IF Empty(cBeleg)
+                  cBeleg := "OP"+Ltrim(Str(hOP["NR"]))
+               ENDIF
+               IF ! Empty(cLiefma)
+                  cRef := "ER-" + Trim(cLiefma) + "-" + cBeleg
+               ELSE
+                  cRef := "ER-KONTO-" + LTrim(Str(nKonto:__eNumKey())) + "-" + cBeleg
+               ENDIF
+               hItem["erp_reference"] := cRef
+               hItem["type"] := "supplier_invoice"
+               hItem["counterparty_name"] := hb_StrToUTF8(Trim(cSupplierName))
+               hItem["amount"] := nAmount
+               hItem["net_amount"] := Round(nAmount - hOp["STEUER"]/100, 2)
+               hItem["vat_amount"] := Round(hOp["STEUER"], 2)
+               hItem["vat_handling"] := "standard"
+               hItem["currency"] := _CurrencyISO(cCurrency)
+               hItem["due_date"] := _IsoDate(hOp["FAELLIG"])
+               
+               IF nAmount < 0 .AND. hOp["FAELLIG"] < Date()-10 //vermutlich Gutschrift, die ÅberfÑllig ist
+                  hItem["payment_probability"] := 0.01
+               ELSE
+                  hItem["payment_probability"] := 1.0
+               ENDIF
+               hItem["status"] := "open"
+               hItem["paid_amount"] := nPaidAmount
+               hItem["company_id"] := GetConfigValue("FIRMNO")
+               AAdd(aItems, hItem)
+            ENDIF
+         NEXT
+      ENDIF
    NEXT
 
    LX_Close()
@@ -660,6 +792,35 @@ STATIC FUNCTION _FieldValue(cAlias, cField, xDefault)
    ENDIF
 
 RETURN xDefault
+
+STATIC FUNCTION _SplitIntoBatches(aSource, nBatchSize)
+   LOCAL aBatches := {}
+   LOCAL aBatch
+   LOCAL nFrom
+   LOCAL nTo
+   LOCAL nIdx
+
+   Default(@aSource, {})
+   Default(@nBatchSize, 250)
+
+   IF ValType(aSource) != "A" .OR. Len(aSource) == 0
+      RETURN aBatches
+   ENDIF
+
+   IF nBatchSize <= 0
+      nBatchSize := 250
+   ENDIF
+
+   FOR nFrom := 1 TO Len(aSource) STEP nBatchSize
+      nTo := Min(nFrom + nBatchSize - 1, Len(aSource))
+      aBatch := {}
+      FOR nIdx := nFrom TO nTo
+         AAdd(aBatch, aSource[nIdx])
+      NEXT
+      AAdd(aBatches, aBatch)
+   NEXT
+
+RETURN aBatches
 
 STATIC FUNCTION _GetLiquidityUserId()
    /*LOCAL cUserId := GetConfigValue("LIQUIDITY_USER_ID")

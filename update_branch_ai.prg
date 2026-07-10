@@ -16,9 +16,9 @@ PROC TEST_UpdateBranch
    ku->(dbSetOrder( 2 ))
    ku->(dbSetFilter({|| ku->(&(cFilter)) },cFilter))
    //ku->(dbGoTop())
-   ku->(dbSeek( "K" ))
+   ku->(dbSeek( "K"+Pad("SELF",8) ))
    ? ku->Turnover,ku->Turnoverol,ku->Branch,ku->Group
-   DO WHILE ! ku->(EOF()) .AND. ku->Group == "K"
+   //DO WHILE ! ku->(EOF()) .AND. ku->Group == "K"
       nRec := ku->(Recno())
       ku->(dbSkip())
       nNextRec := ku->(Recno())
@@ -45,7 +45,7 @@ PROC TEST_UpdateBranch
       ENDIF
       //ku->(dbSkip())
       ku->(dbGoto(nNextRec))
-   ENDDO
+   //ENDDO
 
    Sinkey(0)
          

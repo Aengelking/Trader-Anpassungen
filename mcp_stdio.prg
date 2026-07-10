@@ -8,6 +8,15 @@
  * 
  */
 
+// David InfoCenter archive constants (from david.ch). Defined locally so this
+// module compiles independently of the David include path.
+#ifndef DvArchiveCommon
+   #define DvArchiveCommon      2
+#endif
+#ifndef DvArchivePersonalIn
+   #define DvArchivePersonalIn  101
+#endif
+
 
 FUNCTION MCP_StdIO()
    LOCAL cInput, hRequest, cResponse
@@ -22,7 +31,9 @@ FUNCTION MCP_StdIO()
    nStdOut := hb_GetStdOut()
    nStdErr := hb_GetStdErr()
 
-   //FWrite(nStdErr,"MCP_StdIO: Starting MCP server via STDIO..."+Chr(10));
+   FWrite(nStdErr,"MCP_StdIO: Starting MCP server via STDIO..."+Chr(10))
+
+   ? "MCP STDIO: Started"
    
    // Set up error handler, changed the main error handler to ouput to stdErr
    /*bOldError := ErrorBlock({|oError| 
@@ -64,10 +75,12 @@ FUNCTION MCP_StdIO()
             // No more data available, exit
             EXIT
          ENDIF
+         Inkey(0.1) // Small delay to avoid busy waiting
       ENDDO     
       
       
       IF !Empty(cLine)
+         ? "Processing request: " + cLine
          // Parse JSON request
          hRequest := HB_JsonDecode(cLine)
          IF hRequest != NIL .AND. ValType(hRequest) == "H"
@@ -195,7 +208,7 @@ RETURN aFunctions
 FUNCTION MCP_Tools_Call(hRequest, xId)
    LOCAL hParams := hRequest["params"]
    LOCAL cToolName := hParams["name"]
-   LOCAL hArguments := hParams["arguments"]
+   LOCAL hArguments := IF(HHasKey(hParams,"arguments"),hParams["arguments"],{=>})
    LOCAL cFunctionName, hResult, hToolData, cFormattedText
    LOCAL hToolInfo, aRequired, cRequiredParam
    LOCAL aAnyOfGroups
@@ -336,7 +349,85 @@ FUNCTION MCP_Tool_Get_Customer(hArgs)
       hResult["message"] := "Customer not found"
    ENDIF
    
-RETURN hResult
+RETURN _HashToUtf8(hResult)
+
+FUNCTION MCP_Tool_Search_Customers(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL aCustomers := {}
+   LOCAL hCustomer
+   LOCAL cFilter, cNeedle
+   LOCAL nMaxResults, nCount := 0
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "name"=>{"type"=>"string","description"=>"Case-insensitive text filter applied to customer Name"},;
+            "town"=>{"type"=>"string","description"=>"Case-insensitive text filter applied to customer Town"},;
+            "max_results"=>{"type"=>"number","description"=>"Maximum number of matching customers to return (default 50, max 200)"};
+         },;
+         "anyOf"=>{{"name", "town"}};
+      }
+      hResult["description"] := "Search customers by text in Name or Town"
+      RETURN hResult
+   ENDIF
+
+   nMaxResults := IIF(HHasKey(hArgs, "max_results") .AND. HB_IsNumeric(hArgs["max_results"]), hArgs["max_results"], 50)
+   nMaxResults := Max(1, Min(nMaxResults, 200))
+
+   IF ! HHasKey(hArgs, "name") .AND. !HHasKey(hArgs, "town")
+      RETURN "Invalid arguments for Search Customer: filter is required"
+   ENDIF
+
+   cFilter := ""
+   IF HHasKey(hArgs, "name") .AND. !Empty(hArgs["name"])
+      cFilter := '"'+Upper(AllTrim(hArgs["name"]))+'" $ Upper(Trim(name1)+name2)'
+   ENDIF
+   IF HHasKey(hArgs, "town") .AND. !Empty(hArgs["town"])
+      IF !Empty(cFilter)
+         cFilter += " .OR. "
+      ENDIF
+      cFilter += '"'+Upper(AllTrim(hArgs["town"]))+'" $ Upper(Trim(town))'
+   ENDIF
+
+   NetUse("engkund","ku")
+   ku->(dbSetFilter({|| ku->(&(cFilter))},cFilter))
+   ku->(DbSetOrder(2))
+   ku->(DbSeek("K"))
+
+   DO WHILE !ku->(Eof()) .AND. ku->Group == "K" .AND. nCount < nMaxResults
+
+      hCustomer := {=>}
+      hCustomer["number"] := ku->Nummer
+      hCustomer["kunde"] := AllTrim(ku->Kunde)
+      hCustomer["name"] := Trim(Trim(ku->Name1)+" "+ku->Name2)      
+      hCustomer["town"] := AllTrim(ku->Town)
+      hCustomer["street"] := AllTrim(ku->Street)
+      hCustomer["countryiso"] := AllTrim(ku->CountryIso)
+      AAdd(aCustomers, _HashToUtf8(hCustomer))
+      nCount++
+
+         ku->(DbSkip())
+   ENDDO
+
+   DbSelectArea(nOldSelect)
+   ku->(dbClearFilter())
+
+   hResult["status"] := IIF(Len(aCustomers) > 0, "found", "not_found")
+   hResult["count"] := Len(aCustomers)
+   hResult["max_results"] := nMaxResults
+   //hResult["filter"] := cFilter
+   hResult["customers"] := aCustomers
+
+   IF Len(aCustomers) == 0
+      hResult["message"] := "No customers found"
+   ELSEIF Len(aCustomers) == nMaxResults
+      hResult["message"] := "Result limited to " + AllTrim(Str(nMaxResults)) + " customers"
+   ENDIF
+
+RETURN _HashToUtf8(hResult)
 
 FUNCTION MCP_Tool_Get_Article(hArgs)
    LOCAL hResult := {=>}
@@ -349,23 +440,13 @@ FUNCTION MCP_Tool_Get_Article(hArgs)
          "type"=>"object",;
          "properties"=>{;
             "matchcode"=>{"type"=>"string","description"=>"Artikel Matchcode"},;
-            "partno"=>{"type"=>"string","description"=>"Artikelnummer"},;
-            "include_shopware"=>{"type"=>"boolean","description"=>"Include live data from Shopware (slower)"},;
-            "shopware_options"=>{"type"=>"object","description"=>"Options for Shopware data",;
-               "properties"=>{;
-                  "prices"=>{"type"=>"boolean","description"=>"Include online prices"},;
-                  "media"=>{"type"=>"boolean","description"=>"Include product images"},;
-                  "categories"=>{"type"=>"boolean","description"=>"Include category assignments"};
-               };
-            };
+            "partno"=>{"type"=>"string","description"=>"Artikelnummer"};
          },;
          "anyOf"=>{{"matchcode", "partno"}};
       }
       hResult["description"] := "Retrieve detailed information for a single article/product by matchcode or part number. " + ;
-                                "Returns comprehensive data including stock, prices, description, and importantly: " + ;
-                                "- Product properties (when include_shopware=true) showing characteristics like color, material, size, etc. " + ;
-                                "- Both inherited properties (from parent) and product-specific properties are included. " + ;
-                                "Use this when you need detailed information about a specific product including its properties."
+                                "Returns comprehensive data including stock, prices, description" + ;
+                                "Use this when you need detailed information"
       RETURN hResult
    ENDIF
 
@@ -376,7 +457,6 @@ FUNCTION MCP_Tool_Get_Article(hArgs)
    ENDIF
 
    NetUse("artikel","art")  // Ensure article database is available
-   NetUse("shopware","shop")  // For Shopware URLs
 
    IF HHasKey(hArgs,"matchcode") .AND. !Empty(hArgs["matchcode"])
       // Load by matchcode
@@ -396,31 +476,6 @@ FUNCTION MCP_Tool_Get_Article(hArgs)
       //hResult["sell_price"] := art->vkpr
       hResult["stock"] := art->bestand
       
-      // Check if article has Shopware entry
-      IF shop->(dbSeek(Str(art->Artikelnr,6)))
-         hResult["shopware_url"] := "https://engelking.de/detail/" + AllTrim(shop->UUID)
-         
-         // Include detailed Shopware data if requested
-         IF HHasKey(hArgs, "include_shopware") .AND. hArgs["include_shopware"]
-            hShopwareOptions := IIF(HHasKey(hArgs, "shopware_options"), hArgs["shopware_options"], {=>})
-            hShopwareData := GetShopwareProductData(AllTrim(shop->UUID), hShopwareOptions)
-            
-            IF HHasKey(hShopwareData, "status") .AND. hShopwareData["status"] == "success"
-               hResult["shopware"] := hShopwareData
-               // Add comparison data
-               hResult["stock_comparison"] := {;
-                  "erp_stock" => art->bestand,;
-                  "online_stock" => hShopwareData["online_stock"],;
-                  "difference" => art->bestand - hShopwareData["online_stock"];
-               }
-            ELSE
-               hResult["shopware_error"] := IIF(HHasKey(hShopwareData, "error"), hShopwareData["error"], "Unknown error")
-            ENDIF
-         ENDIF
-      ELSE
-         hResult["shopware_status"] := "not_synchronized"
-      ENDIF
-      
       hResult["status"] := "found"
    ELSE
       hResult["status"] := "not_found"
@@ -429,7 +484,7 @@ FUNCTION MCP_Tool_Get_Article(hArgs)
    
 RETURN hResult
 
-FUNCTION MCP_Tool_Get_Order(hArgs)
+FUNCTION MCP_Tool_Get_Order_Details(hArgs)
    LOCAL oAuftrag
    LOCAL hResult := {=>}
    LOCAL lFound := .F.
@@ -443,7 +498,7 @@ FUNCTION MCP_Tool_Get_Order(hArgs)
          },;
          "required"=>{"order_number"};
       }
-      hResult["description"] := "Retrieve order information by order number"
+      hResult["description"] := "Retrieve detailed order information by order number, including all line items and their status"
       RETURN hResult
    ENDIF
    
@@ -460,8 +515,14 @@ FUNCTION MCP_Tool_Get_Order(hArgs)
          LOCAL hPosition := {=>}
          hPosition["article"] := AllTrim(oPos:Matchcode)
          //hPosition["description"] := AllTrim(oPos:Artikel:Artikel)
-         hPosition["quantity"] := oPos:VkQty
-         hPosition["open_quantity"] := oPos:VkQty - oPos:GelQty
+         hPosition["blanket_order"] := oPos:IsRahmen
+         IF oPos:IsRahmen
+            hPosition["quantity"] := oPos:ContrQty            
+         ELSE
+            hPosition["quantity"] := oPos:VkQty
+         ENDIF
+         hPosition["open_quantity"] := IF(oPos:lErledigt, 0, oPos:VkQty - oPos:GelQty)
+         hPosition["delivered_quantity"] := oPos:GelQty
          hPosition["price"] := oPos:VkPr/oPos:Pe
          hPosition["status"] := IF(oPos:lErledigt, "completed", "open")
          hPosition["total"] := oPos:GetLineTotal()
@@ -774,7 +835,7 @@ FUNCTION GetEnhancedDescription(nArtikelnr)
    
 RETURN cDescription
 
-FUNCTION GetShopwareProductData(cUUID, hOptions)
+/*FUNCTION GetShopwareProductData(cUUID, hOptions)
    LOCAL oSW, hResult := {=>}, hResponse, hData
    LOCAL lIncludePrices, lIncludeMedia, lIncludeCategories
    LOCAL cMessage, hPrice
@@ -1148,7 +1209,7 @@ FUNCTION CollatePropertiesByGroup(aProductProps, aParentProps)
       ENDIF
    NEXT
    
-RETURN hCollated
+RETURN hCollated*/
 
 FUNCTION BuildDescriptionFilter(cSearchExpression)
    LOCAL cResult
@@ -1330,7 +1391,7 @@ FUNCTION MCP_Tool_Get_Customer_Orders(hArgs)
    
 RETURN hResult
 
-FUNCTION MCP_Tool_Get_Property_Groups(hArgs)
+/*FUNCTION MCP_Tool_Get_Property_Groups(hArgs)
    LOCAL hResult := {=>}
    LOCAL oSW, hResponse, hSendData
    LOCAL aIncluded, hItem, hGroupData, hOptionData
@@ -1447,9 +1508,9 @@ FUNCTION MCP_Tool_Get_Property_Groups(hArgs)
       hResult["status"] := "error"
    END SEQUENCE
    
-RETURN hResult
+RETURN hResult*/
 
-FUNCTION MCP_Tool_Get_Catalogue(hArgs)
+/*FUNCTION MCP_Tool_Get_Catalogue(hArgs)
    LOCAL hResult := {=>}
    LOCAL oSW, hResponse, hSendData
    LOCAL aFilters := {}, hFilter
@@ -1710,7 +1771,7 @@ FUNCTION MCP_Tool_Get_Catalogue(hArgs)
       hResult["request_data"] := hSendData  // Include the request that was sent
    END SEQUENCE
    
-RETURN hResult
+RETURN hResult*/
 
 FUNCTION MCP_Resources_List(hRequest, xId)
    LOCAL aResources := {}
@@ -1724,7 +1785,7 @@ FUNCTION MCP_Resources_List(hRequest, xId)
       cResourceName := Lower(SubStr(cFuncName, 14))  // Remove "MCP_RESOURCE_"
       
       hResource := {=>}
-      hResource["uri"] := "trader://" + cResourceName
+      hResource["uri"] := TraderUrl("trader://" + cResourceName)
       hResource["name"] := GetResourceName(cResourceName)
       hResource["description"] := GetResourceDescription(cResourceName)
       hResource["mimeType"] := "application/json"
@@ -1778,7 +1839,7 @@ RETURN CreateSuccessResponse({"contents"=>{{"uri"=>cUri,"mimeType"=>"application
 FUNCTION MCP_Resource_Customers()
    LOCAL hResult := {=>}
    LOCAL aCustomers := {}
-   LOCAL nCount := 0
+   
    LOCAL hCustomer
    NetUse("engkund","ku")  // Ensure customer database is available
    ku->(dbSetOrder( 2 ))
@@ -1787,11 +1848,12 @@ FUNCTION MCP_Resource_Customers()
    WHILE !ku->(Eof()) .AND. ku->Group == "K" 
       hCustomer := {=>}
       hCustomer["number"] := ku->nummer
+      hCustomer["matchcode"] := Trim(ku->Kunde)
       hCustomer["name"] := AllTrim(ku->name1)
       hCustomer["city"] := AllTrim(ku->town)
       
       AAdd(aCustomers, hCustomer)
-      nCount++
+      
       ku->(DbSkip())
    ENDDO
    
@@ -1918,4 +1980,276 @@ FUNCTION MCPErrorHandler(oError, nStdOut)
    
 RETURN NIL
 
-#include "shopware_api.prg"  // Include Shopware API class
+//---------------------------------------------------------------------------
+// David Inbox tools — read-only access to the Tobit David InfoCenter.
+//
+// These wrap the David OLE API exposed by source\david.prg (MailConnect /
+// DV_GetMailAccount → oAccount) which is linked into the trader binary. All
+// OLE access is guarded so a bad item or a missing David connection returns a
+// clean status instead of crashing the MCP loop.
+//---------------------------------------------------------------------------
+
+// Convert a David (Windows-ANSI) string to UTF-8 for JSON output. David reads
+// are ANSI; the app codepage is OEM, so we go ANSI->OEM->UTF-8 like the rest
+// of this server (see HB_StrToUTF8 usage above).
+STATIC FUNCTION DV_Utf8(cStr)
+   IF ValType(cStr) != "C"
+      RETURN ""
+   ENDIF
+RETURN HB_StrToUTF8(HB_AnsiToOem(cStr))
+
+// Serialize a David message time (timestamp, occasionally a date) to a
+// sortable ISO-ish string.
+STATIC FUNCTION DV_DateStr(xTime)
+   LOCAL cResult := ""
+   BEGIN SEQUENCE
+      DO CASE
+      CASE ValType(xTime) == "T"
+         cResult := HB_TSToStr(xTime)
+      CASE ValType(xTime) == "D" .AND. ! Empty(xTime)
+         cResult := StrZero(Year(xTime),4) + "-" + StrZero(Month(xTime),2) + "-" + StrZero(Day(xTime),2)
+      OTHERWISE
+         cResult := ""
+      ENDCASE
+   RECOVER
+      cResult := ""
+   END SEQUENCE
+RETURN cResult
+
+// Read the "From" address of a received item defensively. The codebase only
+// ever *sets* Options:Sender for outgoing mail, so the receive-side property is
+// not proven — try Sender, then fall back to the first recipient.
+STATIC FUNCTION DV_Sender(oItem)
+   LOCAL cSender := ""
+   BEGIN SEQUENCE
+      IF oItem:Options:Sender != NIL
+         cSender := oItem:Options:Sender:Email
+         IF Empty(cSender)
+            cSender := oItem:Options:Sender:DisplayName
+         ENDIF
+      ENDIF
+   RECOVER
+      cSender := ""
+   END SEQUENCE
+   IF Empty(cSender)
+      BEGIN SEQUENCE
+         IF oItem:Recipients:Count > 0
+            cSender := oItem:Recipients:Item(0):Email
+         ENDIF
+      RECOVER
+         cSender := ""
+      END SEQUENCE
+   ENDIF
+RETURN DV_Utf8(cSender)
+
+// Resolve the David archive object for the requested mailbox, connecting first.
+// Returns NIL if David is not available.
+STATIC FUNCTION Inbox_Archive(cMailbox)
+   LOCAL oAccount, oArchive := NIL, nArchive
+
+   IF ValType(cMailbox) != "C"
+      cMailbox := "inbox"
+   ENDIF
+   nArchive := IIF(Lower(cMailbox) == "common", DvArchiveCommon, DvArchivePersonalIn)
+
+   BEGIN SEQUENCE
+      MailConnect()  // idempotent - no-op if already connected
+      oAccount := DV_GetMailAccount()
+      IF oAccount != NIL
+         oArchive := oAccount:GetSpecialArchive(nArchive)
+      ENDIF
+   RECOVER
+      oArchive := NIL
+   END SEQUENCE
+RETURN oArchive
+
+// Build a one-line summary hash for a single message. Each property read is
+// guarded so one malformed item never aborts a listing.
+STATIC FUNCTION Inbox_Summary(oItem)
+   LOCAL hMsg := {=>}
+
+   hMsg["id"] := ""
+   hMsg["subject"] := ""
+   hMsg["sender"] := ""
+   hMsg["date"] := ""
+   hMsg["recipient_count"] := 0
+   hMsg["attachment_count"] := 0
+//oItem:_ID  
+//
+   BEGIN SEQUENCE ; hMsg["id"]      := oItem:Fields:Item("FileName"):Value                  ; RECOVER ; END SEQUENCE
+   BEGIN SEQUENCE ; hMsg["subject"] := DV_Utf8(oItem:Subject)        ; RECOVER ; END SEQUENCE
+   hMsg["sender"] := DV_Sender(oItem)
+   BEGIN SEQUENCE ; hMsg["date"]    := DV_DateStr(oItem:StatusTime)  ; RECOVER ; END SEQUENCE
+   BEGIN SEQUENCE ; hMsg["recipient_count"]  := oItem:Recipients:Count  ; RECOVER ; END SEQUENCE
+   BEGIN SEQUENCE ; hMsg["attachment_count"] := oItem:Attachments:Count ; RECOVER ; END SEQUENCE
+RETURN hMsg
+
+FUNCTION MCP_Tool_List_Inbox(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oArchive, oItem, nI, nCount
+   LOCAL cMailbox := "inbox", nLimit := 50, nOffset := 0
+   LOCAL aMessages := {}, aPage := {}
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "mailbox"=>{"type"=>"string","enum"=>{"inbox","common"},"description"=>"Which mailbox to list: 'inbox' (personal Inbox, default) or 'common' (shared archive)"},;
+            "limit"=>{"type"=>"integer","description"=>"Maximum number of messages to return (default 50)"},;
+            "offset"=>{"type"=>"integer","description"=>"Number of newest messages to skip (default 0)"};
+         },;
+         "required"=>{};
+      }
+      hResult["description"] := "List messages in the David Inbox (or Common archive), newest first"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "mailbox") .AND. ! Empty(hArgs["mailbox"])
+      cMailbox := Lower(AllTrim(hArgs["mailbox"]))
+   ENDIF
+   IF HHasKey(hArgs, "limit") .AND. HB_IsNumeric(hArgs["limit"]) .AND. hArgs["limit"] > 0
+      nLimit := hArgs["limit"]
+   ENDIF
+   IF HHasKey(hArgs, "offset") .AND. HB_IsNumeric(hArgs["offset"]) .AND. hArgs["offset"] > 0
+      nOffset := hArgs["offset"]
+   ENDIF
+
+   oArchive := Inbox_Archive(cMailbox)
+   IF oArchive == NIL
+      hResult["status"] := "error"
+      hResult["message"] := "David not connected"
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE
+      nCount := oArchive:MailItems:Count
+      FOR nI := 0 TO nCount - 1
+         BEGIN SEQUENCE
+            oItem := oArchive:MailItems:Item(nI)
+            AAdd(aMessages, Inbox_Summary(oItem))
+         RECOVER
+         END SEQUENCE
+      NEXT
+   RECOVER
+      hResult["status"] := "error"
+      hResult["message"] := "Failed to read mailbox"
+      RETURN hResult
+   END SEQUENCE
+
+   // Newest first. The date strings are ISO/timestamp form, so they sort chronologically.
+   ASort(aMessages,,,{|x,y| x["date"] > y["date"]})
+
+   // Apply offset/limit
+   FOR nI := nOffset + 1 TO Min(nOffset + nLimit, Len(aMessages))
+      AAdd(aPage, aMessages[nI])
+   NEXT
+
+   hResult["mailbox"]  := cMailbox
+   hResult["total"]    := Len(aMessages)
+   hResult["count"]    := Len(aPage)
+   hResult["messages"] := aPage
+   hResult["status"]   := "success"
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Inbox_Message(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oArchive, oItem, nX
+   LOCAL cMailbox := "inbox", cId
+   LOCAL aTo := {}, aCc := {}, aAttach := {}
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "id"=>{"type"=>"string","description"=>"The David message id (the 'id' returned by list_inbox)"},;
+            "mailbox"=>{"type"=>"string","enum"=>{"inbox","common"},"description"=>"Which mailbox the message is in: 'inbox' (default) or 'common'"};
+         },;
+         "required"=>{"id"};
+      }
+      hResult["description"] := "Read a single David Inbox message by id, including body, recipients and attachment names"
+      RETURN hResult
+   ENDIF
+
+   cId := hArgs["id"]
+   IF HHasKey(hArgs, "mailbox") .AND. ! Empty(hArgs["mailbox"])
+      cMailbox := Lower(AllTrim(hArgs["mailbox"]))
+   ENDIF
+
+   oArchive := Inbox_Archive(cMailbox)
+   IF oArchive == NIL
+      hResult["status"] := "error"
+      hResult["message"] := "David not connected"
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE
+      oItem := oArchive:GetArchiveEntryByID(cId)
+   RECOVER
+      oItem := NIL
+   END SEQUENCE
+
+   IF oItem == NIL
+      hResult["status"] := "not_found"
+      hResult["message"] := "Message not found: " + cId
+      RETURN hResult
+   ENDIF
+
+   hResult["id"]      := cId
+   hResult["mailbox"] := cMailbox
+
+   BEGIN SEQUENCE ; hResult["subject"] := DV_Utf8(oItem:Subject)       ; RECOVER ; hResult["subject"] := "" ; END SEQUENCE
+   BEGIN SEQUENCE ; hResult["sender"] := DV_Utf8(oItem:Fields:Item("SRFrom"):Value); RECOVER; hResult["sender"] := ""; END SEQUENCE //DV_Sender(oItem)
+   BEGIN SEQUENCE ; hResult["date"]    := DV_DateStr(oItem:StatusTime) ; RECOVER ; hResult["date"]    := "" ; END SEQUENCE
+
+   // Recipients (To)
+   BEGIN SEQUENCE
+      FOR nX := 0 TO oItem:Recipients:Count - 1
+         AAdd(aTo, {"name"=>DV_Utf8(oItem:Recipients:Item(nX):DisplayName),"email"=>DV_Utf8(oItem:Recipients:Item(nX):Email)})
+      NEXT
+   RECOVER
+   END SEQUENCE
+   hResult["to"] := aTo
+
+   // Carbon copies (CC)
+   /*BEGIN SEQUENCE
+      FOR nX := 0 TO oItem:Fields:Item("Cc"):Count - 1
+         AAdd(aCc, {"name"=>DV_Utf8(oItem:Fields:Item("Cc"):Item(nX):DisplayName),"email"=>DV_Utf8(oItem:Fields:Item("Cc"):Item(nX):Email)})
+      NEXT
+   RECOVER
+   END SEQUENCE
+   hResult["cc"] := aCc*/
+
+   // Bodies
+   BEGIN SEQUENCE ; hResult["plain_body"] := DV_Utf8(oItem:Fields:Item("Content"):Value) ; RECOVER ; hResult["plain_body"] := "" ; END SEQUENCE
+   BEGIN SEQUENCE ; hResult["html_body"]  := DV_Utf8(oItem:Fields:Item("HTMLDisplayContent"):Value)  ; RECOVER ; hResult["html_body"]  := "" ; END SEQUENCE
+
+   // Attachment names (property name best-effort; guarded)
+   BEGIN SEQUENCE
+      FOR nX := 0 TO oItem:Attachments:Count - 1
+         AAdd(aAttach, DV_Utf8(oItem:Attachments:Item(nX):FileName))
+      NEXT
+   RECOVER
+   END SEQUENCE
+   hResult["attachments"] := aAttach
+
+   hResult["status"] := "found"
+RETURN hResult
+
+// Convert all string values in a hash from OEM to ANSI
+STATIC FUNCTION _HashToUtf8(hHash)
+   LOCAL cKey, xValue
+   IF ValType(hHash) != "H"
+      RETURN hHash
+   ENDIF
+   FOR EACH cKey IN HB_HKeys(hHash)
+      xValue := hHash[cKey]
+      IF ValType(xValue) == "C"
+         hHash[cKey] := Hb_StrToUtf8(xValue)               
+      ENDIF
+   NEXT
+RETURN hHash
+
+
+//#include "shopware_api.prg"  // Include Shopware API class

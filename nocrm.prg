@@ -69,7 +69,10 @@ FUNCTION noCRM_Interface(lComment,cType)
    LOCAL nStep
    LOCAL cContent,aContact
    LOCAL bExit
-   LOCAL dRemindDate := Date(),cYear,dHJ
+   LOCAL dRemindDate := Date(), dClosingDate := Date()+90, cYear, dHJ
+   LOCAL nProbability := 75
+   LOCAL lLowEffort := .F.
+   LOCAL lHasLowEffortTag := .F.
    LOCAL hLeadData := {=>}
    LOCAL getList := {}
    LOCAL cDescription
@@ -245,6 +248,10 @@ FUNCTION noCRM_Interface(lComment,cType)
       @ 25,00 SAY "Besitzer"
       @ 25,27,35,60 GET cUsrEmail LISTBOX hUsers ASSOCIATIVE
 
+      @ 26,00 SAY "Abschlussdatum            " GET dClosingDate
+      @ 27,00 SAY "Wahrscheinlichkeit (%)    " GET nProbability PICTURE "999" VALID nProbability >= 0 .AND. nProbability <= 100
+      @ 28,00 SAY "Aufwandsarme Anfrage      " GET lLowEffort PICTURE "Y"
+
       //Choose a lead        
       nLeadId := onocrm:ChooseLead(03,00,20,MaxRow()-1,oRec:Lead,.T.,cKunde)   
       IF LastKey() == 27 .OR. nLeadId == 0
@@ -281,6 +288,7 @@ FUNCTION noCRM_Interface(lComment,cType)
             nRemindDays := CountWorkingDays(Date(),dRemindDate,GetConfigValue("STATE"),.T.)-1
             nWeekDay    := DoW(dRemindDate)-1
          ENDIF
+         hLeadData["tags"] := {}
       ELSE         
          hLead := oNoCRM:Execute("leads/"+Ltrim(Str(nLeadId)),"GET")        
 
@@ -289,11 +297,28 @@ FUNCTION noCRM_Interface(lComment,cType)
          ELSE
             dRemindDate := Date()
          ENDIF
+         IF HHasKey(hLead,"estimated_closing_date") .AND. hLead["estimated_closing_date"] != NIL
+            dClosingDate := noCRM_DateConv(hLead["estimated_closing_date"])
+         ELSE
+            dClosingDate := Date()+90
+         ENDIF
          IF dRemindDate > Date()
             nRemindDays := CountWorkingDays(Date(),dRemindDate,GetConfigValue("STATE"),.T.)-1
          ELSE
             nRemindDays := 0
          ENDIF
+         IF HHasKey(hLead,"probability") .AND. hLead["probability"] != NIL
+            nProbability := hLead["probability"]
+         ELSE
+            nProbability := 75
+         ENDIF
+         IF HHasKey(hLead,"tags") .AND. ValType(hLead["tags"]) == "A"            
+            lLowEffort := AScan(hLead["tags"],{|x| x == "Aufwandsarm" }) != 0
+            hLeadData["tags"] := hLead["tags"] //we need to send the whole tag list again if we want to add or remove the Aufwandsarm tag, because the API does not support adding or removing specific tags
+         ELSE
+            lLowEffort := .F.
+            hLeadData["tags"] := {} //initialize it as an empty array if there are no tags, because we need to send the whole tag list again if we want to add the Aufwandsarm tag, because the API does not support adding or removing specific tags
+         ENDIF         
          nWeekDay    := DoW(dRemindDate)-1
          IF HHasKey(hLead,"extended_info") .AND. HHasKey(hLead["extended_info"],"user") .AND. ValType(hLead["extended_info"]["user"]) == "H" .AND. HHasKey(hLead["extended_info"]["user"],"email")
             cUsrEmail := hLead["extended_info"]["user"]["email"]
@@ -346,6 +371,14 @@ FUNCTION noCRM_Interface(lComment,cType)
          hLeadData["step"] := nStep //this is the step in the defined pipeline
       ENDIF
 
+      IF nLeadId == -1 .OR. ! HHasKey(hLead,"estimated_closing_date") .OR. hLead["estimated_closing_date"] == NIL .OR. dClosingDate != noCRM_DateConv(hLead["estimated_closing_date"])
+         hLeadData["estimated_closing_date"] := noCRM_DateConv(dClosingDate)
+      ENDIF
+
+      IF nLeadId == -1 .OR. ! HHasKey(hLead,"probability") .OR. hLead["probability"] == NIL .OR. hLead["probability"] != nProbability
+         hLeadData["probability"] := nProbability
+      ENDIF
+
       IF nLeadId == -1 .OR. hLead["amount"] == NIL
          hLeadData["amount"] := aValues[2]      
       ENDIF
@@ -378,6 +411,15 @@ FUNCTION noCRM_Interface(lComment,cType)
          oRec:Save()
       ENDIF     
 
+
+      IF lLowEffort .AND. AScan(hLeadData["tags"],{|x| x == "Aufwandsarm"}) == 0
+         Aadd(hLeadData["tags"],"Aufwandsarm")
+      ELSEIF ! lLowEffort .AND. (nX := AScan(hLeadData["tags"],{|x| x == "Aufwandsarm"})) != 0
+         //remove the tag if it is not needed anymore
+         HB_Adel(hLeadData["tags"],nX,.T.) //noCRM API does not support removing specific tags, so we need to send the whole list again without the Aufwandsarm tag
+      ENDIF
+
+
       //save any data which has been set to the lead
       IF Len(hLeadData) > 0                   
          hResponse := oNoCRM:Execute("leads/"+Ltrim(Str(oRec:Lead)),"PUT",hLeadData)
@@ -387,6 +429,7 @@ FUNCTION noCRM_Interface(lComment,cType)
             //Alert(ValToPrg(hResponse))
          ENDIF
       ENDIF
+
 
       IF lComment
          //Save quote as a comment on an existing lead

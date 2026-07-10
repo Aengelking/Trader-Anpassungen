@@ -140,7 +140,7 @@ FUNCTION SCN_AddArticle(aSCNList)
    @ 13,26 SAY "Zeichnung   " GET cZeichnung PICTURE "@K" VALID {||
       hItem["ZEICHNUNG"] := Trim(cZeichnung)
       
-      aDrawingFiles := GET_DRAWINGFILES( )
+      aDrawingFiles := GET_DRAWINGFILES( cZeichnung )
       IF Len(aDrawingFiles) == 0
          Tr_MsgBox("Keine Zeichnungsdatei gefunden")
          RETURN .F.
@@ -415,23 +415,23 @@ RETURN lFound
 /**
    Get all drawing files for a drawing number
 **/
-FUNC GET_DRAWINGFILES( )
+STATIC FUNC GET_DRAWINGFILES( cZeich )
 
    LOCAL cDir,nPos,nPos2,cInd
    LOCAL aSearch,nS
    LOCAL aFiles,nF
    LOCAL aData := {}   
-   LOCAL cZeich := CharRepl("/\?_-",Trim(art->Zeichnung)," ")
+   cZeich := CharRepl("/\?_-",Trim(cZeich)," ")
 
    cDir := "\\EK-SERVER4\Data\Technik\Prozessdoku\"+If(art->Kuzeichnun,"Kunden\","")   
    
-   aSearch := {cZeich+"*_*.*","0"+cZeich+"*_*.*"}
+   aSearch := {cZeich+"*.*","0"+cZeich+"*.*"}
   
    
    FOR nS := 1 TO Len(aSearch)
    
       aFiles := Directory(cDir+aSearch[nS])
-      
+   
       FOR nF := 1 TO Len(aFiles)
          nPos := At(cZeich,aFiles[nF,1])+Len(cZeich)-1
          nPos2 := At("_",aFiles[nF,1])

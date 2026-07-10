@@ -1,6 +1,6 @@
 PROC RUN_SHOPWARE_PRODUCTS  //donwload product ID's from website (this will run at night)
    LOCAL hSendData
-   LOCAL nLimit := 5000  //limit per page
+   LOCAL nLimit := 500  //limit per page
    LOCAL nDown  := 0
    LOCAL nFound := 0   
    LOCAL nWald  := 0

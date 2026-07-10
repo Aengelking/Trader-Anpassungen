@@ -289,8 +289,10 @@ FUNCTION RUN_FREPPLE_EXPORT()
             nArtnr := art->Artikelnr
             DO WHILE fol->Artikelnr == nArtnr
                art->(dbSeek( Str(fol->Folgeart,6) ))
-               Eval(bAddItem)
-               Aadd(aBom,{art->Matchcode,fol->Faktor,0,ATail(aOperations)[1],"end"})
+               IF art->Lagerart
+                  Eval(bAddItem)
+                  Aadd(aBom,{art->Matchcode,fol->Faktor,0,ATail(aOperations)[1],"end"})
+               ENDIF
                fol->(dbSkip())
             ENDDO
             art->(dbSeek( Str(nArtnr,6) ))
@@ -840,11 +842,12 @@ FUNCTION RUN_FREPPLE_EXPORT()
          art->(dbSeek( Str(mus->Artikelnr,6) )) 
          nDelWeek := AddWeeks(Cweek(mus->Datum),IF(art->LZ==0,nDefaultLZ,art->LZ)+nAddWeeks)
          
-         IF art->Lagerart      
-            cKunde := IF(mus->Gruppe!="K".AND. Val(mus->Gruppe) == 0,mus->Gruppe+"_","")+Trim(mus->Kunde)
+         IF art->Lagerart
+            
+            cKunde := IF(mus->Gruppe!="K",IF(mus->Gruppe=="L",mus->Gruppe,LTrim(Str(GetLieferAddrNo(mus->Gruppe))))+"_","")+Trim(mus->Kunde)
             Eval(bAddItem)
             IF AScan(aCustomers,{|x| x[1] == cKunde }) == 0            
-               Aadd(aCustomers,{Trim(mus->Kunde)})
+               Aadd(aCustomers,{cKunde})
             ENDIF   
             ku->(dbSetOrder( 1 ))
             ku->(dbSeek( mus->Kunde+mus->Gruppe ))    

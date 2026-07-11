@@ -358,7 +358,7 @@ METHOD GetUsers() CLASS NexusCrmApi
    buy->(dbGoTop())
    DO WHILE ! buy->(Eof())
       IF ! Empty(buy->Email)
-         cName := Trim(buy->Name)
+         cName := Trim(buy->Buyer)
          IF Empty(cName)
             cName := Trim(buy->Email)
          ENDIF
@@ -460,7 +460,7 @@ METHOD Execute(cMethod, cUrl, cData) CLASS NexusCrmApi
 
    //Setup headers with Bearer token
    aHeader := {;
-      "Authorization: Bearer " + GetValue("NEXUSCRM"),;
+      "Authorization: Bearer $APIKEY$",;
       "Content-Type: application/json",;
       "Accept: application/json";
    }

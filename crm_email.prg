@@ -89,7 +89,7 @@ RETURN
 // window.crmPickerSelect(String(ref), type), captured by crmPickerSelect().
 // Returns a hash {"ref"=>nRef,"type"=>cType} or NIL if cancelled.
 //---------------------------------------------------------------------------
-STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly)
+STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyName)
 	LOCAL nW, cUrl
 
 	gcCrmNewRef  := ""
@@ -105,7 +105,16 @@ STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly)
 	// Restrict to a single record kind ("opportunity" / "lead"), e.g. quotes
 	// can only be attached to opportunities.
 	IF ! Empty(cOnly)
-		cUrl += "only=" + CrmUrlEncode(cOnly)
+		cUrl += "only=" + CrmUrlEncode(cOnly) + "&"
+	ENDIF
+	// Firmenname als Fallback f�r die Firmen-Aufl�sung / Vorauswahl bei Neuanlage.
+	IF ! Empty(cCompanyName)
+		cUrl += "company=" + CrmUrlEncode(cCompanyName) + "&"
+	ENDIF
+	// ERP-Kundennummer: die Auswahl wird auf die Firma dieses Kunden begrenzt
+	// (nur Opportunities, die bereits der Firma zugeordnet sind).
+	IF ! Empty(cErpCustomer)
+		cUrl += "erp_customer=" + CrmUrlEncode(cErpCustomer)
 	ENDIF
 
 	nW := hb_webview_create(.T.)
@@ -309,7 +318,7 @@ RETURN LTrim(Str(Int(nAngnr)))
 // die Zuordnung wird im CRM gespeichert.
 // Gibt .T. zur�ck, wenn eine Zuordnung besteht (alt oder neu), sonst .F.
 //---------------------------------------------------------------------------
-FUNCTION CRM_QuoteAssign(nAngnr, cKunde)
+FUNCTION CRM_QuoteAssign(nAngnr, cKunde, cKundenName)
 	LOCAL oApi := CrmQuoteApi():New()
 	LOCAL cQuoteNo := CrmQuoteNumber(nAngnr)
 	LOCAL hStatus, hSel, xResp
@@ -317,7 +326,8 @@ FUNCTION CRM_QuoteAssign(nAngnr, cKunde)
 	LOCAL aValues, nValue := 0
 	LOCAL cTitle, cSubject
 
-	// cKunde ist f�r sp�tere Firmen-Vorauswahl im Picker reserviert.
+	Default(@cKunde,"")
+	Default(@cKundenName,"")
 
 	// 1) Schon zugeordnet? -> nichts zu tun
 	hStatus := oApi:Status(cQuoteNo)
@@ -335,9 +345,10 @@ FUNCTION CRM_QuoteAssign(nAngnr, cKunde)
 		nValue := 0
 	END SEQUENCE
 
-	// 3) Opportunity ausw�hlen oder neu anlegen (nur Opportunities)
+	// 3) Opportunity ausw�hlen oder neu anlegen. Nur Opportunities und nur die,
+	//    die bereits der Firma dieses Kunden zugeordnet sind (erp_customer).
 	cSubject := "Angebot " + cQuoteNo
-	hSel := ShowCrmPicker("", cSubject, "opportunity")
+	hSel := ShowCrmPicker("", cSubject, "opportunity", AllTrim(cKunde), AllTrim(cKundenName))
 	IF hSel == NIL
 		RETURN .F.        // abgebrochen
 	ENDIF
@@ -349,9 +360,11 @@ FUNCTION CRM_QuoteAssign(nAngnr, cKunde)
 		RETURN .F.
 	ENDIF
 
-	// 4) Zuordnung im CRM speichern
+	// 4) Zuordnung im CRM speichern. Der Server pr�ft zus�tzlich, dass die
+	//    Opportunity zur Firma des Kunden geh�rt (erp_customer_number/-name).
 	cTitle := "Angebot " + cQuoteNo
-	xResp := oApi:Assign(cQuoteNo, nRef, cTitle, nValue, SystemUser():Email)
+	xResp := oApi:Assign(cQuoteNo, nRef, cTitle, nValue, SystemUser():Email, ;
+		AllTrim(cKunde), AllTrim(cKundenName))
 	IF xResp == NIL
 		Wapi_MessageBox(,"Die Zuordnung im CRM ist fehlgeschlagen." + Chr(13)+Chr(10) + oApi:cErrorText,"CRM",0)
 		RETURN .F.
@@ -399,8 +412,9 @@ RETURN SELF
 METHOD Status(cQuoteNo) CLASS CrmQuoteApi
 RETURN ::Execute("GET", "?quote_number=" + CrmUrlEncode(cQuoteNo), NIL)
 
-// POST /assign -> verkn�pft quote_number mit Opportunity (per ref)
-METHOD Assign(cQuoteNo, nOppRef, cTitle, nValue, cUserEmail) CLASS CrmQuoteApi
+// POST /assign -> verkn�pft quote_number mit Opportunity (per ref). Die
+// ERP-Kundennummer/-name dienen dem Server zur Firmen-Pr�fung.
+METHOD Assign(cQuoteNo, nOppRef, cTitle, nValue, cUserEmail, cErpNumber, cErpName) CLASS CrmQuoteApi
 	LOCAL hData := {=>}
 	hData["quote_number"]    := cQuoteNo
 	hData["opportunity_ref"] := Int(nOppRef)
@@ -408,6 +422,12 @@ METHOD Assign(cQuoteNo, nOppRef, cTitle, nValue, cUserEmail) CLASS CrmQuoteApi
 	hData["min_amount"]      := nValue
 	hData["max_amount"]      := nValue
 	hData["user_email"]      := cUserEmail
+	IF ! Empty(cErpNumber)
+		hData["erp_customer_number"] := cErpNumber
+	ENDIF
+	IF ! Empty(cErpName)
+		hData["erp_customer_name"] := hb_strToUtf8(cErpName)
+	ENDIF
 RETURN ::Execute("POST", "assign", hData)
 
 // POST /report -> Text-Aktivit�t an die verkn�pfte Opportunity

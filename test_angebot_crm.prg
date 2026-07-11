@@ -64,7 +64,7 @@ STATIC FUNCTION TestBeforePrint(nAngnr)
 	LOCAL xRet
 
 	LoadPrg(Path("run\crm_email.prg"))
-	xRet := HB_ExecFromArray({"CRM_QuoteAssign", nAngnr, ku->Kunde})
+	xRet := HB_ExecFromArray({"CRM_QuoteAssign", nAngnr, ku->Kunde, ku->Name1})
 
 	IF ValType(xRet) == "L" .AND. xRet
 		Wapi_MessageBox(,"before_print OK:" + Chr(13)+Chr(10) + ;

@@ -11,17 +11,18 @@ STATIC gpCrmWebview
 
 /**
 CRM Email Anbindung
-Holt Leads/Opportunities ÔøΩber die api-crm-picker Edge Function aus dem
+Holt Leads/Opportunities Åber die api-crm-picker Edge Function aus dem
 Lovable CRM (engelking-crm / Supabase rxaltcsbhcxlczjjczxs) und erlaubt die
-Auswahl in einer durchsuchbaren Liste. Die gewÔøΩhlte Ref-Nr wird als
+Auswahl in einer durchsuchbaren Liste. Die gewÑhlte Ref-Nr wird als
 [#EK-L<ref>] bzw. [#EK-O<ref>] in den Betreff geschrieben und die E-Mail an
-das CRM weitergeleitet (receive-email matcht ÔøΩber diesen Token).
+das CRM weitergeleitet (receive-email matcht Åber diesen Token).
 **/
 
 PROC RUN_CRM_EMAIL(cMsgPath)
 	LOCAL oAccount, cArchive, oArchive, oMsg
 	LOCAL cID := "", cObjectType := "", nX, nType := 1
 	LOCAL oApi, hSel
+	LOCAL getlist := {}
 
 	oAccount := DV_GetMailAccount()
 	cArchive := SubStr(cMsgPath,1,RAT("\",cMsgPath)-1)
@@ -29,13 +30,13 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 	oMsg := oArchive:GetArchiveEntryById(cMsgPath)
 
 	IF oMsg:Type != 2
-		Tr_MsgBox("Nur Emails kÔøΩnnen an das CRM weitergeleitet werden.")
+		Tr_MsgBox("Nur Emails kînnen an das CRM weitergeleitet werden.")
 		RETURN
 	ENDIF
 
 	CRM_Picker_Setup()
 
-	Head("Lead/Opportunity auswÔøΩhlen")
+	Head("Lead/Opportunity auswÑhlen")
 
 	@ 01,00,05,20 GET nType LISTBOX {"Lead","Opportunity"} STATE {||
 		IF nType == 1
@@ -43,6 +44,7 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 		ELSEIF nType == 2
 			cObjectType := "Opportunity"
 		ENDIF
+		RETURN .T.
 	}
 	READ
 
@@ -76,7 +78,7 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 
 	// Validate selected values
 	IF Empty(cID) .OR. Empty(cObjectType)
-		Tr_MsgBox("UngÔøΩltige Auswahl. Bitte versuchen Sie es erneut.")
+		Tr_MsgBox("UngÅltige Auswahl. Bitte versuchen Sie es erneut.")
 		RETURN
 	ENDIF
 
@@ -108,7 +110,7 @@ FUNCTION CRM_Picker_Setup()
 	//NOTE: the base URL is hardcoded in CrmPickerApi:New() so a mis-set config
 	//value cannot break the call; NEXUSCRM (the Bearer token = TRADER_API_KEY)
 	//is shared with the NexusCRM connector and is registered there as well.
-	GetValue("NEXUSCRM","","API Key fÔøΩr das CRM (Bearer Token / TRADER_API_KEY)")
+	GetValue("NEXUSCRM","","API Key fÅr das CRM (Bearer Token / TRADER_API_KEY)")
 RETURN NIL
 
 STATIC FUNCTION CrmStr(x)
@@ -224,7 +226,7 @@ METHOD ChooseObject(cType) CLASS CrmPickerApi
 
 	//first entry: create a new record (handled by the caller via a webview)
 	Aadd(aItems, {"__new__" => .T., "type" => cType})
-	Aadd(aList,  "  ¬ª Neue(n) " + IF(cType == "lead","Lead","Opportunity") + " anlegen ¬´")
+	Aadd(aList,  ">> Neue(n) " + IF(cType == "lead","Lead","Opportunity") + " anlegen <<")
 
 	//remaining entries: existing records (ref is unique per type -> unique rows)
 	FOR EACH hItem IN aData
@@ -236,7 +238,7 @@ METHOD ChooseObject(cType) CLASS CrmPickerApi
 	NEXT
 
 	@ nTop,nLeft TO nBottom,nRight
-	@ nTop,nLeft+1 SAY IF(cType == "lead"," Lead wÔøΩhlen / anlegen (tippen zum Suchen) "," Opportunity wÔøΩhlen / anlegen (tippen zum Suchen) ")
+	@ nTop,nLeft+1 SAY IF(cType == "lead"," Lead wÑhlen / anlegen (tippen zum Suchen) "," Opportunity wÑhlen / anlegen (tippen zum Suchen) ")
 
 	oBrowse := TABrowse():New(nTop+1,nLeft+1,nBottom-1,nRight-1)
 	oBrowse:lBox := .F.
@@ -244,7 +246,7 @@ METHOD ChooseObject(cType) CLASS CrmPickerApi
 	oBrowse:HeadSep := ""
 	oBrowse:NewColumn(NIL,{||
 		IF Len(oBrowse:aData) == 0 .OR. ! Eval(oBrowse:ForBlock)
-			RETURN Pad("Keine EintrÔøΩge ",oBrowse:nRight-oBrowse:nLeft+1)
+			RETURN Pad("Keine EintrÑge ",oBrowse:nRight-oBrowse:nLeft+1)
 		ENDIF
 		RETURN Pad(oBrowse:CurrentDataRow(),oBrowse:nRight-oBrowse:nLeft+1)
 	})
@@ -313,18 +315,19 @@ STATIC FUNCTION ShowCrmCreate(cType, cEmail, cSubject)
 	IF ! Empty(cSubject)
 		cUrl += "&subject=" + CrmUrlEncode(cSubject)
 	ENDIF
-
+	
 	//give the webview its own GT so it cannot disturb the text console,
 	//and restore the previous GT afterwards
-	nOldGt := hb_gtSelect()
-	HB_gtSelect(HB_GTCREATE("gtcgi"))
+	//nOldGt := hb_gtSelect()
+	//HB_gtSelect(HB_GTCREATE("gtcgi"))
 
 	nW := hb_webview_create(.T.)
 	IF nW == NIL
-		HB_gtSelect(nOldGt)
-		Tr_MsgBox("Das CRM-Fenster konnte nicht geÔøΩffnet werden.")
+		//HB_gtSelect(nOldGt)
+		Tr_MsgBox("Das CRM-Fenster konnte nicht geîffnet werden.")
 		RETURN NIL
 	ENDIF
+	TxtBox("Anlage in neuem Fenster. Warte bis das Fenster geschlossen wird.")
 	gpCrmWebview := nW
 
 	ErrorBlock({|oError|
@@ -343,8 +346,9 @@ STATIC FUNCTION ShowCrmCreate(cType, cEmail, cSubject)
 	hb_webview_destroy(nW)
 	gpCrmWebview := NIL
 
-	HB_gtSelect(nOldGt)
-
+	//HB_gtSelect(nOldGt)
+	TxtClear()
+	Alert("Fenster geschlossen. Weiter mit der E-Mail-Verarbeitung.")
 	IF Empty(gcCrmNewRef)
 		RETURN NIL
 	ENDIF
@@ -356,13 +360,15 @@ FUNCTION crmPickerSelect(cRef, cType)
 	gcCrmNewRef  := IF(ValType(cRef)  == "C", cRef,  LTrim(Str(cRef)))
 	gcCrmNewType := IF(ValType(cType) == "C", cType, "")
 	CrmCloseWebview()   //stop the modal loop -> ShowCrmCreate continues
+	Alert("Neuer Eintrag erfolgreich angelegt: " + gcCrmNewType + " #" + gcCrmNewRef)
 RETURN .T.
 
 // Called from the web app when the user cancels/closes without creating
 FUNCTION crmPickerCancel()
-	gcCrmNewRef  := ""
-	gcCrmNewType := ""
+	//gcCrmNewRef  := ""
+	//gcCrmNewType := ""
 	CrmCloseWebview()
+	//Alert("Es wurde kein neuer Eintrag angelegt.")
 RETURN .F.
 
 // Terminate the modal webview loop if the runtime provides the function;

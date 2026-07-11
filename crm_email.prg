@@ -2,6 +2,13 @@
 #include 'inkey.ch'
 #include 'set.ch'
 
+#define HB_CALL_FUNC_DIRECT   1
+
+// Result of the "create new" webview flow (set by the crmPickerSelect callback)
+STATIC gcCrmNewRef  := ""
+STATIC gcCrmNewType := ""
+STATIC gpCrmWebview
+
 /**
 CRM Email Anbindung
 Holt Leads/Opportunities �ber die api-crm-picker Edge Function aus dem
@@ -52,6 +59,17 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 	IF hSel == NIL
 		Alert("Die Auswahl wurde abgebrochen. Die E-Mail wurde nicht weitergeleitet.")
 		RETURN
+	ENDIF
+
+	// "Neu anlegen" chosen: open the CRM web app in a webview to create the
+	// record, then receive its new ref number back from the web app.
+	IF ValType(hSel) == "H" .AND. HHasKey(hSel,"__new__")
+		hSel := ShowCrmCreate(IF(nType == 1,"lead","opportunity"),;
+			CrmMailField(oMsg,"SRFrom"), CrmMailField(oMsg,"Subject"))
+		IF hSel == NIL
+			Alert("Es wurde kein neuer Eintrag angelegt. Die E-Mail wurde nicht weitergeleitet.")
+			RETURN
+		ENDIF
 	ENDIF
 
 	cID := LTrim(Str(Int(hSel["ref"])))
@@ -188,7 +206,7 @@ METHOD List(cEndpoint) CLASS CrmPickerApi
 RETURN aAll
 
 METHOD ChooseObject(cType) CLASS CrmPickerApi
-	LOCAL aData, aList := {}, hItem, oBrowse
+	LOCAL aData, aItems := {}, aList := {}, hItem, oBrowse
 	LOCAL cSearch := ""
 	LOCAL cEndpoint := IF(cType == "lead","leads","opportunities")
 	LOCAL hResult := NIL
@@ -203,21 +221,22 @@ METHOD ChooseObject(cType) CLASS CrmPickerApi
 		Tr_MsgBox("Fehler beim Laden aus dem CRM: " + ::cErrorText)
 		RETURN NIL
 	ENDIF
-	IF Len(aData) == 0
-		Tr_MsgBox("Keine Eintr�ge gefunden.")
-		RETURN NIL
-	ENDIF
 
-	//build display strings (ref is unique per type -> unique rows)
+	//first entry: create a new record (handled by the caller via a webview)
+	Aadd(aItems, {"__new__" => .T., "type" => cType})
+	Aadd(aList,  "  » Neue(n) " + IF(cType == "lead","Lead","Opportunity") + " anlegen «")
+
+	//remaining entries: existing records (ref is unique per type -> unique rows)
 	FOR EACH hItem IN aData
 		cRef     := IF(ValType(hItem["ref"]) == "N", LTrim(Str(Int(hItem["ref"]))), "?")
 		cTitle   := CrmStr(hItem["title"])
 		cCompany := CrmStr(hItem["company"])
-		Aadd(aList, PadR("#" + cRef + "  " + cTitle, 42) + " " + cCompany)
+		Aadd(aItems, hItem)
+		Aadd(aList,  PadR("#" + cRef + "  " + cTitle, 42) + " " + cCompany)
 	NEXT
 
 	@ nTop,nLeft TO nBottom,nRight
-	@ nTop,nLeft+1 SAY IF(cType == "lead"," Lead w�hlen (tippen zum Suchen) "," Opportunity w�hlen (tippen zum Suchen) ")
+	@ nTop,nLeft+1 SAY IF(cType == "lead"," Lead w�hlen / anlegen (tippen zum Suchen) "," Opportunity w�hlen / anlegen (tippen zum Suchen) ")
 
 	oBrowse := TABrowse():New(nTop+1,nLeft+1,nBottom-1,nRight-1)
 	oBrowse:lBox := .F.
@@ -235,7 +254,7 @@ METHOD ChooseObject(cType) CLASS CrmPickerApi
 		IF Len(oBrowse:aData) != 0 .AND. Eval(oBrowse:ForBlock)
 			nX := AScan(aList,{|s| s == oBrowse:CurrentDataRow() })
 			IF nX != 0
-				hResult := aData[nX]
+				hResult := aItems[nX]
 				RETURN .F.
 			ENDIF
 		ENDIF
@@ -274,3 +293,122 @@ METHOD ChooseObject(cType) CLASS CrmPickerApi
 	oBrowse:Display()
 
 RETURN hResult
+
+//---------------------------------------------------------------------------
+// "Create new" flow: open the CRM web app (/picker/create) in a modal webview.
+// The web app creates the Lead/Opportunity as the logged-in user and calls
+// window.crmPickerSelect(String(ref), type) which lands in crmPickerSelect()
+// below. Returns a hash {"ref"=>nRef,"type"=>cType} or NIL if nothing created.
+//---------------------------------------------------------------------------
+STATIC FUNCTION ShowCrmCreate(cType, cEmail, cSubject)
+	LOCAL nW, cUrl, nOldGt
+
+	gcCrmNewRef  := ""
+	gcCrmNewType := ""
+
+	cUrl := "https://engelking-crm.lovable.app/picker/create?type=" + cType
+	IF ! Empty(cEmail)
+		cUrl += "&email=" + CrmUrlEncode(cEmail)
+	ENDIF
+	IF ! Empty(cSubject)
+		cUrl += "&subject=" + CrmUrlEncode(cSubject)
+	ENDIF
+
+	//give the webview its own GT so it cannot disturb the text console,
+	//and restore the previous GT afterwards
+	nOldGt := hb_gtSelect()
+	HB_gtSelect(HB_GTCREATE("gtcgi"))
+
+	nW := hb_webview_create(.T.)
+	IF nW == NIL
+		HB_gtSelect(nOldGt)
+		Tr_MsgBox("Das CRM-Fenster konnte nicht ge�ffnet werden.")
+		RETURN NIL
+	ENDIF
+	gpCrmWebview := nW
+
+	ErrorBlock({|oError|
+		hb_webview_eval(nW, 'window.alert("' + ErrorMessage(oError) + '")')
+		RETURN .T.
+	})
+
+	hb_webview_set_title(nW, "CRM - Neuen Eintrag anlegen")
+
+	//JS -> Harbour callbacks (resolved by name via HB_CALL_FUNC_DIRECT)
+	hb_webview_bind2(nW, "crmPickerSelect", HB_CALL_FUNC_DIRECT)
+	hb_webview_bind2(nW, "crmPickerCancel", HB_CALL_FUNC_DIRECT)
+
+	hb_webview_navigate(nW, cUrl)
+	hb_webview_run(nW)          //modal: blocks until the window is closed/terminated
+	hb_webview_destroy(nW)
+	gpCrmWebview := NIL
+
+	HB_gtSelect(nOldGt)
+
+	IF Empty(gcCrmNewRef)
+		RETURN NIL
+	ENDIF
+
+RETURN {"ref" => Val(gcCrmNewRef), "type" => gcCrmNewType}
+
+// Called from the web app: window.crmPickerSelect(String(ref), type)
+FUNCTION crmPickerSelect(cRef, cType)
+	gcCrmNewRef  := IF(ValType(cRef)  == "C", cRef,  LTrim(Str(cRef)))
+	gcCrmNewType := IF(ValType(cType) == "C", cType, "")
+	CrmCloseWebview()   //stop the modal loop -> ShowCrmCreate continues
+RETURN .T.
+
+// Called from the web app when the user cancels/closes without creating
+FUNCTION crmPickerCancel()
+	gcCrmNewRef  := ""
+	gcCrmNewType := ""
+	CrmCloseWebview()
+RETURN .F.
+
+// Terminate the modal webview loop if the runtime provides the function;
+// otherwise we rely on the web app's window.close().
+STATIC FUNCTION CrmCloseWebview()
+	IF gpCrmWebview != NIL .AND. hb_IsFunction("HB_WEBVIEW_TERMINATE")
+		hb_webview_terminate(gpCrmWebview)
+	ENDIF
+RETURN NIL
+
+// UTF-8 aware percent-encoding for query parameters
+STATIC FUNCTION CrmUrlEncode(cStr)
+	LOCAL cOut := "", nI, cCh
+
+	IF ValType(cStr) != "C"
+		RETURN ""
+	ENDIF
+
+	cStr := hb_strToUtf8(cStr)
+	FOR nI := 1 TO Len(cStr)
+		cCh := SubStr(cStr, nI, 1)
+		IF (cCh >= "A" .AND. cCh <= "Z") .OR. (cCh >= "a" .AND. cCh <= "z") .OR. ;
+		   (cCh >= "0" .AND. cCh <= "9") .OR. cCh $ "-_.~"
+			cOut += cCh
+		ELSE
+			cOut += "%" + PadL(Upper(hb_NumToHex(Asc(cCh))), 2, "0")
+		ENDIF
+	NEXT
+
+RETURN cOut
+
+// Safe read of an e-mail field (returns "" if the field is missing)
+STATIC FUNCTION CrmMailField(oMsg, cField)
+	LOCAL xVal := ""
+	LOCAL bOld := ErrorBlock({|e| Break(e) })
+
+	BEGIN SEQUENCE
+		xVal := oMsg:Fields(cField):Value
+	RECOVER
+		xVal := ""
+	END SEQUENCE
+
+	ErrorBlock(bOld)
+
+	IF ValType(xVal) != "C"
+		xVal := ""
+	ENDIF
+
+RETURN AllTrim(xVal)

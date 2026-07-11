@@ -29,16 +29,17 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 	oMsg := oArchive:GetArchiveEntryById(cMsgPath)
 
 	IF oMsg:Type != 2
-		Tr_MsgBox("Nur Emails kï¿½nnen an das CRM weitergeleitet werden.")
+		Wapi_MessageBox(,"Nur Emails k”nnen an das CRM weitergeleitet werden.","CRM Weiterleitung",0)
 		RETURN
 	ENDIF
 
+	
 	// Open the CRM web picker (select existing or create new) in a webview.
 	// It returns the chosen record's ref number and type ("lead"/"opportunity").
 	hSel := ShowCrmPicker(CrmMailField(oMsg,"SRFrom"), CrmMailField(oMsg,"Subject"))
 
 	IF hSel == NIL
-		Tr_MsgBox("Die Auswahl wurde abgebrochen. Die E-Mail wurde nicht weitergeleitet.")
+		Wapi_MessageBox("Die Auswahl wurde abgebrochen. Die E-Mail wurde nicht weitergeleitet.","Abbruch",0)
 		RETURN
 	ENDIF
 
@@ -47,7 +48,7 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 	cTypeChar   := IF(Lower(cObjectType) == "lead", "L", "O")
 
 	IF Empty(cID)
-		Tr_MsgBox("Ungï¿½ltige Auswahl. Bitte versuchen Sie es erneut.")
+		Wapi_MessageBox(,"Ungltige Auswahl. Bitte versuche es erneut.","Fehler",0)
 		RETURN
 	ENDIF
 
@@ -64,9 +65,9 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 				oMsg:Recipients:Add("crm@iokronuere.resend.app")
 				oMsg:Forward(1,0)
 
-				Tr_MsgBox({"Email erfolgreich an das CRM weitergeleitet." , "ID: " + cID , "Typ: " + cObjectType})
+				//Tr_MsgBox({"Email erfolgreich an das CRM weitergeleitet." , "ID: " + cID , "Typ: " + cObjectType})
 			RECOVER
-				Tr_MsgBox("Fehler beim Weiterleiten der E-Mail aus dem CRM.")
+				Wapi_MessageBox(,"Fehler beim Weiterleiten der E-Mail an das CRM" , "Fehler", 0)
 			END
 			EXIT
 		ENDIF
@@ -96,7 +97,8 @@ STATIC FUNCTION ShowCrmPicker(cEmail, cSubject)
 
 	nW := hb_webview_create(.T.)
 	IF nW == NIL
-		Tr_MsgBox("Das CRM-Fenster konnte nicht geï¿½ffnet werden.")
+		CreateMainWindow()
+		wapi_MessageBox(,"Das CRM-Fenster konnte nicht ge”ffnet werden.","Fehler",0)
 		RETURN NIL
 	ENDIF
 	TxtBox("CRM-Auswahl im neuen Fenster. Warte bis das Fenster geschlossen wird.")
@@ -107,7 +109,7 @@ STATIC FUNCTION ShowCrmPicker(cEmail, cSubject)
 		RETURN .T.
 	})
 
-	hb_webview_set_title(nW, "CRM - Lead/Opportunity auswï¿½hlen")
+	hb_webview_set_title(nW, "CRM - Lead/Opportunity ausw„hlen")
 
 	//JS -> Harbour callbacks (resolved by name via HB_CALL_FUNC_DIRECT)
 	hb_webview_bind2(nW, "crmPickerSelect", HB_CALL_FUNC_DIRECT)

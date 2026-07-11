@@ -30,30 +30,31 @@ IF lCrmQuotes
    RECOVER
       //nicht fatal
    END SEQUENCE
-ENDIF
-
-IF ! lNoCrm
-   
-
-   dDate := Date()+7  //allgemein eine Woche
-   If aValues[2] > 500 //the quote is at least worth 500 EUR
-      If DoW(dDate) > 3  //it is wednesday or later
-         dDate := Date()+5  //add weekend
-      Else
-         dDate := Date()+3
-      Endif
-   Endif
-
-   While lFirst .OR. LastKey() == 27 .OR. dDate < Date()+1
-      dDate := GetBox(dDate,"Wiedervorlage")
-      lFirst := .F.
-   End
-  
-   AddWiedervorlage(dDate,"Wiedervorlage Angebot "+LTrim(Str(nAngNr))+" "+ku->Name1,cText,"ANG:"+ku->Kunde+Str(nAngNr,6),aAttach)
 ELSE
-   ang->(dbSetOrder( 1 ))
-   ang->(dbSeek( Str(nAngnr,6) ))
-   noCRM_Interface()
+
+   IF ! lNoCrm
+      
+
+      dDate := Date()+7  //allgemein eine Woche
+      If aValues[2] > 500 //the quote is at least worth 500 EUR
+         If DoW(dDate) > 3  //it is wednesday or later
+            dDate := Date()+5  //add weekend
+         Else
+            dDate := Date()+3
+         Endif
+      Endif
+
+      While lFirst .OR. LastKey() == 27 .OR. dDate < Date()+1
+         dDate := GetBox(dDate,"Wiedervorlage")
+         lFirst := .F.
+      End
+   
+      AddWiedervorlage(dDate,"Wiedervorlage Angebot "+LTrim(Str(nAngNr))+" "+ku->Name1,cText,"ANG:"+ku->Kunde+Str(nAngNr,6),aAttach)
+   ELSE
+      ang->(dbSetOrder( 1 ))
+      ang->(dbSeek( Str(nAngnr,6) ))
+      noCRM_Interface()
+   ENDIF
 ENDIF
 
 If aValues[1] > 3000 //Nachricht an Thimo

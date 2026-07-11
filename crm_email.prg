@@ -105,11 +105,10 @@ CLASS CrmPickerApi FROM RestApi
 ENDCLASS
 
 METHOD New() CLASS CrmPickerApi
-	// Base URL is hardcoded on purpose: a mis-set config value would make
-	// Supabase return {"code":"NOT_FOUND"}. Uses the same host/scheme as the
-	// working api-opportunities function.
-	::cBaseUrl := "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-crm-picker"
-	//::cBaseUrl := GetValue("CRM_PICKER_URL","https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-crm-picker")
+	// Base URL is hardcoded on purpose. IMPORTANT: RestApi:Execute prepends
+	// ::cBaseUrl to the (relative) path it is given, so the base URL MUST end
+	// with "/" and Execute() below must pass a RELATIVE path (see nocrm.prg).
+	::cBaseUrl := "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-crm-picker/"
 	::Super:New()
 RETURN SELF
 
@@ -124,7 +123,9 @@ METHOD Execute(cMethod, cUrl, cData) CLASS CrmPickerApi
 	Default(@cUrl,"")
 	Default(@cData,"")
 
-	cFullUrl := ::cBaseUrl + IF(Empty(cUrl),"","/"+cUrl)
+	//cUrl is RELATIVE (e.g. "leads?limit=200&offset=0"); the RestApi base
+	//prepends ::cBaseUrl. cFullUrl is only used for error messages.
+	cFullUrl := ::cBaseUrl + cUrl
 
 	aHeader := {;
 		"Authorization: Bearer " + GetValue("NEXUSCRM"),;
@@ -132,7 +133,7 @@ METHOD Execute(cMethod, cUrl, cData) CLASS CrmPickerApi
 		"Accept: application/json";
 	}
 
-	cResponse := ::Super:Execute(cFullUrl, cMethod, cData, aHeader, .F., @nResponse)
+	cResponse := ::Super:Execute(cUrl, cMethod, cData, aHeader, .F., @nResponse)
 
 	IF Empty(cResponse)
 		::cErrorText := "Keine Antwort vom Server (HTTP " + LTrim(Str(nResponse)) + ") - " + cFullUrl

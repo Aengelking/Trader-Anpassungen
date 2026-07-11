@@ -33,13 +33,18 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 		RETURN
 	ENDIF
 
+	IF hb_regexMatch(".*\[#EK-(L|O)[0-9]{1,}.*", oMsg:Subject)
+		Wapi_MessageBox(,"Die E-Mail wurde bereits an das CRM weitergeleitet.","CRM Weiterleitung",0)
+		RETURN
+	ENDIF
+
 	
 	// Open the CRM web picker (select existing or create new) in a webview.
 	// It returns the chosen record's ref number and type ("lead"/"opportunity").
 	hSel := ShowCrmPicker(CrmMailField(oMsg,"SRFrom"), CrmMailField(oMsg,"Subject"))
 
 	IF hSel == NIL
-		Wapi_MessageBox("Die Auswahl wurde abgebrochen. Die E-Mail wurde nicht weitergeleitet.","Abbruch",0)
+		Wapi_MessageBox(,"Die Auswahl wurde abgebrochen. Die E-Mail wurde nicht weitergeleitet.","Abbruch",0)
 		RETURN
 	ENDIF
 

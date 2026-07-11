@@ -18,7 +18,7 @@ FUNCTION HOOK_before_print_angebot(nAngnr,hSettings)
    IF lCrmQuotes
       BEGIN SEQUENCE
          LoadPrg(Path("run\crm_email.prg"))
-         HB_ExecFromArray({"CRM_QuoteAssign", nAngnr, ku->Kunde})
+         HB_ExecFromArray({"CRM_QuoteAssign", nAngnr, ku->Kunde, ku->Name1})
       RECOVER
          //nicht fatal
       END SEQUENCE

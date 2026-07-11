@@ -11,10 +11,6 @@ PROCEDURE RUN_DAVID_CONTEXT( cFunction,cMsgPath )
    LOCAL aPaint := {},oAtt
    LOCAL cTempPath := GetEnv("temp")+"\"
 
-   //IF Upper(cFunction) != "CRM"
-      CreateMainWindow()
-   //ENDIF
-
    SWITCH Upper(cFunction)
       CASE "COC"
          IF ! Empty(cMsgPath)  //email

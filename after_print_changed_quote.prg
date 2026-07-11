@@ -3,6 +3,9 @@ PROC HOOK_AFTER_PRINT_CHANGED_QUOTE(nAngnr,cPDF)
 LOCAL lFirst := .T.
 LOCAL aValues,dDate,aAttach,cText,aContact
 LOCAL lNoCrm := .T. //Tr_Getini(28) $ {9,33,28,58}
+// CRM (Transition): Angebot als Aktivit�t an die verkn�pfte Opportunity melden.
+// L�uft zus�tzlich zum noCRM-Pfad. Aktivieren: lCrmQuotes := Tr_Getini(28) $ {9,33,28,58}
+LOCAL lCrmQuotes := .F.
 
 aValues := EnquiryAddUp(nAngnr,.T.)
 aAttach := {}
@@ -17,6 +20,17 @@ cText += "Ansprechpartner: "+aContact["name"]+Chr(13)+Chr(10)
 cText += "Telefon: "+aContact["fullphone"]+Chr(13)+Chr(10)
 cText += "Wert: "+LTrim(Str(aValues[2],12,2))+Chr(13)+Chr(10)
 cText += "Gedruckt am: "+DToC(Date())
+
+// CRM (Transition): Text-Aktivit�t "Angebot gedruckt" an die zugeordnete
+// Opportunity h�ngen (Zuordnung erfolgte in before_print_angebot). Best-effort.
+IF lCrmQuotes
+   BEGIN SEQUENCE
+      LoadPrg(Path("run\crm_email.prg"))
+      HB_ExecFromArray({"CRM_QuoteReport", nAngnr, aValues[2], cText})
+   RECOVER
+      //nicht fatal
+   END SEQUENCE
+ENDIF
 
 IF ! lNoCrm
    

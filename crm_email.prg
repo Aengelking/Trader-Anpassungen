@@ -59,7 +59,7 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 	hSel := oApi:ChooseObject(IF(nType == 1,"lead","opportunity"))
 
 	IF hSel == NIL
-		Alert("Die Auswahl wurde abgebrochen. Die E-Mail wurde nicht weitergeleitet.")
+		Tr_MsgBox("Die Auswahl wurde abgebrochen. Die E-Mail wurde nicht weitergeleitet.")
 		RETURN
 	ENDIF
 
@@ -69,7 +69,7 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 		hSel := ShowCrmCreate(IF(nType == 1,"lead","opportunity"),;
 			CrmMailField(oMsg,"SRFrom"), CrmMailField(oMsg,"Subject"))
 		IF hSel == NIL
-			Alert("Es wurde kein neuer Eintrag angelegt. Die E-Mail wurde nicht weitergeleitet.")
+			Tr_MsgBox("Es wurde kein neuer Eintrag angelegt. Die E-Mail wurde nicht weitergeleitet.")
 			RETURN
 		ENDIF
 	ENDIF
@@ -343,7 +343,7 @@ STATIC FUNCTION ShowCrmCreate(cType, cEmail, cSubject)
 
 	hb_webview_navigate(nW, cUrl)
 	hb_webview_run(nW)          //modal: blocks until the window is closed/terminated
-	Alert("Fenster geschlossen. Weiter mit der E-Mail-Verarbeitung.")
+	
 	hb_webview_destroy(nW)
 	gpCrmWebview := NIL
 
@@ -360,7 +360,7 @@ RETURN {"ref" => Val(gcCrmNewRef), "type" => gcCrmNewType}
 FUNCTION crmPickerSelect(cRef, cType)
 	gcCrmNewRef  := IF(ValType(cRef)  == "C", cRef,  LTrim(Str(cRef)))
 	gcCrmNewType := IF(ValType(cType) == "C", cType, "")
-	Alert("Neuer Eintrag erfolgreich angelegt: " + gcCrmNewType + " #" + gcCrmNewRef)
+	
 	CrmCloseWebview()   //stop the modal loop -> ShowCrmCreate continues	
 RETURN .T.
 
@@ -369,7 +369,7 @@ FUNCTION crmPickerCancel()
 	//gcCrmNewRef  := ""
 	//gcCrmNewType := ""
 	CrmCloseWebview()
-	//Alert("Es wurde kein neuer Eintrag angelegt.")
+	
 RETURN .F.
 
 // Terminate the modal webview loop if the runtime provides the function;

@@ -102,6 +102,8 @@ CLASS CrmPickerApi FROM RestApi
 	METHOD Execute
 	METHOD List
 	METHOD ChooseObject
+	
+	DATA cErrorText
 ENDCLASS
 
 METHOD New() CLASS CrmPickerApi
@@ -127,8 +129,10 @@ METHOD Execute(cMethod, cUrl, cData) CLASS CrmPickerApi
 	//prepends ::cBaseUrl. cFullUrl is only used for error messages.
 	cFullUrl := ::cBaseUrl + cUrl
 
+	::cApiKeyName := "NEXUSCRM"
+
 	aHeader := {;
-		"Authorization: Bearer " + GetValue("NEXUSCRM"),;
+		"Authorization: Bearer $APIKEY$",;
 		"Content-Type: application/json",;
 		"Accept: application/json";
 	}

@@ -217,7 +217,7 @@ METHOD Execute(cMethod, cUrl, hData) CLASS CrmEmailApi
 	LOCAL aHeader
 	LOCAL cResponse := ""
 	LOCAL nResponse := 0
-	LOCAL xReturn, cData
+	LOCAL xReturn
 
 	Default(@cMethod,"POST")
 	Default(@cUrl,"")
@@ -230,10 +230,12 @@ METHOD Execute(cMethod, cUrl, hData) CLASS CrmEmailApi
 		"Accept: application/json";
 	}
 
-	cData := IF(ValType(hData) == "C", hData, HB_JsonEncode(hData))
-
-	//cUrl is RELATIVE; the RestApi base prepends ::cBaseUrl
-	cResponse := ::Super:Execute(cUrl, cMethod, cData, aHeader, .T., @nResponse)
+	// Pass the HASH (not a pre-encoded string): RestApi:Execute JSON-encodes it
+	// once for non-GET when lPostJson=.T. (see nocrm.prg). Pre-encoding here would
+	// double-encode it into a JSON string literal, so the server would receive a
+	// string with no fields ("type/ref required"). cUrl is RELATIVE; the RestApi
+	// base prepends ::cBaseUrl.
+	cResponse := ::Super:Execute(cUrl, cMethod, hData, aHeader, .T., @nResponse)
 
 	IF Empty(cResponse)
 		::cErrorText := "Keine Antwort vom Server (HTTP " + LTrim(Str(nResponse)) + ")"

@@ -343,12 +343,13 @@ STATIC FUNCTION ShowCrmCreate(cType, cEmail, cSubject)
 
 	hb_webview_navigate(nW, cUrl)
 	hb_webview_run(nW)          //modal: blocks until the window is closed/terminated
+	Alert("Fenster geschlossen. Weiter mit der E-Mail-Verarbeitung.")
 	hb_webview_destroy(nW)
 	gpCrmWebview := NIL
 
 	//HB_gtSelect(nOldGt)
 	TxtClear()
-	Alert("Fenster geschlossen. Weiter mit der E-Mail-Verarbeitung.")
+	
 	IF Empty(gcCrmNewRef)
 		RETURN NIL
 	ENDIF
@@ -359,8 +360,8 @@ RETURN {"ref" => Val(gcCrmNewRef), "type" => gcCrmNewType}
 FUNCTION crmPickerSelect(cRef, cType)
 	gcCrmNewRef  := IF(ValType(cRef)  == "C", cRef,  LTrim(Str(cRef)))
 	gcCrmNewType := IF(ValType(cType) == "C", cType, "")
-	CrmCloseWebview()   //stop the modal loop -> ShowCrmCreate continues
 	Alert("Neuer Eintrag erfolgreich angelegt: " + gcCrmNewType + " #" + gcCrmNewRef)
+	CrmCloseWebview()   //stop the modal loop -> ShowCrmCreate continues	
 RETURN .T.
 
 // Called from the web app when the user cancels/closes without creating

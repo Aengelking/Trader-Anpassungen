@@ -318,7 +318,9 @@ RETURN LTrim(Str(Int(nAngnr)))
 // die Zuordnung wird im CRM gespeichert.
 // Gibt .T. zur�ck, wenn eine Zuordnung besteht (alt oder neu), sonst .F.
 //---------------------------------------------------------------------------
-FUNCTION CRM_QuoteAssign(nAngnr, cKunde, cKundenName)
+// cErpNumber = ERP-Kundennummer als String (LTrim(Str(ku->Nummer))),
+// cKundenName = ku->Name1. Beide dienen der Firmen-Zuordnung im CRM.
+FUNCTION CRM_QuoteAssign(nAngnr, cErpNumber, cKundenName)
 	LOCAL oApi := CrmQuoteApi():New()
 	LOCAL cQuoteNo := CrmQuoteNumber(nAngnr)
 	LOCAL hStatus, hSel, xResp
@@ -326,7 +328,7 @@ FUNCTION CRM_QuoteAssign(nAngnr, cKunde, cKundenName)
 	LOCAL aValues, nValue := 0
 	LOCAL cTitle, cSubject
 
-	Default(@cKunde,"")
+	Default(@cErpNumber,"")
 	Default(@cKundenName,"")
 
 	// 1) Schon zugeordnet? -> nichts zu tun
@@ -348,7 +350,7 @@ FUNCTION CRM_QuoteAssign(nAngnr, cKunde, cKundenName)
 	// 3) Opportunity ausw�hlen oder neu anlegen. Nur Opportunities und nur die,
 	//    die bereits der Firma dieses Kunden zugeordnet sind (erp_customer).
 	cSubject := "Angebot " + cQuoteNo
-	hSel := ShowCrmPicker("", cSubject, "opportunity", AllTrim(cKunde), AllTrim(cKundenName))
+	hSel := ShowCrmPicker("", cSubject, "opportunity", AllTrim(cErpNumber), AllTrim(cKundenName))
 	IF hSel == NIL
 		RETURN .F.        // abgebrochen
 	ENDIF
@@ -364,7 +366,7 @@ FUNCTION CRM_QuoteAssign(nAngnr, cKunde, cKundenName)
 	//    Opportunity zur Firma des Kunden geh�rt (erp_customer_number/-name).
 	cTitle := "Angebot " + cQuoteNo
 	xResp := oApi:Assign(cQuoteNo, nRef, cTitle, nValue, SystemUser():Email, ;
-		AllTrim(cKunde), AllTrim(cKundenName))
+		AllTrim(cErpNumber), AllTrim(cKundenName))
 	IF xResp == NIL
 		Wapi_MessageBox(,"Die Zuordnung im CRM ist fehlgeschlagen." + Chr(13)+Chr(10) + oApi:cErrorText,"CRM",0)
 		RETURN .F.

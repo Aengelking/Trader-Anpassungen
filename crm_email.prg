@@ -20,8 +20,8 @@ weitergeleitet (receive-email matcht �ber diesen Token).
 
 PROC RUN_CRM_EMAIL(cMsgPath)
 	LOCAL oAccount, cArchive, oArchive, oMsg
-	LOCAL cID := "", cObjectType := ""
-	LOCAL hSel
+	LOCAL cID := "", cObjectType := "", cTypeChar, nX
+	LOCAL hSel, oItem
 
 	oAccount := DV_GetMailAccount()
 	cArchive := SubStr(cMsgPath,1,RAT("\",cMsgPath)-1)
@@ -51,13 +51,35 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 		RETURN
 	ENDIF
 
-	// Upload the e-mail directly to the CRM, linked to the chosen record by its
-	// ref. Trader sends the REAL sender + subject + body (no lossy resend forward).
-	IF CrmUploadEmail(cObjectType, cID, oMsg, cMsgPath)
-		Wapi_MessageBox(,"Die E-Mail wurde im CRM abgelegt (" + cObjectType + " " + cID + ").","CRM",0)
-	ELSE
+	// 1) Upload this e-mail directly to the CRM (real sender + subject + body),
+	//    linked to the chosen record by its ref.
+	IF ! CrmUploadEmail(cObjectType, cID, oMsg, cMsgPath)
 		Wapi_MessageBox(,"Fehler beim Ablegen der E-Mail im CRM.","Fehler",0)
+		RETURN
 	ENDIF
+
+	// 2) Tag the ORIGINAL mail's subject with the CRM reference. A reply then
+	//    carries [#EK-L/O<ref>] in its subject and is auto-BCC'd to the CRM, so
+	//    receive-email files the reply under the same record. Best-effort: the
+	//    e-mail is already stored, so a tagging error must not abort.
+	//    (Needs the MailItem interface, hence the lookup by _ID.)
+	cTypeChar := IF(Lower(cObjectType) == "lead", "L", "O")
+	FOR nX := 0 TO oArchive:MailItems:Count
+		IF oArchive:MailItems:Item(nX):_ID == oMsg:_ID
+			BEGIN SEQUENCE
+				oItem := oArchive:MailItems:Item(nX)
+				IF ! ( "[#EK-" $ oItem:Subject )        // do not tag twice
+					oItem:Subject := oItem:Subject + " [#EK-" + cTypeChar + cID + "]"
+					oItem:Save()
+				ENDIF
+			RECOVER
+				//non-fatal
+			END
+			EXIT
+		ENDIF
+	NEXT
+
+	Wapi_MessageBox(,"Die E-Mail wurde im CRM abgelegt (" + cObjectType + " " + cID + ").","CRM",0)
 
 RETURN
 

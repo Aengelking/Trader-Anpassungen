@@ -100,6 +100,8 @@ CLASS CrmPickerApi FROM RestApi
 	METHOD Execute
 	METHOD List
 	METHOD ChooseObject
+
+	DATA cErrorText
 ENDCLASS
 
 METHOD New() CLASS CrmPickerApi

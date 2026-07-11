@@ -1,4 +1,4 @@
-FUNCTION HOOK_before_print_angebot(nAngnr,hSettings)
+FUNCTION HOOK_before_print_angebot(nAngnr,hSettings,hData)
    //Alert(hSettings["email_type"])
    LOCAL oExtra
    /*IF ku->Skonto == 8

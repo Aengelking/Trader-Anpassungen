@@ -21,7 +21,7 @@ weitergeleitet (receive-email matcht ÔøΩber diesen Token).
 PROC RUN_CRM_EMAIL(cMsgPath)
 	LOCAL oAccount, cArchive, oArchive, oMsg
 	LOCAL cID := "", cObjectType := "", cTypeChar, nX
-	LOCAL hSel
+	LOCAL hSel, oItem
 
 	oAccount := DV_GetMailAccount()
 	cArchive := SubStr(cMsgPath,1,RAT("\",cMsgPath)-1)
@@ -50,33 +50,41 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 
 	cID         := LTrim(Str(Int(hSel["ref"])))
 	cObjectType := hSel["type"]
-	cTypeChar   := IF(Lower(cObjectType) == "lead", "L", "O")
 
 	IF Empty(cID)
 		Wapi_MessageBox(,"UngÅltige Auswahl. Bitte versuche es erneut.","Fehler",0)
 		RETURN
 	ENDIF
 
-	// Forward email to CRM with the selected ref (matched by receive-email via the token)
-	//this is a bit cumbersome but otherwise we do not have the MailItem-Interface to call the Forward() method
+	// 1) Upload this e-mail directly to the CRM (real sender + subject + body),
+	//    linked to the chosen record by its ref.
+	IF ! CrmUploadEmail(cObjectType, cID, oMsg, cMsgPath)
+		Wapi_MessageBox(,"Fehler beim Ablegen der E-Mail im CRM.","Fehler",0)
+		RETURN
+	ENDIF
+
+	// 2) Tag the ORIGINAL mail's subject with the CRM reference. A reply then
+	//    carries [#EK-L/O<ref>] in its subject and is auto-BCC'd to the CRM, so
+	//    receive-email files the reply under the same record. Best-effort: the
+	//    e-mail is already stored, so a tagging error must not abort.
+	//    (Needs the MailItem interface, hence the lookup by _ID.)
+	cTypeChar := IF(Lower(cObjectType) == "lead", "L", "O")
 	FOR nX := 0 TO oArchive:MailItems:Count
 		IF oArchive:MailItems:Item(nX):_ID == oMsg:_ID
 			BEGIN SEQUENCE
-				oMsg := oArchive:MailItems:Item(nX)
-				oMsg:Subject := oMsg:Subject + " [#EK-" + cTypeChar + cID + "]"
-				oMsg:Save()
-
-				oMsg:Recipients:Clear()
-				oMsg:Recipients:Add("crm@iokronuere.resend.app")
-				oMsg:Forward(1,0)
-
-				//Tr_MsgBox({"Email erfolgreich an das CRM weitergeleitet." , "ID: " + cID , "Typ: " + cObjectType})
+				oItem := oArchive:MailItems:Item(nX)
+				IF ! ( "[#EK-" $ oItem:Subject )        // do not tag twice
+					oItem:Subject := oItem:Subject + " [#EK-" + cTypeChar + cID + "]"
+					oItem:Save()
+				ENDIF
 			RECOVER
-				Wapi_MessageBox(,"Fehler beim Weiterleiten der E-Mail an das CRM" , "Fehler", 0)
+				//non-fatal
 			END
 			EXIT
 		ENDIF
 	NEXT
+
+	Wapi_MessageBox(,"Die E-Mail wurde im CRM abgelegt (" + cObjectType + " " + cID + ").","CRM",0)
 
 RETURN
 
@@ -195,3 +203,82 @@ STATIC FUNCTION CrmMailField(oMsg, cField)
 	ENDIF
 
 RETURN AllTrim(xVal)
+
+//---------------------------------------------------------------------------
+// Upload the e-mail directly to the CRM (api-email edge function), linked to
+// the chosen Lead/Opportunity by its ref. Sends the REAL sender + subject +
+// HTML body. Returns .T. on success.
+//---------------------------------------------------------------------------
+STATIC FUNCTION CrmUploadEmail(cType, cRef, oMsg, cMsgPath)
+	LOCAL oApi := CrmEmailApi():New()
+	LOCAL hData := {=>}
+	LOCAL xResp
+
+	hData["type"]       := Lower(cType)                              // "lead" / "opportunity"
+	hData["ref"]        := Val(cRef)
+	hData["from_email"] := CrmMailField(oMsg,"SRFrom")              // real sender
+	hData["from_name"]  := hb_strToUtf8(CrmMailField(oMsg,"SRName"))
+	hData["subject"]    := hb_strToUtf8(CrmMailField(oMsg,"Subject"))
+	hData["body_html"]  := hb_strToUtf8(CrmMailField(oMsg,"HTML"))
+	// stable dedup key: the same mail filed to the same ref twice -> no duplicate
+	hData["message_id"] := "erp:" + cRef + ":" + cMsgPath
+
+	xResp := oApi:Execute("POST", "", hData)
+
+RETURN ! (xResp == NIL)
+
+CLASS CrmEmailApi FROM RestApi
+	METHOD New
+	METHOD Execute
+
+	DATA cErrorText
+ENDCLASS
+
+METHOD New() CLASS CrmEmailApi
+	// Base URL ends with "/" ‚Äî RestApi:Execute prepends ::cBaseUrl to the path.
+	::cBaseUrl := "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-email/"
+	::Super:New()
+RETURN SELF
+
+METHOD Execute(cMethod, cUrl, hData) CLASS CrmEmailApi
+	LOCAL aHeader
+	LOCAL cResponse := ""
+	LOCAL nResponse := 0
+	LOCAL xReturn
+
+	Default(@cMethod,"POST")
+	Default(@cUrl,"")
+
+	::cApiKeyName := "NEXUSCRM"          // Bearer token = TRADER_API_KEY
+
+	aHeader := {;
+		"Authorization: Bearer $APIKEY$",;
+		"Content-Type: application/json",;
+		"Accept: application/json";
+	}
+
+	// Pass the HASH (not a pre-encoded string): RestApi:Execute JSON-encodes it
+	// once for non-GET when lPostJson=.T. (see nocrm.prg). Pre-encoding here would
+	// double-encode it into a JSON string literal, so the server would receive a
+	// string with no fields ("type/ref required"). cUrl is RELATIVE; the RestApi
+	// base prepends ::cBaseUrl.
+	cResponse := ::Super:Execute(cUrl, cMethod, hData, aHeader, .T., @nResponse)
+
+	IF Empty(cResponse)
+		::cErrorText := "Keine Antwort vom Server (HTTP " + LTrim(Str(nResponse)) + ")"
+		RETURN NIL
+	ENDIF
+
+	xReturn := HB_JsonDecode(cResponse)
+
+	IF ValType(xReturn) == "H" .AND. HHasKey(xReturn,"error")
+		::cErrorText := IF(ValType(xReturn["error"]) == "C", hb_utf8tostr(xReturn["error"]), "Fehler")
+		RETURN NIL
+	ENDIF
+
+	IF nResponse >= 400
+		::cErrorText := "HTTP " + LTrim(Str(nResponse)) + ": " + cResponse
+		RETURN NIL
+	ENDIF
+
+RETURN xReturn

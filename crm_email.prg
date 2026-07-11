@@ -86,8 +86,10 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 RETURN
 
 FUNCTION CRM_Picker_Setup()
-	//setup config values and their defaults
-	GetValue("CRM_PICKER_URL","https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-crm-picker","URL der CRM Picker API (api-crm-picker)")
+	//setup config values and their defaults.
+	//NOTE: the base URL is hardcoded in CrmPickerApi:New() so a mis-set config
+	//value cannot break the call; NEXUSCRM (the Bearer token = TRADER_API_KEY)
+	//is shared with the NexusCRM connector and is registered there as well.
 	GetValue("NEXUSCRM","","API Key f�r das CRM (Bearer Token / TRADER_API_KEY)")
 RETURN NIL
 
@@ -103,7 +105,11 @@ CLASS CrmPickerApi FROM RestApi
 ENDCLASS
 
 METHOD New() CLASS CrmPickerApi
-	::cBaseUrl := GetValue("CRM_PICKER_URL","https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-crm-picker")
+	// Base URL is hardcoded on purpose: a mis-set config value would make
+	// Supabase return {"code":"NOT_FOUND"}. Uses the same host/scheme as the
+	// working api-opportunities function.
+	::cBaseUrl := "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-crm-picker"
+	//::cBaseUrl := GetValue("CRM_PICKER_URL","https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-crm-picker")
 	::Super:New()
 RETURN SELF
 
@@ -112,10 +118,13 @@ METHOD Execute(cMethod, cUrl, cData) CLASS CrmPickerApi
 	LOCAL cResponse := ""
 	LOCAL nResponse := 0
 	LOCAL xReturn
+	LOCAL cFullUrl
 
 	Default(@cMethod,"GET")
 	Default(@cUrl,"")
 	Default(@cData,"")
+
+	cFullUrl := ::cBaseUrl + IF(Empty(cUrl),"","/"+cUrl)
 
 	aHeader := {;
 		"Authorization: Bearer " + GetValue("NEXUSCRM"),;
@@ -123,22 +132,29 @@ METHOD Execute(cMethod, cUrl, cData) CLASS CrmPickerApi
 		"Accept: application/json";
 	}
 
-	cResponse := ::Super:Execute(::cBaseUrl + IF(Empty(cUrl),"","/"+cUrl), cMethod, cData, aHeader, .F., @nResponse)
+	cResponse := ::Super:Execute(cFullUrl, cMethod, cData, aHeader, .F., @nResponse)
 
 	IF Empty(cResponse)
-		::cErrorText := "Keine Antwort vom Server (HTTP " + LTrim(Str(nResponse)) + ")"
+		::cErrorText := "Keine Antwort vom Server (HTTP " + LTrim(Str(nResponse)) + ") - " + cFullUrl
 		RETURN NIL
 	ENDIF
 
 	xReturn := HB_JsonDecode(cResponse)
 
+	//API-level error {"error": "..."}
 	IF ValType(xReturn) == "H" .AND. HHasKey(xReturn,"error")
-		::cErrorText := xReturn["error"]
+		::cErrorText := CrmStr(xReturn["error"]) + " (" + cFullUrl + ")"
+		RETURN NIL
+	ENDIF
+
+	//Supabase gateway error {"code": "NOT_FOUND", "message": "..."}
+	IF ValType(xReturn) == "H" .AND. HHasKey(xReturn,"message")
+		::cErrorText := CrmStr(xReturn["message"]) + " (" + cFullUrl + ")"
 		RETURN NIL
 	ENDIF
 
 	IF nResponse >= 400
-		::cErrorText := "HTTP " + LTrim(Str(nResponse)) + ": " + cResponse
+		::cErrorText := "HTTP " + LTrim(Str(nResponse)) + ": " + cResponse + " (" + cFullUrl + ")"
 		RETURN NIL
 	ENDIF
 

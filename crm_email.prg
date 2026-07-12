@@ -136,10 +136,10 @@ STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyNam
 	TxtBox("CRM-Auswahl im neuen Fenster. Warte bis das Fenster geschlossen wird.")
 	gpCrmWebview := nW
 
-	ErrorBlock({|oError|
+	/*ErrorBlock({|oError|
 		hb_webview_eval(nW, 'window.alert("' + ErrorMessage(oError) + '")')
 		RETURN .T.
-	})
+	})*/
 
 	hb_webview_set_title(nW, "CRM - Lead/Opportunity ausw„hlen")
 
@@ -344,6 +344,7 @@ FUNCTION CRM_QuoteAssign(nAngnr, cErpNumber, cKundenName,nRef)
 	// 1) Schon zugeordnet? -> nichts zu tun
 	hStatus := oApi:Status(cQuoteNo)
 	IF ValType(hStatus) == "H" .AND. HHasKey(hStatus,"linked") .AND. hStatus["linked"]
+      nRef := hStatus["opportunity"]["ref"]
 		RETURN .T.
 	ENDIF
 
@@ -373,6 +374,7 @@ FUNCTION CRM_QuoteAssign(nAngnr, cErpNumber, cKundenName,nRef)
 		Wapi_MessageBox(,"Ein Angebot kann nur einer Opportunity zugeordnet werden.","CRM",0)
 		RETURN .F.
 	ENDIF
+   nRef := hSel["ref"]
 
 	// 4) Die Zuordnung wurde bereits vom Picker im CRM gespeichert (der Webview
 	//    liefert die Ref erst nach erfolgreichem Speichern zurï¿½ck). Kein
@@ -397,7 +399,7 @@ FUNCTION CRM_QuoteReport(nAngnr, nValue, cText)
 
 	cTitle := "Angebot " + cQuoteNo + " gedruckt"
 	xResp := oApi:Report(cQuoteNo, SystemUser():Email, cTitle, cText)
-
+Alert(ValToPrg(xResp))
 RETURN ! (xResp == NIL)
 
 CLASS CrmQuoteApi FROM RestApi

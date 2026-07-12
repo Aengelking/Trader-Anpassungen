@@ -15,6 +15,7 @@ FUNCTION HOOK_before_print_angebot(nAngnr,hSettings,hData)
    // zugeordnet, passiert nichts; sonst �ffnet sich der Opportunity-Picker
    // (Auswahl oder Neuanlage). Best-effort � ein Fehler darf den Druck nicht
    // abbrechen.
+   hData["crmtag"] := "" //backward compatibility: no tag if not assigned
    IF lCrmQuotes
       BEGIN SEQUENCE
          LoadPrg(Path("run\crm_email.prg"))

@@ -130,7 +130,7 @@ STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyNam
 	nW := hb_webview_create(.T.)
 	IF nW == NIL
 		CreateMainWindow()
-		wapi_MessageBox(,"Das CRM-Fenster konnte nicht geï¿½ffnet werden.","Fehler",0)
+		wapi_MessageBox(,"Das CRM-Fenster konnte nicht ge”ffnet werden.","Fehler",0)
 		RETURN NIL
 	ENDIF
 	TxtBox("CRM-Auswahl im neuen Fenster. Warte bis das Fenster geschlossen wird.")
@@ -141,7 +141,7 @@ STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyNam
 		RETURN .T.
 	})
 
-	hb_webview_set_title(nW, "CRM - Lead/Opportunity auswï¿½hlen")
+	hb_webview_set_title(nW, "CRM - Lead/Opportunity ausw„hlen")
 
 	//JS -> Harbour callbacks (resolved by name via HB_CALL_FUNC_DIRECT)
 	hb_webview_bind2(nW, "crmPickerSelect", HB_CALL_FUNC_DIRECT)

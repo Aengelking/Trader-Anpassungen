@@ -27,7 +27,7 @@ cText += "Gedruckt am: "+DToC(Date())
 IF lCrmQuotes
    BEGIN SEQUENCE
       LoadPrg(Path("run\crm_email.prg"))
-      HB_ExecFromArray({"CRM_QuoteReport", nAngnr, aValues[2], cText})
+      HB_ExecFromArray({"CRM_QuoteReport", nAngnr, aValues[2], ""})
    RECOVER
       //nicht fatal
    END SEQUENCE

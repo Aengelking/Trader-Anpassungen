@@ -1,0 +1,46 @@
+/*
+   FUNCTION: SendMailTemplate
+
+   DESCRIPTION:
+   This function sends an email using the Brevo API. It takes the recipient's email address, 
+   the template ID, and a set of parameters as input. The function returns a response 
+   indicating whether the email was sent successfully.
+
+   PARAMETERS:
+   - aTo: Array of recipient email addresses.
+   - nTemplate: Numeric ID of the email template.
+   - hParams: Hash array of parameters to be used in the email template.
+   - hResponse: Output parameter to store the response from the API.
+
+   RETURNS:
+   Logical value indicating whether the email was sent successfully.
+
+   EXAMPLE USAGE:
+   aTo := {"john@example.com", "jane@example.com"}
+   nTemplate := 123
+   hParams := {{"name", "John Doe"}, {"amount", 100}}
+   hResponse := {}
+   IF SendMailTemplate(aTo, nTemplate, hParams, @hResponse)
+      ? "Email sent successfully!"
+   ELSE
+      ? "Failed to send email."
+   ENDIF
+*/
+
+FUNCTION SendMailTemplate(aTo, nTemplate, hParams, hResponse)
+   LOCAL oBrevo := RestApi():New()
+   LOCAL hData, aHeader
+
+   oBrevo:cBaseUrl := "https://api.brevo.com/v3/smtp/"
+
+   hData := {=>}
+   hData["to"] := {aTo}
+   hData["bcc"] := {{"email"=>"amos.engelking@engelking.de","name"=>"Amos Engelking"}}
+   hData["templateId"] := nTemplate
+   hData["params"] := hParams
+   aHeader := {"accept: application/json","content-type: application/json"}
+   Aadd(aHeader,"api-key: SCHLUESSEL_ENTFERNT")
+
+   hResponse := HB_JsonDecode(oBrevo:Execute("email","POST",hData,aHeader,.T.))
+
+   RETURN ValType(hResponse) == "H" .AND. HHasKey(hResponse,"messageId")

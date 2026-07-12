@@ -130,7 +130,7 @@ STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyNam
 	nW := hb_webview_create(.T.)
 	IF nW == NIL
 		CreateMainWindow()
-		wapi_MessageBox(,"Das CRM-Fenster konnte nicht ge”ffnet werden.","Fehler",0)
+		wapi_MessageBox(,"Das CRM-Fenster konnte nicht geï¿½ffnet werden.","Fehler",0)
 		RETURN NIL
 	ENDIF
 	TxtBox("CRM-Auswahl im neuen Fenster. Warte bis das Fenster geschlossen wird.")
@@ -141,7 +141,7 @@ STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyNam
 		RETURN .T.
 	})*/
 
-	hb_webview_set_title(nW, "CRM - Lead/Opportunity ausw„hlen")
+	hb_webview_set_title(nW, "CRM - Lead/Opportunity auswï¿½hlen")
 
 	//JS -> Harbour callbacks (resolved by name via HB_CALL_FUNC_DIRECT)
 	hb_webview_bind2(nW, "crmPickerSelect", HB_CALL_FUNC_DIRECT)
@@ -392,15 +392,26 @@ FUNCTION CRM_QuoteReport(nAngnr, nValue, cText)
 	LOCAL oApi := CrmQuoteApi():New()
 	LOCAL cQuoteNo := CrmQuoteNumber(nAngnr)
 	LOCAL cTitle, xResp
+	LOCAL cUserEmail := AllTrim(SystemUser():Email)
 
 	// nValue wird derzeit nicht separat ï¿½bertragen (steht bereits in cText).
 
 	Default(@cText,"")
 
 	cTitle := "Angebot " + cQuoteNo + " gedruckt"
-	xResp := oApi:Report(cQuoteNo, SystemUser():Email, cTitle, cText)
-Alert(ValToPrg(xResp))
-RETURN ! (xResp == NIL)
+	xResp := oApi:Report(cQuoteNo, cUserEmail, cTitle, cText)
+
+	IF xResp == NIL
+		// Fehlerursache sichtbar machen (Transition/Debug). oApi:cErrorText
+		// enthï¿½lt die exakte Server-Meldung, z.B. "No linked opportunity for
+		// this quote" (Angebot nicht zugeordnet) oder eine User-Auflï¿½sung.
+		Wapi_MessageBox(,"CRM-Meldung zum Angebot fehlgeschlagen:" + Chr(13)+Chr(10) + ;
+			oApi:cErrorText + Chr(13)+Chr(10) + ;
+			"(Angebot " + cQuoteNo + ", User '" + cUserEmail + "')","CRM",0)
+		RETURN .F.
+	ENDIF
+
+RETURN .T.
 
 CLASS CrmQuoteApi FROM RestApi
 	METHOD New

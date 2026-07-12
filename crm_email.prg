@@ -89,7 +89,7 @@ RETURN
 // window.crmPickerSelect(String(ref), type), captured by crmPickerSelect().
 // Returns a hash {"ref"=>nRef,"type"=>cType} or NIL if cancelled.
 //---------------------------------------------------------------------------
-STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyName, cValue)
+STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyName, cValue, cQuote)
 	LOCAL nW, cUrl
 
 	gcCrmNewRef  := ""
@@ -114,6 +114,12 @@ STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyNam
 	// Angebotswert: dient als Vorbelegung des Werts bei einer neuen Opportunity.
 	IF ! Empty(cValue)
 		cUrl += "value=" + CrmUrlEncode(cValue) + "&"
+	ENDIF
+	// Angebotsnummer: ist sie gesetzt, speichert der Picker die Zuordnung
+	// Angebot->Opportunity direkt beim Ausw�hlen/Anlegen (kein separater
+	// Assign-Aufruf mehr n�tig).
+	IF ! Empty(cQuote)
+		cUrl += "quote=" + CrmUrlEncode(cQuote) + "&"
 	ENDIF
 	// ERP-Kundennummer: die Auswahl wird auf die Firma dieses Kunden begrenzt
 	// (nur Opportunities, die bereits der Firma zugeordnet sind).
@@ -327,10 +333,10 @@ RETURN LTrim(Str(Int(nAngnr)))
 FUNCTION CRM_QuoteAssign(nAngnr, cErpNumber, cKundenName,nRef)
 	LOCAL oApi := CrmQuoteApi():New()
 	LOCAL cQuoteNo := CrmQuoteNumber(nAngnr)
-	LOCAL hStatus, hSel, xResp
+	LOCAL hStatus, hSel
 	LOCAL cType
 	LOCAL aValues, nValue := 0
-	LOCAL cTitle, cSubject
+	LOCAL cSubject
 
 	Default(@cErpNumber,"")
 	Default(@cKundenName,"")
@@ -353,29 +359,24 @@ FUNCTION CRM_QuoteAssign(nAngnr, cErpNumber, cKundenName,nRef)
 
 	// 3) Opportunity ausw�hlen oder neu anlegen. Nur Opportunities und nur die,
 	//    die bereits der Firma dieses Kunden zugeordnet sind (erp_customer).
+	//    Die Angebotsnummer wird mitgegeben: der Picker speichert die Zuordnung
+	//    Angebot->Opportunity direkt beim Ausw�hlen/Anlegen (kein Assign-Call).
 	cSubject := "Angebot " + cQuoteNo
 	hSel := ShowCrmPicker("", cSubject, "opportunity", AllTrim(cErpNumber), AllTrim(cKundenName), ;
-		IF(nValue > 0, LTrim(Str(nValue,18,2)), ""))
+		IF(nValue > 0, LTrim(Str(nValue,18,2)), ""), cQuoteNo)
 	IF hSel == NIL
 		RETURN .F.        // abgebrochen
 	ENDIF
 
-	nRef  := Int(hSel["ref"])
 	cType := Lower(hSel["type"])
 	IF cType != "opportunity"
 		Wapi_MessageBox(,"Ein Angebot kann nur einer Opportunity zugeordnet werden.","CRM",0)
 		RETURN .F.
 	ENDIF
 
-	// 4) Zuordnung im CRM speichern. Der Server pr�ft zus�tzlich, dass die
-	//    Opportunity zur Firma des Kunden geh�rt (erp_customer_number/-name).
-	cTitle := "Angebot " + cQuoteNo
-	xResp := oApi:Assign(cQuoteNo, nRef, cTitle, nValue, SystemUser():Email, ;
-		AllTrim(cErpNumber), AllTrim(cKundenName))
-	IF xResp == NIL
-		Wapi_MessageBox(,"Die Zuordnung im CRM ist fehlgeschlagen." + Chr(13)+Chr(10) + oApi:cErrorText,"CRM",0)
-		RETURN .F.
-	ENDIF
+	// 4) Die Zuordnung wurde bereits vom Picker im CRM gespeichert (der Webview
+	//    liefert die Ref erst nach erfolgreichem Speichern zur�ck). Kein
+	//    separater Assign-Aufruf mehr n�tig.
 
 RETURN .T.
 

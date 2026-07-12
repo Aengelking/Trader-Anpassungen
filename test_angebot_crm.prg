@@ -40,13 +40,13 @@ PROC TEST_ANGEBOT_CRM()
 
 	// Angebot + Kunde positionieren (wie im Druckprozess)
 	IF ! ang->(dbSeek(Str(nAngnr,6)))
-		Wapi_MessageBox(,"Angebot "+LTrim(Str(nAngnr))+" nicht gefunden.","Test",0)
+		Tr_MsgBox("Angebot "+LTrim(Str(nAngnr))+" nicht gefunden.")
 		RETURN
 	ENDIF
 	ku->(dbSeek(ang->Kundma))
 
-	nChoice := Alert("Welchen Hook fï¿½r Angebot "+LTrim(Str(nAngnr))+" testen?",;
-		{"before_print (Zuordnung)","after_print (Aktivitï¿½t)","Abbruch"})
+	nChoice := Alert("Welchen Hook fr Angebot "+LTrim(Str(nAngnr))+" testen?",;
+		{"before_print (Zuordnung)","after_print (Aktivit„t)","Abbruch"})
 
 	DO CASE
 	CASE nChoice == 1
@@ -67,10 +67,10 @@ STATIC FUNCTION TestBeforePrint(nAngnr)
 	xRet := HB_ExecFromArray({"CRM_QuoteAssign", nAngnr, LTrim(Str(ku->Nummer)), ku->Name1})
 
 	IF ValType(xRet) == "L" .AND. xRet
-		Wapi_MessageBox(,"before_print OK:" + Chr(13)+Chr(10) + ;
-			"Angebot " + LTrim(Str(nAngnr)) + " ist einer Opportunity zugeordnet.","Test",0)
+		Tr_MsgBox({"before_print OK:" , ;
+			"Angebot " + LTrim(Str(nAngnr)) + " ist einer Opportunity zugeordnet."})
 	ELSE
-		Wapi_MessageBox(,"before_print: keine Zuordnung (abgebrochen oder Fehler).","Test",0)
+		Tr_MsgBox({"before_print: keine Zuordnung (abgebrochen oder Fehler)."})
 	ENDIF
 
 RETURN xRet
@@ -110,11 +110,11 @@ STATIC FUNCTION TestAfterPrint(nAngnr)
 	xRet := HB_ExecFromArray({"CRM_QuoteReport", nAngnr, nValue, cText})
 
 	IF ValType(xRet) == "L" .AND. xRet
-		Wapi_MessageBox(,"after_print OK:" + Chr(13)+Chr(10) + ;
-			"Aktivitï¿½t an die Opportunity gemeldet.","Test",0)
+		Tr_MsgBox({"after_print OK:" , ;
+			"Aktivit„t an die Opportunity gemeldet."})
 	ELSE
-		Wapi_MessageBox(,"after_print: Meldung fehlgeschlagen." + Chr(13)+Chr(10) + ;
-			"Ist das Angebot schon zugeordnet? Ggf. zuerst before_print testen.","Test",0)
+		Tr_MsgBox({"after_print: Meldung fehlgeschlagen." , ;
+			"Ist das Angebot schon zugeordnet? Ggf. zuerst before_print testen."})
 	ENDIF
 
 RETURN xRet

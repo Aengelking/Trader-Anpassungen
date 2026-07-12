@@ -405,9 +405,9 @@ FUNCTION CRM_QuoteReport(nAngnr, nValue, cText)
 		// Fehlerursache sichtbar machen (Transition/Debug). oApi:cErrorText
 		// enth�lt die exakte Server-Meldung, z.B. "No linked opportunity for
 		// this quote" (Angebot nicht zugeordnet) oder eine User-Aufl�sung.
-		Wapi_MessageBox(,"CRM-Meldung zum Angebot fehlgeschlagen:" + Chr(13)+Chr(10) + ;
-			oApi:cErrorText + Chr(13)+Chr(10) + ;
-			"(Angebot " + cQuoteNo + ", User '" + cUserEmail + "')","CRM",0)
+		Tr_MsgBox({"CRM-Meldung zum Angebot fehlgeschlagen:" , ;
+			oApi:cErrorText , ;
+			"(Angebot " + cQuoteNo + ", User '" + cUserEmail + "')"})
 		RETURN .F.
 	ENDIF
 

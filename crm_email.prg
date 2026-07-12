@@ -89,7 +89,7 @@ RETURN
 // window.crmPickerSelect(String(ref), type), captured by crmPickerSelect().
 // Returns a hash {"ref"=>nRef,"type"=>cType} or NIL if cancelled.
 //---------------------------------------------------------------------------
-STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyName)
+STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyName, cValue)
 	LOCAL nW, cUrl
 
 	gcCrmNewRef  := ""
@@ -110,6 +110,10 @@ STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyNam
 	// Firmenname als Fallback f�r die Firmen-Aufl�sung / Vorauswahl bei Neuanlage.
 	IF ! Empty(cCompanyName)
 		cUrl += "company=" + CrmUrlEncode(cCompanyName) + "&"
+	ENDIF
+	// Angebotswert: dient als Vorbelegung des Werts bei einer neuen Opportunity.
+	IF ! Empty(cValue)
+		cUrl += "value=" + CrmUrlEncode(cValue) + "&"
 	ENDIF
 	// ERP-Kundennummer: die Auswahl wird auf die Firma dieses Kunden begrenzt
 	// (nur Opportunities, die bereits der Firma zugeordnet sind).
@@ -350,7 +354,8 @@ FUNCTION CRM_QuoteAssign(nAngnr, cErpNumber, cKundenName)
 	// 3) Opportunity ausw�hlen oder neu anlegen. Nur Opportunities und nur die,
 	//    die bereits der Firma dieses Kunden zugeordnet sind (erp_customer).
 	cSubject := "Angebot " + cQuoteNo
-	hSel := ShowCrmPicker("", cSubject, "opportunity", AllTrim(cErpNumber), AllTrim(cKundenName))
+	hSel := ShowCrmPicker("", cSubject, "opportunity", AllTrim(cErpNumber), AllTrim(cKundenName), ;
+		IF(nValue > 0, LTrim(Str(nValue,18,2)), ""))
 	IF hSel == NIL
 		RETURN .F.        // abgebrochen
 	ENDIF

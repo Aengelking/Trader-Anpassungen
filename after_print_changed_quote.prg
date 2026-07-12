@@ -2,10 +2,11 @@ PROC HOOK_AFTER_PRINT_CHANGED_QUOTE(nAngnr,cPDF)
 
 LOCAL lFirst := .T.
 LOCAL aValues,dDate,aAttach,cText,aContact
+//Transition Wiedervorlage => noCRM
 LOCAL lNoCrm := .T. //Tr_Getini(28) $ {9,33,28,58}
 // CRM (Transition): Angebot als Aktivit�t an die verkn�pfte Opportunity melden.
 // L�uft zus�tzlich zum noCRM-Pfad. Aktivieren: lCrmQuotes := Tr_Getini(28) $ {9,33,28,58}
-LOCAL lCrmQuotes := .F.
+LOCAL lCrmQuotes := Tr_Getini(28) $ {9}
 
 aValues := EnquiryAddUp(nAngnr,.T.)
 aAttach := {}

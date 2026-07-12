@@ -1,9 +1,9 @@
-FUNCTION HOOK_before_print_angebot(nAngnr,hSettings)
-   //Alert(hSettings["email_type"])
+FUNCTION HOOK_before_print_angebot(nAngnr,hSettings,hData)
    LOCAL oExtra
    // Aktivieren f�r CRM-Benutzer, sonst �ndert sich nichts (noCRM bleibt aktiv).
    // Zum Aktivieren: lCrmQuotes := Tr_Getini(28) $ {9,33,28,58}
-   LOCAL lCrmQuotes := .F.
+   LOCAL lCrmQuotes := Tr_Getini(28) $ {9}
+   LOCAL nRef
    /*IF ku->Skonto == 8
       oExtra := ku->(ExtraData():New(ku->Nummer))
       IF oExtra:OnlineKauf
@@ -18,7 +18,8 @@ FUNCTION HOOK_before_print_angebot(nAngnr,hSettings)
    IF lCrmQuotes
       BEGIN SEQUENCE
          LoadPrg(Path("run\crm_email.prg"))
-         HB_ExecFromArray({"CRM_QuoteAssign", nAngnr, LTrim(Str(ku->Nummer)), ku->Name1})
+         HB_ExecFromArray({"CRM_QuoteAssign", nAngnr, LTrim(Str(ku->Nummer)), ku->Name1, @nRef})
+         hData["crmtag"] := "[#EK-O"+LTrim(Str(nRef))+"]"
       RECOVER
          //nicht fatal
       END SEQUENCE

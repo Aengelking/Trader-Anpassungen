@@ -324,11 +324,11 @@ RETURN LTrim(Str(Int(nAngnr)))
 //---------------------------------------------------------------------------
 // cErpNumber = ERP-Kundennummer als String (LTrim(Str(ku->Nummer))),
 // cKundenName = ku->Name1. Beide dienen der Firmen-Zuordnung im CRM.
-FUNCTION CRM_QuoteAssign(nAngnr, cErpNumber, cKundenName)
+FUNCTION CRM_QuoteAssign(nAngnr, cErpNumber, cKundenName,nRef)
 	LOCAL oApi := CrmQuoteApi():New()
 	LOCAL cQuoteNo := CrmQuoteNumber(nAngnr)
 	LOCAL hStatus, hSel, xResp
-	LOCAL nRef, cType
+	LOCAL cType
 	LOCAL aValues, nValue := 0
 	LOCAL cTitle, cSubject
 

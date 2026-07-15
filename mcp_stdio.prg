@@ -1999,14 +1999,15 @@ RETURN NIL
 // clean status instead of crashing the MCP loop.
 //---------------------------------------------------------------------------
 
-// Convert a David (Windows-ANSI) string to UTF-8 for JSON output. David reads
-// are ANSI; the app codepage is OEM, so we go ANSI->OEM->UTF-8 like the rest
-// of this server (see HB_StrToUTF8 usage above).
+// Convert a David (Windows-ANSI) string to UTF-8 for JSON output. Translate
+// CP1252 (DEWIN) to UTF-8 directly instead of the old ANSI->OEM->UTF-8 chain,
+// which silently depended on the process' selected codepage matching the OS
+// OEM codepage.
 STATIC FUNCTION DV_Utf8(cStr)
    IF ValType(cStr) != "C"
       RETURN ""
    ENDIF
-RETURN HB_StrToUTF8(HB_AnsiToOem(cStr))
+RETURN hb_Translate(cStr, "DEWIN", "UTF8")
 
 // Serialize a David message time (timestamp, occasionally a date) to a
 // sortable ISO-ish string.
@@ -2272,13 +2273,27 @@ RETURN hResult
 // working David connection (MailConnect), same as the inbox tools above.
 //---------------------------------------------------------------------------
 
-// Convert a UTF-8 string (JSON arguments arrive as UTF-8) to the ANSI form the
-// David OLE API expects — the inverse of DV_Utf8 (UTF-8 -> OEM -> ANSI).
+// Convert a UTF-8 string (JSON arguments arrive as UTF-8) to the Windows-ANSI
+// (CP1252) form the David OLE API expects — the exact inverse of DV_Utf8.
+// Characters that do not exist in CP1252 are replaced by "?".
 STATIC FUNCTION DV_FromUtf8(cStr)
    IF ValType(cStr) != "C"
       RETURN ""
    ENDIF
-RETURN HB_OemToAnsi(HB_UTF8ToStr(cStr))
+RETURN hb_Translate(cStr, "UTF8", "DEWIN")
+
+// Replace every non-ASCII character of an ANSI (CP1252) string with its
+// numeric HTML entity, mirroring DV_HtmlEntities() in david.prg. The result
+// is pure ASCII, so an HTML body survives whatever codepage conversion
+// happens between here and the David OLE layer.
+STATIC FUNCTION AnsiToHtmlEntities(cAnsi)
+   LOCAL nI
+   FOR nI := 128 TO 255
+      IF Chr(nI) $ cAnsi
+         cAnsi := StrTran(cAnsi, Chr(nI), "&#" + AllTrim(Str(nI)) + ";")
+      ENDIF
+   NEXT
+RETURN cAnsi
 
 STATIC FUNCTION DV_Join(aList, cSep)
    LOCAL cResult := "", cItem
@@ -2378,13 +2393,20 @@ FUNCTION MCP_Tool_Send_Email(hArgs)
       cFrom := AllTrim(hArgs["from"])
    ENDIF
 
+   // Make HTML bodies pure ASCII (entities) so no later codepage conversion
+   // can garble them. We pass lHtmlEntities=.F. to SendMail below because its
+   // own DV_HtmlEntities() expects OEM input and would mangle our ANSI body.
+   IF lHtml
+      cBody := AnsiToHtmlEntities(cBody)
+   ENDIF
+
    // Attachments must exist on disk before we hand them to David
    IF HHasKey(hArgs, "attachments") .AND. HB_IsArray(hArgs["attachments"])
       FOR EACH cFile IN hArgs["attachments"]
          IF ValType(cFile) != "C" .OR. Empty(cFile)
             LOOP
          ENDIF
-         cFile := HB_UTF8ToStr(cFile)
+         cFile := DV_FromUtf8(cFile)
          IF ! File(cFile)
             RETURN "Attachment not found: " + cFile
          ENDIF
@@ -2408,7 +2430,7 @@ FUNCTION MCP_Tool_Send_Email(hArgs)
    ENDIF
 
    BEGIN SEQUENCE
-      SendMail(aTo, cSubject, cBody, aAttach, .F., 0, lHtml, cFrom, lDraft)
+      SendMail(aTo, cSubject, cBody, aAttach, .F., 0, lHtml, cFrom, lDraft, .F.)
    RECOVER
       hResult["status"] := "error"
       hResult["message"] := "Failed to " + IIF(lDraft, "save draft", "send email")

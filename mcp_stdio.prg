@@ -22,14 +22,20 @@ FUNCTION MCP_StdIO()
    LOCAL cInput, hRequest, cResponse
    LOCAL nStdIn, nStdOut,cChar,nStdErr
    LOCAL cLine := ""
-   LOCAL nChar
+   LOCAL cBuffer := ""
+   LOCAL nChar, nPos
    LOCAL bOldError
-      
+
 
    // Get stdin and stdout handles
    nStdIn := hb_GetStdIn()
    nStdOut := hb_GetStdOut()
    nStdErr := hb_GetStdErr()
+
+   // No keyboard and no visible window in an MCP process: make sure nothing
+   // (MailConnect, error handler, hooks) ever pops a modal Alert/MsgBox that
+   // would block the request loop forever.
+   SetConfigValue("BATCHMODE", .T.)
 
    FWrite(nStdErr,"MCP_StdIO: Starting MCP server via STDIO..."+Chr(10))
 
@@ -51,32 +57,36 @@ FUNCTION MCP_StdIO()
    // Main loop - read JSON-RPC requests from stdin
    DO WHILE .T.
       cLine := ""
-      cChar := Space(1)
-      
-      // Read a line from stdin and wait for a newline
+
+      // Read a complete line (terminated by newline) from stdin. Data is read
+      // in chunks into cBuffer, which carries any bytes past the newline over
+      // to the next request. Reading byte-by-byte with a 0.1s Inkey() delay
+      // per byte (the previous version) limited throughput to ~10 bytes/sec,
+      // so any larger request (e.g. send_email with a long body) hit the MCP
+      // client timeout before the tool was even called.
       DO WHILE .T.
-         nChar := FRead(nStdIn, @cChar, Len(cChar))
-         
-         IF nChar > 0
-            // Append the read characters to the line
-            cLine += Left(cChar, nChar)
-            
-            // Check if we have a complete line (ending with newline)
-            IF Chr(10) $ cLine
-               // Remove the newline character
-               cLine := StrTran(cLine, Chr(10), "")
-               // Remove carriage return if present
-               IF Right(cLine, 1) == Chr(13)
-                  cLine := Left(cLine, Len(cLine) - 1)
-               ENDIF
-               EXIT
+         nPos := At(Chr(10), cBuffer)
+         IF nPos > 0
+            cLine := Left(cBuffer, nPos - 1)
+            cBuffer := SubStr(cBuffer, nPos + 1)
+            // Remove carriage return if present
+            IF Right(cLine, 1) == Chr(13)
+               cLine := Left(cLine, Len(cLine) - 1)
             ENDIF
-         ELSEIF nChar == 0
-            // No more data available, exit
             EXIT
          ENDIF
-         Inkey(0.1) // Small delay to avoid busy waiting
-      ENDDO     
+
+         cChar := Space(4096)
+         nChar := FRead(nStdIn, @cChar, Len(cChar))
+         IF nChar > 0
+            cBuffer += Left(cChar, nChar)
+         ELSE
+            // Nothing read (pipe empty or closed) - wait briefly so we do
+            // not busy-spin. FRead on a pipe normally blocks, so this only
+            // triggers on EOF or a non-blocking stdin.
+            Inkey(0.1)
+         ENDIF
+      ENDDO
       
       
       IF !Empty(cLine)
@@ -2088,6 +2098,7 @@ FUNCTION MCP_Tool_List_Inbox(hArgs)
    LOCAL hResult := {=>}
    LOCAL oArchive, oItem, nI, nCount
    LOCAL cMailbox := "inbox", nLimit := 50, nOffset := 0
+   LOCAL nScan, nFirst
    LOCAL aMessages := {}, aPage := {}
 
    // Return schema and description when called without arguments
@@ -2097,11 +2108,13 @@ FUNCTION MCP_Tool_List_Inbox(hArgs)
          "properties"=>{;
             "mailbox"=>{"type"=>"string","enum"=>{"inbox","common"},"description"=>"Which mailbox to list: 'inbox' (personal Inbox, default) or 'common' (shared archive)"},;
             "limit"=>{"type"=>"integer","description"=>"Maximum number of messages to return (default 50)"},;
-            "offset"=>{"type"=>"integer","description"=>"Number of newest messages to skip (default 0)"};
+            "offset"=>{"type"=>"integer","description"=>"Number of newest messages to skip (default 0)"},;
+            "scan_limit"=>{"type"=>"integer","description"=>"Maximum number of archive entries to inspect, newest end first (default 200, max 1000). Larger values are slower - every entry is a David API round-trip"};
          },;
          "required"=>{};
       }
-      hResult["description"] := "List messages in the David Inbox (or Common archive), newest first"
+      hResult["description"] := "List messages in the David Inbox (or Common archive), newest first. " + ;
+                                "Only the newest 'scan_limit' archive entries are inspected, so 'total' refers to the scanned window, not the whole mailbox"
       RETURN hResult
    ENDIF
 
@@ -2115,6 +2128,15 @@ FUNCTION MCP_Tool_List_Inbox(hArgs)
       nOffset := hArgs["offset"]
    ENDIF
 
+   // Reading a message summary is several OLE round-trips per item, so a full
+   // scan of a big mailbox takes minutes and the MCP client times out long
+   // before. Only inspect a window at the newest end of the archive (archive
+   // entries are appended chronologically) and sort/page within that window.
+   nScan := Max(nOffset + nLimit, 200)
+   IF HHasKey(hArgs, "scan_limit") .AND. HB_IsNumeric(hArgs["scan_limit"]) .AND. hArgs["scan_limit"] > 0
+      nScan := Max(nOffset + nLimit, Min(hArgs["scan_limit"], 1000))
+   ENDIF
+
    oArchive := Inbox_Archive(cMailbox)
    IF oArchive == NIL
       hResult["status"] := "error"
@@ -2124,7 +2146,8 @@ FUNCTION MCP_Tool_List_Inbox(hArgs)
 
    BEGIN SEQUENCE
       nCount := oArchive:MailItems:Count
-      FOR nI := 0 TO nCount - 1
+      nFirst := Max(0, nCount - nScan)
+      FOR nI := nCount - 1 TO nFirst STEP -1
          BEGIN SEQUENCE
             oItem := oArchive:MailItems:Item(nI)
             AAdd(aMessages, Inbox_Summary(oItem))
@@ -2146,10 +2169,16 @@ FUNCTION MCP_Tool_List_Inbox(hArgs)
    NEXT
 
    hResult["mailbox"]  := cMailbox
+   hResult["mailbox_total"] := nCount
+   hResult["scanned"]  := Len(aMessages)
    hResult["total"]    := Len(aMessages)
    hResult["count"]    := Len(aPage)
    hResult["messages"] := aPage
    hResult["status"]   := "success"
+   IF nFirst > 0
+      hResult["message"] := "Scanned the newest " + AllTrim(Str(Len(aMessages))) + " of " + ;
+                            AllTrim(Str(nCount)) + " entries. Increase 'scan_limit' to look further back"
+   ENDIF
 RETURN hResult
 
 FUNCTION MCP_Tool_Get_Inbox_Message(hArgs)

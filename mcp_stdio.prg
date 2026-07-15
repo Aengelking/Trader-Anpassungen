@@ -2237,6 +2237,169 @@ FUNCTION MCP_Tool_Get_Inbox_Message(hArgs)
    hResult["status"] := "found"
 RETURN hResult
 
+//---------------------------------------------------------------------------
+// Email sending — hands mail to the David InfoCenter via the SendMail()
+// procedure from source\david.prg (linked into the trader binary). Requires a
+// working David connection (MailConnect), same as the inbox tools above.
+//---------------------------------------------------------------------------
+
+// Convert a UTF-8 string (JSON arguments arrive as UTF-8) to the ANSI form the
+// David OLE API expects — the inverse of DV_Utf8 (UTF-8 -> OEM -> ANSI).
+STATIC FUNCTION DV_FromUtf8(cStr)
+   IF ValType(cStr) != "C"
+      RETURN ""
+   ENDIF
+RETURN HB_OemToAnsi(HB_UTF8ToStr(cStr))
+
+STATIC FUNCTION DV_Join(aList, cSep)
+   LOCAL cResult := "", cItem
+   FOR EACH cItem IN aList
+      IF ! Empty(cResult)
+         cResult += cSep
+      ENDIF
+      cResult += cItem
+   NEXT
+RETURN cResult
+
+// Split a comma/semicolon separated address list, append each address to aTo
+// as a {email, name, type} entry (the shape SendMail() expects) and collect
+// syntactically invalid addresses in aInvalid. Returns the number added.
+STATIC FUNCTION AddRecipients(xList, cType, aTo, aInvalid)
+   LOCAL aParts, cAddr, nAt
+   LOCAL nAdded := 0
+
+   IF ValType(xList) != "C" .OR. Empty(xList)
+      RETURN 0
+   ENDIF
+
+   aParts := hb_ATokens(StrTran(xList, ",", ";"), ";")
+   FOR EACH cAddr IN aParts
+      cAddr := AllTrim(cAddr)
+      IF Empty(cAddr)
+         LOOP
+      ENDIF
+      nAt := At("@", cAddr)
+      // minimal sanity check: one "@" (not first), a dot in the domain, no spaces
+      IF nAt > 1 .AND. "." $ SubStr(cAddr, nAt + 2) .AND. ;
+         At("@", SubStr(cAddr, nAt + 1)) == 0 .AND. !(" " $ cAddr)
+         AAdd(aTo, {cAddr, "", cType})
+         nAdded++
+      ELSE
+         AAdd(aInvalid, cAddr)
+      ENDIF
+   NEXT
+RETURN nAdded
+
+FUNCTION MCP_Tool_Send_Email(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL aTo := {}, aInvalid := {}, aAttach := {}, aRecipients := {}
+   LOCAL cSubject, cBody, cFrom := "", cFile
+   LOCAL lHtml := .F., lDraft := .F.
+   LOCAL nToCount := 0
+   LOCAL oAccount, aRecipient
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "to"=>{"type"=>"string","description"=>"Recipient email address(es). Multiple addresses separated by comma or semicolon"},;
+            "cc"=>{"type"=>"string","description"=>"CC email address(es), separated by comma or semicolon"},;
+            "bcc"=>{"type"=>"string","description"=>"BCC email address(es), separated by comma or semicolon"},;
+            "subject"=>{"type"=>"string","description"=>"Subject line of the email"},;
+            "body"=>{"type"=>"string","description"=>"Body of the email. Plain text by default, HTML when 'html' is true"},;
+            "html"=>{"type"=>"boolean","description"=>"Set to true when body contains HTML (default: false = plain text)"},;
+            "from"=>{"type"=>"string","description"=>"Sender email address, must be one of the user's configured outgoing addresses. Default: the David account's primary address"},;
+            "attachments"=>{"type"=>"array","items"=>{"type"=>"string"},"description"=>"Full file paths (as seen by the Trader server) of files to attach"},;
+            "draft"=>{"type"=>"boolean","description"=>"If true the email is saved to the David Drafts folder for manual review instead of being sent immediately (default: false)"};
+         },;
+         "required"=>{"to","subject","body"};
+      }
+      hResult["description"] := "Send an email through the David InfoCenter. " + ;
+                                "Sends immediately unless 'draft' is true, in which case the mail is placed " + ;
+                                "in the Drafts folder for manual review before sending"
+      RETURN hResult
+   ENDIF
+
+   nToCount := AddRecipients(IIF(HHasKey(hArgs, "to"), hArgs["to"], ""), "TO", aTo, aInvalid)
+   AddRecipients(IIF(HHasKey(hArgs, "cc"), hArgs["cc"], ""), "CC", aTo, aInvalid)
+   AddRecipients(IIF(HHasKey(hArgs, "bcc"), hArgs["bcc"], ""), "BCC", aTo, aInvalid)
+
+   IF Len(aInvalid) > 0
+      RETURN "Invalid email address(es): " + DV_Join(aInvalid, ", ")
+   ENDIF
+   IF nToCount == 0
+      RETURN "No valid 'to' recipient provided"
+   ENDIF
+
+   IF ValType(hArgs["subject"]) != "C" .OR. ValType(hArgs["body"]) != "C"
+      RETURN "Parameters 'subject' and 'body' must be strings"
+   ENDIF
+
+   cSubject := DV_FromUtf8(hArgs["subject"])
+   cBody := DV_FromUtf8(hArgs["body"])
+   // JSON newlines arrive as LF; SendMail() strips LF and keeps CR, so
+   // normalize CRLF/LF to CR to preserve line breaks in the plain body.
+   cBody := StrTran(cBody, Chr(13) + Chr(10), Chr(13))
+   cBody := StrTran(cBody, Chr(10), Chr(13))
+
+   lHtml := HHasKey(hArgs, "html") .AND. HB_IsLogical(hArgs["html"]) .AND. hArgs["html"]
+   lDraft := HHasKey(hArgs, "draft") .AND. HB_IsLogical(hArgs["draft"]) .AND. hArgs["draft"]
+   IF HHasKey(hArgs, "from") .AND. ValType(hArgs["from"]) == "C"
+      cFrom := AllTrim(hArgs["from"])
+   ENDIF
+
+   // Attachments must exist on disk before we hand them to David
+   IF HHasKey(hArgs, "attachments") .AND. HB_IsArray(hArgs["attachments"])
+      FOR EACH cFile IN hArgs["attachments"]
+         IF ValType(cFile) != "C" .OR. Empty(cFile)
+            LOOP
+         ENDIF
+         cFile := HB_UTF8ToStr(cFile)
+         IF ! File(cFile)
+            RETURN "Attachment not found: " + cFile
+         ENDIF
+         AAdd(aAttach, cFile)
+      NEXT
+   ENDIF
+
+   // Connect to David (idempotent) and make sure we really have an account —
+   // SendMail() itself just returns silently when there is no connection.
+   BEGIN SEQUENCE
+      MailConnect()
+      oAccount := DV_GetMailAccount()
+   RECOVER
+      oAccount := NIL
+   END SEQUENCE
+
+   IF oAccount == NIL
+      hResult["status"] := "error"
+      hResult["message"] := "David not connected - email not sent"
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE
+      SendMail(aTo, cSubject, cBody, aAttach, .F., 0, lHtml, cFrom, lDraft)
+   RECOVER
+      hResult["status"] := "error"
+      hResult["message"] := "Failed to " + IIF(lDraft, "save draft", "send email")
+      RETURN hResult
+   END SEQUENCE
+
+   FOR EACH aRecipient IN aTo
+      AAdd(aRecipients, aRecipient[3] + ": " + aRecipient[1])
+   NEXT
+
+   hResult["status"] := "success"
+   hResult["mode"] := IIF(lDraft, "draft", "sent")
+   hResult["recipients"] := aRecipients
+   hResult["subject"] := hArgs["subject"]
+   hResult["attachment_count"] := Len(aAttach)
+   hResult["message"] := IIF(lDraft, ;
+      "Email saved to the David Drafts folder", ;
+      "Email handed to David for sending")
+RETURN hResult
+
 // Convert all string values in a hash from OEM to ANSI
 STATIC FUNCTION _HashToUtf8(hHash)
    LOCAL cKey, xValue

@@ -2095,6 +2095,8 @@ FUNCTION MCP_Tool_List_Inbox(hArgs)
    LOCAL oArchive, oItem, nI, nCount
    LOCAL cMailbox := "inbox", nLimit := 50, nOffset := 0
    LOCAL nScan, nFirst
+   LOCAL lUnreadOnly := .F., lAnyReadState := .F.
+   LOCAL hMsg
    LOCAL aMessages := {}, aPage := {}
 
    // Return schema and description when called without arguments
@@ -2103,13 +2105,14 @@ FUNCTION MCP_Tool_List_Inbox(hArgs)
          "type"=>"object",;
          "properties"=>{;
             "mailbox"=>{"type"=>"string","enum"=>{"inbox","common"},"description"=>"Which mailbox to list: 'inbox' (personal Inbox, default) or 'common' (shared archive)"},;
+            "unread_only"=>{"type"=>"boolean","description"=>"If true, return only unread messages (default false)"},;
             "limit"=>{"type"=>"integer","description"=>"Maximum number of messages to return (default 50)"},;
             "offset"=>{"type"=>"integer","description"=>"Number of newest messages to skip (default 0)"},;
             "scan_limit"=>{"type"=>"integer","description"=>"Maximum number of archive entries to inspect, newest end first (default 200, max 1000). Larger values are slower - every entry is a David API round-trip"};
          },;
          "required"=>{};
       }
-      hResult["description"] := "List messages in the David Inbox (or Common archive), newest first. " + ;
+      hResult["description"] := "List messages in the David Inbox (or Common archive), newest first, optionally unread only. " + ;
                                 "Only the newest 'scan_limit' archive entries are inspected, so 'total' refers to the scanned window, not the whole mailbox"
       RETURN hResult
    ENDIF
@@ -2117,6 +2120,7 @@ FUNCTION MCP_Tool_List_Inbox(hArgs)
    IF HHasKey(hArgs, "mailbox") .AND. ! Empty(hArgs["mailbox"])
       cMailbox := Lower(AllTrim(hArgs["mailbox"]))
    ENDIF
+   lUnreadOnly := HHasKey(hArgs, "unread_only") .AND. HB_IsLogical(hArgs["unread_only"]) .AND. hArgs["unread_only"]
    IF HHasKey(hArgs, "limit") .AND. HB_IsNumeric(hArgs["limit"]) .AND. hArgs["limit"] > 0
       nLimit := hArgs["limit"]
    ENDIF
@@ -2146,7 +2150,15 @@ FUNCTION MCP_Tool_List_Inbox(hArgs)
       FOR nI := nCount - 1 TO nFirst STEP -1
          BEGIN SEQUENCE
             oItem := oArchive:MailItems:Item(nI)
-            AAdd(aMessages, Inbox_Summary(oItem))
+            hMsg := Inbox_Summary(oItem)
+            IF HHasKey(hMsg, "unread")
+               lAnyReadState := .T.
+            ENDIF
+            // With unread_only, keep a message only when its read state is
+            // known AND it is unread
+            IF ! lUnreadOnly .OR. (HHasKey(hMsg, "unread") .AND. hMsg["unread"])
+               AAdd(aMessages, hMsg)
+            ENDIF
          RECOVER
          END SEQUENCE
       NEXT
@@ -2166,13 +2178,17 @@ FUNCTION MCP_Tool_List_Inbox(hArgs)
 
    hResult["mailbox"]  := cMailbox
    hResult["mailbox_total"] := nCount
-   hResult["scanned"]  := Len(aMessages)
+   hResult["scanned"]  := Min(nScan, nCount)
+   hResult["unread_only"] := lUnreadOnly
    hResult["total"]    := Len(aMessages)
    hResult["count"]    := Len(aPage)
    hResult["messages"] := aPage
    hResult["status"]   := "success"
-   IF nFirst > 0
-      hResult["message"] := "Scanned the newest " + AllTrim(Str(Len(aMessages))) + " of " + ;
+   IF lUnreadOnly .AND. Len(aMessages) == 0 .AND. ! lAnyReadState .AND. Min(nScan, nCount) > 0
+      hResult["message"] := "The David API did not report a read state for any scanned message - " + ;
+                            "the unread filter cannot be applied here"
+   ELSEIF nFirst > 0
+      hResult["message"] := "Scanned the newest " + AllTrim(Str(Min(nScan, nCount))) + " of " + ;
                             AllTrim(Str(nCount)) + " entries. Increase 'scan_limit' to look further back"
    ENDIF
 RETURN hResult

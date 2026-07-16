@@ -2074,29 +2074,21 @@ STATIC FUNCTION Inbox_Archive(cMailbox)
    END SEQUENCE
 RETURN oArchive
 
-// Read/unread state of a message, best-effort. Nothing else in the codebase
-// reads this flag and david.ch has no constant for it, so we try the
-// plausible DvApi property names in turn and return NIL when none of them
-// answers - callers then simply omit the field instead of guessing.
+// Read/unread state of a message via the documented DvApi archive-item
+// property Viewed (Viewed = message has been read). Returns NIL when the
+// property does not answer - callers then omit the field instead of guessing.
 STATIC FUNCTION DV_Unread(oItem)
    LOCAL xVal := NIL
 
    BEGIN SEQUENCE
-      xVal := oItem:Unread
+      xVal := oItem:Viewed
    RECOVER
       xVal := NIL
    END SEQUENCE
-   IF ValType(xVal) != "L" .AND. ValType(xVal) != "N"
-      BEGIN SEQUENCE
-         xVal := oItem:Fields:Item("Unread"):Value
-      RECOVER
-         xVal := NIL
-      END SEQUENCE
-   ENDIF
-   IF ValType(xVal) == "N"  // numeric representation: 0 = read
+   IF ValType(xVal) == "N"  // numeric representation: 0 = not viewed
       xVal := xVal != 0
    ENDIF
-RETURN IIF(ValType(xVal) == "L", xVal, NIL)
+RETURN IIF(ValType(xVal) == "L", ! xVal, NIL)
 
 // Build a one-line summary hash for a single message. Each property read is
 // guarded so one malformed item never aborts a listing.

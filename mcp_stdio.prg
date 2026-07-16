@@ -2027,32 +2027,6 @@ STATIC FUNCTION DV_DateStr(xTime)
    END SEQUENCE
 RETURN cResult
 
-// Read the "From" address of a received item defensively. The codebase only
-// ever *sets* Options:Sender for outgoing mail, so the receive-side property is
-// not proven — try Sender, then fall back to the first recipient.
-STATIC FUNCTION DV_Sender(oItem)
-   LOCAL cSender := ""
-   BEGIN SEQUENCE
-      IF oItem:Options:Sender != NIL
-         cSender := oItem:Options:Sender:Email
-         IF Empty(cSender)
-            cSender := oItem:Options:Sender:DisplayName
-         ENDIF
-      ENDIF
-   RECOVER
-      cSender := ""
-   END SEQUENCE
-   IF Empty(cSender)
-      BEGIN SEQUENCE
-         IF oItem:Recipients:Count > 0
-            cSender := oItem:Recipients:Item(0):Email
-         ENDIF
-      RECOVER
-         cSender := ""
-      END SEQUENCE
-   ENDIF
-RETURN DV_Utf8(cSender)
-
 // Resolve the David archive object for the requested mailbox, connecting first.
 // Returns NIL if David is not available.
 STATIC FUNCTION Inbox_Archive(cMailbox)
@@ -2106,7 +2080,7 @@ STATIC FUNCTION Inbox_Summary(oItem)
 //
    BEGIN SEQUENCE ; hMsg["id"]      := oItem:Fields:Item("FileName"):Value                  ; RECOVER ; END SEQUENCE
    BEGIN SEQUENCE ; hMsg["subject"] := DV_Utf8(oItem:Subject)        ; RECOVER ; END SEQUENCE
-   hMsg["sender"] := DV_Sender(oItem)
+   BEGIN SEQUENCE ; hMsg["sender"] := DV_Utf8(oItem:Fields:Item("SRFrom"):Value); RECOVER; hResult["sender"] := ""; END SEQUENCE
    BEGIN SEQUENCE ; hMsg["date"]    := DV_DateStr(oItem:StatusTime)  ; RECOVER ; END SEQUENCE
    BEGIN SEQUENCE ; hMsg["recipient_count"]  := oItem:Recipients:Count  ; RECOVER ; END SEQUENCE
    BEGIN SEQUENCE ; hMsg["attachment_count"] := oItem:Attachments:Count ; RECOVER ; END SEQUENCE
@@ -2252,7 +2226,7 @@ FUNCTION MCP_Tool_Get_Inbox_Message(hArgs)
    hResult["mailbox"] := cMailbox
 
    BEGIN SEQUENCE ; hResult["subject"] := DV_Utf8(oItem:Subject)       ; RECOVER ; hResult["subject"] := "" ; END SEQUENCE
-   BEGIN SEQUENCE ; hResult["sender"] := DV_Utf8(oItem:Fields:Item("SRFrom"):Value); RECOVER; hResult["sender"] := ""; END SEQUENCE //DV_Sender(oItem)
+   BEGIN SEQUENCE ; hResult["sender"] := DV_Utf8(oItem:Fields:Item("SRFrom"):Value); RECOVER; hResult["sender"] := ""; END SEQUENCE 
    BEGIN SEQUENCE ; hResult["date"]    := DV_DateStr(oItem:StatusTime) ; RECOVER ; hResult["date"]    := "" ; END SEQUENCE
    xUnread := DV_Unread(oItem)
    IF xUnread != NIL

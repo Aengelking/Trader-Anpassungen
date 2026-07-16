@@ -4,6 +4,24 @@
 
 
 
+/*
+   PDF24 JSON-Feldnamen fuer zusaetzliche EN16931-Felder (BT-...).
+   ACHTUNG: PDF24 veroeffentlicht keine formale JSON-Spezifikation. Referenz ist
+   der JSON-Export einer Beispielrechnung aus dem PDF24 E-Rechnungs-Generator
+   (Hauptmenue -> Exportieren), siehe:
+   https://help.pdf24.org/de/fragen/frage/erechnung-aus-json-mit-kommandozeile/
+   Die mit UNVERIFIZIERT markierten Namen folgen der PDF24-Namenskonvention
+   (vgl. purchaseOrderReference, vatId, countryCode), MUESSEN aber gegen einen
+   solchen Export geprueft werden. Unbekannte Schluessel ignoriert PDF24 -
+   ein falscher Name fuehrt nur dazu, dass das Feld weiterhin im XML fehlt.
+   Verifiziert durch vorhandenen Beispiel-Export bzw. bestehenden Code:
+   "orderPosition" (BT-132, je Position) und "description" (BT-154, je Position).
+*/
+#define J_DESPATCH_ADVICE "despatchAdviceReference"  //BT-16  Lieferavisreferenz      UNVERIFIZIERT
+#define J_DELIVERY_LOC_ID "locationId"               //BT-71  Kennung des Lieferorts  UNVERIFIZIERT (im delivery-Objekt)
+#define J_ITEM_BUYER_ID   "buyerId"                  //BT-156 Artikelnr. des Kaeufers UNVERIFIZIERT (je Position)
+#define J_ITEM_ORIGIN     "originCountryCode"        //BT-159 Ursprungsland           UNVERIFIZIERT (je Position)
+
 PROC CreateXRechung(nRechnr,cFile)
    LOCAL hData := {=>}
    LOCAL oRechnung
@@ -17,12 +35,14 @@ PROC CreateXRechung(nRechnr,cFile)
    LOCAL cJsonFile
    LOCAL nProc,nErrOut,nErrBytes,cData,cStdErr
    LOCAL cAufNr,lOneAufnr := .T.,cProc
+   LOCAL cKunde,cPosText,nBestPos
 
 
    NetUse("englsre","re")
    NetUse("engkund","ku")
    NetUse("ups","ups")
    NetUse("artikel","art")
+   NetUse("artkund","aku")
    NetUse("engtext2","tx")
    NetUse("me","me")
    
@@ -30,6 +50,7 @@ PROC CreateXRechung(nRechnr,cFile)
    re->(dbSetOrder( 4 ))
    art->(dbSetOrder( 2 ))
    ku->(dbSetOrder(1))
+   aku->(dbSetOrder(1))
 
    IF ! File(cFile)
       oErr := ErrorNew()
@@ -108,10 +129,19 @@ PROC CreateXRechung(nRechnr,cFile)
       hData["title"] := IF(cLang!="D","Credit note","Stornorechnung")
       hData["typeCode"] := "384" //Rechnungskorrektur
    ENDIF
+   cKunde := re->Kunde  //Rechnungskunde vom Kopfsatz merken (fuer artkund/BT-156)
+
    hData["number"] := LTrim(Str(re->Rechnr))
    hData["issueDate"] := _DtoC(re->Rechdat)
    hData["dueDate"] :=  _DtoC(re->Rechdat+sk->(GetSkontoWait(re->skonto,re->rechdat)))
-   hData["deliveryDate"] := _DtoC(IF(ups->(dbSeek( Str(re->Rechnr,10) )),ups->Datum,re->Rechdat))
+   IF ups->(dbSeek( Str(re->Rechnr,10) ))
+      hData["deliveryDate"] := _DtoC(ups->Datum)
+      //BT-16 Lieferavisreferenz: Lieferschein/Versandavis (VDA) laufen in Trader
+      //unter der Rechnungsnummer (vgl. englipr/print_vda) - nur wenn Versand existiert
+      hData[J_DESPATCH_ADVICE] := LTrim(Str(re->Rechnr))
+   ELSE
+      hData["deliveryDate"] := _DtoC(re->Rechdat)
+   ENDIF
    IF lOneAufnr
       hData["purchaseOrderReference"] := re->AufNr
    ENDIF
@@ -195,6 +225,11 @@ PROC CreateXRechung(nRechnr,cFile)
       };
    }
 
+   //BT-71 Kennung des Lieferorts: Abladestelle des Kunden (wie im VDA-Avis, vgl. print_vda)
+   IF ! Empty(re->Ablade)
+      hData["delivery"][J_DELIVERY_LOC_ID] := Trim(re->Ablade)
+   ENDIF
+
    sk->(dbGoto(re->skonto+1))
    hData["payment"] := {;
       "terms"=>Trim(SK->(SKONT(,,sk->ziel1,sk->ziel2,sk->ziel3,sk->rate1,sk->rate2,sk->rate3,cLang,.F.,re->Rechdat))),;            
@@ -250,8 +285,40 @@ PROC CreateXRechung(nRechnr,cFile)
             "vatRate"=>oRechnung:MwStRate,;
             "netUnitPrice"=>re->Preis;              
          })
-         IF ! lOneAufnr
+         cPosText := ""
+         IF re->Textnr != 0
+            cPosText := tx->(ReadText(re->Textnr))
+         ENDIF
+
+         //BT-132 Referenz zur Bestellposition: Zeile "Position: n" aus dem
+         //Positionstext (wird bei Kunden mit oExtra:AufPos gepflegt,
+         //vgl. hook before_save_aufpos). Fallback wie bisher: Auftragsnummer
+         //je Position, wenn mehrere Auftraege in der Rechnung stecken.
+         nBestPos := 0
+         IF AT("Position:",cPosText) != 0
+            nBestPos := Val(LTrim(SubStr(cPosText,AT("Position:",cPosText)+Len("Position:"))))
+         ENDIF
+         IF nBestPos != 0
+            ATail(hData["items"])["orderPosition"] := LTrim(Str(nBestPos))
+         ELSEIF ! lOneAufnr
             ATail(hData["items"])["orderPosition"] := Trim(re->Aufnr)
+         ENDIF
+
+         //BT-154 Artikelbeschreibung: Positionslangtext (bei @-Textpositionen
+         //steckt der Text bereits in der id, daher dort nicht doppelt ausgeben)
+         IF ! Empty(cPosText) .AND. LEFT(re->matchcode,1) != "@"
+            ATail(hData["items"])["description"] := hb_strtoutf8(Trim(cPosText))
+         ENDIF
+
+         //BT-156 Artikelnummer des Kaeufers: Kundenartikelnummer aus artkund
+         IF aku->(dbSeek( cKunde+Str(re->Artikelnr,6) )) .AND. ! Empty(aku->ArtLief)
+            ATail(hData["items"])[J_ITEM_BUYER_ID] := hb_strtoutf8(Trim(aku->ArtLief))
+         ENDIF
+
+         //BT-159 Artikelherkunftsland: Ursprungsland aus dem Artikelstamm
+         //(ISO-2, wird bei gueltiger Lieferantenerklaerung dort aktualisiert, vgl. le.prg)
+         IF ! Empty(art->Ursprung)
+            ATail(hData["items"])[J_ITEM_ORIGIN] := Trim(art->Ursprung)
          ENDIF
          IF ! Empty(re->Rabatt)
             ATail(hData["items"])["allowances"] := {{;

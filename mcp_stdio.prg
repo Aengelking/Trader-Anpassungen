@@ -2451,6 +2451,352 @@ FUNCTION MCP_Tool_Send_Email(hArgs)
       "Email handed to David for sending")
 RETURN hResult
 
+//---------------------------------------------------------------------------
+// Reminder tool — creates a David Wiedervorlage via AddWiedervorlage() from
+// source\david.prg, for the current user or another Trader user.
+//---------------------------------------------------------------------------
+
+FUNCTION MCP_Tool_Create_Reminder(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL dDate, cSubject, cMessage
+   LOCAL nUser := 0
+   LOCAL oAccount, lOk := .F.
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "date"=>{"type"=>"string","description"=>"Reminder date in YYYY-MM-DD format"},;
+            "subject"=>{"type"=>"string","description"=>"Subject of the reminder"},;
+            "message"=>{"type"=>"string","description"=>"Body text of the reminder (optional)"},;
+            "user_number"=>{"type"=>"integer","description"=>"Trader user (buyer) number whose reminder folder receives the entry. Default: the current user"};
+         },;
+         "required"=>{"date","subject"};
+      }
+      hResult["description"] := "Create a reminder (Wiedervorlage) in the David InfoCenter that pops up on the given date, " + ;
+                                "for the current user or another Trader user"
+      RETURN hResult
+   ENDIF
+
+   IF ValType(hArgs["date"]) != "C"
+      RETURN "Parameter 'date' must be a string in YYYY-MM-DD format"
+   ENDIF
+   dDate := SToD(StrTran(AllTrim(hArgs["date"]), "-", ""))
+   IF Empty(dDate)
+      RETURN "Invalid date: " + hArgs["date"] + " (expected YYYY-MM-DD)"
+   ENDIF
+   IF dDate < Date()
+      RETURN "Reminder date " + hArgs["date"] + " is in the past"
+   ENDIF
+
+   cSubject := DV_FromUtf8(hArgs["subject"])
+   cMessage := IIF(HHasKey(hArgs, "message") .AND. ValType(hArgs["message"]) == "C", DV_FromUtf8(hArgs["message"]), "")
+   cMessage := StrTran(cMessage, Chr(13) + Chr(10), Chr(13))
+   cMessage := StrTran(cMessage, Chr(10), Chr(13))
+
+   IF HHasKey(hArgs, "user_number") .AND. HB_IsNumeric(hArgs["user_number"]) .AND. hArgs["user_number"] > 0
+      nUser := hArgs["user_number"]
+   ENDIF
+
+   BEGIN SEQUENCE
+      MailConnect()
+      oAccount := DV_GetMailAccount()
+   RECOVER
+      oAccount := NIL
+   END SEQUENCE
+
+   IF oAccount == NIL
+      hResult["status"] := "error"
+      hResult["message"] := "David not connected - reminder not created"
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE
+      lOk := AddWiedervorlage(dDate, cSubject, cMessage, NIL, {}, nUser)
+   RECOVER
+      lOk := .F.
+   END SEQUENCE
+
+   IF lOk
+      hResult["status"] := "success"
+      hResult["date"] := dDate
+      hResult["subject"] := hArgs["subject"]
+      hResult["user_number"] := nUser
+      hResult["message"] := "Reminder created"
+   ELSE
+      hResult["status"] := "error"
+      hResult["message"] := "Failed to create reminder" + ;
+         IIF(nUser > 0, " - user " + AllTrim(Str(nUser)) + " may not exist or has no David account linked", "")
+   ENDIF
+RETURN hResult
+
+//---------------------------------------------------------------------------
+// Quote and accounting tools — read-only access to the angebot (quote) and
+// englsre (invoice ledger) tables.
+//---------------------------------------------------------------------------
+
+// Resolve a customer from the 'customer' (matchcode) / 'customer_number'
+// arguments, same lookup as MCP_Tool_Get_Customer. Returns NIL if not found.
+STATIC FUNCTION ResolveCustomer(hArgs)
+   LOCAL oKunde := Adresse():New()
+   LOCAL lFound := .F.
+
+   IF HHasKey(hArgs, "customer_number") .AND. HB_IsNumeric(hArgs["customer_number"]) .AND. hArgs["customer_number"] > 0
+      ku->(DbSetOrder(8))
+      lFound := oKunde:Load(hArgs["customer_number"])
+   ELSEIF HHasKey(hArgs, "customer") .AND. ! Empty(hArgs["customer"])
+      lFound := oKunde:LoadMatchcode(Pad(Upper(AllTrim(hArgs["customer"])), 8), "K")
+   ENDIF
+RETURN IIF(lFound, oKunde, NIL)
+
+// Coarse quote status from ang->Bestat: 0 = enquiry not yet quoted ("off"),
+// 1/2 = quoted ("ang"), >= 3 = closed ("erl") - see angebot_browse.prg.
+STATIC FUNCTION QuoteStatusLabel(nBestat)
+RETURN IIF(nBestat >= 3, "closed", IIF(nBestat == 0, "enquiry", "quoted"))
+
+// Discounted unit price of the current ang line (see angebot_print.prg:
+// dis_count := vkpr - vkpr*rabatt/100; Pe is the price unit).
+STATIC FUNCTION QuoteLinePrice()
+RETURN (ang->VkPr - ang->VkPr * ang->Rabatt / 100) / IIF(ang->Pe == 0, 1, ang->Pe)
+
+FUNCTION MCP_Tool_Get_Quote(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nQuote, hLine
+   LOCAL aLines := {}
+   LOCAL nTotal := 0
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "quote_number"=>{"type"=>"number","description"=>"Quote (Angebot) number"};
+         },;
+         "required"=>{"quote_number"};
+      }
+      hResult["description"] := "Retrieve a sales quote (Angebot) by number, including all line items, prices and status"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["quote_number"])
+      RETURN "Parameter 'quote_number' must be a number"
+   ENDIF
+   nQuote := hArgs["quote_number"]
+
+   NetUse("angebot", "ang")
+   ang->(DbSetOrder(1))  // Str(Angnr,6) + Str(Itmnr,3)
+
+   IF ! ang->(DbSeek(Str(nQuote, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Quote not found: " + AllTrim(Str(nQuote))
+      RETURN hResult
+   ENDIF
+
+   hResult["quote_number"] := nQuote
+   hResult["customer"] := HB_StrToUTF8(AllTrim(ang->Kundma))
+   hResult["date"] := ang->Besda
+   hResult["buyer"] := HB_StrToUTF8(AllTrim(ang->Buyer))
+   hResult["currency"] := IIF(Empty(ang->Money), "EUR", AllTrim(ang->Money))
+
+   DO WHILE ! ang->(Eof()) .AND. ang->Angnr == nQuote
+      hLine := {=>}
+      hLine["item"] := ang->Itmnr
+      hLine["article"] := HB_StrToUTF8(AllTrim(ang->Matchcode))
+      hLine["description"] := HB_StrToUTF8(AllTrim(ang->Artikel))
+      hLine["quantity"] := ang->VkQty
+      hLine["price"] := QuoteLinePrice()
+      hLine["discount_percent"] := ang->Rabatt
+      hLine["status"] := QuoteStatusLabel(ang->Bestat)
+      IF ang->Aufnr > 0
+         hLine["order_number"] := ang->Aufnr  // quote line was converted to this order
+      ENDIF
+      hLine["line_total"] := Round(ang->VkQty * QuoteLinePrice(), 2)
+      nTotal += hLine["line_total"]
+      AAdd(aLines, hLine)
+      ang->(DbSkip())
+   ENDDO
+
+   DbSelectArea(nOldSelect)
+
+   hResult["lines"] := aLines
+   hResult["total"] := Round(nTotal, 2)
+   hResult["status"] := "found"
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Customer_Quotes(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oKunde, hQuotes := {=>}, hQuote, cKey
+   LOCAL aQuotes := {}
+   LOCAL cStatus := "all", cLineStatus
+   LOCAL nMaxResults := 50
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "customer"=>{"type"=>"string","description"=>"Customer matchcode"},;
+            "customer_number"=>{"type"=>"number","description"=>"Customer number"},;
+            "status_filter"=>{"type"=>"string","enum"=>{"open","closed","all"},"description"=>"Only quotes with this status (default all). 'open' = enquiry received or quoted but not yet closed"},;
+            "max_results"=>{"type"=>"number","description"=>"Maximum number of quotes to return, newest first (default 50)"};
+         },;
+         "anyOf"=>{{"customer", "customer_number"}};
+      }
+      hResult["description"] := "List sales quotes (Angebote) for a customer, newest first, with per-quote status and value"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "status_filter") .AND. hArgs["status_filter"] $ {"open", "closed"}
+      cStatus := hArgs["status_filter"]
+   ENDIF
+   IF HHasKey(hArgs, "max_results") .AND. HB_IsNumeric(hArgs["max_results"]) .AND. hArgs["max_results"] > 0
+      nMaxResults := Min(hArgs["max_results"], 200)
+   ENDIF
+
+   oKunde := ResolveCustomer(hArgs)
+   IF oKunde == NIL
+      hResult["status"] := "not_found"
+      hResult["message"] := "Customer not found"
+      RETURN hResult
+   ENDIF
+
+   NetUse("angebot", "ang")
+   ang->(DbSetOrder(7))  // Kundma
+
+   IF ang->(DbSeek(oKunde:Kunde))
+      DO WHILE ! ang->(Eof()) .AND. ang->Kundma == oKunde:Kunde
+         cLineStatus := QuoteStatusLabel(ang->Bestat)
+         IF cStatus == "all" .OR. ;
+            (cStatus == "open" .AND. cLineStatus != "closed") .OR. ;
+            (cStatus == "closed" .AND. cLineStatus == "closed")
+
+            cKey := Str(ang->Angnr, 6)
+            IF ! HHasKey(hQuotes, cKey)
+               hQuote := {=>}
+               hQuote["quote_number"] := ang->Angnr
+               hQuote["date"] := ang->Besda
+               hQuote["buyer"] := HB_StrToUTF8(AllTrim(ang->Buyer))
+               hQuote["currency"] := IIF(Empty(ang->Money), "EUR", AllTrim(ang->Money))
+               hQuote["status"] := cLineStatus
+               hQuote["line_count"] := 0
+               hQuote["total"] := 0
+               hQuotes[cKey] := hQuote
+            ENDIF
+            hQuotes[cKey]["line_count"] := hQuotes[cKey]["line_count"] + 1
+            hQuotes[cKey]["total"] := Round(hQuotes[cKey]["total"] + ang->VkQty * QuoteLinePrice(), 2)
+            // A quote with any line still open counts as open
+            IF cLineStatus != "closed"
+               hQuotes[cKey]["status"] := cLineStatus
+            ENDIF
+         ENDIF
+         ang->(DbSkip())
+      ENDDO
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   FOR EACH hQuote IN hQuotes
+      AAdd(aQuotes, hQuote)
+   NEXT
+   ASort(aQuotes,,, {|x, y| x["quote_number"] > y["quote_number"]})
+   ASize(aQuotes, Min(Len(aQuotes), nMaxResults))
+
+   hResult["customer"] := HB_StrToUTF8(AllTrim(oKunde:Kunde))
+   hResult["customer_number"] := oKunde:Nummer
+   hResult["count"] := Len(aQuotes)
+   hResult["quotes"] := aQuotes
+   hResult["status"] := IIF(Len(aQuotes) > 0, "found", "not_found")
+   IF Len(aQuotes) == 0
+      hResult["message"] := "No quotes found for this customer"
+   ELSEIF Len(aQuotes) == nMaxResults
+      hResult["message"] := "Result limited to " + AllTrim(Str(nMaxResults)) + " quotes"
+   ENDIF
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Customer_Open_Items(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oKunde, cKunde
+   LOCAL aItems := {}, hItem
+   LOCAL hTotals := {=>}, cCur, nOpen
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "customer"=>{"type"=>"string","description"=>"Customer matchcode"},;
+            "customer_number"=>{"type"=>"number","description"=>"Customer number"};
+         },;
+         "anyOf"=>{{"customer", "customer_number"}};
+      }
+      hResult["description"] := "List open (not fully paid) invoices and credit notes for a customer, " + ;
+                                "with amount, paid amount, open balance and age in days. Use before payment reminders"
+      RETURN hResult
+   ENDIF
+
+   oKunde := ResolveCustomer(hArgs)
+   IF oKunde == NIL
+      hResult["status"] := "not_found"
+      hResult["message"] := "Customer not found"
+      RETURN hResult
+   ENDIF
+
+   cKunde := Pad(oKunde:Kunde, 8)
+
+   NetUse("englsre", "re", .F., 5)
+   re->(DbSetOrder(2))  // Str(Reposnr,3) + Kunde; Reposnr 0 = invoice header
+
+   IF re->(DbSeek("  0" + cKunde))
+      DO WHILE ! re->(Eof()) .AND. re->Reposnr == 0 .AND. re->Kunde == cKunde
+         // Open = not settled yet, same criteria as GetCustomerTurnover in
+         // model/adresse.prg (status 0 and code <= 2)
+         IF re->Status == 0 .AND. re->Code <= 2
+            nOpen := Round(re->Poswt - re->AoQty - re->PaySkonto, 2)
+            IF nOpen != 0
+               hItem := {=>}
+               hItem["invoice_number"] := re->Rechnr
+               hItem["type"] := IIF(re->Poswt < 0, "credit_note", "invoice")
+               hItem["date"] := re->Rechdat
+               hItem["age_days"] := Date() - re->Rechdat
+               hItem["amount"] := re->Poswt
+               hItem["paid"] := re->AoQty
+               hItem["discount"] := re->PaySkonto
+               hItem["open"] := nOpen
+               hItem["currency"] := IIF(Empty(re->Money), "EUR", AllTrim(re->Money))
+               AAdd(aItems, hItem)
+
+               cCur := hItem["currency"]
+               IF ! HHasKey(hTotals, cCur)
+                  hTotals[cCur] := 0
+               ENDIF
+               hTotals[cCur] := Round(hTotals[cCur] + nOpen, 2)
+            ENDIF
+         ENDIF
+         re->(DbSkip())
+      ENDDO
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   // Oldest first - the order a dunning run would treat them
+   ASort(aItems,,, {|x, y| x["date"] < y["date"]})
+
+   hResult["customer"] := HB_StrToUTF8(AllTrim(oKunde:Kunde))
+   hResult["customer_number"] := oKunde:Nummer
+   hResult["count"] := Len(aItems)
+   hResult["open_items"] := aItems
+   hResult["open_total_by_currency"] := hTotals
+   hResult["status"] := IIF(Len(aItems) > 0, "found", "none")
+   IF Len(aItems) == 0
+      hResult["message"] := "No open items - nothing unpaid for this customer"
+   ENDIF
+RETURN hResult
+
 // Convert all string values in a hash from OEM to ANSI
 STATIC FUNCTION _HashToUtf8(hHash)
    LOCAL cKey, xValue

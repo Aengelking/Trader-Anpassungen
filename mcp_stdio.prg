@@ -22,14 +22,20 @@ FUNCTION MCP_StdIO()
    LOCAL cInput, hRequest, cResponse
    LOCAL nStdIn, nStdOut,cChar,nStdErr
    LOCAL cLine := ""
-   LOCAL nChar
+   LOCAL cBuffer := ""
+   LOCAL nChar, nPos
    LOCAL bOldError
-      
+
 
    // Get stdin and stdout handles
    nStdIn := hb_GetStdIn()
    nStdOut := hb_GetStdOut()
    nStdErr := hb_GetStdErr()
+
+   // No keyboard and no visible window in an MCP process: make sure nothing
+   // (MailConnect, error handler, hooks) ever pops a modal Alert/MsgBox that
+   // would block the request loop forever.
+   SetConfigValue("BATCHMODE", .T.)
 
    FWrite(nStdErr,"MCP_StdIO: Starting MCP server via STDIO..."+Chr(10))
 
@@ -51,32 +57,36 @@ FUNCTION MCP_StdIO()
    // Main loop - read JSON-RPC requests from stdin
    DO WHILE .T.
       cLine := ""
-      cChar := Space(1)
-      
-      // Read a line from stdin and wait for a newline
+
+      // Read a complete line (terminated by newline) from stdin. Data is read
+      // in chunks into cBuffer, which carries any bytes past the newline over
+      // to the next request. Reading byte-by-byte with a 0.1s Inkey() delay
+      // per byte (the previous version) limited throughput to ~10 bytes/sec,
+      // so any larger request (e.g. send_email with a long body) hit the MCP
+      // client timeout before the tool was even called.
       DO WHILE .T.
-         nChar := FRead(nStdIn, @cChar, Len(cChar))
-         
-         IF nChar > 0
-            // Append the read characters to the line
-            cLine += Left(cChar, nChar)
-            
-            // Check if we have a complete line (ending with newline)
-            IF Chr(10) $ cLine
-               // Remove the newline character
-               cLine := StrTran(cLine, Chr(10), "")
-               // Remove carriage return if present
-               IF Right(cLine, 1) == Chr(13)
-                  cLine := Left(cLine, Len(cLine) - 1)
-               ENDIF
-               EXIT
+         nPos := At(Chr(10), cBuffer)
+         IF nPos > 0
+            cLine := Left(cBuffer, nPos - 1)
+            cBuffer := SubStr(cBuffer, nPos + 1)
+            // Remove carriage return if present
+            IF Right(cLine, 1) == Chr(13)
+               cLine := Left(cLine, Len(cLine) - 1)
             ENDIF
-         ELSEIF nChar == 0
-            // No more data available, exit
             EXIT
          ENDIF
-         Inkey(0.1) // Small delay to avoid busy waiting
-      ENDDO     
+
+         cChar := Space(4096)
+         nChar := FRead(nStdIn, @cChar, Len(cChar))
+         IF nChar > 0
+            cBuffer += Left(cChar, nChar)
+         ELSE
+            // Nothing read (pipe empty or closed) - wait briefly so we do
+            // not busy-spin. FRead on a pipe normally blocks, so this only
+            // triggers on EOF or a non-blocking stdin.
+            Inkey(0.1)
+         ENDIF
+      ENDDO
       
       
       IF !Empty(cLine)
@@ -1989,14 +1999,15 @@ RETURN NIL
 // clean status instead of crashing the MCP loop.
 //---------------------------------------------------------------------------
 
-// Convert a David (Windows-ANSI) string to UTF-8 for JSON output. David reads
-// are ANSI; the app codepage is OEM, so we go ANSI->OEM->UTF-8 like the rest
-// of this server (see HB_StrToUTF8 usage above).
+// Convert a David (Windows-ANSI) string to UTF-8 for JSON output. Translate
+// CP1252 (DEWIN) to UTF-8 directly instead of the old ANSI->OEM->UTF-8 chain,
+// which silently depended on the process' selected codepage matching the OS
+// OEM codepage.
 STATIC FUNCTION DV_Utf8(cStr)
    IF ValType(cStr) != "C"
       RETURN ""
    ENDIF
-RETURN HB_StrToUTF8(HB_AnsiToOem(cStr))
+RETURN hb_Translate(cStr, "DEWIN", "UTF8")
 
 // Serialize a David message time (timestamp, occasionally a date) to a
 // sortable ISO-ish string.
@@ -2015,32 +2026,6 @@ STATIC FUNCTION DV_DateStr(xTime)
       cResult := ""
    END SEQUENCE
 RETURN cResult
-
-// Read the "From" address of a received item defensively. The codebase only
-// ever *sets* Options:Sender for outgoing mail, so the receive-side property is
-// not proven — try Sender, then fall back to the first recipient.
-STATIC FUNCTION DV_Sender(oItem)
-   LOCAL cSender := ""
-   BEGIN SEQUENCE
-      IF oItem:Options:Sender != NIL
-         cSender := oItem:Options:Sender:Email
-         IF Empty(cSender)
-            cSender := oItem:Options:Sender:DisplayName
-         ENDIF
-      ENDIF
-   RECOVER
-      cSender := ""
-   END SEQUENCE
-   IF Empty(cSender)
-      BEGIN SEQUENCE
-         IF oItem:Recipients:Count > 0
-            cSender := oItem:Recipients:Item(0):Email
-         ENDIF
-      RECOVER
-         cSender := ""
-      END SEQUENCE
-   ENDIF
-RETURN DV_Utf8(cSender)
 
 // Resolve the David archive object for the requested mailbox, connecting first.
 // Returns NIL if David is not available.
@@ -2063,10 +2048,27 @@ STATIC FUNCTION Inbox_Archive(cMailbox)
    END SEQUENCE
 RETURN oArchive
 
+// Read/unread state of a message via the documented DvApi archive-item
+// property Viewed (Viewed = message has been read). Returns NIL when the
+// property does not answer - callers then omit the field instead of guessing.
+STATIC FUNCTION DV_Unread(oItem)
+   LOCAL xVal := NIL
+
+   BEGIN SEQUENCE
+      xVal := oItem:Viewed
+   RECOVER
+      xVal := NIL
+   END SEQUENCE
+   IF ValType(xVal) == "N"  // numeric representation: 0 = not viewed
+      xVal := xVal != 0
+   ENDIF
+RETURN IIF(ValType(xVal) == "L", ! xVal, NIL)
+
 // Build a one-line summary hash for a single message. Each property read is
 // guarded so one malformed item never aborts a listing.
 STATIC FUNCTION Inbox_Summary(oItem)
    LOCAL hMsg := {=>}
+   LOCAL xUnread
 
    hMsg["id"] := ""
    hMsg["subject"] := ""
@@ -2074,20 +2076,27 @@ STATIC FUNCTION Inbox_Summary(oItem)
    hMsg["date"] := ""
    hMsg["recipient_count"] := 0
    hMsg["attachment_count"] := 0
-//oItem:_ID  
+//oItem:_ID
 //
    BEGIN SEQUENCE ; hMsg["id"]      := oItem:Fields:Item("FileName"):Value                  ; RECOVER ; END SEQUENCE
    BEGIN SEQUENCE ; hMsg["subject"] := DV_Utf8(oItem:Subject)        ; RECOVER ; END SEQUENCE
-   hMsg["sender"] := DV_Sender(oItem)
+   BEGIN SEQUENCE ; hMsg["sender"] := DV_Utf8(oItem:Fields:Item("SRFrom"):Value); RECOVER; hMsg["sender"] := ""; END SEQUENCE
    BEGIN SEQUENCE ; hMsg["date"]    := DV_DateStr(oItem:StatusTime)  ; RECOVER ; END SEQUENCE
    BEGIN SEQUENCE ; hMsg["recipient_count"]  := oItem:Recipients:Count  ; RECOVER ; END SEQUENCE
    BEGIN SEQUENCE ; hMsg["attachment_count"] := oItem:Attachments:Count ; RECOVER ; END SEQUENCE
+   xUnread := DV_Unread(oItem)
+   IF xUnread != NIL
+      hMsg["unread"] := xUnread
+   ENDIF
 RETURN hMsg
 
 FUNCTION MCP_Tool_List_Inbox(hArgs)
    LOCAL hResult := {=>}
    LOCAL oArchive, oItem, nI, nCount
    LOCAL cMailbox := "inbox", nLimit := 50, nOffset := 0
+   LOCAL nScan, nFirst
+   LOCAL lUnreadOnly := .F., lAnyReadState := .F.
+   LOCAL hMsg
    LOCAL aMessages := {}, aPage := {}
 
    // Return schema and description when called without arguments
@@ -2096,23 +2105,36 @@ FUNCTION MCP_Tool_List_Inbox(hArgs)
          "type"=>"object",;
          "properties"=>{;
             "mailbox"=>{"type"=>"string","enum"=>{"inbox","common"},"description"=>"Which mailbox to list: 'inbox' (personal Inbox, default) or 'common' (shared archive)"},;
+            "unread_only"=>{"type"=>"boolean","description"=>"If true, return only unread messages (default false)"},;
             "limit"=>{"type"=>"integer","description"=>"Maximum number of messages to return (default 50)"},;
-            "offset"=>{"type"=>"integer","description"=>"Number of newest messages to skip (default 0)"};
+            "offset"=>{"type"=>"integer","description"=>"Number of newest messages to skip (default 0)"},;
+            "scan_limit"=>{"type"=>"integer","description"=>"Maximum number of archive entries to inspect, newest end first (default 200, max 1000). Larger values are slower - every entry is a David API round-trip"};
          },;
          "required"=>{};
       }
-      hResult["description"] := "List messages in the David Inbox (or Common archive), newest first"
+      hResult["description"] := "List messages in the David Inbox (or Common archive), newest first, optionally unread only. " + ;
+                                "Only the newest 'scan_limit' archive entries are inspected, so 'total' refers to the scanned window, not the whole mailbox"
       RETURN hResult
    ENDIF
 
    IF HHasKey(hArgs, "mailbox") .AND. ! Empty(hArgs["mailbox"])
       cMailbox := Lower(AllTrim(hArgs["mailbox"]))
    ENDIF
+   lUnreadOnly := HHasKey(hArgs, "unread_only") .AND. HB_IsLogical(hArgs["unread_only"]) .AND. hArgs["unread_only"]
    IF HHasKey(hArgs, "limit") .AND. HB_IsNumeric(hArgs["limit"]) .AND. hArgs["limit"] > 0
       nLimit := hArgs["limit"]
    ENDIF
    IF HHasKey(hArgs, "offset") .AND. HB_IsNumeric(hArgs["offset"]) .AND. hArgs["offset"] > 0
       nOffset := hArgs["offset"]
+   ENDIF
+
+   // Reading a message summary is several OLE round-trips per item, so a full
+   // scan of a big mailbox takes minutes and the MCP client times out long
+   // before. Only inspect a window at the newest end of the archive (archive
+   // entries are appended chronologically) and sort/page within that window.
+   nScan := Max(nOffset + nLimit, 200)
+   IF HHasKey(hArgs, "scan_limit") .AND. HB_IsNumeric(hArgs["scan_limit"]) .AND. hArgs["scan_limit"] > 0
+      nScan := Max(nOffset + nLimit, Min(hArgs["scan_limit"], 1000))
    ENDIF
 
    oArchive := Inbox_Archive(cMailbox)
@@ -2124,10 +2146,19 @@ FUNCTION MCP_Tool_List_Inbox(hArgs)
 
    BEGIN SEQUENCE
       nCount := oArchive:MailItems:Count
-      FOR nI := 0 TO nCount - 1
+      nFirst := Max(0, nCount - nScan)
+      FOR nI := nCount - 1 TO nFirst STEP -1
          BEGIN SEQUENCE
             oItem := oArchive:MailItems:Item(nI)
-            AAdd(aMessages, Inbox_Summary(oItem))
+            hMsg := Inbox_Summary(oItem)
+            IF HHasKey(hMsg, "unread")
+               lAnyReadState := .T.
+            ENDIF
+            // With unread_only, keep a message only when its read state is
+            // known AND it is unread
+            IF ! lUnreadOnly .OR. (HHasKey(hMsg, "unread") .AND. hMsg["unread"])
+               AAdd(aMessages, hMsg)
+            ENDIF
          RECOVER
          END SEQUENCE
       NEXT
@@ -2146,10 +2177,20 @@ FUNCTION MCP_Tool_List_Inbox(hArgs)
    NEXT
 
    hResult["mailbox"]  := cMailbox
+   hResult["mailbox_total"] := nCount
+   hResult["scanned"]  := Min(nScan, nCount)
+   hResult["unread_only"] := lUnreadOnly
    hResult["total"]    := Len(aMessages)
    hResult["count"]    := Len(aPage)
    hResult["messages"] := aPage
    hResult["status"]   := "success"
+   IF lUnreadOnly .AND. Len(aMessages) == 0 .AND. ! lAnyReadState .AND. Min(nScan, nCount) > 0
+      hResult["message"] := "The David API did not report a read state for any scanned message - " + ;
+                            "the unread filter cannot be applied here"
+   ELSEIF nFirst > 0
+      hResult["message"] := "Scanned the newest " + AllTrim(Str(Min(nScan, nCount))) + " of " + ;
+                            AllTrim(Str(nCount)) + " entries. Increase 'scan_limit' to look further back"
+   ENDIF
 RETURN hResult
 
 FUNCTION MCP_Tool_Get_Inbox_Message(hArgs)
@@ -2157,6 +2198,7 @@ FUNCTION MCP_Tool_Get_Inbox_Message(hArgs)
    LOCAL oArchive, oItem, nX
    LOCAL cMailbox := "inbox", cId
    LOCAL aTo := {}, aCc := {}, aAttach := {}
+   LOCAL xUnread
 
    // Return schema and description when called without arguments
    IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
@@ -2200,8 +2242,12 @@ FUNCTION MCP_Tool_Get_Inbox_Message(hArgs)
    hResult["mailbox"] := cMailbox
 
    BEGIN SEQUENCE ; hResult["subject"] := DV_Utf8(oItem:Subject)       ; RECOVER ; hResult["subject"] := "" ; END SEQUENCE
-   BEGIN SEQUENCE ; hResult["sender"] := DV_Utf8(oItem:Fields:Item("SRFrom"):Value); RECOVER; hResult["sender"] := ""; END SEQUENCE //DV_Sender(oItem)
+   BEGIN SEQUENCE ; hResult["sender"] := DV_Utf8(oItem:Fields:Item("SRFrom"):Value); RECOVER; hResult["sender"] := ""; END SEQUENCE 
    BEGIN SEQUENCE ; hResult["date"]    := DV_DateStr(oItem:StatusTime) ; RECOVER ; hResult["date"]    := "" ; END SEQUENCE
+   xUnread := DV_Unread(oItem)
+   IF xUnread != NIL
+      hResult["unread"] := xUnread
+   ENDIF
 
    // Recipients (To)
    BEGIN SEQUENCE
@@ -2235,6 +2281,857 @@ FUNCTION MCP_Tool_Get_Inbox_Message(hArgs)
    hResult["attachments"] := aAttach
 
    hResult["status"] := "found"
+RETURN hResult
+
+//---------------------------------------------------------------------------
+// Email sending — hands mail to the David InfoCenter via the SendMail()
+// procedure from source\david.prg (linked into the trader binary). Requires a
+// working David connection (MailConnect), same as the inbox tools above.
+//---------------------------------------------------------------------------
+
+// Convert a UTF-8 string (JSON arguments arrive as UTF-8) to the Windows-ANSI
+// (CP1252) form the David OLE API expects — the exact inverse of DV_Utf8.
+// Characters that do not exist in CP1252 are replaced by "?".
+STATIC FUNCTION DV_FromUtf8(cStr)
+   IF ValType(cStr) != "C"
+      RETURN ""
+   ENDIF
+RETURN hb_Translate(cStr, "UTF8", "DEWIN")
+
+// Replace every non-ASCII character of an ANSI (CP1252) string with its
+// numeric HTML entity, mirroring DV_HtmlEntities() in david.prg. The result
+// is pure ASCII, so an HTML body survives whatever codepage conversion
+// happens between here and the David OLE layer.
+STATIC FUNCTION AnsiToHtmlEntities(cAnsi)
+   LOCAL nI
+   FOR nI := 128 TO 255
+      IF Chr(nI) $ cAnsi
+         cAnsi := StrTran(cAnsi, Chr(nI), "&#" + AllTrim(Str(nI)) + ";")
+      ENDIF
+   NEXT
+RETURN cAnsi
+
+STATIC FUNCTION DV_Join(aList, cSep)
+   LOCAL cResult := "", cItem
+   FOR EACH cItem IN aList
+      IF ! Empty(cResult)
+         cResult += cSep
+      ENDIF
+      cResult += cItem
+   NEXT
+RETURN cResult
+
+// Split a comma/semicolon separated address list, append each address to aTo
+// as a {email, name, type} entry (the shape SendMail() expects) and collect
+// syntactically invalid addresses in aInvalid. Returns the number added.
+STATIC FUNCTION AddRecipients(xList, cType, aTo, aInvalid)
+   LOCAL aParts, cAddr, nAt
+   LOCAL nAdded := 0
+
+   IF ValType(xList) != "C" .OR. Empty(xList)
+      RETURN 0
+   ENDIF
+
+   aParts := hb_ATokens(StrTran(xList, ",", ";"), ";")
+   FOR EACH cAddr IN aParts
+      cAddr := AllTrim(cAddr)
+      IF Empty(cAddr)
+         LOOP
+      ENDIF
+      nAt := At("@", cAddr)
+      // minimal sanity check: one "@" (not first), a dot in the domain, no spaces
+      IF nAt > 1 .AND. "." $ SubStr(cAddr, nAt + 2) .AND. ;
+         At("@", SubStr(cAddr, nAt + 1)) == 0 .AND. !(" " $ cAddr)
+         AAdd(aTo, {cAddr, "", cType})
+         nAdded++
+      ELSE
+         AAdd(aInvalid, cAddr)
+      ENDIF
+   NEXT
+RETURN nAdded
+
+FUNCTION MCP_Tool_Send_Email(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL aTo := {}, aInvalid := {}, aAttach := {}, aRecipients := {}
+   LOCAL cSubject, cBody, cFrom := "", cFile
+   LOCAL lHtml := .F., lDraft := .F.
+   LOCAL nToCount := 0
+   LOCAL oAccount, aRecipient
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "to"=>{"type"=>"string","description"=>"Recipient email address(es). Multiple addresses separated by comma or semicolon"},;
+            "cc"=>{"type"=>"string","description"=>"CC email address(es), separated by comma or semicolon"},;
+            "bcc"=>{"type"=>"string","description"=>"BCC email address(es), separated by comma or semicolon"},;
+            "subject"=>{"type"=>"string","description"=>"Subject line of the email"},;
+            "body"=>{"type"=>"string","description"=>"Body of the email. Plain text by default, HTML when 'html' is true"},;
+            "html"=>{"type"=>"boolean","description"=>"Set to true when body contains HTML (default: false = plain text)"},;
+            "from"=>{"type"=>"string","description"=>"Sender email address, must be one of the user's configured outgoing addresses. Default: the David account's primary address"},;
+            "attachments"=>{"type"=>"array","items"=>{"type"=>"string"},"description"=>"Full file paths (as seen by the Trader server) of files to attach"},;
+            "draft"=>{"type"=>"boolean","description"=>"If true the email is saved to the David Drafts folder for manual review instead of being sent immediately (default: false)"};
+         },;
+         "required"=>{"to","subject","body"};
+      }
+      hResult["description"] := "Send an email through the David InfoCenter. " + ;
+                                "Sends immediately unless 'draft' is true, in which case the mail is placed " + ;
+                                "in the Drafts folder for manual review before sending"
+      RETURN hResult
+   ENDIF
+
+   nToCount := AddRecipients(IIF(HHasKey(hArgs, "to"), hArgs["to"], ""), "TO", aTo, aInvalid)
+   AddRecipients(IIF(HHasKey(hArgs, "cc"), hArgs["cc"], ""), "CC", aTo, aInvalid)
+   AddRecipients(IIF(HHasKey(hArgs, "bcc"), hArgs["bcc"], ""), "BCC", aTo, aInvalid)
+
+   IF Len(aInvalid) > 0
+      RETURN "Invalid email address(es): " + DV_Join(aInvalid, ", ")
+   ENDIF
+   IF nToCount == 0
+      RETURN "No valid 'to' recipient provided"
+   ENDIF
+
+   IF ValType(hArgs["subject"]) != "C" .OR. ValType(hArgs["body"]) != "C"
+      RETURN "Parameters 'subject' and 'body' must be strings"
+   ENDIF
+
+   cSubject := DV_FromUtf8(hArgs["subject"])
+   cBody := DV_FromUtf8(hArgs["body"])
+   // JSON newlines arrive as LF; SendMail() strips LF and keeps CR, so
+   // normalize CRLF/LF to CR to preserve line breaks in the plain body.
+   cBody := StrTran(cBody, Chr(13) + Chr(10), Chr(13))
+   cBody := StrTran(cBody, Chr(10), Chr(13))
+
+   lHtml := HHasKey(hArgs, "html") .AND. HB_IsLogical(hArgs["html"]) .AND. hArgs["html"]
+   lDraft := HHasKey(hArgs, "draft") .AND. HB_IsLogical(hArgs["draft"]) .AND. hArgs["draft"]
+   IF HHasKey(hArgs, "from") .AND. ValType(hArgs["from"]) == "C"
+      cFrom := AllTrim(hArgs["from"])
+   ENDIF
+
+   // Make HTML bodies pure ASCII (entities) so no later codepage conversion
+   // can garble them. We pass lHtmlEntities=.F. to SendMail below because its
+   // own DV_HtmlEntities() expects OEM input and would mangle our ANSI body.
+   IF lHtml
+      cBody := AnsiToHtmlEntities(cBody)
+   ENDIF
+
+   // Attachments must exist on disk before we hand them to David
+   IF HHasKey(hArgs, "attachments") .AND. HB_IsArray(hArgs["attachments"])
+      FOR EACH cFile IN hArgs["attachments"]
+         IF ValType(cFile) != "C" .OR. Empty(cFile)
+            LOOP
+         ENDIF
+         cFile := DV_FromUtf8(cFile)
+         IF ! File(cFile)
+            RETURN "Attachment not found: " + cFile
+         ENDIF
+         AAdd(aAttach, cFile)
+      NEXT
+   ENDIF
+
+   // Connect to David (idempotent) and make sure we really have an account —
+   // SendMail() itself just returns silently when there is no connection.
+   BEGIN SEQUENCE
+      MailConnect()
+      oAccount := DV_GetMailAccount()
+   RECOVER
+      oAccount := NIL
+   END SEQUENCE
+
+   IF oAccount == NIL
+      hResult["status"] := "error"
+      hResult["message"] := "David not connected - email not sent"
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE
+      SendMail(aTo, cSubject, cBody, aAttach, .F., 0, lHtml, cFrom, lDraft, .F.)
+   RECOVER
+      hResult["status"] := "error"
+      hResult["message"] := "Failed to " + IIF(lDraft, "save draft", "send email")
+      RETURN hResult
+   END SEQUENCE
+
+   FOR EACH aRecipient IN aTo
+      AAdd(aRecipients, aRecipient[3] + ": " + aRecipient[1])
+   NEXT
+
+   hResult["status"] := "success"
+   hResult["mode"] := IIF(lDraft, "draft", "sent")
+   hResult["recipients"] := aRecipients
+   hResult["subject"] := hArgs["subject"]
+   hResult["attachment_count"] := Len(aAttach)
+   hResult["message"] := IIF(lDraft, ;
+      "Email saved to the David Drafts folder", ;
+      "Email handed to David for sending")
+RETURN hResult
+
+//---------------------------------------------------------------------------
+// Reminder tool — creates a David Wiedervorlage via AddWiedervorlage() from
+// source\david.prg, for the current user or another Trader user.
+//---------------------------------------------------------------------------
+
+FUNCTION MCP_Tool_Create_Reminder(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL dDate, cSubject, cMessage
+   LOCAL nUser := 0
+   LOCAL oAccount, lOk := .F.
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "date"=>{"type"=>"string","description"=>"Reminder date in YYYY-MM-DD format"},;
+            "subject"=>{"type"=>"string","description"=>"Subject of the reminder"},;
+            "message"=>{"type"=>"string","description"=>"Body text of the reminder (optional)"},;
+            "user_number"=>{"type"=>"integer","description"=>"Trader user (buyer) number whose reminder folder receives the entry. Default: the current user"};
+         },;
+         "required"=>{"date","subject"};
+      }
+      hResult["description"] := "Create a reminder (Wiedervorlage) in the David InfoCenter that pops up on the given date, " + ;
+                                "for the current user or another Trader user"
+      RETURN hResult
+   ENDIF
+
+   IF ValType(hArgs["date"]) != "C"
+      RETURN "Parameter 'date' must be a string in YYYY-MM-DD format"
+   ENDIF
+   dDate := SToD(StrTran(AllTrim(hArgs["date"]), "-", ""))
+   IF Empty(dDate)
+      RETURN "Invalid date: " + hArgs["date"] + " (expected YYYY-MM-DD)"
+   ENDIF
+   IF dDate < Date()
+      RETURN "Reminder date " + hArgs["date"] + " is in the past"
+   ENDIF
+
+   cSubject := DV_FromUtf8(hArgs["subject"])
+   cMessage := IIF(HHasKey(hArgs, "message") .AND. ValType(hArgs["message"]) == "C", DV_FromUtf8(hArgs["message"]), "")
+   cMessage := StrTran(cMessage, Chr(13) + Chr(10), Chr(13))
+   cMessage := StrTran(cMessage, Chr(10), Chr(13))
+
+   IF HHasKey(hArgs, "user_number") .AND. HB_IsNumeric(hArgs["user_number"]) .AND. hArgs["user_number"] > 0
+      nUser := hArgs["user_number"]
+   ENDIF
+
+   BEGIN SEQUENCE
+      MailConnect()
+      oAccount := DV_GetMailAccount()
+   RECOVER
+      oAccount := NIL
+   END SEQUENCE
+
+   IF oAccount == NIL
+      hResult["status"] := "error"
+      hResult["message"] := "David not connected - reminder not created"
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE
+      lOk := AddWiedervorlage(dDate, cSubject, cMessage, NIL, {}, nUser)
+   RECOVER
+      lOk := .F.
+   END SEQUENCE
+
+   IF lOk
+      hResult["status"] := "success"
+      hResult["date"] := dDate
+      hResult["subject"] := hArgs["subject"]
+      hResult["user_number"] := nUser
+      hResult["message"] := "Reminder created"
+   ELSE
+      hResult["status"] := "error"
+      hResult["message"] := "Failed to create reminder" + ;
+         IIF(nUser > 0, " - user " + AllTrim(Str(nUser)) + " may not exist or has no David account linked", "")
+   ENDIF
+RETURN hResult
+
+//---------------------------------------------------------------------------
+// Quote and accounting tools — read-only access to the angebot (quote) and
+// englsre (invoice ledger) tables.
+//---------------------------------------------------------------------------
+
+// Resolve a customer from the 'customer' (matchcode) / 'customer_number'
+// arguments, same lookup as MCP_Tool_Get_Customer. Returns NIL if not found.
+STATIC FUNCTION ResolveCustomer(hArgs)
+   LOCAL oKunde := Adresse():New()
+   LOCAL lFound := .F.
+
+   IF HHasKey(hArgs, "customer_number") .AND. HB_IsNumeric(hArgs["customer_number"]) .AND. hArgs["customer_number"] > 0
+      ku->(DbSetOrder(8))
+      lFound := oKunde:Load(hArgs["customer_number"])
+   ELSEIF HHasKey(hArgs, "customer") .AND. ! Empty(hArgs["customer"])
+      lFound := oKunde:LoadMatchcode(Pad(Upper(AllTrim(hArgs["customer"])), 8), "K")
+   ENDIF
+RETURN IIF(lFound, oKunde, NIL)
+
+// Coarse quote status from ang->Bestat: 0 = enquiry not yet quoted ("off"),
+// 1/2 = quoted ("ang"), >= 3 = closed ("erl") - see angebot_browse.prg.
+STATIC FUNCTION QuoteStatusLabel(nBestat)
+RETURN IIF(nBestat >= 3, "closed", IIF(nBestat == 0, "enquiry", "quoted"))
+
+// Discounted unit price of the current ang line (see angebot_print.prg:
+// dis_count := vkpr - vkpr*rabatt/100; Pe is the price unit).
+STATIC FUNCTION QuoteLinePrice()
+RETURN (ang->VkPr - ang->VkPr * ang->Rabatt / 100) / IIF(ang->Pe == 0, 1, ang->Pe)
+
+FUNCTION MCP_Tool_Get_Quote(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nQuote, hLine
+   LOCAL aLines := {}
+   LOCAL nTotal := 0
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "quote_number"=>{"type"=>"number","description"=>"Quote (Angebot) number"};
+         },;
+         "required"=>{"quote_number"};
+      }
+      hResult["description"] := "Retrieve a sales quote (Angebot) by number, including all line items, prices and status"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["quote_number"])
+      RETURN "Parameter 'quote_number' must be a number"
+   ENDIF
+   nQuote := hArgs["quote_number"]
+
+   NetUse("angebot", "ang")
+   ang->(DbSetOrder(1))  // Str(Angnr,6) + Str(Itmnr,3)
+
+   IF ! ang->(DbSeek(Str(nQuote, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Quote not found: " + AllTrim(Str(nQuote))
+      RETURN hResult
+   ENDIF
+
+   hResult["quote_number"] := nQuote
+   hResult["customer"] := HB_StrToUTF8(AllTrim(ang->Kundma))
+   hResult["date"] := ang->Besda
+   hResult["buyer"] := HB_StrToUTF8(AllTrim(ang->Buyer))
+   hResult["currency"] := IIF(Empty(ang->Money), "EUR", AllTrim(ang->Money))
+
+   DO WHILE ! ang->(Eof()) .AND. ang->Angnr == nQuote
+      hLine := {=>}
+      hLine["item"] := ang->Itmnr
+      hLine["article"] := HB_StrToUTF8(AllTrim(ang->Matchcode))
+      hLine["description"] := HB_StrToUTF8(AllTrim(ang->Artikel))
+      hLine["quantity"] := ang->VkQty
+      hLine["price"] := QuoteLinePrice()
+      hLine["discount_percent"] := ang->Rabatt
+      hLine["status"] := QuoteStatusLabel(ang->Bestat)
+      IF ang->Aufnr > 0
+         hLine["order_number"] := ang->Aufnr  // quote line was converted to this order
+      ENDIF
+      hLine["line_total"] := Round(ang->VkQty * QuoteLinePrice(), 2)
+      nTotal += hLine["line_total"]
+      AAdd(aLines, hLine)
+      ang->(DbSkip())
+   ENDDO
+
+   DbSelectArea(nOldSelect)
+
+   hResult["lines"] := aLines
+   hResult["total"] := Round(nTotal, 2)
+   hResult["status"] := "found"
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Customer_Quotes(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oKunde, hQuotes := {=>}, hQuote, cKey
+   LOCAL aQuotes := {}
+   LOCAL cStatus := "all", cLineStatus
+   LOCAL nMaxResults := 50
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "customer"=>{"type"=>"string","description"=>"Customer matchcode"},;
+            "customer_number"=>{"type"=>"number","description"=>"Customer number"},;
+            "status_filter"=>{"type"=>"string","enum"=>{"open","closed","all"},"description"=>"Only quotes with this status (default all). 'open' = enquiry received or quoted but not yet closed"},;
+            "max_results"=>{"type"=>"number","description"=>"Maximum number of quotes to return, newest first (default 50)"};
+         },;
+         "anyOf"=>{{"customer", "customer_number"}};
+      }
+      hResult["description"] := "List sales quotes (Angebote) for a customer, newest first, with per-quote status and value"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "status_filter") .AND. hArgs["status_filter"] $ {"open", "closed"}
+      cStatus := hArgs["status_filter"]
+   ENDIF
+   IF HHasKey(hArgs, "max_results") .AND. HB_IsNumeric(hArgs["max_results"]) .AND. hArgs["max_results"] > 0
+      nMaxResults := Min(hArgs["max_results"], 200)
+   ENDIF
+
+   oKunde := ResolveCustomer(hArgs)
+   IF oKunde == NIL
+      hResult["status"] := "not_found"
+      hResult["message"] := "Customer not found"
+      RETURN hResult
+   ENDIF
+
+   NetUse("angebot", "ang")
+   ang->(DbSetOrder(7))  // Kundma
+
+   IF ang->(DbSeek(oKunde:Kunde))
+      DO WHILE ! ang->(Eof()) .AND. ang->Kundma == oKunde:Kunde
+         cLineStatus := QuoteStatusLabel(ang->Bestat)
+         IF cStatus == "all" .OR. ;
+            (cStatus == "open" .AND. cLineStatus != "closed") .OR. ;
+            (cStatus == "closed" .AND. cLineStatus == "closed")
+
+            cKey := Str(ang->Angnr, 6)
+            IF ! HHasKey(hQuotes, cKey)
+               hQuote := {=>}
+               hQuote["quote_number"] := ang->Angnr
+               hQuote["date"] := ang->Besda
+               hQuote["buyer"] := HB_StrToUTF8(AllTrim(ang->Buyer))
+               hQuote["currency"] := IIF(Empty(ang->Money), "EUR", AllTrim(ang->Money))
+               hQuote["status"] := cLineStatus
+               hQuote["line_count"] := 0
+               hQuote["total"] := 0
+               hQuotes[cKey] := hQuote
+            ENDIF
+            hQuotes[cKey]["line_count"] := hQuotes[cKey]["line_count"] + 1
+            hQuotes[cKey]["total"] := Round(hQuotes[cKey]["total"] + ang->VkQty * QuoteLinePrice(), 2)
+            // A quote with any line still open counts as open
+            IF cLineStatus != "closed"
+               hQuotes[cKey]["status"] := cLineStatus
+            ENDIF
+         ENDIF
+         ang->(DbSkip())
+      ENDDO
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   FOR EACH hQuote IN hQuotes
+      AAdd(aQuotes, hQuote)
+   NEXT
+   ASort(aQuotes,,, {|x, y| x["quote_number"] > y["quote_number"]})
+   ASize(aQuotes, Min(Len(aQuotes), nMaxResults))
+
+   hResult["customer"] := HB_StrToUTF8(AllTrim(oKunde:Kunde))
+   hResult["customer_number"] := oKunde:Nummer
+   hResult["count"] := Len(aQuotes)
+   hResult["quotes"] := aQuotes
+   hResult["status"] := IIF(Len(aQuotes) > 0, "found", "not_found")
+   IF Len(aQuotes) == 0
+      hResult["message"] := "No quotes found for this customer"
+   ELSEIF Len(aQuotes) == nMaxResults
+      hResult["message"] := "Result limited to " + AllTrim(Str(nMaxResults)) + " quotes"
+   ENDIF
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Customer_Open_Items(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oKunde, cKunde
+   LOCAL aItems := {}, hItem
+   LOCAL hTotals := {=>}, cCur, nOpen
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "customer"=>{"type"=>"string","description"=>"Customer matchcode"},;
+            "customer_number"=>{"type"=>"number","description"=>"Customer number"};
+         },;
+         "anyOf"=>{{"customer", "customer_number"}};
+      }
+      hResult["description"] := "List open (not fully paid) invoices and credit notes for a customer, " + ;
+                                "with amount, paid amount, open balance and age in days. Use before payment reminders"
+      RETURN hResult
+   ENDIF
+
+   oKunde := ResolveCustomer(hArgs)
+   IF oKunde == NIL
+      hResult["status"] := "not_found"
+      hResult["message"] := "Customer not found"
+      RETURN hResult
+   ENDIF
+
+   cKunde := Pad(oKunde:Kunde, 8)
+
+   NetUse("englsre", "re", .F., 5)
+   re->(DbSetOrder(2))  // Str(Reposnr,3) + Kunde; Reposnr 0 = invoice header
+
+   IF re->(DbSeek("  0" + cKunde))
+      DO WHILE ! re->(Eof()) .AND. re->Reposnr == 0 .AND. re->Kunde == cKunde
+         // Open = not settled yet, same criteria as GetCustomerTurnover in
+         // model/adresse.prg (status 0 and code <= 2)
+         IF re->Status == 0 .AND. re->Code <= 2
+            nOpen := Round(re->Poswt - re->AoQty - re->PaySkonto, 2)
+            IF nOpen != 0
+               hItem := {=>}
+               hItem["invoice_number"] := re->Rechnr
+               hItem["type"] := IIF(re->Poswt < 0, "credit_note", "invoice")
+               hItem["date"] := re->Rechdat
+               hItem["age_days"] := Date() - re->Rechdat
+               hItem["amount"] := re->Poswt
+               hItem["paid"] := re->AoQty
+               hItem["discount"] := re->PaySkonto
+               hItem["open"] := nOpen
+               hItem["currency"] := IIF(Empty(re->Money), "EUR", AllTrim(re->Money))
+               AAdd(aItems, hItem)
+
+               cCur := hItem["currency"]
+               IF ! HHasKey(hTotals, cCur)
+                  hTotals[cCur] := 0
+               ENDIF
+               hTotals[cCur] := Round(hTotals[cCur] + nOpen, 2)
+            ENDIF
+         ENDIF
+         re->(DbSkip())
+      ENDDO
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   // Oldest first - the order a dunning run would treat them
+   ASort(aItems,,, {|x, y| x["date"] < y["date"]})
+
+   hResult["customer"] := HB_StrToUTF8(AllTrim(oKunde:Kunde))
+   hResult["customer_number"] := oKunde:Nummer
+   hResult["count"] := Len(aItems)
+   hResult["open_items"] := aItems
+   hResult["open_total_by_currency"] := hTotals
+   hResult["status"] := IIF(Len(aItems) > 0, "found", "none")
+   IF Len(aItems) == 0
+      hResult["message"] := "No open items - nothing unpaid for this customer"
+   ENDIF
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Customer_Turnover(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oKunde, hTurn
+   LOCAL hYears := {=>}, nVal
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "customer"=>{"type"=>"string","description"=>"Customer matchcode"},;
+            "customer_number"=>{"type"=>"number","description"=>"Customer number"};
+         },;
+         "anyOf"=>{{"customer", "customer_number"}};
+      }
+      hResult["description"] := "Revenue statistics for a customer: total and per-year turnover, current/last year, " + ;
+                                "last 12 months and the currently open (unpaid) invoice amount. Net values in EUR"
+      RETURN hResult
+   ENDIF
+
+   oKunde := ResolveCustomer(hArgs)
+   IF oKunde == NIL
+      hResult["status"] := "not_found"
+      hResult["message"] := "Customer not found"
+      RETURN hResult
+   ENDIF
+
+   // GetCustomerTurnover() lives in model/adresse.prg and is REQUESTed into
+   // the trader binary - the same numbers the application itself shows.
+   BEGIN SEQUENCE
+      hTurn := GetCustomerTurnover(oKunde:Kunde)
+   RECOVER
+      hTurn := NIL
+   END SEQUENCE
+
+   IF ValType(hTurn) != "H"
+      hResult["status"] := "error"
+      hResult["message"] := "Failed to calculate turnover"
+      RETURN hResult
+   ENDIF
+
+   // The years hash is keyed by numeric year - convert to string keys for JSON
+   FOR EACH nVal IN hTurn["years"]
+      hYears[AllTrim(Str(nVal:__enumKey()))] := Round(nVal, 2)
+   NEXT
+
+   hResult["customer"] := HB_StrToUTF8(AllTrim(oKunde:Kunde))
+   hResult["customer_number"] := oKunde:Nummer
+   hResult["currency"] := "EUR"
+   hResult["total"] := Round(hTurn["total"], 2)
+   hResult["current_year"] := Round(hTurn["current"], 2)
+   hResult["last_year"] := Round(hTurn["last"], 2)
+   hResult["year_before_last"] := Round(hTurn["before-last"], 2)
+   hResult["last_3_years"] := Round(hTurn["last3"], 2)
+   hResult["last_12_months"] := Round(hTurn["12-month"], 2)
+   hResult["open_invoices"] := Round(hTurn["open"], 2)
+   hResult["by_year"] := hYears
+   hResult["status"] := "found"
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Invoice(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nRe, hLine
+   LOCAL aLines := {}
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "invoice_number"=>{"type"=>"number","description"=>"Invoice (Rechnung) number"};
+         },;
+         "required"=>{"invoice_number"};
+      }
+      hResult["description"] := "Retrieve an outgoing invoice by number: header with customer, totals, tax, payment and " + ;
+                                "dunning status, plus all line items. The sales order number (AB-Nr) is included on the " + ;
+                                "header and on each line (collective invoices can bill several orders) and can be passed " + ;
+                                "to get_order_details; a line's item number equals the item number in that order"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["invoice_number"])
+      RETURN "Parameter 'invoice_number' must be a number"
+   ENDIF
+   nRe := hArgs["invoice_number"]
+
+   NetUse("englsre", "re", .F., 5)
+   re->(DbSetOrder(12))  // Str(Rechnr,6) + Str(Reposnr,3); Reposnr 0 = header
+
+   IF ! re->(DbSeek(Str(nRe, 6) + Str(0, 3)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Invoice not found: " + AllTrim(Str(nRe))
+      RETURN hResult
+   ENDIF
+
+   // Header row - field meanings per the map in model/rechnung.prg
+   // (PosWt=gross total, Preis=tax, Kurs=tax rate, ofqty=shipping,
+   //  AoQty=paid amount, Code>=2 printed, Code>=3+Status==3 paid)
+   hResult["invoice_number"] := nRe
+   hResult["customer"] := HB_StrToUTF8(AllTrim(re->Kunde))
+   hResult["date"] := re->Rechdat
+   IF re->AbNr > 0
+      hResult["order_number"] := re->AbNr
+   ENDIF
+   hResult["currency"] := IIF(Empty(re->Money), "EUR", AllTrim(re->Money))
+   hResult["total_gross"] := re->PosWt
+   hResult["tax"] := re->Preis
+   hResult["tax_rate"] := re->Kurs
+   hResult["total_net"] := Round(re->PosWt - re->Preis, 2)
+   hResult["shipping"] := re->OfQty
+   hResult["discount_percent"] := re->Rabatt
+   hResult["paid_amount"] := re->AoQty
+   hResult["paid"] := re->Code >= 3 .AND. re->Status == 3
+   hResult["printed"] := re->Code >= 2
+   hResult["shipped"] := re->Packed
+   IF ! Empty(re->PayDate)
+      hResult["payment_date"] := re->PayDate
+   ENDIF
+   IF ! Empty(re->MaDate)
+      hResult["dunning"] := re->Rem
+      hResult["dunning_date"] := re->MaDate
+   ENDIF
+
+   re->(DbSkip())  // move past the header row
+   DO WHILE ! re->(Eof()) .AND. re->Rechnr == nRe
+      IF re->Reposnr != 0
+         hLine := {=>}
+         hLine["item"] := re->Reposnr  // equals the item number in the billed order (model/rechpos.prg)
+         hLine["article"] := HB_StrToUTF8(AllTrim(re->Matchcode))
+         hLine["description"] := HB_StrToUTF8(AllTrim(re->Artikel))
+         hLine["quantity"] := re->AoQty
+         hLine["unit"] := HB_StrToUTF8(AllTrim(re->Me))
+         hLine["unit_price"] := Round((re->Preis / IIF(re->Pe == 0, 1, re->Pe)) * (1 - re->Rabatt / 100), 4)
+         IF re->Zuschlag != 0
+            hLine["surcharge"] := re->Zuschlag
+         ENDIF
+         // Same line total formula as Rechnung:UpdateTotal() in model/rechnung.prg
+         hLine["line_total"] := Round((re->AoQty * re->Preis / IIF(re->Pe == 0, 1, re->Pe)) * (1 - re->Rabatt / 100), 2) + re->Zuschlag
+         IF re->AbNr > 0
+            hLine["order_number"] := re->AbNr
+         ENDIF
+         AAdd(aLines, hLine)
+      ENDIF
+      re->(DbSkip())
+   ENDDO
+
+   DbSelectArea(nOldSelect)
+
+   hResult["lines"] := aLines
+   hResult["line_count"] := Len(aLines)
+   hResult["status"] := "found"
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nPo, hLine, aLines := {}
+   LOCAL nTotal := 0, nPriceEur
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "po_number"=>{"type"=>"number","description"=>"Purchase order (Bestellung) number"};
+         },;
+         "required"=>{"po_number"};
+      }
+      hResult["description"] := "Retrieve a purchase order (Bestellung) by number, including all line items with " + ;
+                                "ordered/delivered quantities, delivery dates, confirmation status and prices"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["po_number"])
+      RETURN "Parameter 'po_number' must be a number"
+   ENDIF
+   nPo := hArgs["po_number"]
+
+   NetUse("engbes", "bes")
+   bes->(DbSetOrder(1))  // Str(Besnr,6) + Str(Posnr,3)
+
+   IF ! bes->(DbSeek(Str(nPo, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Purchase order not found: " + AllTrim(Str(nPo))
+      RETURN hResult
+   ENDIF
+
+   hResult["po_number"] := nPo
+   hResult["supplier"] := HB_StrToUTF8(AllTrim(bes->Liefma))
+   hResult["date"] := bes->Besda
+   hResult["currency"] := IIF(Empty(bes->Money), "EUR", AllTrim(bes->Money))
+
+   DO WHILE ! bes->(Eof()) .AND. bes->Besnr == nPo
+      hLine := {=>}
+      hLine["item"] := bes->Posnr
+      hLine["article"] := HB_StrToUTF8(AllTrim(bes->Matchcode))
+      hLine["quantity"] := bes->BeQty
+      hLine["delivered_quantity"] := bes->GelQty
+      hLine["open_quantity"] := IIF(bes->Bestat < 3, bes->BeQty - bes->GelQty, 0)
+      // Discounted unit price in the document currency
+      hLine["unit_price"] := Round((bes->EkPr / IIF(bes->Pe == 0, 1, bes->Pe)) * (100 - bes->Rabatt) / 100, 4)
+      // Effective EUR unit price via BesGetEkPrice() (model/bestellungpos.prg):
+      // includes exchange rate and linked surcharge/reference positions
+      BEGIN SEQUENCE
+         nPriceEur := BesGetEkPrice()
+      RECOVER
+         nPriceEur := NIL
+      END SEQUENCE
+      IF nPriceEur != NIL
+         hLine["unit_price_eur"] := Round(nPriceEur, 4)
+      ENDIF
+      hLine["delivery_date"] := bes->Lterm
+      hLine["requested_date"] := bes->Wterm
+      hLine["confirmed"] := Upper(AllTrim(bes->Confirmed)) == "Y"  // stored as "Y"/"N"
+      hLine["status"] := IIF(bes->Bestat < 3, "open", "completed")
+      IF bes->AbNr > 0
+         hLine["sales_order"] := bes->AbNr  // linked customer order
+      ENDIF
+      IF bes->ContrNo > 0
+         hLine["frame_order"] := bes->ContrNo  // call-off from this blanket PO
+      ENDIF
+      hLine["line_total"] := Round(bes->BeQty * hLine["unit_price"], 2)
+      nTotal += hLine["line_total"]
+      AAdd(aLines, hLine)
+      bes->(DbSkip())
+   ENDDO
+
+   DbSelectArea(nOldSelect)
+
+   hResult["lines"] := aLines
+   hResult["total"] := Round(nTotal, 2)
+   hResult["status"] := "found"
+RETURN hResult
+
+FUNCTION MCP_Tool_Mark_Message_Read(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oArchive, oItem
+   LOCAL cMailbox := "inbox", cId
+   LOCAL lRead := .T., lSet := .F.
+   LOCAL xUnread
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "id"=>{"type"=>"string","description"=>"The David message id (the 'id' returned by list_inbox)"},;
+            "mailbox"=>{"type"=>"string","enum"=>{"inbox","common"},"description"=>"Which mailbox the message is in: 'inbox' (default) or 'common'"},;
+            "read"=>{"type"=>"boolean","description"=>"true (default) marks the message as read, false marks it as unread again"};
+         },;
+         "required"=>{"id"};
+      }
+      hResult["description"] := "Mark a David message as read (or unread) via its Viewed state. " + ;
+                                "The new state is read back after setting, so success means the change actually took effect"
+      RETURN hResult
+   ENDIF
+
+   cId := hArgs["id"]
+   IF HHasKey(hArgs, "mailbox") .AND. ! Empty(hArgs["mailbox"])
+      cMailbox := Lower(AllTrim(hArgs["mailbox"]))
+   ENDIF
+   IF HHasKey(hArgs, "read") .AND. HB_IsLogical(hArgs["read"])
+      lRead := hArgs["read"]
+   ENDIF
+
+   oArchive := Inbox_Archive(cMailbox)
+   IF oArchive == NIL
+      hResult["status"] := "error"
+      hResult["message"] := "David not connected"
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE
+      oItem := oArchive:GetArchiveEntryByID(cId)
+   RECOVER
+      oItem := NIL
+   END SEQUENCE
+
+   IF oItem == NIL
+      hResult["status"] := "not_found"
+      hResult["message"] := "Message not found: " + cId
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE
+      oItem:Viewed := lRead
+      lSet := .T.
+   RECOVER
+      lSet := .F.
+   END SEQUENCE
+
+   IF lSet
+      // Persist if the API requires it; ignore failure - the verification
+      // read below decides whether the change took effect.
+      BEGIN SEQUENCE
+         oItem:Save()
+      RECOVER
+      END SEQUENCE
+   ENDIF
+
+   // Verify by reading the state back (DV_Unread: unread = ! Viewed)
+   xUnread := DV_Unread(oItem)
+
+   hResult["id"] := cId
+   hResult["mailbox"] := cMailbox
+   IF lSet .AND. ValType(xUnread) == "L" .AND. xUnread == ! lRead
+      hResult["unread"] := xUnread
+      hResult["status"] := "success"
+      hResult["message"] := "Message marked as " + IIF(lRead, "read", "unread")
+   ELSEIF ! lSet
+      hResult["status"] := "error"
+      hResult["message"] := "Setting the Viewed state failed - the David API rejected the write"
+   ELSE
+      hResult["status"] := "error"
+      hResult["message"] := "Viewed state was set but the change could not be verified"
+   ENDIF
 RETURN hResult
 
 // Convert all string values in a hash from OEM to ANSI

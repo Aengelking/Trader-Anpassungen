@@ -2797,6 +2797,148 @@ FUNCTION MCP_Tool_Get_Customer_Open_Items(hArgs)
    ENDIF
 RETURN hResult
 
+FUNCTION MCP_Tool_Get_Customer_Turnover(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oKunde, hTurn
+   LOCAL hYears := {=>}, nVal
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "customer"=>{"type"=>"string","description"=>"Customer matchcode"},;
+            "customer_number"=>{"type"=>"number","description"=>"Customer number"};
+         },;
+         "anyOf"=>{{"customer", "customer_number"}};
+      }
+      hResult["description"] := "Revenue statistics for a customer: total and per-year turnover, current/last year, " + ;
+                                "last 12 months and the currently open (unpaid) invoice amount. Net values in EUR"
+      RETURN hResult
+   ENDIF
+
+   oKunde := ResolveCustomer(hArgs)
+   IF oKunde == NIL
+      hResult["status"] := "not_found"
+      hResult["message"] := "Customer not found"
+      RETURN hResult
+   ENDIF
+
+   // GetCustomerTurnover() lives in model/adresse.prg and is REQUESTed into
+   // the trader binary - the same numbers the application itself shows.
+   BEGIN SEQUENCE
+      hTurn := GetCustomerTurnover(oKunde:Kunde)
+   RECOVER
+      hTurn := NIL
+   END SEQUENCE
+
+   IF ValType(hTurn) != "H"
+      hResult["status"] := "error"
+      hResult["message"] := "Failed to calculate turnover"
+      RETURN hResult
+   ENDIF
+
+   // The years hash is keyed by numeric year - convert to string keys for JSON
+   FOR EACH nVal IN hTurn["years"]
+      hYears[AllTrim(Str(nVal:__enumKey()))] := Round(nVal, 2)
+   NEXT
+
+   hResult["customer"] := HB_StrToUTF8(AllTrim(oKunde:Kunde))
+   hResult["customer_number"] := oKunde:Nummer
+   hResult["currency"] := "EUR"
+   hResult["total"] := Round(hTurn["total"], 2)
+   hResult["current_year"] := Round(hTurn["current"], 2)
+   hResult["last_year"] := Round(hTurn["last"], 2)
+   hResult["year_before_last"] := Round(hTurn["before-last"], 2)
+   hResult["last_3_years"] := Round(hTurn["last3"], 2)
+   hResult["last_12_months"] := Round(hTurn["12-month"], 2)
+   hResult["open_invoices"] := Round(hTurn["open"], 2)
+   hResult["by_year"] := hYears
+   hResult["status"] := "found"
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nPo, hLine, aLines := {}
+   LOCAL nTotal := 0, nPriceEur
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "po_number"=>{"type"=>"number","description"=>"Purchase order (Bestellung) number"};
+         },;
+         "required"=>{"po_number"};
+      }
+      hResult["description"] := "Retrieve a purchase order (Bestellung) by number, including all line items with " + ;
+                                "ordered/delivered quantities, delivery dates, confirmation status and prices"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["po_number"])
+      RETURN "Parameter 'po_number' must be a number"
+   ENDIF
+   nPo := hArgs["po_number"]
+
+   NetUse("engbes", "bes")
+   bes->(DbSetOrder(1))  // Str(Besnr,6) + Str(Posnr,3)
+
+   IF ! bes->(DbSeek(Str(nPo, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Purchase order not found: " + AllTrim(Str(nPo))
+      RETURN hResult
+   ENDIF
+
+   hResult["po_number"] := nPo
+   hResult["supplier"] := HB_StrToUTF8(AllTrim(bes->Liefma))
+   hResult["date"] := bes->Besda
+   hResult["currency"] := IIF(Empty(bes->Money), "EUR", AllTrim(bes->Money))
+
+   DO WHILE ! bes->(Eof()) .AND. bes->Besnr == nPo
+      hLine := {=>}
+      hLine["item"] := bes->Posnr
+      hLine["article"] := HB_StrToUTF8(AllTrim(bes->Matchcode))
+      hLine["quantity"] := bes->BeQty
+      hLine["delivered_quantity"] := bes->GelQty
+      hLine["open_quantity"] := IIF(bes->Bestat < 3, bes->BeQty - bes->GelQty, 0)
+      // Discounted unit price in the document currency
+      hLine["unit_price"] := Round((bes->EkPr / IIF(bes->Pe == 0, 1, bes->Pe)) * (100 - bes->Rabatt) / 100, 4)
+      // Effective EUR unit price via BesGetEkPrice() (model/bestellungpos.prg):
+      // includes exchange rate and linked surcharge/reference positions
+      BEGIN SEQUENCE
+         nPriceEur := BesGetEkPrice()
+      RECOVER
+         nPriceEur := NIL
+      END SEQUENCE
+      IF nPriceEur != NIL
+         hLine["unit_price_eur"] := Round(nPriceEur, 4)
+      ENDIF
+      hLine["delivery_date"] := bes->Lterm
+      hLine["requested_date"] := bes->Wterm
+      hLine["confirmed"] := bes->Confirmed
+      hLine["status"] := IIF(bes->Bestat < 3, "open", "completed")
+      IF bes->AbNr > 0
+         hLine["sales_order"] := bes->AbNr  // linked customer order
+      ENDIF
+      IF bes->ContrNo > 0
+         hLine["frame_order"] := bes->ContrNo  // call-off from this blanket PO
+      ENDIF
+      hLine["line_total"] := Round(bes->BeQty * hLine["unit_price"], 2)
+      nTotal += hLine["line_total"]
+      AAdd(aLines, hLine)
+      bes->(DbSkip())
+   ENDDO
+
+   DbSelectArea(nOldSelect)
+
+   hResult["lines"] := aLines
+   hResult["total"] := Round(nTotal, 2)
+   hResult["status"] := "found"
+RETURN hResult
+
 // Convert all string values in a hash from OEM to ANSI
 STATIC FUNCTION _HashToUtf8(hHash)
    LOCAL cKey, xValue

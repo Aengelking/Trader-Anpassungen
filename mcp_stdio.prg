@@ -2080,7 +2080,7 @@ STATIC FUNCTION Inbox_Summary(oItem)
 //
    BEGIN SEQUENCE ; hMsg["id"]      := oItem:Fields:Item("FileName"):Value                  ; RECOVER ; END SEQUENCE
    BEGIN SEQUENCE ; hMsg["subject"] := DV_Utf8(oItem:Subject)        ; RECOVER ; END SEQUENCE
-   BEGIN SEQUENCE ; hMsg["sender"] := DV_Utf8(oItem:Fields:Item("SRFrom"):Value); RECOVER; hResult["sender"] := ""; END SEQUENCE
+   BEGIN SEQUENCE ; hMsg["sender"] := DV_Utf8(oItem:Fields:Item("SRFrom"):Value); RECOVER; hMsg["sender"] := ""; END SEQUENCE
    BEGIN SEQUENCE ; hMsg["date"]    := DV_DateStr(oItem:StatusTime)  ; RECOVER ; END SEQUENCE
    BEGIN SEQUENCE ; hMsg["recipient_count"]  := oItem:Recipients:Count  ; RECOVER ; END SEQUENCE
    BEGIN SEQUENCE ; hMsg["attachment_count"] := oItem:Attachments:Count ; RECOVER ; END SEQUENCE

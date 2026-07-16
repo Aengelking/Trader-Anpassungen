@@ -5,22 +5,16 @@
 
 
 /*
-   PDF24 JSON-Feldnamen fuer zusaetzliche EN16931-Felder (BT-...).
-   ACHTUNG: PDF24 veroeffentlicht keine formale JSON-Spezifikation. Referenz ist
-   der JSON-Export einer Beispielrechnung aus dem PDF24 E-Rechnungs-Generator
-   (Hauptmenue -> Exportieren), siehe:
-   https://help.pdf24.org/de/fragen/frage/erechnung-aus-json-mit-kommandozeile/
-   Die mit UNVERIFIZIERT markierten Namen folgen der PDF24-Namenskonvention
-   (vgl. purchaseOrderReference, vatId, countryCode), MUESSEN aber gegen einen
-   solchen Export geprueft werden. Unbekannte Schluessel ignoriert PDF24 -
-   ein falscher Name fuehrt nur dazu, dass das Feld weiterhin im XML fehlt.
-   Verifiziert durch vorhandenen Beispiel-Export bzw. bestehenden Code:
-   "orderPosition" (BT-132, je Position) und "description" (BT-154, je Position).
+   PDF24 JSON-Feldnamen: verifiziert gegen den JSON-Export einer
+   Beispielrechnung aus dem PDF24 E-Rechnungs-Generator (07/2026):
+   - "orderPosition" (BT-132) und "description" (BT-154) je Position
+   - "buyerId" (BT-156, Artikelnummer des Kaeufers) je Position
+   Nicht umgesetzt:
+   - BT-16 (despatchAdviceReference) und BT-71 (delivery.locationId):
+     koennen nicht angegeben werden (Vorgabe Buchhaltung)
+   - BT-159 (Artikelherkunftsland): der PDF24-Export enthaelt kein
+     entsprechendes Item-Feld, wird von PDF24 aktuell nicht unterstuetzt
 */
-#define J_DESPATCH_ADVICE "despatchAdviceReference"  //BT-16  Lieferavisreferenz      UNVERIFIZIERT
-#define J_DELIVERY_LOC_ID "locationId"               //BT-71  Kennung des Lieferorts  UNVERIFIZIERT (im delivery-Objekt)
-#define J_ITEM_BUYER_ID   "buyerId"                  //BT-156 Artikelnr. des Kaeufers UNVERIFIZIERT (je Position)
-#define J_ITEM_ORIGIN     "originCountryCode"        //BT-159 Ursprungsland           UNVERIFIZIERT (je Position)
 
 PROC CreateXRechung(nRechnr,cFile)
    LOCAL hData := {=>}
@@ -134,14 +128,7 @@ PROC CreateXRechung(nRechnr,cFile)
    hData["number"] := LTrim(Str(re->Rechnr))
    hData["issueDate"] := _DtoC(re->Rechdat)
    hData["dueDate"] :=  _DtoC(re->Rechdat+sk->(GetSkontoWait(re->skonto,re->rechdat)))
-   IF ups->(dbSeek( Str(re->Rechnr,10) ))
-      hData["deliveryDate"] := _DtoC(ups->Datum)
-      //BT-16 Lieferavisreferenz: Lieferschein/Versandavis (VDA) laufen in Trader
-      //unter der Rechnungsnummer (vgl. englipr/print_vda) - nur wenn Versand existiert
-      hData[J_DESPATCH_ADVICE] := LTrim(Str(re->Rechnr))
-   ELSE
-      hData["deliveryDate"] := _DtoC(re->Rechdat)
-   ENDIF
+   hData["deliveryDate"] := _DtoC(IF(ups->(dbSeek( Str(re->Rechnr,10) )),ups->Datum,re->Rechdat))
    IF lOneAufnr
       hData["purchaseOrderReference"] := re->AufNr
    ENDIF
@@ -225,11 +212,6 @@ PROC CreateXRechung(nRechnr,cFile)
       };
    }
 
-   //BT-71 Kennung des Lieferorts: Abladestelle des Kunden (wie im VDA-Avis, vgl. print_vda)
-   IF ! Empty(re->Ablade)
-      hData["delivery"][J_DELIVERY_LOC_ID] := Trim(re->Ablade)
-   ENDIF
-
    sk->(dbGoto(re->skonto+1))
    hData["payment"] := {;
       "terms"=>Trim(SK->(SKONT(,,sk->ziel1,sk->ziel2,sk->ziel3,sk->rate1,sk->rate2,sk->rate3,cLang,.F.,re->Rechdat))),;            
@@ -312,13 +294,7 @@ PROC CreateXRechung(nRechnr,cFile)
 
          //BT-156 Artikelnummer des Kaeufers: Kundenartikelnummer aus artkund
          IF aku->(dbSeek( cKunde+Str(re->Artikelnr,6) )) .AND. ! Empty(aku->ArtLief)
-            ATail(hData["items"])[J_ITEM_BUYER_ID] := hb_strtoutf8(Trim(aku->ArtLief))
-         ENDIF
-
-         //BT-159 Artikelherkunftsland: Ursprungsland aus dem Artikelstamm
-         //(ISO-2, wird bei gueltiger Lieferantenerklaerung dort aktualisiert, vgl. le.prg)
-         IF ! Empty(art->Ursprung)
-            ATail(hData["items"])[J_ITEM_ORIGIN] := Trim(art->Ursprung)
+            ATail(hData["items"])["buyerId"] := hb_strtoutf8(Trim(aku->ArtLief))
          ENDIF
          IF ! Empty(re->Rabatt)
             ATail(hData["items"])["allowances"] := {{;

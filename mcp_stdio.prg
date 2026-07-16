@@ -3050,6 +3050,90 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
    hResult["status"] := "found"
 RETURN hResult
 
+FUNCTION MCP_Tool_Mark_Message_Read(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oArchive, oItem
+   LOCAL cMailbox := "inbox", cId
+   LOCAL lRead := .T., lSet := .F.
+   LOCAL xUnread
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "id"=>{"type"=>"string","description"=>"The David message id (the 'id' returned by list_inbox)"},;
+            "mailbox"=>{"type"=>"string","enum"=>{"inbox","common"},"description"=>"Which mailbox the message is in: 'inbox' (default) or 'common'"},;
+            "read"=>{"type"=>"boolean","description"=>"true (default) marks the message as read, false marks it as unread again"};
+         },;
+         "required"=>{"id"};
+      }
+      hResult["description"] := "Mark a David message as read (or unread) via its Viewed state. " + ;
+                                "The new state is read back after setting, so success means the change actually took effect"
+      RETURN hResult
+   ENDIF
+
+   cId := hArgs["id"]
+   IF HHasKey(hArgs, "mailbox") .AND. ! Empty(hArgs["mailbox"])
+      cMailbox := Lower(AllTrim(hArgs["mailbox"]))
+   ENDIF
+   IF HHasKey(hArgs, "read") .AND. HB_IsLogical(hArgs["read"])
+      lRead := hArgs["read"]
+   ENDIF
+
+   oArchive := Inbox_Archive(cMailbox)
+   IF oArchive == NIL
+      hResult["status"] := "error"
+      hResult["message"] := "David not connected"
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE
+      oItem := oArchive:GetArchiveEntryByID(cId)
+   RECOVER
+      oItem := NIL
+   END SEQUENCE
+
+   IF oItem == NIL
+      hResult["status"] := "not_found"
+      hResult["message"] := "Message not found: " + cId
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE
+      oItem:Viewed := lRead
+      lSet := .T.
+   RECOVER
+      lSet := .F.
+   END SEQUENCE
+
+   IF lSet
+      // Persist if the API requires it; ignore failure - the verification
+      // read below decides whether the change took effect.
+      BEGIN SEQUENCE
+         oItem:Save()
+      RECOVER
+      END SEQUENCE
+   ENDIF
+
+   // Verify by reading the state back (DV_Unread: unread = ! Viewed)
+   xUnread := DV_Unread(oItem)
+
+   hResult["id"] := cId
+   hResult["mailbox"] := cMailbox
+   IF lSet .AND. ValType(xUnread) == "L" .AND. xUnread == ! lRead
+      hResult["unread"] := xUnread
+      hResult["status"] := "success"
+      hResult["message"] := "Message marked as " + IIF(lRead, "read", "unread")
+   ELSEIF ! lSet
+      hResult["status"] := "error"
+      hResult["message"] := "Setting the Viewed state failed - the David API rejected the write"
+   ELSE
+      hResult["status"] := "error"
+      hResult["message"] := "Viewed state was set but the change could not be verified"
+   ENDIF
+RETURN hResult
+
 // Convert all string values in a hash from OEM to ANSI
 STATIC FUNCTION _HashToUtf8(hHash)
    LOCAL cKey, xValue

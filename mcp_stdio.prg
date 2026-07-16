@@ -2857,6 +2857,101 @@ FUNCTION MCP_Tool_Get_Customer_Turnover(hArgs)
    hResult["status"] := "found"
 RETURN hResult
 
+FUNCTION MCP_Tool_Get_Invoice(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nRe, hLine
+   LOCAL aLines := {}
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "invoice_number"=>{"type"=>"number","description"=>"Invoice (Rechnung) number"};
+         },;
+         "required"=>{"invoice_number"};
+      }
+      hResult["description"] := "Retrieve an outgoing invoice by number: header with customer, totals, tax, payment and " + ;
+                                "dunning status, plus all line items. The sales order number (AB-Nr) is included on the " + ;
+                                "header and on each line (collective invoices can bill several orders) and can be passed " + ;
+                                "to get_order_details; a line's item number equals the item number in that order"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["invoice_number"])
+      RETURN "Parameter 'invoice_number' must be a number"
+   ENDIF
+   nRe := hArgs["invoice_number"]
+
+   NetUse("englsre", "re", .F., 5)
+   re->(DbSetOrder(12))  // Str(Rechnr,6) + Str(Reposnr,3); Reposnr 0 = header
+
+   IF ! re->(DbSeek(Str(nRe, 6) + Str(0, 3)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Invoice not found: " + AllTrim(Str(nRe))
+      RETURN hResult
+   ENDIF
+
+   // Header row - field meanings per the map in model/rechnung.prg
+   // (PosWt=gross total, Preis=tax, Kurs=tax rate, ofqty=shipping,
+   //  AoQty=paid amount, Code>=2 printed, Code>=3+Status==3 paid)
+   hResult["invoice_number"] := nRe
+   hResult["customer"] := HB_StrToUTF8(AllTrim(re->Kunde))
+   hResult["date"] := re->Rechdat
+   IF re->AbNr > 0
+      hResult["order_number"] := re->AbNr
+   ENDIF
+   hResult["currency"] := IIF(Empty(re->Money), "EUR", AllTrim(re->Money))
+   hResult["total_gross"] := re->PosWt
+   hResult["tax"] := re->Preis
+   hResult["tax_rate"] := re->Kurs
+   hResult["total_net"] := Round(re->PosWt - re->Preis, 2)
+   hResult["shipping"] := re->OfQty
+   hResult["discount_percent"] := re->Rabatt
+   hResult["paid_amount"] := re->AoQty
+   hResult["paid"] := re->Code >= 3 .AND. re->Status == 3
+   hResult["printed"] := re->Code >= 2
+   hResult["shipped"] := re->Packed
+   IF ! Empty(re->PayDate)
+      hResult["payment_date"] := re->PayDate
+   ENDIF
+   IF ! Empty(re->MaDate)
+      hResult["dunning"] := re->Rem
+      hResult["dunning_date"] := re->MaDate
+   ENDIF
+
+   re->(DbSkip())  // move past the header row
+   DO WHILE ! re->(Eof()) .AND. re->Rechnr == nRe
+      IF re->Reposnr != 0
+         hLine := {=>}
+         hLine["item"] := re->Reposnr  // equals the item number in the billed order (model/rechpos.prg)
+         hLine["article"] := HB_StrToUTF8(AllTrim(re->Matchcode))
+         hLine["description"] := HB_StrToUTF8(AllTrim(re->Artikel))
+         hLine["quantity"] := re->AoQty
+         hLine["unit"] := HB_StrToUTF8(AllTrim(re->Me))
+         hLine["unit_price"] := Round((re->Preis / IIF(re->Pe == 0, 1, re->Pe)) * (1 - re->Rabatt / 100), 4)
+         IF re->Zuschlag != 0
+            hLine["surcharge"] := re->Zuschlag
+         ENDIF
+         // Same line total formula as Rechnung:UpdateTotal() in model/rechnung.prg
+         hLine["line_total"] := Round((re->AoQty * re->Preis / IIF(re->Pe == 0, 1, re->Pe)) * (1 - re->Rabatt / 100), 2) + re->Zuschlag
+         IF re->AbNr > 0
+            hLine["order_number"] := re->AbNr
+         ENDIF
+         AAdd(aLines, hLine)
+      ENDIF
+      re->(DbSkip())
+   ENDDO
+
+   DbSelectArea(nOldSelect)
+
+   hResult["lines"] := aLines
+   hResult["line_count"] := Len(aLines)
+   hResult["status"] := "found"
+RETURN hResult
+
 FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
    LOCAL hResult := {=>}
    LOCAL nPo, hLine, aLines := {}

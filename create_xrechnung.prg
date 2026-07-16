@@ -4,6 +4,18 @@
 
 
 
+/*
+   PDF24 JSON-Feldnamen: verifiziert gegen den JSON-Export einer
+   Beispielrechnung aus dem PDF24 E-Rechnungs-Generator (07/2026):
+   - "orderPosition" (BT-132) und "description" (BT-154) je Position
+   - "buyerId" (BT-156, Artikelnummer des Kaeufers) je Position
+   Nicht umgesetzt:
+   - BT-16 (despatchAdviceReference) und BT-71 (delivery.locationId):
+     koennen nicht angegeben werden (Vorgabe Buchhaltung)
+   - BT-159 (Artikelherkunftsland): der PDF24-Export enthaelt kein
+     entsprechendes Item-Feld, wird von PDF24 aktuell nicht unterstuetzt
+*/
+
 PROC CreateXRechung(nRechnr,cFile)
    LOCAL hData := {=>}
    LOCAL oRechnung
@@ -17,12 +29,14 @@ PROC CreateXRechung(nRechnr,cFile)
    LOCAL cJsonFile
    LOCAL nProc,nErrOut,nErrBytes,cData,cStdErr
    LOCAL cAufNr,lOneAufnr := .T.,cProc
+   LOCAL cKunde,cPosText,nBestPos
 
 
    NetUse("englsre","re")
    NetUse("engkund","ku")
    NetUse("ups","ups")
    NetUse("artikel","art")
+   NetUse("artkund","aku")
    NetUse("engtext2","tx")
    NetUse("me","me")
    
@@ -30,6 +44,7 @@ PROC CreateXRechung(nRechnr,cFile)
    re->(dbSetOrder( 4 ))
    art->(dbSetOrder( 2 ))
    ku->(dbSetOrder(1))
+   aku->(dbSetOrder(1))
 
    IF ! File(cFile)
       oErr := ErrorNew()
@@ -108,6 +123,8 @@ PROC CreateXRechung(nRechnr,cFile)
       hData["title"] := IF(cLang!="D","Credit note","Stornorechnung")
       hData["typeCode"] := "384" //Rechnungskorrektur
    ENDIF
+   cKunde := re->Kunde  //Rechnungskunde vom Kopfsatz merken (fuer artkund/BT-156)
+
    hData["number"] := LTrim(Str(re->Rechnr))
    hData["issueDate"] := _DtoC(re->Rechdat)
    hData["dueDate"] :=  _DtoC(re->Rechdat+sk->(GetSkontoWait(re->skonto,re->rechdat)))
@@ -250,8 +267,34 @@ PROC CreateXRechung(nRechnr,cFile)
             "vatRate"=>oRechnung:MwStRate,;
             "netUnitPrice"=>re->Preis;              
          })
-         IF ! lOneAufnr
+         cPosText := ""
+         IF re->Textnr != 0
+            cPosText := tx->(ReadText(re->Textnr))
+         ENDIF
+
+         //BT-132 Referenz zur Bestellposition: Zeile "Position: n" aus dem
+         //Positionstext (wird bei Kunden mit oExtra:AufPos gepflegt,
+         //vgl. hook before_save_aufpos). Fallback wie bisher: Auftragsnummer
+         //je Position, wenn mehrere Auftraege in der Rechnung stecken.
+         nBestPos := 0
+         IF AT("Position:",cPosText) != 0
+            nBestPos := Val(LTrim(SubStr(cPosText,AT("Position:",cPosText)+Len("Position:"))))
+         ENDIF
+         IF nBestPos != 0
+            ATail(hData["items"])["orderPosition"] := LTrim(Str(nBestPos))
+         ELSEIF ! lOneAufnr
             ATail(hData["items"])["orderPosition"] := Trim(re->Aufnr)
+         ENDIF
+
+         //BT-154 Artikelbeschreibung: Positionslangtext (bei @-Textpositionen
+         //steckt der Text bereits in der id, daher dort nicht doppelt ausgeben)
+         IF ! Empty(cPosText) .AND. LEFT(re->matchcode,1) != "@"
+            ATail(hData["items"])["description"] := hb_strtoutf8(Trim(cPosText))
+         ENDIF
+
+         //BT-156 Artikelnummer des Kaeufers: Kundenartikelnummer aus artkund
+         IF aku->(dbSeek( cKunde+Str(re->Artikelnr,6) )) .AND. ! Empty(aku->ArtLief)
+            ATail(hData["items"])["buyerId"] := hb_strtoutf8(Trim(aku->ArtLief))
          ENDIF
          IF ! Empty(re->Rabatt)
             ATail(hData["items"])["allowances"] := {{;

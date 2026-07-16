@@ -2074,10 +2074,35 @@ STATIC FUNCTION Inbox_Archive(cMailbox)
    END SEQUENCE
 RETURN oArchive
 
+// Read/unread state of a message, best-effort. Nothing else in the codebase
+// reads this flag and david.ch has no constant for it, so we try the
+// plausible DvApi property names in turn and return NIL when none of them
+// answers - callers then simply omit the field instead of guessing.
+STATIC FUNCTION DV_Unread(oItem)
+   LOCAL xVal := NIL
+
+   BEGIN SEQUENCE
+      xVal := oItem:Unread
+   RECOVER
+      xVal := NIL
+   END SEQUENCE
+   IF ValType(xVal) != "L" .AND. ValType(xVal) != "N"
+      BEGIN SEQUENCE
+         xVal := oItem:Fields:Item("Unread"):Value
+      RECOVER
+         xVal := NIL
+      END SEQUENCE
+   ENDIF
+   IF ValType(xVal) == "N"  // numeric representation: 0 = read
+      xVal := xVal != 0
+   ENDIF
+RETURN IIF(ValType(xVal) == "L", xVal, NIL)
+
 // Build a one-line summary hash for a single message. Each property read is
 // guarded so one malformed item never aborts a listing.
 STATIC FUNCTION Inbox_Summary(oItem)
    LOCAL hMsg := {=>}
+   LOCAL xUnread
 
    hMsg["id"] := ""
    hMsg["subject"] := ""
@@ -2085,7 +2110,7 @@ STATIC FUNCTION Inbox_Summary(oItem)
    hMsg["date"] := ""
    hMsg["recipient_count"] := 0
    hMsg["attachment_count"] := 0
-//oItem:_ID  
+//oItem:_ID
 //
    BEGIN SEQUENCE ; hMsg["id"]      := oItem:Fields:Item("FileName"):Value                  ; RECOVER ; END SEQUENCE
    BEGIN SEQUENCE ; hMsg["subject"] := DV_Utf8(oItem:Subject)        ; RECOVER ; END SEQUENCE
@@ -2093,6 +2118,10 @@ STATIC FUNCTION Inbox_Summary(oItem)
    BEGIN SEQUENCE ; hMsg["date"]    := DV_DateStr(oItem:StatusTime)  ; RECOVER ; END SEQUENCE
    BEGIN SEQUENCE ; hMsg["recipient_count"]  := oItem:Recipients:Count  ; RECOVER ; END SEQUENCE
    BEGIN SEQUENCE ; hMsg["attachment_count"] := oItem:Attachments:Count ; RECOVER ; END SEQUENCE
+   xUnread := DV_Unread(oItem)
+   IF xUnread != NIL
+      hMsg["unread"] := xUnread
+   ENDIF
 RETURN hMsg
 
 FUNCTION MCP_Tool_List_Inbox(hArgs)
@@ -2187,6 +2216,7 @@ FUNCTION MCP_Tool_Get_Inbox_Message(hArgs)
    LOCAL oArchive, oItem, nX
    LOCAL cMailbox := "inbox", cId
    LOCAL aTo := {}, aCc := {}, aAttach := {}
+   LOCAL xUnread
 
    // Return schema and description when called without arguments
    IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
@@ -2232,6 +2262,10 @@ FUNCTION MCP_Tool_Get_Inbox_Message(hArgs)
    BEGIN SEQUENCE ; hResult["subject"] := DV_Utf8(oItem:Subject)       ; RECOVER ; hResult["subject"] := "" ; END SEQUENCE
    BEGIN SEQUENCE ; hResult["sender"] := DV_Utf8(oItem:Fields:Item("SRFrom"):Value); RECOVER; hResult["sender"] := ""; END SEQUENCE //DV_Sender(oItem)
    BEGIN SEQUENCE ; hResult["date"]    := DV_DateStr(oItem:StatusTime) ; RECOVER ; hResult["date"]    := "" ; END SEQUENCE
+   xUnread := DV_Unread(oItem)
+   IF xUnread != NIL
+      hResult["unread"] := xUnread
+   ENDIF
 
    // Recipients (To)
    BEGIN SEQUENCE

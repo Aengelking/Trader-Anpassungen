@@ -440,7 +440,7 @@ STATIC FUNCTION CR_PushBucket(cToken,nGroupId,aBucket,lActive,cError)
    ENDIF
    aHeader := aBucket[1]
    FOR nI := 2 TO Len(aBucket)
-      IF Len(aBucket[nI]) >= 3 .AND. ! Empty(Trim(aBucket[nI][3]))   // email column
+      IF Len(aBucket[nI]) >= 3 .AND. CR_ValidEmail(aBucket[nI][3])   // valid email required
          Aadd(aReceivers,CR_BuildReceiverFromRow(aHeader,aBucket[nI],lActive))
       ENDIF
       IF Len(aReceivers) >= 100

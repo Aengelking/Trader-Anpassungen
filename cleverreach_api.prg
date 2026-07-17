@@ -183,18 +183,27 @@ RETURN cResult
 // REST core
 //----------------------------------------------------------------------------
 // Perform an authenticated v3 call. Returns the decoded response (H/A) or NIL.
-STATIC FUNCTION CR_Call(cToken,cPath,cMethod,xBody)
+STATIC FUNCTION CR_Call(cToken,cPath,cMethod,xBody,nStatus,cRaw)
    LOCAL oRest := RestAPI():New()
    LOCAL aHeader := {"Authorization: Bearer " + cToken, ;
                      "Content-Type: application/json", ;
                      "Accept: application/json"}
    LOCAL cResp
+   nStatus := 0
    oRest:cBaseUrl := CR_BaseV3()
-   cResp := oRest:Execute(cPath,cMethod,xBody,aHeader,.T.)
+   cResp := oRest:Execute(cPath,cMethod,xBody,aHeader,.T.,@nStatus)
+   cRaw := IF(ValType(cResp) == "C",cResp,"")
    IF Empty(cResp)
       RETURN NIL
    ENDIF
 RETURN HB_JsonDecode(cResp)
+
+// Simple email sanity check - CleverReach can reject a whole batch for one bad address.
+STATIC FUNCTION CR_ValidEmail(cEmail)
+   LOCAL nAt
+   cEmail := Trim(cEmail)
+   nAt := AT("@",cEmail)
+RETURN nAt > 1 .AND. AT(".",SubStr(cEmail,nAt)) > 1 .AND. ! (" " $ cEmail) .AND. Len(cEmail) >= 5
 
 // Error text if the decoded response is a CleverReach error object, else "".
 STATIC FUNCTION CR_ErrorText(xResp)
@@ -253,7 +262,7 @@ RETURN hR
 // Insert-or-update a batch of receivers into a group ("Aktualisieren und
 // Hinzufuegen"). Returns .T. on success; on failure fills @cError.
 STATIC FUNCTION CleverReachUpsert(cToken,nGroupId,aReceivers,cError)
-   LOCAL xResp, cPath
+   LOCAL xResp, cPath, nStatus := 0, cRaw := ""
    cError := ""
    IF Empty(aReceivers)
       RETURN .T.
@@ -263,10 +272,12 @@ STATIC FUNCTION CleverReachUpsert(cToken,nGroupId,aReceivers,cError)
       RETURN .F.
    ENDIF
    cPath := "/groups.json/" + CR_Str(nGroupId) + "/receivers/upsert"
-   xResp := CR_Call(cToken,cPath,"POST",aReceivers)
-   IF xResp == NIL
-      cError := "Keine Antwort von CleverReach"
-      RETURN .F.
-   ENDIF
+   xResp := CR_Call(cToken,cPath,"POST",aReceivers,@nStatus,@cRaw)
    cError := CR_ErrorText(xResp)
+   IF Empty(cError) .AND. nStatus != 0 .AND. (nStatus < 200 .OR. nStatus >= 300)
+      cError := "HTTP " + CR_Str(nStatus) + ": " + AllTrim(Left(cRaw,160))
+   ENDIF
+   IF Empty(cError) .AND. xResp == NIL .AND. nStatus == 0
+      cError := "Keine Antwort von CleverReach"
+   ENDIF
 RETURN Empty(cError)

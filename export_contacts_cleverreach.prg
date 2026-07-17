@@ -407,7 +407,7 @@ STATIC FUNCTION CleverReachPush(hData)
 
    nDE := CleverReachFindGroupId(cToken,"Engelking Kundenstamm DE")
    nEN := CleverReachFindGroupId(cToken,"Engelking Kundenstamm EN")
-   IF nDE == 0 .OR. nEN == 0
+   IF Empty(nDE) .OR. Empty(nEN)
       Tr_MsgBox("CleverReach Empfaengergruppe(n) nicht gefunden - abgebrochen")
       RETURN .F.
    ENDIF

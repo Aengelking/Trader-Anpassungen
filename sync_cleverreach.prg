@@ -31,15 +31,15 @@ PROC RUN_CleverReach_Sync()
    Aadd(aMsg,"")
    FOR EACH hG IN aGroups
       IF ValType(hG) == "H"
-         Aadd(aMsg,Pad(LTrim(Str(CR_HDef(hG,"id",0))),10) + hb_utf8tostr(CR_HDef(hG,"name","")))
+         Aadd(aMsg,Pad(CR_Str(CR_HDef(hG,"id","")),10) + hb_utf8tostr(CR_Str(CR_HDef(hG,"name",""))))
       ENDIF
    NEXT
 
    nDE := CleverReachFindGroupId(cToken,"Engelking Kundenstamm DE")
    nEN := CleverReachFindGroupId(cToken,"Engelking Kundenstamm EN")
    Aadd(aMsg,"")
-   Aadd(aMsg,"DE-Gruppe: " + IF(nDE > 0,LTrim(Str(nDE)),"NICHT gefunden"))
-   Aadd(aMsg,"EN-Gruppe: " + IF(nEN > 0,LTrim(Str(nEN)),"NICHT gefunden"))
+   Aadd(aMsg,"DE-Gruppe: " + IF(! Empty(nDE),nDE,"NICHT gefunden"))
+   Aadd(aMsg,"EN-Gruppe: " + IF(! Empty(nEN),nEN,"NICHT gefunden"))
 
    Tr_MsgBox(aMsg,"CleverReach")
 

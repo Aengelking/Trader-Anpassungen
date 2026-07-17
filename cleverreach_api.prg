@@ -37,6 +37,19 @@ STATIC FUNCTION CR_HDef(hHash,cKey,xDef)
    ENDIF
 RETURN xDef
 
+// Safe stringify - CleverReach may return ids/numbers as JSON strings, so
+// never call Str() on a value whose type is not guaranteed numeric.
+STATIC FUNCTION CR_Str(xVal)
+   DO CASE
+   CASE ValType(xVal) == "C"
+      RETURN xVal
+   CASE ValType(xVal) == "N"
+      RETURN AllTrim(Str(xVal))
+   CASE ValType(xVal) == "D"
+      RETURN DToC(xVal)
+   ENDCASE
+RETURN ""
+
 //----------------------------------------------------------------------------
 // Token storage / lifecycle
 //----------------------------------------------------------------------------
@@ -213,10 +226,10 @@ STATIC FUNCTION CleverReachFindGroupId(cToken,cName)
    FOR EACH hG IN aGroups
       IF ValType(hG) == "H" .AND. HHasKey(hG,"name") .AND. ;
          Upper(Trim(hG["name"])) == Upper(Trim(cName))
-         RETURN CR_HDef(hG,"id",0)
+         RETURN CR_Str(CR_HDef(hG,"id",""))   // id may be a string in the JSON
       ENDIF
    NEXT
-RETURN 0
+RETURN ""
 
 // Build a CleverReach receiver object.
 //   hGlobal - standard fields (firstname,lastname,salutation,company,...)
@@ -249,7 +262,7 @@ STATIC FUNCTION CleverReachUpsert(cToken,nGroupId,aReceivers,cError)
       cError := "Keine Gruppen-ID"
       RETURN .F.
    ENDIF
-   cPath := "/groups.json/" + LTrim(Str(nGroupId)) + "/receivers/upsert"
+   cPath := "/groups.json/" + CR_Str(nGroupId) + "/receivers/upsert"
    xResp := CR_Call(cToken,cPath,"POST",aReceivers)
    IF xResp == NIL
       cError := "Keine Antwort von CleverReach"

@@ -26,39 +26,44 @@ RETURN "https://rest.cleverreach.com/v3"
 STATIC FUNCTION CR_BaseAuth()
 RETURN "https://rest.cleverreach.com"
 
-// Current time as a unix epoch (seconds).
+// Current local time as a unix epoch (seconds).
 STATIC FUNCTION CR_Now()
-RETURN Int((hb_DateTime() - hb_SToT("19700101000000")) * 86400)
+RETURN (Date() - SToD("19700101")) * 86400 + Int(Seconds())
+
+// Hash value with default (avoids hb_HGetDef, which may be unregistered).
+STATIC FUNCTION CR_HDef(hHash,cKey,xDef)
+   IF ValType(hHash) == "H" .AND. HHasKey(hHash,cKey)
+      RETURN hHash[cKey]
+   ENDIF
+RETURN xDef
 
 //----------------------------------------------------------------------------
 // Token storage / lifecycle
 //----------------------------------------------------------------------------
 STATIC FUNCTION CR_SaveToken(cAccess,cRefresh,nExpiresIn)
    LOCAL hToken := {=>}
-   LOCAL tExpiry := hb_DateTime() + ((nExpiresIn - 300) / 86400)  // 5 min safety margin
-   hToken["access_token"]      := cAccess
-   hToken["refresh_token"]     := cRefresh
-   hToken["expires_at"]        := hb_TToC(tExpiry,"yyyy-mm-dd","hh:mm:ss")
-   hToken["expires_timestamp"] := tExpiry
-   hb_MemoWrit(CR_TokenFile(),hb_JsonEncode(hToken,.T.))
+   hToken["access_token"]  := cAccess
+   hToken["refresh_token"] := cRefresh
+   hToken["expires_epoch"] := CR_Now() + nExpiresIn - 300   // 5 min safety margin
+   MemoWrit(CR_TokenFile(),HB_JsonEncode(hToken))
 RETURN .T.
 
 // Return a currently valid access token, refreshing if needed, else "".
 STATIC FUNCTION CR_Token()
-   LOCAL hToken, tExpiry
+   LOCAL hToken, nExp
    IF ! File(CR_TokenFile())
       RETURN ""
    ENDIF
-   hToken := hb_JsonDecode(MemoRead(CR_TokenFile()))
-   IF ValType(hToken) != "H" .OR. ! hb_HHasKey(hToken,"access_token")
+   hToken := HB_JsonDecode(MemoRead(CR_TokenFile()))
+   IF ValType(hToken) != "H" .OR. ! HHasKey(hToken,"access_token")
       RETURN ""
    ENDIF
-   tExpiry := hb_HGetDef(hToken,"expires_timestamp",hb_DateTime())
-   IF ValType(tExpiry) == "T" .AND. tExpiry > hb_DateTime()
+   nExp := CR_HDef(hToken,"expires_epoch",0)
+   IF ValType(nExp) == "N" .AND. nExp > CR_Now()
       RETURN hToken["access_token"]
    ENDIF
    // expired -> try refresh
-   IF hb_HHasKey(hToken,"refresh_token") .AND. ! Empty(hToken["refresh_token"])
+   IF HHasKey(hToken,"refresh_token") .AND. ! Empty(hToken["refresh_token"])
       RETURN CR_Refresh(hToken["refresh_token"])
    ENDIF
 RETURN ""
@@ -77,15 +82,15 @@ STATIC FUNCTION CR_GetAccessToken(cAuthCode)
    IF Empty(cResponse)
       RETURN ""
    ENDIF
-   hResponse := hb_JsonDecode(cResponse)
-   IF ValType(hResponse) == "H" .AND. hb_HHasKey(hResponse,"access_token")
+   hResponse := HB_JsonDecode(cResponse)
+   IF ValType(hResponse) == "H" .AND. HHasKey(hResponse,"access_token")
       CR_SaveToken(hResponse["access_token"], ;
-                   hb_HGetDef(hResponse,"refresh_token",""), ;
-                   hb_HGetDef(hResponse,"expires_in",3600))
+                   CR_HDef(hResponse,"refresh_token",""), ;
+                   CR_HDef(hResponse,"expires_in",3600))
       RETURN hResponse["access_token"]
    ENDIF
    IF ValType(hResponse) == "H"
-      Alert("CleverReach: " + hb_HGetDef(hResponse,"error_description","Unbekannter Fehler"))
+      Alert("CleverReach: " + CR_HDef(hResponse,"error_description","Unbekannter Fehler"))
    ENDIF
 RETURN ""
 
@@ -105,11 +110,11 @@ STATIC FUNCTION CR_Refresh(cRefresh)
    IF Empty(cResponse)
       RETURN ""
    ENDIF
-   hResponse := hb_JsonDecode(cResponse)
-   IF ValType(hResponse) == "H" .AND. hb_HHasKey(hResponse,"access_token")
+   hResponse := HB_JsonDecode(cResponse)
+   IF ValType(hResponse) == "H" .AND. HHasKey(hResponse,"access_token")
       CR_SaveToken(hResponse["access_token"], ;
-                   hb_HGetDef(hResponse,"refresh_token",cRefresh), ;
-                   hb_HGetDef(hResponse,"expires_in",3600))
+                   CR_HDef(hResponse,"refresh_token",cRefresh), ;
+                   CR_HDef(hResponse,"expires_in",3600))
       RETURN hResponse["access_token"]
    ENDIF
 RETURN ""
@@ -145,6 +150,7 @@ RETURN cToken
 
 STATIC FUNCTION CR_UrlEncode(cString)
    LOCAL cResult := "", i, cChar, nCode
+   LOCAL cHex := "0123456789ABCDEF"
    FOR i := 1 TO Len(cString)
       cChar := SubStr(cString,i,1)
       nCode := Asc(cChar)
@@ -155,7 +161,7 @@ STATIC FUNCTION CR_UrlEncode(cString)
       CASE cChar == " "
          cResult += "+"
       OTHERWISE
-         cResult += "%" + Right("0" + hb_NumToHex(nCode),2)
+         cResult += "%" + SubStr(cHex,Int(nCode/16)+1,1) + SubStr(cHex,(nCode % 16)+1,1)
       ENDCASE
    NEXT
 RETURN cResult
@@ -175,17 +181,21 @@ STATIC FUNCTION CR_Call(cToken,cPath,cMethod,xBody)
    IF Empty(cResp)
       RETURN NIL
    ENDIF
-RETURN hb_JsonDecode(cResp)
+RETURN HB_JsonDecode(cResp)
 
 // Error text if the decoded response is a CleverReach error object, else "".
 STATIC FUNCTION CR_ErrorText(xResp)
    LOCAL xErr
-   IF ValType(xResp) == "H" .AND. hb_HHasKey(xResp,"error")
+   IF ValType(xResp) == "H" .AND. HHasKey(xResp,"error")
       xErr := xResp["error"]
       IF ValType(xErr) == "H"
-         RETURN hb_HGetDef(xErr,"message",hb_HGetDef(xErr,"code","Fehler"))
+         RETURN CR_HDef(xErr,"message",CR_HDef(xErr,"code","Fehler"))
+      ELSEIF ValType(xErr) == "C"
+         RETURN xErr
+      ELSEIF ValType(xErr) == "N"
+         RETURN AllTrim(Str(xErr))
       ENDIF
-      RETURN cValToChar(xErr)
+      RETURN "Fehler"
    ENDIF
 RETURN ""
 
@@ -201,9 +211,9 @@ RETURN {}
 STATIC FUNCTION CleverReachFindGroupId(cToken,cName)
    LOCAL aGroups := CleverReachGroups(cToken), hG
    FOR EACH hG IN aGroups
-      IF ValType(hG) == "H" .AND. hb_HHasKey(hG,"name") .AND. ;
+      IF ValType(hG) == "H" .AND. HHasKey(hG,"name") .AND. ;
          Upper(Trim(hG["name"])) == Upper(Trim(cName))
-         RETURN hb_HGetDef(hG,"id",0)
+         RETURN CR_HDef(hG,"id",0)
       ENDIF
    NEXT
 RETURN 0

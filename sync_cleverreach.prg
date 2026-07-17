@@ -31,7 +31,7 @@ PROC RUN_CleverReach_Sync()
    Aadd(aMsg,"")
    FOR EACH hG IN aGroups
       IF ValType(hG) == "H"
-         Aadd(aMsg,Pad(LTrim(Str(hb_HGetDef(hG,"id",0))),10) + hb_utf8tostr(hb_HGetDef(hG,"name","")))
+         Aadd(aMsg,Pad(LTrim(Str(CR_HDef(hG,"id",0))),10) + hb_utf8tostr(CR_HDef(hG,"name","")))
       ENDIF
    NEXT
 

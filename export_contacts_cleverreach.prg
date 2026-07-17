@@ -481,9 +481,14 @@ STATIC FUNCTION CR_BuildReceiverFromRow(aHeader,aRow,lActive)
       cKey := CR_AttrKey(aHeader[nI])
       IF ! Empty(cKey)
          xVal := aRow[nI]
-         IF ValType(xVal) != "C"
-            xVal := AllTrim(cValToChar(xVal))
-         ENDIF
+         DO CASE
+         CASE ValType(xVal) == "N"
+            xVal := AllTrim(Str(xVal))
+         CASE ValType(xVal) == "D"
+            xVal := DToC(xVal)
+         CASE ValType(xVal) != "C"
+            xVal := ""
+         ENDCASE
          hAttr[cKey] := hb_strToUtf8(Trim(xVal))
       ENDIF
    NEXT

@@ -347,6 +347,10 @@ SET CURSOR ON
 
 TR_MsgBox("Export abgeschlossen")
 
+IF Tr_MsgBox("Adressen jetzt direkt zu CleverReach senden (API)?",,{"Nein","Ja"}) == 2
+   CleverReachPush(hData)
+ENDIF
+
 STATIC Function __AddEntry(hPos,cType,dDate,cKunde,nPerson)
    LOCAL cGroup
 
@@ -385,4 +389,126 @@ STATIC Function __AddEntry(hPos,cType,dDate,cKunde,nPerson)
 RETURN NIL
 
 
+
+//----------------------------------------------------------------------------
+// Push the collected buckets to CleverReach via the REST API.
+//   hData["D"] / ["E"]  -> upsert as ACTIVE receivers into the DE / EN group
+//   hData["INAKTIV"]    -> upsert as INACTIVE (deactivate) in both groups
+// Blacklisted contacts were already dropped during collection (channel "C").
+//----------------------------------------------------------------------------
+STATIC FUNCTION CleverReachPush(hData)
+   LOCAL cToken, nDE, nEN, cErr := ""
+
+   cToken := CR_EnsureToken()
+   IF Empty(cToken)
+      Tr_MsgBox("Keine Verbindung zu CleverReach")
+      RETURN .F.
+   ENDIF
+
+   nDE := CleverReachFindGroupId(cToken,"Engelking Kundenstamm DE")
+   nEN := CleverReachFindGroupId(cToken,"Engelking Kundenstamm EN")
+   IF nDE == 0 .OR. nEN == 0
+      Tr_MsgBox("CleverReach Empfaengergruppe(n) nicht gefunden - abgebrochen")
+      RETURN .F.
+   ENDIF
+
+   @ 26,00 SAY "CleverReach: sende Adressen..."
+
+   IF HHasKey(hData,"D") .AND. ! CR_PushBucket(cToken,nDE,hData["D"],.T.,@cErr)
+      Tr_MsgBox("Fehler beim Senden (DE): "+cErr)
+      RETURN .F.
+   ENDIF
+   IF HHasKey(hData,"E") .AND. ! CR_PushBucket(cToken,nEN,hData["E"],.T.,@cErr)
+      Tr_MsgBox("Fehler beim Senden (EN): "+cErr)
+      RETURN .F.
+   ENDIF
+   // Inactive contacts: deactivate in both language groups (see documentation)
+   IF HHasKey(hData,"INAKTIV")
+      CR_PushBucket(cToken,nDE,hData["INAKTIV"],.F.,@cErr)
+      CR_PushBucket(cToken,nEN,hData["INAKTIV"],.F.,@cErr)
+   ENDIF
+
+   Tr_MsgBox("CleverReach Sync abgeschlossen")
+RETURN .T.
+
+// Upsert one bucket (batched). aBucket[1] is the header row, data from row 2.
+STATIC FUNCTION CR_PushBucket(cToken,nGroupId,aBucket,lActive,cError)
+   LOCAL aHeader, aReceivers := {}, nI, lOk := .T.
+   cError := ""
+   IF Empty(aBucket) .OR. Len(aBucket) < 2
+      RETURN .T.
+   ENDIF
+   aHeader := aBucket[1]
+   FOR nI := 2 TO Len(aBucket)
+      IF Len(aBucket[nI]) >= 3 .AND. ! Empty(Trim(aBucket[nI][3]))   // email column
+         Aadd(aReceivers,CR_BuildReceiverFromRow(aHeader,aBucket[nI],lActive))
+      ENDIF
+      IF Len(aReceivers) >= 100
+         lOk := CleverReachUpsert(cToken,nGroupId,aReceivers,@cError)
+         IF ! lOk
+            RETURN .F.
+         ENDIF
+         aReceivers := {}
+      ENDIF
+   NEXT
+   IF Len(aReceivers) > 0
+      lOk := CleverReachUpsert(cToken,nGroupId,aReceivers,@cError)
+   ENDIF
+RETURN lOk
+
+// Map one export row (columns 1..23) onto a CleverReach receiver.
+// Column order is fixed by the export header (see hData["D"][1]).
+STATIC FUNCTION CR_BuildReceiverFromRow(aHeader,aRow,lActive)
+   LOCAL hGlobal := {=>}, hAttr := {=>}, nI, cKey, xVal
+   LOCAL cEmail := Trim(aRow[3])
+
+   hGlobal["salutation"] := hb_strToUtf8(Trim(aRow[1]))
+   hGlobal["lastname"]   := hb_strToUtf8(Trim(aRow[2]))
+   hGlobal["company"]    := hb_strToUtf8(Trim(aRow[5]))
+   hGlobal["street"]     := hb_strToUtf8(Trim(aRow[6]))
+   hGlobal["zip"]        := Trim(aRow[7])
+   hGlobal["city"]       := hb_strToUtf8(Trim(aRow[8]))
+   hGlobal["state"]      := hb_strToUtf8(Trim(aRow[9]))
+   hGlobal["country"]    := hb_strToUtf8(Trim(aRow[10]))
+
+   // Custom attributes: columns 11.. keyed by a sanitized header name.
+   // NOTE: these keys must match the attribute tags configured on the
+   // CleverReach group; adjust CR_AttrKey() if your tags differ.
+   FOR nI := 11 TO Len(aHeader)
+      IF nI > Len(aRow)
+         EXIT
+      ENDIF
+      cKey := CR_AttrKey(aHeader[nI])
+      IF ! Empty(cKey)
+         xVal := aRow[nI]
+         IF ValType(xVal) != "C"
+            xVal := AllTrim(cValToChar(xVal))
+         ENDIF
+         hAttr[cKey] := hb_strToUtf8(Trim(xVal))
+      ENDIF
+   NEXT
+RETURN CleverReachReceiver(cEmail,hGlobal,hAttr,lActive)
+
+// Turn a header label into a CleverReach attribute key (lowercase, ascii, _).
+STATIC FUNCTION CR_AttrKey(cName)
+   LOCAL c := Lower(AllTrim(cName)), cOut := "", nI, ch
+   c := StrTran(c,"„","ae")
+   c := StrTran(c,"”","oe")
+   c := StrTran(c,"","ue")
+   c := StrTran(c,"á","ss")
+   FOR nI := 1 TO Len(c)
+      ch := SubStr(c,nI,1)
+      IF (ch >= "a" .AND. ch <= "z") .OR. (ch >= "0" .AND. ch <= "9")
+         cOut += ch
+      ELSEIF ch $ " -/"
+         cOut += "_"
+      ENDIF
+   NEXT
+   DO WHILE "__" $ cOut
+      cOut := StrTran(cOut,"__","_")
+   ENDDO
+RETURN cOut
+
+
 #include 'x:\run\blacklist.prg'
+#include 'x:\run\cleverreach_api.prg'

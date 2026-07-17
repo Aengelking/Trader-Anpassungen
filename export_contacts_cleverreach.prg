@@ -11,6 +11,9 @@
 ;
 => GET_AssociativeListBox(getlist,<top>,<left>,<bottom>,<right>,{|v| If(v==NIL,<var>,<var>:=v)},<hash>,<{valid}>, <{when}>,<color>)
 
+STATIC s_hBlackEmail
+STATIC s_hBlackDomain
+
 PROCEDURE RUN_Export_Contacts_Cleverreach
 
 LOCAL getlist := {}
@@ -231,7 +234,7 @@ Do While nX <= Len(hPos)
                cLang := "INAKTIV"
             ENDIF
 			
-				IF ! Empty(cEmail)
+				IF ! Empty(cEmail) .AND. ! IsBlacklisted(cEmail,"C")
 
                
                aRec := {cAnrede,cName,cEmail}
@@ -380,3 +383,6 @@ STATIC Function __AddEntry(hPos,cType,dDate,cKunde,nPerson)
 
    ENDIF*/
 RETURN NIL
+
+
+#include 'x:\run\blacklist.prg'

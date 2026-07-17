@@ -548,7 +548,7 @@ PROCEDURE RUN_Email_Mailing
                ENDIF
 
                // Skip blacklisted recipients (also catches loaded mailings)
-               IF IsBlacklisted(aPerson["email"])
+               IF IsBlacklisted(aPerson["email"],"B")
                   @ 26,40 SAY "Blacklisted:   " + Left(Trim(aPerson["email"]),20)
                   LOOP // Skip this recipient
                ENDIF
@@ -704,7 +704,7 @@ STATIC Function __AddEntry(hPos,cKunde,cMatchcode,nPerson,hSettings,cMainMatch)
                ELSE
                   cEmail := ""
                ENDIF
-               IF ! Empty(cEmail) .AND. ! IsBlacklisted(cEmail)
+               IF ! Empty(cEmail) .AND. ! IsBlacklisted(cEmail,"B")
                   hPos[cKunde]["people"][LTrim(Str(nPerson))] := {"anrede"=>cAnrede,"name"=>cName,"email"=>cEmail,"nummer"=>nPerson}
                   nCount++
                ENDIF
@@ -728,124 +728,11 @@ RETURN nCount
 
 
 //----------------------------------------------------------------------------
-// Mailing blacklist (mailblack.dbf: ENTRY, TYPE, REASON, ADDEDAT, ADDEDBY)
-// TYPE: "E" = single email address, "D" = whole domain
-//----------------------------------------------------------------------------
-
-STATIC FUNCTION BlacklistDataPath()
-RETURN IF(GetConfigValue("FIRMPATH") != ".",GetConfigValue("FIRMPATH")+"\","")
-
-STATIC FUNCTION OpenBlacklist()
-   // Make the mblack workarea available, opening the table on demand.
-   IF Select("mblack") == 0
-      IF ! Leto_File(BlacklistDataPath()+"mailblack.dbf")
-         RETURN .F.
-      ENDIF
-      NetUse("mailblack","mblack",.F.,0)
-   ENDIF
-RETURN Select("mblack") != 0
-
-STATIC FUNCTION LoadBlacklist()
-   LOCAL cVal
-   s_hBlackEmail  := {=>}
-   s_hBlackDomain := {=>}
-   IF OpenBlacklist()
-      mblack->(dbGoTop())
-      DO WHILE ! mblack->(Eof())
-         IF ! mblack->(Deleted())
-            cVal := Lower(Trim(mblack->Entry))
-            IF ! Empty(cVal)
-               IF mblack->Type == "D"
-                  s_hBlackDomain[cVal] := .T.
-               ELSE
-                  s_hBlackEmail[cVal] := .T.
-               ENDIF
-            ENDIF
-         ENDIF
-         mblack->(dbSkip())
-      ENDDO
-   ENDIF
-RETURN NIL
-
-STATIC FUNCTION IsBlacklisted(cEmail)
-   LOCAL nAt, cDomain
-   IF s_hBlackEmail == NIL
-      LoadBlacklist()
-   ENDIF
-   cEmail := Lower(Trim(cEmail))
-   IF Empty(cEmail)
-      RETURN .F.
-   ENDIF
-   IF HHasKey(s_hBlackEmail,cEmail)
-      RETURN .T.
-   ENDIF
-   nAt := AT("@",cEmail)
-   IF nAt > 0
-      cDomain := SubStr(cEmail,nAt+1)
-      IF ! Empty(cDomain) .AND. HHasKey(s_hBlackDomain,cDomain)
-         RETURN .T.
-      ENDIF
-   ENDIF
-RETURN .F.
-
-STATIC FUNCTION AddToBlacklist(cValue,cType,cReason)
-   cValue := Lower(Trim(cValue))
-   cType  := IF(cType == "D","D","E")
-   IF Empty(cValue)
-      RETURN .F.
-   ENDIF
-   IF ! OpenBlacklist()
-      Tr_MsgBox("Blacklist-Tabelle (mailblack) nicht gefunden")
-      RETURN .F.
-   ENDIF
-   IF s_hBlackEmail == NIL
-      LoadBlacklist()
-   ENDIF
-   // Dedupe: already present with the same type -> nothing to do
-   IF (cType == "D" .AND. HHasKey(s_hBlackDomain,cValue)) .OR. ;
-      (cType == "E" .AND. HHasKey(s_hBlackEmail,cValue))
-      RETURN .T.
-   ENDIF
-   mblack->(Add_Rec(0))
-   mblack->Entry   := cValue
-   mblack->Type    := cType
-   mblack->Reason  := cReason
-   mblack->AddedAt := Date()
-   mblack->AddedBy := SystemUser():Id
-   mblack->(dbUnLock())
-   // Keep the in-memory cache in sync so the change takes effect at once
-   IF cType == "D"
-      s_hBlackDomain[cValue] := .T.
-   ELSE
-      s_hBlackEmail[cValue] := .T.
-   ENDIF
-RETURN .T.
-
-STATIC FUNCTION DeleteFromBlacklist(cValue,cType)
-   cValue := Lower(Trim(cValue))
-   cType  := Trim(cType)
-   IF ! OpenBlacklist()
-      RETURN .F.
-   ENDIF
-   mblack->(dbGoTop())
-   DO WHILE ! mblack->(Eof())
-      IF ! mblack->(Deleted()) .AND. Lower(Trim(mblack->Entry)) == cValue ;
-         .AND. Trim(mblack->Type) == cType
-         mblack->(Rec_Lock(0))
-         mblack->(dbDelete())
-         mblack->(dbUnLock())
-      ENDIF
-      mblack->(dbSkip())
-   ENDDO
-   s_hBlackEmail := NIL   // force a reload on next lookup
-RETURN .T.
-
-//----------------------------------------------------------------------------
 // Blacklist the highlighted recipient from within the mailing browse and drop
 // every recipient (across all customers) now matched by the blacklist.
 //----------------------------------------------------------------------------
 STATIC FUNCTION BlacklistFromBrowse(oBrowse,hPos)
-   LOCAL hData, hPers, cEmail, nType, cReason, cValue, cKind
+   LOCAL hData, hPers, cEmail, nType, cReason, cValue, cKind, cScope
 
    IF oBrowse:CurrentDataRow() == NIL
       RETURN .T.
@@ -879,7 +766,11 @@ STATIC FUNCTION BlacklistFromBrowse(oBrowse,hPos)
    IF LastKey() == K_ESC
       RETURN .T.
    ENDIF
-   IF ! AddToBlacklist(cValue,cKind,cReason)
+   cScope := AskBlacklistScope(cValue)
+   IF Empty(cScope)
+      RETURN .T.
+   ENDIF
+   IF ! AddToBlacklist(cValue,cKind,cReason,cScope)
       RETURN .T.
    ENDIF
 RETURN PurgeBlacklisted(oBrowse,hPos)
@@ -898,7 +789,7 @@ STATIC FUNCTION PurgeBlacklisted(oBrowse,hPos)
          LOOP
       ENDIF
       hPers := hCustomer["people"][cPersKey]
-      IF ! HHasKey(hPers,"messageid") .AND. IsBlacklisted(hPers["email"])
+      IF ! HHasKey(hPers,"messageid") .AND. IsBlacklisted(hPers["email"],"B")
          HB_HDel(hCustomer["people"],cPersKey,.T.)
          HB_ADel(oBrowse:aData,nX,.T.)
          IF Len(hCustomer["people"]) == 0
@@ -934,25 +825,28 @@ PROCEDURE RUN_Mailing_Blacklist
    oBrowse := TABrowse():New(02,00,MaxRow()-1,MaxCol())
    __BlacklistLoadRows(oBrowse)
 
-   oBrowse:NewColumn(" "+Pad("Typ",6)+" "+Pad("Eintrag",50)+" "+Pad("Grund",28)+" "+"Datum",{||
+   oBrowse:NewColumn(" "+Pad("Gilt fuer",11)+" "+Pad("Typ",6)+" "+Pad("Eintrag",40)+" "+"Grund",{||
       LOCAL aRow := oBrowse:CurrentDataRow()
-      RETURN " "+Pad(IF(aRow[2]=="D","Domain","Email"),6)+" "+Pad(aRow[1],50)+" "+Pad(aRow[3],28)+" "+DtoC(aRow[4])
+      RETURN " "+Pad(BlacklistScopeText(aRow[5]),11)+" "+Pad(IF(aRow[2]=="D","Domain","Email"),6)+" "+Pad(aRow[1],40)+" "+Pad(aRow[3],18)
    })
 
    oBrowse:AddKey(K_ESC,{|| .F. })
    oBrowse:AddKey(K_INS,{||
-      LOCAL nT, cV, cR
+      LOCAL nT, cV, cR, cS
       nT := Tr_MsgBox("Art des Eintrags",,{"Abbrechen","Email","Domain"})
       IF nT $ {2,3}
          cV := Trim(GetBox(Space(80),"Email bzw. Domain","@S80"))
          IF LastKey() != K_ESC .AND. ! Empty(cV)
             cR := Trim(GetBox(Space(60),"Grund (optional)","@S60"))
             IF LastKey() != K_ESC
-               AddToBlacklist(cV,IF(nT==3,"D","E"),cR)
-               __BlacklistLoadRows(oBrowse)
-               oBrowse:GoTop()
-               oBrowse:Refresh := .T.
-               oBrowse:RefreshAll()
+               cS := AskBlacklistScope(cV)
+               IF ! Empty(cS)
+                  AddToBlacklist(cV,IF(nT==3,"D","E"),cR,cS)
+                  __BlacklistLoadRows(oBrowse)
+                  oBrowse:GoTop()
+                  oBrowse:Refresh := .T.
+                  oBrowse:RefreshAll()
+               ENDIF
             ENDIF
          ENDIF
       ENDIF
@@ -987,13 +881,16 @@ STATIC FUNCTION __BlacklistLoadRows(oBrowse)
       mblack->(dbGoTop())
       DO WHILE ! mblack->(Eof())
          IF ! mblack->(Deleted())
-            Aadd(oBrowse:aData,{Trim(mblack->Entry),Trim(mblack->Type),Trim(mblack->Reason),mblack->AddedAt})
+            Aadd(oBrowse:aData,{Trim(mblack->Entry),Trim(mblack->Type),Trim(mblack->Reason),mblack->AddedAt,BlacklistRecScope()})
          ENDIF
          mblack->(dbSkip())
       ENDDO
    ENDIF
    s_hBlackEmail := NIL   // keep the lookup cache fresh
 RETURN NIL
+
+
+#include 'x:\run\blacklist.prg'
 
 
 #include 'x:\run\brevo.prg'

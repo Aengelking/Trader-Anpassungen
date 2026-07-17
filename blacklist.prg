@@ -128,18 +128,22 @@ STATIC FUNCTION AddToBlacklist(cValue,cType,cReason,cScope)
       Tr_MsgBox("Blacklist-Tabelle (mailblack) nicht gefunden")
       RETURN .F.
    ENDIF
-   // Same value+type already there -> merge (widen) the scope instead of duplicating
-   mblack->(dbGoTop())
-   DO WHILE ! mblack->(Eof())
-      IF ! mblack->(Deleted()) .AND. Lower(Trim(mblack->Entry)) == cValue .AND. mblack->Type == cType
-         mblack->(Rec_Lock(0))
-         BlacklistWriteScope(BlacklistUnion(BlacklistRecScope(),cScope))
-         mblack->(dbUnLock())
-         lFound := .T.
-         EXIT
-      ENDIF
-      mblack->(dbSkip())
-   ENDDO
+   // Same value+type already there -> merge (widen) the scope instead of
+   // duplicating. Seek via the lower(entry) index (order 1), then walk the
+   // (few) records sharing that entry to match the type.
+   mblack->(dbSetOrder(1))
+   IF mblack->(dbSeek(cValue))
+      DO WHILE ! mblack->(Eof()) .AND. Lower(Trim(mblack->Entry)) == cValue
+         IF ! mblack->(Deleted()) .AND. mblack->Type == cType
+            mblack->(Rec_Lock(0))
+            BlacklistWriteScope(BlacklistUnion(BlacklistRecScope(),cScope))
+            mblack->(dbUnLock())
+            lFound := .T.
+            EXIT
+         ENDIF
+         mblack->(dbSkip())
+      ENDDO
+   ENDIF
    IF ! lFound
       mblack->(Add_Rec(0))
       mblack->Entry   := cValue
@@ -159,16 +163,17 @@ STATIC FUNCTION DeleteFromBlacklist(cValue,cType)
    IF ! OpenBlacklist()
       RETURN .F.
    ENDIF
-   mblack->(dbGoTop())
-   DO WHILE ! mblack->(Eof())
-      IF ! mblack->(Deleted()) .AND. Lower(Trim(mblack->Entry)) == cValue ;
-         .AND. Trim(mblack->Type) == cType
-         mblack->(Rec_Lock(0))
-         mblack->(dbDelete())
-         mblack->(dbUnLock())
-      ENDIF
-      mblack->(dbSkip())
-   ENDDO
+   mblack->(dbSetOrder(1))
+   IF mblack->(dbSeek(cValue))
+      DO WHILE ! mblack->(Eof()) .AND. Lower(Trim(mblack->Entry)) == cValue
+         IF ! mblack->(Deleted()) .AND. Trim(mblack->Type) == cType
+            mblack->(Rec_Lock(0))
+            mblack->(dbDelete())
+            mblack->(dbUnLock())
+         ENDIF
+         mblack->(dbSkip())
+      ENDDO
+   ENDIF
    s_hBlackEmail := NIL   // force a reload on next lookup
 RETURN .T.
 

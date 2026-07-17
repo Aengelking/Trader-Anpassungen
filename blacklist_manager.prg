@@ -27,6 +27,9 @@ PROCEDURE RUN_Mailing_Blacklist
 
    oBrowse:NewColumn(" "+Pad("Gilt fuer",11)+" "+Pad("Typ",6)+" "+Pad("Eintrag",40)+" "+"Grund",{||
       LOCAL aRow := oBrowse:CurrentDataRow()
+      IF aRow == NIL   // empty list: nothing to render on the current row
+         RETURN ""
+      ENDIF
       RETURN " "+Pad(BlacklistScopeText(aRow[5]),11)+" "+Pad(IF(aRow[2]=="D","Domain","Email"),6)+" "+Pad(aRow[1],40)+" "+Pad(aRow[3],18)
    })
 
@@ -67,11 +70,12 @@ PROCEDURE RUN_Mailing_Blacklist
 
    @ MaxRow(),00 SAY "INS=Hinzufuegen  DEL=Loeschen  ESC=Zurueck"
 
-   IF Len(oBrowse:aData) > 0
-      oBrowse:EventLoop()
-   ELSE
-      Tr_MsgBox("Blacklist ist leer")
+   IF Len(oBrowse:aData) == 0
+      @ 04,03 SAY "(Blacklist ist leer - mit INS einen Eintrag hinzufuegen)"
    ENDIF
+
+   // Always enter the loop so INS works even on an empty list
+   oBrowse:EventLoop()
 
 RETURN
 

@@ -13,6 +13,9 @@
 
 #include 'inkey.ch'
 
+STATIC s_hBlackEmail
+STATIC s_hBlackDomain
+
 PROCEDURE RUN_Email_Mailing
    LOCAL hSettings := {;
       "NTYPE" => 1,;
@@ -399,6 +402,9 @@ PROCEDURE RUN_Email_Mailing
       })
 
 
+      oBrowse:AddKey(Asc("B"),{|| BlacklistFromBrowse(oBrowse,hPos) })
+      oBrowse:AddKey(Asc("b"),{|| BlacklistFromBrowse(oBrowse,hPos) })
+
       oBrowse:bAnyFun := {||
          LOCAL nX
          LOCAL hData := hPos[oBrowse:CurrentDataRow()[1]]
@@ -410,7 +416,7 @@ PROCEDURE RUN_Email_Mailing
       }
       @ 27,48 TO MaxRow(),74 DOUBLE
       @ 27,49 SAY "[ Artikel ]"
-      @ MaxRow(),00 SAY "ENTER=Email bearbeiten  DEL=Empf„nger entfernen  ESC=Weiter"
+      @ MaxRow(),00 SAY "ENTER=Email bearb.  DEL=entfernen  B=Blacklist  ESC=Weiter"
       oBrowse:EventLoop()
       @ 27,48 CLEAR TO MaxRow(),74
 
@@ -538,6 +544,12 @@ PROCEDURE RUN_Email_Mailing
                // Validate email before adding to send list
                IF ! IsValidEmail(aPerson["email"])
                   @ 26,40 SAY "Invalid email: " + Left(aPerson["email"],20)
+                  LOOP // Skip this recipient
+               ENDIF
+
+               // Skip blacklisted recipients (also catches loaded mailings)
+               IF IsBlacklisted(aPerson["email"],"B")
+                  @ 26,40 SAY "Blacklisted:   " + Left(Trim(aPerson["email"]),20)
                   LOOP // Skip this recipient
                ENDIF
                
@@ -692,7 +704,7 @@ STATIC Function __AddEntry(hPos,cKunde,cMatchcode,nPerson,hSettings,cMainMatch)
                ELSE
                   cEmail := ""
                ENDIF
-               IF ! Empty(cEmail)
+               IF ! Empty(cEmail) .AND. ! IsBlacklisted(cEmail,"B")
                   hPos[cKunde]["people"][LTrim(Str(nPerson))] := {"anrede"=>cAnrede,"name"=>cName,"email"=>cEmail,"nummer"=>nPerson}
                   nCount++
                ENDIF
@@ -712,6 +724,90 @@ STATIC Function __AddEntry(hPos,cKunde,cMatchcode,nPerson,hSettings,cMainMatch)
    ENDIF
    art->(dbGoto(nArtRec))
 RETURN nCount
+
+
+
+//----------------------------------------------------------------------------
+// Blacklist the highlighted recipient from within the mailing browse and drop
+// every recipient (across all customers) now matched by the blacklist.
+//----------------------------------------------------------------------------
+STATIC FUNCTION BlacklistFromBrowse(oBrowse,hPos)
+   LOCAL hData, hPers, cEmail, nType, cReason, cValue, cKind, cScope
+
+   IF oBrowse:CurrentDataRow() == NIL
+      RETURN .T.
+   ENDIF
+   hData := hPos[oBrowse:CurrentDataRow()[1]]
+   hPers := hData["people"][oBrowse:CurrentDataRow()[2]]
+
+   IF HHasKey(hPers,"messageid")
+      Tr_MsgBox("Email bereits versendet - kann nicht auf die Blacklist")
+      RETURN .T.
+   ENDIF
+   cEmail := Lower(Trim(hPers["email"]))
+   IF Empty(cEmail) .OR. AT("@",cEmail) == 0
+      Tr_MsgBox("Keine gueltige Email-Adresse")
+      RETURN .T.
+   ENDIF
+
+   nType := Tr_MsgBox("Auf die Blacklist setzen?",cEmail,{"Abbrechen","Email","Domain"})
+   IF ! nType $ {2,3}
+      RETURN .T.
+   ENDIF
+   IF nType == 3
+      cValue := SubStr(cEmail,AT("@",cEmail)+1)
+      cKind  := "D"
+   ELSE
+      cValue := cEmail
+      cKind  := "E"
+   ENDIF
+
+   cReason := Trim(GetBox(Space(60),"Grund (optional)","@S60"))
+   IF LastKey() == K_ESC
+      RETURN .T.
+   ENDIF
+   cScope := AskBlacklistScope(cValue)
+   IF Empty(cScope)
+      RETURN .T.
+   ENDIF
+   IF ! AddToBlacklist(cValue,cKind,cReason,cScope)
+      RETURN .T.
+   ENDIF
+RETURN PurgeBlacklisted(oBrowse,hPos)
+
+STATIC FUNCTION PurgeBlacklisted(oBrowse,hPos)
+   LOCAL nX, cKunde, cPersKey, hCustomer, hPers
+
+   FOR nX := Len(oBrowse:aData) TO 1 STEP -1
+      cKunde   := oBrowse:aData[nX][1]
+      cPersKey := oBrowse:aData[nX][2]
+      IF ! HHasKey(hPos,cKunde)
+         LOOP
+      ENDIF
+      hCustomer := hPos[cKunde]
+      IF ! HHasKey(hCustomer["people"],cPersKey)
+         LOOP
+      ENDIF
+      hPers := hCustomer["people"][cPersKey]
+      IF ! HHasKey(hPers,"messageid") .AND. IsBlacklisted(hPers["email"],"B")
+         HB_HDel(hCustomer["people"],cPersKey,.T.)
+         HB_ADel(oBrowse:aData,nX,.T.)
+         IF Len(hCustomer["people"]) == 0
+            HB_HDel(hPos,cKunde,.T.)
+         ENDIF
+      ENDIF
+   NEXT
+
+   IF Len(hPos) == 0 .OR. Len(oBrowse:aData) == 0
+      RETURN .F.   // nothing left -> leave the browse
+   ENDIF
+   oBrowse:GoTop()
+   oBrowse:Refresh := .T.
+   oBrowse:RefreshAll()
+RETURN .T.
+
+
+#include 'x:\run\blacklist.prg'
 
 
 #include 'x:\run\brevo.prg'

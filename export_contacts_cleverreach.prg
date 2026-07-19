@@ -414,19 +414,23 @@ STATIC FUNCTION CleverReachPush(hData)
 
    @ 28,00 SAY "CleverReach: sende Adressen..."
 
-   ? "  DE "+Str(Len(hData["D"]),6)+" Adressen"
-   IF HHasKey(hData,"D") .AND. ! CR_PushBucket(cToken,nDE,hData["D"],.T.,@cErr)
-      Tr_MsgBox("Fehler beim Senden (DE): "+cErr)
-      RETURN .F.
+   IF HHasKey(hData,"D")
+      ? "  DE "+Str(Len(hData["D"]),6)+" Adressen"
+      IF ! CR_PushBucket(cToken,nDE,hData["D"],.T.,@cErr)
+         Tr_MsgBox("Fehler beim Senden (DE): "+cErr)
+         RETURN .F.
+      ENDIF
    ENDIF
-   ? "  EN "+Str(Len(hData["E"]),6)+" Adressen"
-   IF HHasKey(hData,"E") .AND. ! CR_PushBucket(cToken,nEN,hData["E"],.T.,@cErr)
-      Tr_MsgBox("Fehler beim Senden (EN): "+cErr)
-      RETURN .F.
+   IF HHasKey(hData,"E")
+      ? "  EN "+Str(Len(hData["E"]),6)+" Adressen"
+      IF ! CR_PushBucket(cToken,nEN,hData["E"],.T.,@cErr)
+         Tr_MsgBox("Fehler beim Senden (EN): "+cErr)
+         RETURN .F.
+      ENDIF
    ENDIF
    // Inactive contacts: deactivate in both language groups (see documentation)
-   ? "  INAKTIV "+Str(Len(hData["INAKTIV"]),6)+" Adressen"
    IF HHasKey(hData,"INAKTIV")
+      ? "  INAKTIV "+Str(Len(hData["INAKTIV"]),6)+" Adressen"
       CR_PushBucket(cToken,nDE,hData["INAKTIV"],.F.,@cErr)
       CR_PushBucket(cToken,nEN,hData["INAKTIV"],.F.,@cErr)
    ENDIF
@@ -469,7 +473,7 @@ STATIC FUNCTION CR_BuildReceiverFromRow(aHeader,aRow,lActive)
    hGlobal["lastname"]   := hb_strToUtf8(Trim(aRow[2]))
    hGlobal["company"]    := hb_strToUtf8(Trim(aRow[5]))
    hGlobal["street"]     := hb_strToUtf8(Trim(aRow[6]))
-   hGlobal["zip"]        := Trim(aRow[7])
+   hGlobal["zip"]        := hb_strToUtf8(Trim(aRow[7]))
    hGlobal["city"]       := hb_strToUtf8(Trim(aRow[8]))
    hGlobal["state"]      := hb_strToUtf8(Trim(aRow[9]))
    hGlobal["country"]    := hb_strToUtf8(Trim(aRow[10]))

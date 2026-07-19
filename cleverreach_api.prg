@@ -198,12 +198,22 @@ STATIC FUNCTION CR_Call(cToken,cPath,cMethod,xBody,nStatus,cRaw)
    ENDIF
 RETURN HB_JsonDecode(cResp)
 
-// Simple email sanity check - CleverReach can reject a whole batch for one bad address.
+// Simple email sanity check - CleverReach can reject a whole batch for one bad
+// address, and a non-ASCII byte in an address breaks the JSON UTF-8 encoding.
 STATIC FUNCTION CR_ValidEmail(cEmail)
-   LOCAL nAt
+   LOCAL nAt, i, nC
    cEmail := Trim(cEmail)
    nAt := AT("@",cEmail)
-RETURN nAt > 1 .AND. AT(".",SubStr(cEmail,nAt)) > 1 .AND. ! (" " $ cEmail) .AND. Len(cEmail) >= 5
+   IF ! (nAt > 1 .AND. AT(".",SubStr(cEmail,nAt)) > 1 .AND. ! (" " $ cEmail) .AND. Len(cEmail) >= 5)
+      RETURN .F.
+   ENDIF
+   FOR i := 1 TO Len(cEmail)         // ASCII only - reject umlauts/control chars
+      nC := Asc(SubStr(cEmail,i,1))
+      IF nC < 33 .OR. nC > 126
+         RETURN .F.
+      ENDIF
+   NEXT
+RETURN .T.
 
 // Error text if the decoded response is a CleverReach error object, else "".
 STATIC FUNCTION CR_ErrorText(xResp)

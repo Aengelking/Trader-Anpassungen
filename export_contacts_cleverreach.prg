@@ -339,7 +339,7 @@ FOR EACH aCSV IN hData
    IF nH != 0
       FClose(nH)     
       SaveAsCSV(cFile,aCSV)            
-      WAPI_ShellExecute(NIL, "Open", cFile, "", "", 1)
+      //WAPI_ShellExecute(NIL, "Open", cFile, "", "", 1)
    ENDIF   
 NEXT
 @ 27,14 SAY "abgeschlossen"
@@ -412,17 +412,20 @@ STATIC FUNCTION CleverReachPush(hData)
       RETURN .F.
    ENDIF
 
-   @ 26,00 SAY "CleverReach: sende Adressen..."
+   @ 28,00 SAY "CleverReach: sende Adressen..."
 
+   ? "  DE "+Str(Len(hData["D"]),6)+" Adressen"
    IF HHasKey(hData,"D") .AND. ! CR_PushBucket(cToken,nDE,hData["D"],.T.,@cErr)
       Tr_MsgBox("Fehler beim Senden (DE): "+cErr)
       RETURN .F.
    ENDIF
+   ? "  EN "+Str(Len(hData["E"]),6)+" Adressen"
    IF HHasKey(hData,"E") .AND. ! CR_PushBucket(cToken,nEN,hData["E"],.T.,@cErr)
       Tr_MsgBox("Fehler beim Senden (EN): "+cErr)
       RETURN .F.
    ENDIF
    // Inactive contacts: deactivate in both language groups (see documentation)
+   ? "  INAKTIV "+Str(Len(hData["INAKTIV"]),6)+" Adressen"
    IF HHasKey(hData,"INAKTIV")
       CR_PushBucket(cToken,nDE,hData["INAKTIV"],.F.,@cErr)
       CR_PushBucket(cToken,nEN,hData["INAKTIV"],.F.,@cErr)

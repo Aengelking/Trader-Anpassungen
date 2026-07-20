@@ -180,7 +180,7 @@ RETURN .T.
 // Ask the user which channel(s) an entry should block. Returns "B", "C",
 // "BC" or "" when cancelled.
 STATIC FUNCTION AskBlacklistScope(cInfo)
-   LOCAL nS := Tr_MsgBox("Blacklist gilt fuer:",cInfo,{"Abbrechen","Mailing","CleverReach","Beide"})
+   LOCAL nS := Tr_MsgBox("Blacklist gilt fuer:",cInfo,{"Abbrechen","Produktmailing","Newsletter","Beide"})
    DO CASE
    CASE nS == 2
       RETURN "B"

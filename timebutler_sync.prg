@@ -75,13 +75,15 @@ PROC Run_TimeButler(lDavid,lAutoReply,lFrepple,lOrga)
 
    //Abwesenheit und Vertreter beim Benutzer hinterlegen
    FOR EACH hAbsence IN aAbsences
-      IF Len(hAbsence) > 1 .AND. hAbsence["From"] >= Date() .AND.;
+      IF Len(hAbsence) > 1 .AND. hAbsence["From"] <= Date() .AND.;
          hAbsence["To"] >= Date() .AND.;
+         AScan(aAbsenceAway,hAbsence["Type"]) > 0 .AND. !hAbsence["Half a day"] .AND.;
          HHasKey(hAbsence,"Employee number") .AND. ValType(hAbsence["Employee number"]) == "N" .AND.;
          hAbsence["Substitute state"] == "Approved"
-         
+      
          oUser := User():New()
-         IF oUser:Load(hAbsence["Employee number"])               
+         IF oUser:Load(hAbsence["Employee number"])         
+            ?? "user found: ",oUser:Name      
             oUser:oSettings:AwayUntil := hAbsence["To"]
             oUser:oSettings:AwayFrom := hAbsence["From"]
 
@@ -93,12 +95,12 @@ PROC Run_TimeButler(lDavid,lAutoReply,lFrepple,lOrga)
             ELSE
                oUser:oSettings:AwaySubst := 0
             ENDIF
+            oUser:oSettings:Save()
          ENDIF
          
          lForward := hAbsence["Forward emails"] == "yes"
       ENDIF
    NEXT
-
    //Create Orga Chart
    IF lOrga
       Timbutler_orga(aUsers)

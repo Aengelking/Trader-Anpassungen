@@ -19,6 +19,9 @@ FUNCTION HOOK_checkstock_mailto(aTo)
    ENDIF
 
    FOR nX := 1 TO Len(aTo)
+      IF aTo[nx,1] $ {"soraya.hennig@engelking.de","michelle.pomp@engelking.de"}
+         aTo[nX] := {"mara.henzler@engelking.de","Mara Henzler"}
+      ENDIF
       IF ValType(aTo[nX]) == "A" .AND. Len(aTo[nX]) >= 1 .AND. ValType(aTo[nX, 1]) == "C"
          aTo[nX] := RedirectAbsentRcv(aTo[nX])
       ENDIF

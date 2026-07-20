@@ -66,7 +66,7 @@ DO WHILE ang->Angnr == nAngnr
 
      IF ang->LZ > 0
          //Meldebestand kann im Auftrag nicht definiert werden, daher berechnen wir das anhand der Lieferzeit
-         nMelde  := IF(oArtikel:LZ>0,oArtikel:LZ,12) / 4.35 * ang->VkQty / ang->LZ * 2 //Rechnerisch ausreichend fr doppelte Lieferzeit
+         nMelde  := ang->Melde //IF(oArtikel:LZ>0,oArtikel:LZ,12) / 4.35 * ang->VkQty / ang->LZ * 2 //Rechnerisch ausreichend fr doppelte Lieferzeit
          //Margenreduktion durch Zinskosten sch„tzen
          nMarginDiff := nZins * ang->LZ / 12 * nMelde/ang->VkQty  + nZins/24
          IF Tr_GetIni(28) == 9

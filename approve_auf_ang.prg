@@ -422,11 +422,14 @@ FOR EACH hProd IN aProducts
          //cText1 += cPreText+" "+t("Keine Staffel vorhanden")
       ENDIF
 
+      fol->(dbSetOrder( 1 ))
+      lFolge := fol->(dbSeek( Str(hProd:Artikel:Artikelnr,6) ))
+
       IF (;
             (! lStaffel .AND. Round(hProd:Margin,2) < 0.3) .OR.;  //Auáerhalb der Staffel (auch kein Vorlauf)
             (lStaffelVor .AND. Round(hProd:Margin,2) < _GetMinMargin(hProd:Artikel:Matchcode));
          );
-            .AND. hProd:Artikel:LagerArt;
+            .AND. (hProd:Artikel:LagerArt .OR. lFolge);
          .AND. Left(hProd:Artikel:Matchcode,4) != "TEXT" //mehr als eine Staffel vorlauf 30% Marge, bei Staffelvorlauf min. 20%
          cText1 += cPreText+" Margin:"+Str(hProd:Margin*100,6,1)+"% zu niedrig ("+Trim(hProd:Supplier)+" - "+IF(HB_HHasKey(hProd,"NEK"),LTrim(Str(hProd:nEk,12,2)),"")+");"
          IF hProd:Margin <= 0.2
@@ -447,6 +450,12 @@ FOR EACH hProd IN aProducts
               nLevel := 2
            ENDIF
          ENDIF
+      ELSE
+         /*cText1 += "Margin ok "+LTrim(Str(hProd:Margin*100,5,1))+"%;"
+         cText1 += "Mindestmarge: "+LTrim(Str(_GetMinMargin(hProd:Artikel:Matchcode)*100,5,1))+"%;"
+         cText1 += IF(!lStaffelVor,"kein","")+"Staffelvorlauf;"
+         cText1 += IF(lStaffel,"Staffel","Auáerhalb Staffel")+";"
+         cText1 += IF(lFolge,"Folgeartikel vorhanden","kein Folgeartikel")+";"*/
       ENDIF
 
       IF Trim(hProd:Artikel:Matchcode) $ {"565-290-728","565-290-718"} .AND. ! Trim(cKundma) $ {"WEIDMUEL","SCHNEIDG"}

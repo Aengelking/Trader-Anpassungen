@@ -19,7 +19,7 @@ LOCAL hDocTypes := {;
          "ek_customer_order"=>"Auftrag",;
          "ek_supplier_order"=>"Bestellung";
       }
-   
+
 SET TIME FORMAT TO "hh:mm:ss"
 IF .F. //Tr_getini(28) $ {9,45}
    oAgorum := AgorumCustomApi():New() 

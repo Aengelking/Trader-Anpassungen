@@ -151,7 +151,7 @@ FUNCTION Run_Send_Customer_approval(oAuftrag)
    oNote:Note := "Preis„nderungen an Kunden versendet"+Chr(13)+Chr(10)+cRowsInfo
    oNote:Save()
 
-   AddWiedervorlage(AddWorkingDays(Date(),2,GetConfigValue("STATE")),"Wiedervorlage Preis„nderung AB "+LTrim(Str(oAuftrag:AbNr)),cRows,"")
+   AddWiedervorlage(AddWorkingDays(Date(),2,GetConfigValue("STATE")),"Wiedervorlage Preis„nderung AB "+LTrim(Str(oAuftrag:AbNr)),cRowsInfo,"")
 
 
 RETURN .T.

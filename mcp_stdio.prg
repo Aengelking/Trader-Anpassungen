@@ -3134,6 +3134,393 @@ FUNCTION MCP_Tool_Mark_Message_Read(hArgs)
    ENDIF
 RETURN hResult
 
+FUNCTION MCP_Tool_Get_Customer_Invoices(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oKunde, cKunde
+   LOCAL aInvoices := {}, hInv
+   LOCAL cStatus := "all", lPaid
+   LOCAL nMaxResults := 50
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "customer"=>{"type"=>"string","description"=>"Customer matchcode"},;
+            "customer_number"=>{"type"=>"number","description"=>"Customer number"},;
+            "status_filter"=>{"type"=>"string","enum"=>{"open","paid","all"},"description"=>"Only invoices with this payment status (default all)"},;
+            "max_results"=>{"type"=>"number","description"=>"Maximum number of invoices to return, newest first (default 50, max 200)"};
+         },;
+         "anyOf"=>{{"customer", "customer_number"}};
+      }
+      hResult["description"] := "List invoices and credit notes for a customer, newest first, with totals, payment " + ;
+                                "status and the linked sales order number. Use get_invoice for the full line items"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "status_filter") .AND. hArgs["status_filter"] $ {"open", "paid"}
+      cStatus := hArgs["status_filter"]
+   ENDIF
+   IF HHasKey(hArgs, "max_results") .AND. HB_IsNumeric(hArgs["max_results"]) .AND. hArgs["max_results"] > 0
+      nMaxResults := Min(hArgs["max_results"], 200)
+   ENDIF
+
+   oKunde := ResolveCustomer(hArgs)
+   IF oKunde == NIL
+      hResult["status"] := "not_found"
+      hResult["message"] := "Customer not found"
+      RETURN hResult
+   ENDIF
+
+   cKunde := Pad(oKunde:Kunde, 8)
+
+   NetUse("englsre", "re", .F., 5)
+   re->(DbSetOrder(2))  // Str(Reposnr,3) + Kunde; Reposnr 0 = invoice header
+
+   IF re->(DbSeek("  0" + cKunde))
+      DO WHILE ! re->(Eof()) .AND. re->Reposnr == 0 .AND. re->Kunde == cKunde
+         lPaid := re->Code >= 3 .AND. re->Status == 3
+         IF cStatus == "all" .OR. (cStatus == "paid" .AND. lPaid) .OR. (cStatus == "open" .AND. ! lPaid)
+            hInv := {=>}
+            hInv["invoice_number"] := re->Rechnr
+            hInv["type"] := IIF(re->PosWt < 0, "credit_note", "invoice")
+            hInv["date"] := re->Rechdat
+            hInv["total_gross"] := re->PosWt
+            hInv["paid_amount"] := re->AoQty
+            hInv["paid"] := lPaid
+            hInv["currency"] := IIF(Empty(re->Money), "EUR", AllTrim(re->Money))
+            IF re->AbNr > 0
+               hInv["order_number"] := re->AbNr
+            ENDIF
+            IF ! Empty(re->MaDate)
+               hInv["dunning"] := re->Rem
+               hInv["dunning_date"] := re->MaDate
+            ENDIF
+            AAdd(aInvoices, hInv)
+         ENDIF
+         re->(DbSkip())
+      ENDDO
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   ASort(aInvoices,,, {|x, y| x["date"] > y["date"]})
+   ASize(aInvoices, Min(Len(aInvoices), nMaxResults))
+
+   hResult["customer"] := HB_StrToUTF8(AllTrim(oKunde:Kunde))
+   hResult["customer_number"] := oKunde:Nummer
+   hResult["count"] := Len(aInvoices)
+   hResult["invoices"] := aInvoices
+   hResult["status"] := IIF(Len(aInvoices) > 0, "found", "not_found")
+   IF Len(aInvoices) == 0
+      hResult["message"] := "No invoices found for this customer"
+   ELSEIF Len(aInvoices) == nMaxResults
+      hResult["message"] := "Result limited to " + AllTrim(Str(nMaxResults)) + " invoices"
+   ENDIF
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Article_Prices(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL lFound := .F.
+   LOCAL aScale, aPair, aScaleOut := {}
+   LOCAL aCustPrices := {}, oKunde, cKundma
+   LOCAL nQty := 0, nPrice
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "matchcode"=>{"type"=>"string","description"=>"Artikel Matchcode"},;
+            "partno"=>{"type"=>"string","description"=>"Artikelnummer"},;
+            "customer"=>{"type"=>"string","description"=>"Customer matchcode - adds customer-specific prices, part number and discounts"},;
+            "quantity"=>{"type"=>"number","description"=>"Quantity - adds the scale price applicable for this quantity"};
+         },;
+         "anyOf"=>{{"matchcode", "partno"}};
+      }
+      hResult["description"] := "Get sell prices for an article: scale prices (Staffelpreise) from the article's price " + ;
+                                "table, the last sell price, and optionally customer-specific prices and discounts. " + ;
+                                "Prices are net EUR per 'price_unit' units of the article's unit"
+      RETURN hResult
+   ENDIF
+
+   NetUse("artikel", "art")
+
+   IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+      art->(DbSetOrder(1))
+      lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+   ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
+      art->(DbSetOrder(2))
+      lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
+   ENDIF
+
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   hResult["matchcode"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+   hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+   hResult["unit"] := HB_StrToUTF8(AllTrim(art->Me))
+   hResult["price_unit"] := art->VkPe
+   hResult["currency"] := "EUR"
+   hResult["last_sell_price"] := art->Letzte_VK
+
+   // Scale prices from the article's price table via GetPrices() (preise.prg)
+   BEGIN SEQUENCE
+      aScale := GetPrices(art->Artikelnr, art->Table)
+   RECOVER
+      aScale := NIL
+   END SEQUENCE
+
+   IF HB_IsArray(aScale)
+      IF HHasKey(hArgs, "quantity") .AND. HB_IsNumeric(hArgs["quantity"])
+         nQty := hArgs["quantity"]
+      ENDIF
+      FOR EACH aPair IN aScale
+         AAdd(aScaleOut, {"quantity"=>aPair[1], "price"=>Round(aPair[2], 4)})
+         IF nQty > 0 .AND. nQty >= aPair[1]
+            hResult["price_for_quantity"] := Round(aPair[2], 4)
+         ENDIF
+      NEXT
+      hResult["scale_prices"] := aScaleOut
+   ELSE
+      hResult["scale_prices_error"] := "Price table could not be evaluated"
+   ENDIF
+
+   // Customer-specific data from artkund (same lookups as DispPreis in disppreis.prg)
+   IF HHasKey(hArgs, "customer") .AND. ! Empty(hArgs["customer"])
+      oKunde := Adresse():New()
+      IF oKunde:LoadMatchcode(Pad(Upper(AllTrim(hArgs["customer"])), 8), "K")
+         cKundma := Pad(oKunde:Kunde, 8)
+         NetUse("artkund", "aku")
+         aku->(DbSetOrder(1))  // Kunde + Str(Artikelnr,6)
+         IF aku->(DbSeek(cKundma + Str(art->Artikelnr, 6)))
+            DO WHILE ! aku->(Eof()) .AND. aku->Kunde == cKundma .AND. aku->Artikelnr == art->Artikelnr
+               AAdd(aCustPrices, {;
+                  "min_quantity"=>aku->LastMenge,;
+                  "price"=>aku->LastPrice,;
+                  "price_unit"=>aku->Pe,;
+                  "discount_percent"=>aku->Rabatt,;
+                  "customer_part_no"=>HB_StrToUTF8(AllTrim(aku->Artlief));
+               })
+               aku->(DbSkip())
+            ENDDO
+         ENDIF
+         hResult["customer"] := HB_StrToUTF8(AllTrim(oKunde:Kunde))
+         hResult["customer_prices"] := aCustPrices
+         aku->(DbSetOrder(2))  // Kunde + Gruppe
+         IF aku->(DbSeek(cKundma + art->Gruppe))
+            hResult["customer_group_discount_percent"] := aku->Rabatt
+         ENDIF
+      ELSE
+         hResult["customer_message"] := "Customer not found: " + hArgs["customer"]
+      ENDIF
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+   hResult["status"] := "found"
+RETURN hResult
+
+// Resolve a supplier from the 'supplier' (matchcode) / 'supplier_number'
+// arguments - suppliers are group "L" addresses. Returns NIL if not found.
+STATIC FUNCTION ResolveSupplier(hArgs)
+   LOCAL oLief := Adresse():New()
+   LOCAL lFound := .F.
+
+   IF HHasKey(hArgs, "supplier_number") .AND. HB_IsNumeric(hArgs["supplier_number"]) .AND. hArgs["supplier_number"] > 0
+      ku->(DbSetOrder(8))
+      lFound := oLief:Load(hArgs["supplier_number"])
+   ELSEIF HHasKey(hArgs, "supplier") .AND. ! Empty(hArgs["supplier"])
+      lFound := oLief:LoadMatchcode(Pad(Upper(AllTrim(hArgs["supplier"])), 8), "L")
+   ENDIF
+RETURN IIF(lFound, oLief, NIL)
+
+FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oLief, hOrders := {=>}, hOrder, cKey
+   LOCAL aOrders := {}
+   LOCAL cStatus := "open", lOpen
+   LOCAL nMaxResults := 50
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "supplier"=>{"type"=>"string","description"=>"Supplier matchcode"},;
+            "supplier_number"=>{"type"=>"number","description"=>"Supplier number"},;
+            "status_filter"=>{"type"=>"string","enum"=>{"open","completed","all"},"description"=>"Only purchase orders with this status (default open)"},;
+            "max_results"=>{"type"=>"number","description"=>"Maximum number of purchase orders to return, newest first (default 50, max 200)"};
+         },;
+         "anyOf"=>{{"supplier", "supplier_number"}};
+      }
+      hResult["description"] := "List purchase orders (Bestellungen) for a supplier, newest first, with value, open " + ;
+                                "quantities and the next expected delivery date. Use get_purchase_order for line details"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "status_filter") .AND. hArgs["status_filter"] $ {"completed", "all"}
+      cStatus := hArgs["status_filter"]
+   ENDIF
+   IF HHasKey(hArgs, "max_results") .AND. HB_IsNumeric(hArgs["max_results"]) .AND. hArgs["max_results"] > 0
+      nMaxResults := Min(hArgs["max_results"], 200)
+   ENDIF
+
+   oLief := ResolveSupplier(hArgs)
+   IF oLief == NIL
+      hResult["status"] := "not_found"
+      hResult["message"] := "Supplier not found"
+      RETURN hResult
+   ENDIF
+
+   NetUse("engbes", "bes")
+   bes->(DbSetOrder(2))  // Liefma + Str(Bestat) + ... (see GetSupplierOpenOrders)
+
+   IF bes->(DbSeek(oLief:Kunde))
+      DO WHILE ! bes->(Eof()) .AND. bes->Liefma == oLief:Kunde
+         lOpen := bes->Bestat < 3
+         IF cStatus == "all" .OR. (cStatus == "open" .AND. lOpen) .OR. (cStatus == "completed" .AND. ! lOpen)
+            cKey := Str(bes->Besnr, 6)
+            IF ! HHasKey(hOrders, cKey)
+               hOrder := {=>}
+               hOrder["po_number"] := bes->Besnr
+               hOrder["date"] := bes->Besda
+               hOrder["currency"] := IIF(Empty(bes->Money), "EUR", AllTrim(bes->Money))
+               hOrder["status"] := IIF(lOpen, "open", "completed")
+               hOrder["line_count"] := 0
+               hOrder["open_quantity"] := 0
+               hOrder["value"] := 0
+               hOrder["next_delivery"] := NIL
+               hOrders[cKey] := hOrder
+            ENDIF
+            hOrders[cKey]["line_count"] := hOrders[cKey]["line_count"] + 1
+            hOrders[cKey]["value"] := Round(hOrders[cKey]["value"] + ;
+               bes->BeQty * (bes->EkPr / IIF(bes->Pe == 0, 1, bes->Pe)) * (100 - bes->Rabatt) / 100, 2)
+            IF lOpen
+               hOrders[cKey]["status"] := "open"
+               hOrders[cKey]["open_quantity"] := hOrders[cKey]["open_quantity"] + (bes->BeQty - bes->GelQty)
+               IF ! Empty(bes->Lterm) .AND. (hOrders[cKey]["next_delivery"] == NIL .OR. bes->Lterm < hOrders[cKey]["next_delivery"])
+                  hOrders[cKey]["next_delivery"] := bes->Lterm
+               ENDIF
+            ENDIF
+         ENDIF
+         bes->(DbSkip())
+      ENDDO
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   FOR EACH hOrder IN hOrders
+      AAdd(aOrders, hOrder)
+   NEXT
+   ASort(aOrders,,, {|x, y| x["po_number"] > y["po_number"]})
+   ASize(aOrders, Min(Len(aOrders), nMaxResults))
+
+   hResult["supplier"] := HB_StrToUTF8(AllTrim(oLief:Kunde))
+   hResult["supplier_number"] := oLief:Nummer
+   hResult["count"] := Len(aOrders)
+   hResult["purchase_orders"] := aOrders
+   hResult["status"] := IIF(Len(aOrders) > 0, "found", "not_found")
+   IF Len(aOrders) == 0
+      hResult["message"] := "No " + IIF(cStatus == "all", "", cStatus + " ") + "purchase orders found for this supplier"
+   ELSEIF Len(aOrders) == nMaxResults
+      hResult["message"] := "Result limited to " + AllTrim(Str(nMaxResults)) + " purchase orders"
+   ENDIF
+RETURN hResult
+
+FUNCTION MCP_Tool_Send_SMS(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL aPhones := {}, aInvalid := {}
+   LOCAL aParts, cPhone, cChar, nDigits
+   LOCAL cMessage
+   LOCAL oAccount
+   LOCAL nX
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "to"=>{"type"=>"string","description"=>"Recipient phone number(s), multiple numbers separated by comma or semicolon. International format preferred (e.g. +491711234567)"},;
+            "message"=>{"type"=>"string","description"=>"Text of the SMS"};
+         },;
+         "required"=>{"to","message"};
+      }
+      hResult["description"] := "Send an SMS through the David InfoCenter via SendSMS()"
+      RETURN hResult
+   ENDIF
+
+   IF ValType(hArgs["to"]) != "C" .OR. ValType(hArgs["message"]) != "C"
+      RETURN "Parameters 'to' and 'message' must be strings"
+   ENDIF
+
+   aParts := hb_ATokens(StrTran(hArgs["to"], ",", ";"), ";")
+   FOR EACH cPhone IN aParts
+      cPhone := AllTrim(cPhone)
+      IF Empty(cPhone)
+         LOOP
+      ENDIF
+      // minimal sanity check: only phone characters, at least 5 digits
+      nDigits := 0
+      FOR nX := 1 TO Len(cPhone)
+         cChar := SubStr(cPhone, nX, 1)
+         IF IsDigit(cChar)
+            nDigits++
+         ELSEIF ! cChar $ "+-/() "
+            nDigits := -1
+            EXIT
+         ENDIF
+      NEXT
+      IF nDigits >= 5
+         AAdd(aPhones, cPhone)
+      ELSE
+         AAdd(aInvalid, cPhone)
+      ENDIF
+   NEXT
+
+   IF Len(aInvalid) > 0
+      RETURN "Invalid phone number(s): " + DV_Join(aInvalid, ", ")
+   ENDIF
+   IF Len(aPhones) == 0
+      RETURN "No valid phone number provided"
+   ENDIF
+
+   cMessage := DV_FromUtf8(hArgs["message"])
+   cMessage := StrTran(cMessage, Chr(13) + Chr(10), Chr(13))
+   cMessage := StrTran(cMessage, Chr(10), Chr(13))
+
+   BEGIN SEQUENCE
+      MailConnect()
+      oAccount := DV_GetMailAccount()
+   RECOVER
+      oAccount := NIL
+   END SEQUENCE
+
+   IF oAccount == NIL
+      hResult["status"] := "error"
+      hResult["message"] := "David not connected - SMS not sent"
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE
+      SendSMS(aPhones, cMessage)
+   RECOVER
+      hResult["status"] := "error"
+      hResult["message"] := "Failed to send SMS"
+      RETURN hResult
+   END SEQUENCE
+
+   hResult["status"] := "success"
+   hResult["recipients"] := aPhones
+   hResult["message"] := "SMS handed to David for sending"
+RETURN hResult
+
 // Convert all string values in a hash from OEM to ANSI
 STATIC FUNCTION _HashToUtf8(hHash)
    LOCAL cKey, xValue

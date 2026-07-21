@@ -2,7 +2,7 @@ FUNCTION HOOK_before_print_angebot(nAngnr,hSettings,hData)
    LOCAL oExtra
    // Aktivieren f�r CRM-Benutzer, sonst �ndert sich nichts (noCRM bleibt aktiv).
    // Zum Aktivieren: lCrmQuotes := Tr_Getini(28) $ {9,33,28,58}
-   LOCAL lCrmQuotes := Tr_Getini(28) $ {9}
+   LOCAL lCrmQuotes := Date() >= StoD("20260722") .OR. Tr_Getini(28) $ {9}
    LOCAL nRef
    /*IF ku->Skonto == 8
       oExtra := ku->(ExtraData():New(ku->Nummer))

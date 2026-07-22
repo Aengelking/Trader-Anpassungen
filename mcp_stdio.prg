@@ -3035,7 +3035,7 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       hLine["requested_date"] := bes->Wterm
       hLine["confirmed"] := Upper(AllTrim(bes->Confirmed)) == "Y"  // stored as "Y"/"N"
       hLine["status"] := IIF(bes->Bestat < 3, "open", "completed")
-      IF bes->AbNr > 0
+      IF ! Empty(bes->AbNr)
          hLine["sales_order"] := bes->AbNr  // linked customer order
       ENDIF
       IF bes->ContrNo > 0

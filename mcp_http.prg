@@ -454,3 +454,5 @@ STATIC FUNCTION MCP_Http_StatusText( nStatus )
    ENDCASE
 
 RETURN cText
+
+#include 'mcp_stdio.prg'

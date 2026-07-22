@@ -3523,7 +3523,7 @@ RETURN hResult
 
 FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
    LOCAL hResult := {=>}
-   LOCAL nPo, nPos, nWeek := 0
+   LOCAL nPo, nPos, nWeek := 0, nWeekRec := 0
    LOCAL cTracking := "", dShipped := NIL
    LOCAL aWeeks := {}
    LOCAL lHasPlan := .F.
@@ -3589,12 +3589,17 @@ FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
    ENDIF
 
    // Positions with a delivery schedule must be booked per schedule entry -
-   // the same rule the Bestellbestaetigung mask enforces (WHEN ! lHasPlan)
-   bdel->(DbSetOrder(1))  // Str(Besnr,6) + Str(Posnr,3) + Str(Lterm,4)
+   // the same rule the Bestellbestaetigung mask enforces (WHEN ! lHasPlan).
+   // The besdel index covers Besnr+Posnr only (not the week), so the entry
+   // for a week is located by iterating, remembering its RecNo.
+   bdel->(DbSetOrder(1))  // Str(Besnr,6) + Str(Posnr,3)
    IF bdel->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))
       lHasPlan := .T.
       DO WHILE ! bdel->(Eof()) .AND. bdel->Besnr == nPo .AND. bdel->Posnr == nPos
          AAdd(aWeeks, StrZero(bdel->Lterm, 4))
+         IF nWeek > 0 .AND. bdel->Lterm == nWeek .AND. nWeekRec == 0
+            nWeekRec := bdel->(RecNo())
+         ENDIF
          bdel->(DbSkip())
       ENDDO
    ENDIF
@@ -3609,10 +3614,11 @@ FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
          RETURN "This position has a delivery schedule (Liefereinteilung) - specify 'week' to book the " + ;
                 "confirmation on a schedule entry. Available weeks: " + DV_Join(aWeeks, ", ")
       ENDIF
-      IF ! bdel->(DbSeek(Str(nPo, 6) + Str(nPos, 3) + Str(nWeek, 4)))
+      IF nWeekRec == 0
          DbSelectArea(nOldSelect)
          RETURN "No delivery-schedule entry in week " + StrZero(nWeek, 4) + ". Available weeks: " + DV_Join(aWeeks, ", ")
       ENDIF
+      bdel->(DbGoto(nWeekRec))
       IF ! bdel->(Rec_Lock(0))
          DbSelectArea(nOldSelect)
          hResult["status"] := "error"

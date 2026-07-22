@@ -2968,10 +2968,29 @@ FUNCTION MCP_Tool_Get_Invoice(hArgs)
    hResult["status"] := "found"
 RETURN hResult
 
+// Convert a JJWW calendar-week value (as stored in Lterm/Wterm and besdel) to
+// the corresponding date via CalWD() from trade065.prg. Special weeks are
+// mapped by CalWD (99 = frame call-off -> end of year, 97/98 = unknown -> far
+// future). Returns NIL for empty or invalid weeks.
+STATIC FUNCTION BesWeekDate(nWeek)
+   LOCAL dDate := NIL
+   IF HB_IsNumeric(nWeek) .AND. nWeek > 0
+      BEGIN SEQUENCE
+         dDate := CalWD(nWeek,,, .T.)
+      RECOVER
+         dDate := NIL
+      END SEQUENCE
+      IF ValType(dDate) == "D" .AND. Empty(dDate)
+         dDate := NIL
+      ENDIF
+   ENDIF
+RETURN dDate
+
 FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
    LOCAL hResult := {=>}
    LOCAL nPo, hLine, aLines := {}
    LOCAL nTotal := 0, nPriceEur
+   LOCAL aSched, hSched, dTemp
    LOCAL nOldSelect := Select()
 
    // Return schema and description when called without arguments
@@ -2984,7 +3003,10 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
          "required"=>{"po_number"};
       }
       hResult["description"] := "Retrieve a purchase order (Bestellung) by number, including all line items with " + ;
-                                "ordered/delivered quantities, delivery dates, confirmation status and prices"
+                                "ordered/delivered quantities, prices, and delivery dates given as calendar week " + ;
+                                "(JJWW) plus resolved date. When 'confirmed' is true the delivery date is the " + ;
+                                "supplier-confirmed date, otherwise the expected date. Lines with a delivery " + ;
+                                "schedule (Liefereinteilungen) list their partial deliveries under 'delivery_schedule'"
       RETURN hResult
    ENDIF
 
@@ -2994,6 +3016,7 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
    nPo := hArgs["po_number"]
 
    NetUse("engbes", "bes")
+   NetUse("besdel", "bdel")  // Liefereinteilungen per position
    bes->(DbSetOrder(1))  // Str(Besnr,6) + Str(Posnr,3)
 
    IF ! bes->(DbSeek(Str(nPo, 6)))
@@ -3027,10 +3050,42 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       IF nPriceEur != NIL
          hLine["unit_price_eur"] := Round(nPriceEur, 4)
       ENDIF
-      hLine["delivery_date"] := bes->Lterm
-      hLine["requested_date"] := bes->Wterm
+      // Lterm/Wterm are calendar weeks (JJWW). Lterm is the supplier-confirmed
+      // date when Confirmed == "Y", otherwise the expected date (see the GET
+      // label logic in bestellung_edit.prg)
+      IF bes->Lterm > 0
+         hLine["delivery_week"] := StrZero(bes->Lterm, 4)
+         IF (dTemp := BesWeekDate(bes->Lterm)) != NIL
+            hLine["delivery_date"] := dTemp
+         ENDIF
+      ENDIF
+      IF bes->Wterm > 0
+         hLine["requested_week"] := StrZero(bes->Wterm, 4)
+         IF (dTemp := BesWeekDate(bes->Wterm)) != NIL
+            hLine["requested_date"] := dTemp
+         ENDIF
+      ENDIF
       hLine["confirmed"] := Upper(AllTrim(bes->Confirmed)) == "Y"  // stored as "Y"/"N"
       hLine["status"] := IIF(bes->Bestat < 3, "open", "completed")
+
+      // Delivery schedule (Liefereinteilungen) from besdel, keyed
+      // Besnr+Posnr+Lterm as in BestellungConfirm.prg
+      aSched := {}
+      IF bdel->(DbSeek(Str(bes->Besnr, 6) + Str(bes->Posnr, 3)))
+         DO WHILE ! bdel->(Eof()) .AND. bdel->Besnr == bes->Besnr .AND. bdel->Posnr == bes->Posnr
+            hSched := {=>}
+            hSched["week"] := StrZero(bdel->Lterm, 4)
+            IF (dTemp := BesWeekDate(bdel->Lterm)) != NIL
+               hSched["date"] := dTemp
+            ENDIF
+            hSched["quantity"] := bdel->Qty
+            AAdd(aSched, hSched)
+            bdel->(DbSkip())
+         ENDDO
+      ENDIF
+      IF Len(aSched) > 0
+         hLine["delivery_schedule"] := aSched
+      ENDIF
       IF bes->AbNr > 0
          hLine["sales_order"] := bes->AbNr  // linked customer order
       ENDIF
@@ -3346,6 +3401,7 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
    LOCAL aOrders := {}
    LOCAL cStatus := "open", lOpen
    LOCAL nMaxResults := 50
+   LOCAL dTemp
    LOCAL nOldSelect := Select()
 
    // Return schema and description when called without arguments
@@ -3396,7 +3452,7 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
                hOrder["line_count"] := 0
                hOrder["open_quantity"] := 0
                hOrder["value"] := 0
-               hOrder["next_delivery"] := NIL
+               hOrder["next_delivery_week"] := NIL
                hOrders[cKey] := hOrder
             ENDIF
             hOrders[cKey]["line_count"] := hOrders[cKey]["line_count"] + 1
@@ -3405,8 +3461,9 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
             IF lOpen
                hOrders[cKey]["status"] := "open"
                hOrders[cKey]["open_quantity"] := hOrders[cKey]["open_quantity"] + (bes->BeQty - bes->GelQty)
-               IF ! Empty(bes->Lterm) .AND. (hOrders[cKey]["next_delivery"] == NIL .OR. bes->Lterm < hOrders[cKey]["next_delivery"])
-                  hOrders[cKey]["next_delivery"] := bes->Lterm
+               // Lterm is a JJWW calendar week - numeric comparison sorts chronologically
+               IF bes->Lterm > 0 .AND. (hOrders[cKey]["next_delivery_week"] == NIL .OR. bes->Lterm < hOrders[cKey]["next_delivery_week"])
+                  hOrders[cKey]["next_delivery_week"] := bes->Lterm
                ENDIF
             ENDIF
          ENDIF
@@ -3417,6 +3474,12 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
    DbSelectArea(nOldSelect)
 
    FOR EACH hOrder IN hOrders
+      IF hOrder["next_delivery_week"] != NIL
+         IF (dTemp := BesWeekDate(hOrder["next_delivery_week"])) != NIL
+            hOrder["next_delivery_date"] := dTemp
+         ENDIF
+         hOrder["next_delivery_week"] := StrZero(hOrder["next_delivery_week"], 4)
+      ENDIF
       AAdd(aOrders, hOrder)
    NEXT
    ASort(aOrders,,, {|x, y| x["po_number"] > y["po_number"]})

@@ -116,6 +116,81 @@ server {
 }
 ```
 
+## HTTPS with IIS (Windows)
+
+Since Trader runs on Windows, IIS is often the most convenient proxy — it can
+terminate TLS and forward to the localhost listener. IIS is not a reverse proxy
+out of the box; you add two free Microsoft modules:
+
+1. **URL Rewrite** — https://www.iis.net/downloads/microsoft/url-rewrite
+2. **Application Request Routing (ARR)** — https://www.iis.net/downloads/microsoft/application-request-routing
+
+### One-time setup
+
+1. Install both modules (Web Platform Installer, or the standalone MSIs above),
+   then restart IIS (`iisreset`).
+2. **Enable the proxy** (ARR is a proxy only after this is switched on):
+   IIS Manager → select the **server** node → *Application Request Routing
+   Cache* → *Server Proxy Settings…* (right pane) → tick **Enable proxy** →
+   *Apply*.
+3. Create a site (or reuse *Default Web Site*) and add an **https binding** with
+   your certificate:
+   IIS Manager → site → *Bindings…* → *Add…* → type `https`, port `443`, host
+   name `mcp.example.com`, pick the TLS certificate. For a free/auto-renewing
+   certificate use **win-acme** (https://www.win-acme.com/), which installs the
+   cert straight into the IIS binding.
+
+### Site `web.config`
+
+Drop this into the site's root (it forwards every request to the local
+`MCP_Http()` listener on `127.0.0.1:8765`):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <system.webServer>
+    <rewrite>
+      <rules>
+        <rule name="MCP reverse proxy" stopProcessing="true">
+          <match url="(.*)" />
+          <action type="Rewrite" url="http://127.0.0.1:8765/{R:1}" />
+        </rule>
+      </rules>
+    </rewrite>
+    <!-- Optional: redirect plain HTTP to HTTPS -->
+    <httpRedirect enabled="false" />
+  </system.webServer>
+</configuration>
+```
+
+ARR forwards request and response headers unchanged, so the `Mcp-Session-Id`
+header travels through in both directions without extra configuration.
+
+### Streaming / buffering (for when SSE is added later)
+
+The current single-response mode returns a complete JSON body, so buffering is
+harmless. If/when the server is extended to emit a `text/event-stream`, turn off
+ARR's response buffering or the client will not receive events incrementally:
+
+- IIS Manager → **server** node → *Application Request Routing Cache* → *Server
+  Proxy Settings…* → set **Response buffer threshold (KB)** to `0` (and
+  *Response buffer (KB)* to `0`) → *Apply*.
+
+Also consider raising the ARR **Time-out (seconds)** on that same page if any
+tool can run longer than the default 120 s.
+
+### Notes
+
+- Keep `MCP_Http()` bound to `127.0.0.1` (the default). IIS on the same host
+  reaches it; nothing else can.
+- If you host the endpoint under a **sub-path** (e.g. `https://host/mcp/…`),
+  either rewrite the path away as shown (`{R:1}` preserves it and the Harbour
+  server ignores the path anyway) or point the MCP client URL at that sub-path —
+  both work.
+- WebSockets are **not** required; the transport is plain HTTP request/response
+  (plus, later, one-way SSE), so no WebSocket module or `webSocket` binding is
+  needed.
+
 ## Endpoint behaviour
 
 - **`POST /`** (any path) — a JSON-RPC message. Returns the JSON-RPC response

@@ -37,10 +37,10 @@ NetUse("projcost","pjcst")
 
 NetUse("ls","ls",.F.,0)
 bes->(dbPush())
-@ 03,01 CLEAR TO 31,78
-@ 03,01 TO 31,78
+@ 03,01 CLEAR TO 34,78
+@ 03,01 TO 34,78
 
-@ 31,02 SAY "[ >B< Genehmigung | >A< Audit Trail | >N< Notizen ]"
+@ 34,02 SAY "[ >B< Genehmigung | >A< Audit Trail | >N< Notizen ]"
 
 DevPos( 03, 01 )
 DevOut( "旼[        ]컴[                         ]컴컴컴컴컴컴컴컴컴컴컴[Status:   ]컴�" )
@@ -319,10 +319,10 @@ ELSE
       @ 03,01 TO 41,78
 
       @ 31,02 SAY "Geplante Lieferungen"
-      oBrowse3 := bdel->(TBrowseTr():New(32,02,39,38))
+      oBrowse3 := bdel->(TBrowseTr():New(32,02,39,77))
       oBrowse3:lBox := .F.
       oBrowse3:WhileBlock := {|| bdel->Besnr == bes->Besnr .AND. bdel->Posnr == bes->Posnr }
-      oBrowse3:NewColumn(Pad("KW",6)+" "+PadL("Menge",12),{|| Pad(NiceWeek(bdel->Lterm)+" "+PadL(Transform(bdel->Qty,cMe),12),36)})
+      oBrowse3:NewColumn(Pad("KW",8)+" "+PadL("Menge",12)+" Versandt "+Pad("Trackingnr",50),{|| Pad(NiceWeek(bdel->Lterm)+" "+PadL(Transform(bdel->Qty,cMe),12)+" "+DtoC(bdel->Shipped)+" "+bdel->Tracking,36+10+50)})
       oBrowse3:AddKey(27,{|| .F. })
       oBrowse3:Display()
       oBrowse3:deHilite()
@@ -337,6 +337,10 @@ ELSE
          @ 40,02 SAY NiceWeek(bes->LTerm)+" "+PadL(Transform(nRest,cMe),12)
       ENDIF
       bdel->(dbSeek( Str(bes->Besnr,6)+Str(bes->Posnr,3) ))
+   ELSEIF ! Empty(bes->Shipped) .OR. ! Empty(bes->Tracking)
+      @ 31,02 SAY "Versandinformationen"
+      @ 32,02 SAY "Trackingnr: "+bes->Tracking
+      @ 33,02 SAY "Versanddatum: "+DtoC(bes->Shipped)
    ENDIF
 
 ENDIF

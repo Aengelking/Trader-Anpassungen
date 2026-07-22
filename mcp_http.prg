@@ -33,8 +33,9 @@ REQUEST HB_SHA256
 
 // Keychain entry that holds the HMAC secret used to sign the OAuth JWTs
 // (access / refresh tokens, authorization codes, client_ids). Create it once,
-// e.g. via the keychain admin, with any long random value.
-#define MCP_OAUTH_KEY  "MCP-OAUTH-SECRET"
+// e.g. via the keychain admin, with any long random value. NOTE: keychain
+// entry NAMES are limited to 10 characters, hence the short "MCPOAUTH".
+#define MCP_OAUTH_KEY  "MCPOAUTH"
 
 STATIC s_hMcpSessions    := NIL   // hash: session-id -> .T. (issued at initialize)
 STATIC s_nMcpSessionSeq  := 0     // monotonic counter for session-id uniqueness

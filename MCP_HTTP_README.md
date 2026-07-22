@@ -69,9 +69,10 @@ OAuth dance).
 ### Setup (one-time)
 
 1. **Create the signing secret** in the Trader keychain under the name
-   **`MCP-OAUTH-SECRET`** (any long random string). Without it, `MCP_Http()`
-   refuses to start while OAuth is on and prints a clear message to stderr.
-   The JWT signing reuses `Trader/lib/jwt.prg` (HS256 / `hb_HMAC_SHA256`).
+   **`MCPOAUTH`** (any long random string as the *value*). The keychain entry
+   **name** is limited to 10 characters, hence the short `MCPOAUTH`. Without it,
+   `MCP_Http()` refuses to start while OAuth is on and prints a clear message to
+   stderr. The JWT signing reuses `Trader/lib/jwt.prg` (HS256 / `hb_HMAC_SHA256`).
 2. **Set the public base URL** so the discovery metadata advertises correct
    `https://…` URLs. Most robust is the stored value **`MCP_HTTP_PUBLIC_URL`**
    in the `values` table (e.g. `https://mcp.example.com`). It is read once at
@@ -357,7 +358,7 @@ Point the client at the proxied HTTPS URL as a Streamable HTTP server, e.g.:
 When you add it as a custom connector, Claude runs the OAuth dance
 automatically (discovery → registration → `/authorize` → `/token`). Because the
 `/authorize` step **auto-approves**, there is no login screen — Claude gets its
-token and connects. Make sure the keychain secret `MCP-OAUTH-SECRET` exists and
+token and connects. Make sure the keychain secret `MCPOAUTH` exists and
 `MCP_HTTP_PUBLIC_URL` (or a Host-preserving proxy) is set, otherwise the token
 step fails.
 

@@ -73,8 +73,10 @@ OAuth dance).
    refuses to start while OAuth is on and prints a clear message to stderr.
    The JWT signing reuses `Trader/lib/jwt.prg` (HS256 / `hb_HMAC_SHA256`).
 2. **Set the public base URL** so the discovery metadata advertises correct
-   `https://…` URLs. Most robust is the config key **`MCP_HTTP_PUBLIC_URL`**
-   (e.g. `https://mcp.example.com`). If unset, the server derives it from the
+   `https://…` URLs. Most robust is the stored value **`MCP_HTTP_PUBLIC_URL`**
+   in the `values` table (e.g. `https://mcp.example.com`). It is read once at
+   startup via `GetValue()` and auto-created (empty) on first run, so you can
+   simply edit it there. If left empty, the server derives the base URL from the
    `X-Forwarded-Proto` / `X-Forwarded-Host` (or `Host`) headers — so the proxy
    must forward the **original Host** (see the proxy sections below).
 3. **Mount the connector at the domain root.** Point Claude at
@@ -95,9 +97,10 @@ list in `tr_001.prg`.
 ### Turning OAuth off (pure authless)
 
 For local testing or a network where you don't want the shim, start with
-`MCP_Http( 8765, "127.0.0.1", .F. )` or set the config key **`MCP_HTTP_OAUTH=0`**.
-Then the MCP endpoint answers without a token and the `/.well-known/*` and OAuth
-endpoints are disabled.
+`MCP_Http( 8765, "127.0.0.1", .F. )` or set the stored value **`MCP_HTTP_OAUTH`**
+to `.F.` in the `values` table (read via `GetValue()`, default `.T.`). Then the
+MCP endpoint answers without a token and the `/.well-known/*` and OAuth endpoints
+are disabled.
 
 ### Security note
 
@@ -171,7 +174,7 @@ curl -s -i http://127.0.0.1:8765/ \
 ```
 
 To exercise the JSON-RPC dispatch directly, start with OAuth **off**
-(`MCP_Http( 8765, "127.0.0.1", .F. )` or `MCP_HTTP_OAUTH=0`):
+(`MCP_Http( 8765, "127.0.0.1", .F. )` or set `MCP_HTTP_OAUTH` to `.F.`):
 
 ```bash
 curl -s http://127.0.0.1:8765/ \

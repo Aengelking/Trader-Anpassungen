@@ -40,6 +40,7 @@ STATIC s_hMcpSessions    := NIL   // hash: session-id -> .T. (issued at initiali
 STATIC s_nMcpSessionSeq  := 0     // monotonic counter for session-id uniqueness
 STATIC s_lMcpHttpStop    := .F.   // set when a "shutdown" request arrives
 STATIC s_lMcpOAuth       := .T.   // whether the OAuth 2.1 layer is enforced
+STATIC s_cMcpPublicUrl   := ""    // configured public base URL for OAuth metadata
 
 FUNCTION MCP_Http( nPort, cBindAddr, lOAuth )
    LOCAL nStdErr := hb_GetStdErr()
@@ -52,9 +53,22 @@ FUNCTION MCP_Http( nPort, cBindAddr, lOAuth )
       cBindAddr := "127.0.0.1"
    ENDIF
    IF lOAuth == NIL
-      lOAuth := MCP_Http_OAuthDefault()   // config MCP_HTTP_OAUTH, default ON
+      lOAuth := MCP_Http_OAuthDefault()   // value MCP_HTTP_OAUTH, default ON
    ENDIF
    s_lMcpOAuth := lOAuth
+
+   // Public base URL for the OAuth discovery metadata, read ONCE here so that
+   // per-request handling never touches the DB / current work area. Empty ->
+   // derive it from the proxy's forwarded / Host headers.
+   s_cMcpPublicUrl := ""
+   IF s_lMcpOAuth
+      s_cMcpPublicUrl := GetValue( "MCP_HTTP_PUBLIC_URL", "", ;
+         "MCP HTTP server: public base URL for OAuth metadata (e.g. https://mcp.example.com)" )
+      IF ValType( s_cMcpPublicUrl ) != "C"
+         s_cMcpPublicUrl := ""
+      ENDIF
+      s_cMcpPublicUrl := AllTrim( s_cMcpPublicUrl )
+   ENDIF
 
    // Same guard as the STDIO server: never let a hook / error handler pop a
    // modal Alert/MsgBox that would block the request loop forever.
@@ -549,12 +563,16 @@ RETURN cText
 // the config key MCP_HTTP_OAUTH=0.
 //===========================================================================
 
-// Default OAuth on unless the config key explicitly disables it.
+// Default OAuth on unless the persisted value MCP_HTTP_OAUTH is set to .F.
+// GetValue() reads the "values" table, never throws on a missing key, and
+// creates the key with the given default the first time it is read.
 STATIC FUNCTION MCP_Http_OAuthDefault()
-   LOCAL cCfg := Lower( MCP_Http_Config( "MCP_HTTP_OAUTH" ) )
+   LOCAL xVal := GetValue( "MCP_HTTP_OAUTH", .T., "MCP HTTP server: enable OAuth 2.1 layer (.T./.F.)" )
 
-   IF cCfg == "0" .OR. cCfg == "off" .OR. cCfg == "false" .OR. cCfg == "no"
-      RETURN .F.
+   IF ValType( xVal ) == "L"
+      RETURN xVal
+   ELSEIF ValType( xVal ) == "N"
+      RETURN xVal != 0
    ENDIF
 
 RETURN .T.
@@ -842,11 +860,10 @@ RETURN NIL
 // Public base URL for the metadata documents. Prefers the configured override,
 // then the proxy's forwarded headers, then the Host header.
 STATIC FUNCTION MCP_Http_BaseUrl( hHeaders )
-   LOCAL cCfg, cProto, cHost
+   LOCAL cProto, cHost
 
-   cCfg := MCP_Http_Config( "MCP_HTTP_PUBLIC_URL" )
-   IF ! Empty( cCfg )
-      RETURN MCP_Http_TrimSlash( cCfg )
+   IF ! Empty( s_cMcpPublicUrl )
+      RETURN MCP_Http_TrimSlash( s_cMcpPublicUrl )
    ENDIF
 
    cProto := MCP_Http_HashStr( hHeaders, "X-FORWARDED-PROTO" )
@@ -866,18 +883,6 @@ STATIC FUNCTION MCP_Http_BaseUrl( hHeaders )
    ENDIF
 
 RETURN cProto + "://" + cHost
-
-STATIC FUNCTION MCP_Http_Config( cKey )
-   LOCAL cVal := ""
-   BEGIN SEQUENCE
-      cVal := GetConfigValue( cKey )
-   RECOVER
-      cVal := ""
-   END SEQUENCE
-   IF ValType( cVal ) != "C"
-      cVal := ""
-   ENDIF
-RETURN AllTrim( cVal )
 
 STATIC FUNCTION MCP_Http_TrimSlash( c )
    DO WHILE Len( c ) > 0 .AND. Right( c, 1 ) == "/"

@@ -3006,7 +3006,9 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
                                 "ordered/delivered quantities, prices, and delivery dates given as calendar week " + ;
                                 "(JJWW) plus resolved date. When 'confirmed' is true the delivery date is the " + ;
                                 "supplier-confirmed date, otherwise the expected date. Lines with a delivery " + ;
-                                "schedule (Liefereinteilungen) list their partial deliveries under 'delivery_schedule'"
+                                "schedule (Liefereinteilungen) list their partial deliveries under 'delivery_schedule'. " + ;
+                                "Shipping confirmations appear as 'tracking'/'shipped_date' per line and per schedule " + ;
+                                "entry; open lines report 'shipping_confirmed' accordingly"
       RETURN hResult
    ENDIF
 
@@ -3068,6 +3070,21 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       hLine["confirmed"] := Upper(AllTrim(bes->Confirmed)) == "Y"  // stored as "Y"/"N"
       hLine["status"] := IIF(bes->Bestat < 3, "open", "completed")
 
+      // Shipping confirmation (tracking no / shipped date) per position.
+      // The fields are being introduced on branch trader-pain-points - guard
+      // with FieldPos so the tool also runs on data files without them.
+      IF bes->(FieldPos("TRACKING")) > 0 .AND. ! Empty(bes->Tracking)
+         hLine["tracking"] := HB_StrToUTF8(AllTrim(bes->Tracking))
+      ENDIF
+      IF bes->(FieldPos("SHIPPED")) > 0 .AND. ! Empty(bes->Shipped)
+         hLine["shipped_date"] := bes->Shipped
+      ENDIF
+      IF bes->Bestat < 3 .AND. bes->(FieldPos("TRACKING")) > 0 .AND. bes->(FieldPos("SHIPPED")) > 0
+         // Same criterion as the checkstock shipping watchdog: a confirmation
+         // exists once a tracking number or a shipped date is recorded
+         hLine["shipping_confirmed"] := ! Empty(bes->Tracking) .OR. ! Empty(bes->Shipped)
+      ENDIF
+
       // Delivery schedule (Liefereinteilungen) from besdel, keyed
       // Besnr+Posnr+Lterm as in BestellungConfirm.prg
       aSched := {}
@@ -3079,6 +3096,12 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
                hSched["date"] := dTemp
             ENDIF
             hSched["quantity"] := bdel->Qty
+            IF bdel->(FieldPos("TRACKING")) > 0 .AND. ! Empty(bdel->Tracking)
+               hSched["tracking"] := HB_StrToUTF8(AllTrim(bdel->Tracking))
+            ENDIF
+            IF bdel->(FieldPos("SHIPPED")) > 0 .AND. ! Empty(bdel->Shipped)
+               hSched["shipped_date"] := bdel->Shipped
+            ENDIF
             AAdd(aSched, hSched)
             bdel->(DbSkip())
          ENDDO

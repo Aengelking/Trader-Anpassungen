@@ -2626,8 +2626,8 @@ FUNCTION MCP_Tool_Get_Quote(hArgs)
       hLine["price"] := QuoteLinePrice()
       hLine["discount_percent"] := ang->Rabatt
       hLine["status"] := QuoteStatusLabel(ang->Bestat)
-      IF ang->Aufnr > 0
-         hLine["order_number"] := ang->Aufnr  // quote line was converted to this order
+      IF ! Empty(ang->Aufnr)  // character field in angebot
+         hLine["order_number"] := HB_StrToUTF8(AllTrim(ang->Aufnr))  // quote line was converted to this order
       ENDIF
       hLine["line_total"] := Round(ang->VkQty * QuoteLinePrice(), 2)
       nTotal += hLine["line_total"]
@@ -3053,13 +3053,13 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       // Lterm/Wterm are calendar weeks (JJWW). Lterm is the supplier-confirmed
       // date when Confirmed == "Y", otherwise the expected date (see the GET
       // label logic in bestellung_edit.prg)
-      IF bes->Lterm > 0
+      IF HB_IsNumeric(bes->Lterm) .AND. bes->Lterm > 0
          hLine["delivery_week"] := StrZero(bes->Lterm, 4)
          IF (dTemp := BesWeekDate(bes->Lterm)) != NIL
             hLine["delivery_date"] := dTemp
          ENDIF
       ENDIF
-      IF bes->Wterm > 0
+      IF HB_IsNumeric(bes->Wterm) .AND. bes->Wterm > 0
          hLine["requested_week"] := StrZero(bes->Wterm, 4)
          IF (dTemp := BesWeekDate(bes->Wterm)) != NIL
             hLine["requested_date"] := dTemp
@@ -3086,8 +3086,8 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       IF Len(aSched) > 0
          hLine["delivery_schedule"] := aSched
       ENDIF
-      IF bes->AbNr > 0
-         hLine["sales_order"] := bes->AbNr  // linked customer order
+      IF ! Empty(bes->AbNr)  // character field in engbes
+         hLine["sales_order"] := HB_StrToUTF8(AllTrim(bes->AbNr))  // linked customer order
       ENDIF
       IF bes->ContrNo > 0
          hLine["frame_order"] := bes->ContrNo  // call-off from this blanket PO
@@ -3462,7 +3462,8 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
                hOrders[cKey]["status"] := "open"
                hOrders[cKey]["open_quantity"] := hOrders[cKey]["open_quantity"] + (bes->BeQty - bes->GelQty)
                // Lterm is a JJWW calendar week - numeric comparison sorts chronologically
-               IF bes->Lterm > 0 .AND. (hOrders[cKey]["next_delivery_week"] == NIL .OR. bes->Lterm < hOrders[cKey]["next_delivery_week"])
+               IF HB_IsNumeric(bes->Lterm) .AND. bes->Lterm > 0 .AND. ;
+                  (hOrders[cKey]["next_delivery_week"] == NIL .OR. bes->Lterm < hOrders[cKey]["next_delivery_week"])
                   hOrders[cKey]["next_delivery_week"] := bes->Lterm
                ENDIF
             ENDIF

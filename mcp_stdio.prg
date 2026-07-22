@@ -3521,6 +3521,158 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
    ENDIF
 RETURN hResult
 
+FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nPo, nPos, nWeek := 0
+   LOCAL cTracking := "", dShipped := NIL
+   LOCAL aWeeks := {}
+   LOCAL lHasPlan := .F.
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "po_number"=>{"type"=>"number","description"=>"Purchase order (Bestellung) number"},;
+            "item"=>{"type"=>"number","description"=>"Position number within the purchase order"},;
+            "tracking"=>{"type"=>"string","description"=>"Carrier tracking number reported by the supplier"},;
+            "shipped_date"=>{"type"=>"string","description"=>"Date the supplier shipped, YYYY-MM-DD"},;
+            "week"=>{"type"=>"string","description"=>"JJWW calendar week of the delivery-schedule entry to book on. Required when the position has a Liefereinteilung; must be omitted otherwise"};
+         },;
+         "required"=>{"po_number","item"};
+      }
+      hResult["description"] := "Book a supplier shipping confirmation (tracking number and/or shipped date) on a " + ;
+                                "purchase order position - or, when the position has a delivery schedule " + ;
+                                "(Liefereinteilung), on the schedule entry of the given week. At least one of " + ;
+                                "'tracking' or 'shipped_date' is required. Existing values are only overwritten " + ;
+                                "by non-empty inputs, never cleared"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["po_number"]) .OR. ! HB_IsNumeric(hArgs["item"])
+      RETURN "Parameters 'po_number' and 'item' must be numbers"
+   ENDIF
+   nPo := hArgs["po_number"]
+   nPos := hArgs["item"]
+
+   IF HHasKey(hArgs, "tracking") .AND. ValType(hArgs["tracking"]) == "C"
+      cTracking := HB_UTF8ToStr(AllTrim(hArgs["tracking"]))
+   ENDIF
+   IF HHasKey(hArgs, "shipped_date") .AND. ValType(hArgs["shipped_date"]) == "C" .AND. ! Empty(hArgs["shipped_date"])
+      dShipped := SToD(StrTran(AllTrim(hArgs["shipped_date"]), "-", ""))
+      IF Empty(dShipped)
+         RETURN "Invalid shipped_date: " + hArgs["shipped_date"] + " (expected YYYY-MM-DD)"
+      ENDIF
+   ENDIF
+   IF Empty(cTracking) .AND. Empty(dShipped)
+      RETURN "Provide at least one of 'tracking' or 'shipped_date'"
+   ENDIF
+   IF HHasKey(hArgs, "week") .AND. ! Empty(hArgs["week"])
+      nWeek := IIF(HB_IsNumeric(hArgs["week"]), hArgs["week"], Val(AllTrim(hArgs["week"])))
+   ENDIF
+
+   NetUse("engbes", "bes")
+   NetUse("besdel", "bdel")
+
+   IF bes->(FieldPos("TRACKING")) == 0 .OR. bes->(FieldPos("SHIPPED")) == 0
+      DbSelectArea(nOldSelect)
+      RETURN "The TRACKING/SHIPPED fields are not present in the database yet - deploy the Bestellbestaetigung update first"
+   ENDIF
+
+   bes->(DbSetOrder(1))  // Str(Besnr,6) + Str(Posnr,3)
+   IF ! bes->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Purchase order position not found: " + AllTrim(Str(nPo)) + "/" + AllTrim(Str(nPos))
+      RETURN hResult
+   ENDIF
+
+   // Positions with a delivery schedule must be booked per schedule entry -
+   // the same rule the Bestellbestaetigung mask enforces (WHEN ! lHasPlan)
+   bdel->(DbSetOrder(1))  // Str(Besnr,6) + Str(Posnr,3) + Str(Lterm,4)
+   IF bdel->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))
+      lHasPlan := .T.
+      DO WHILE ! bdel->(Eof()) .AND. bdel->Besnr == nPo .AND. bdel->Posnr == nPos
+         AAdd(aWeeks, StrZero(bdel->Lterm, 4))
+         bdel->(DbSkip())
+      ENDDO
+   ENDIF
+
+   IF lHasPlan
+      IF bdel->(FieldPos("TRACKING")) == 0 .OR. bdel->(FieldPos("SHIPPED")) == 0
+         DbSelectArea(nOldSelect)
+         RETURN "The TRACKING/SHIPPED fields are not present on the delivery schedule yet - deploy the Bestellbestaetigung update first"
+      ENDIF
+      IF nWeek == 0
+         DbSelectArea(nOldSelect)
+         RETURN "This position has a delivery schedule (Liefereinteilung) - specify 'week' to book the " + ;
+                "confirmation on a schedule entry. Available weeks: " + DV_Join(aWeeks, ", ")
+      ENDIF
+      IF ! bdel->(DbSeek(Str(nPo, 6) + Str(nPos, 3) + Str(nWeek, 4)))
+         DbSelectArea(nOldSelect)
+         RETURN "No delivery-schedule entry in week " + StrZero(nWeek, 4) + ". Available weeks: " + DV_Join(aWeeks, ", ")
+      ENDIF
+      IF ! bdel->(Rec_Lock(0))
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "error"
+         hResult["message"] := "Delivery-schedule record is locked by another user - try again later"
+         RETURN hResult
+      ENDIF
+      IF ! Empty(cTracking)
+         bdel->Tracking := cTracking
+      ENDIF
+      IF ! Empty(dShipped)
+         bdel->Shipped := dShipped
+      ENDIF
+      bdel->(dbUnlock())
+
+      hResult["level"] := "schedule"
+      hResult["week"] := StrZero(nWeek, 4)
+      hResult["tracking"] := HB_StrToUTF8(AllTrim(bdel->Tracking))
+      IF ! Empty(bdel->Shipped)
+         hResult["shipped_date"] := bdel->Shipped
+      ENDIF
+   ELSE
+      IF nWeek > 0
+         DbSelectArea(nOldSelect)
+         RETURN "This position has no delivery schedule - omit 'week'"
+      ENDIF
+      IF ! bes->(Rec_Lock(0))
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "error"
+         hResult["message"] := "Purchase order record is locked by another user - try again later"
+         RETURN hResult
+      ENDIF
+      IF ! Empty(cTracking)
+         bes->Tracking := cTracking
+      ENDIF
+      IF ! Empty(dShipped)
+         bes->Shipped := dShipped
+      ENDIF
+      bes->(dbUnlock())
+
+      hResult["level"] := "position"
+      hResult["tracking"] := HB_StrToUTF8(AllTrim(bes->Tracking))
+      IF ! Empty(bes->Shipped)
+         hResult["shipped_date"] := bes->Shipped
+      ENDIF
+   ENDIF
+
+   hResult["po_number"] := nPo
+   hResult["item"] := nPos
+   hResult["supplier"] := HB_StrToUTF8(AllTrim(bes->Liefma))
+   hResult["article"] := HB_StrToUTF8(AllTrim(bes->Matchcode))
+   hResult["confirmed"] := Upper(AllTrim(bes->Confirmed)) == "Y"
+
+   DbSelectArea(nOldSelect)
+
+   hResult["status"] := "success"
+   hResult["message"] := "Shipping confirmation booked on " + ;
+      IIF(lHasPlan, "delivery-schedule entry week " + StrZero(nWeek, 4), "position " + AllTrim(Str(nPos))) + ;
+      " of purchase order " + AllTrim(Str(nPo))
+RETURN hResult
+
 FUNCTION MCP_Tool_Send_SMS(hArgs)
    LOCAL hResult := {=>}
    LOCAL aPhones := {}, aInvalid := {}

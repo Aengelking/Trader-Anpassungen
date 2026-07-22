@@ -3679,6 +3679,124 @@ FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
       " of purchase order " + AllTrim(Str(nPo))
 RETURN hResult
 
+FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nPo, nPos, nWeek := 0, nWk
+   LOCAL cAbNr := ""
+   LOCAL lHasPlan := .F.
+   LOCAL nUpdated := 0
+   LOCAL dTemp
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "po_number"=>{"type"=>"number","description"=>"Purchase order (Bestellung) number"},;
+            "item"=>{"type"=>"number","description"=>"Position number within the purchase order"},;
+            "ab_number"=>{"type"=>"string","description"=>"The supplier's order confirmation (AB) number"},;
+            "week"=>{"type"=>"string","description"=>"Confirmed delivery week in JJWW format (e.g. 2634 = week 34 of 2026). Not allowed when the position has a Liefereinteilung - the week is maintained on the schedule there"};
+         },;
+         "required"=>{"po_number","item"};
+      }
+      hResult["description"] := "Book a supplier order confirmation (Bestellbestaetigung) on a purchase order position: " + ;
+                                "marks the position as confirmed and optionally stores the supplier's AB number and the " + ;
+                                "confirmed delivery week. Follow-up (Folge) positions are updated along, as in the Trader " + ;
+                                "confirmation mask. Quantity or price deviations on the confirmation cannot be booked " + ;
+                                "here - maintain those in Trader and report them to the user"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["po_number"]) .OR. ! HB_IsNumeric(hArgs["item"])
+      RETURN "Parameters 'po_number' and 'item' must be numbers"
+   ENDIF
+   nPo := hArgs["po_number"]
+   nPos := hArgs["item"]
+
+   IF HHasKey(hArgs, "ab_number") .AND. ValType(hArgs["ab_number"]) == "C"
+      cAbNr := HB_UTF8ToStr(AllTrim(hArgs["ab_number"]))
+   ENDIF
+   IF HHasKey(hArgs, "week") .AND. ! Empty(hArgs["week"])
+      nWeek := IIF(HB_IsNumeric(hArgs["week"]), hArgs["week"], Val(AllTrim(hArgs["week"])))
+      nWk := Val(Right(StrZero(nWeek, 4), 2))
+      IF nWeek < 1000 .OR. nWeek > 9999 .OR. nWk < 1 .OR. (nWk > 53 .AND. nWk < 97)
+         RETURN "Invalid week: " + AllTrim(Str(nWeek)) + " (expected JJWW, e.g. 2634; weeks 01-53 or 97-99)"
+      ENDIF
+   ENDIF
+
+   NetUse("engbes", "bes")
+   NetUse("besdel", "bdel")
+
+   bes->(DbSetOrder(1))  // Str(Besnr,6) + Str(Posnr,3)
+   IF ! bes->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Purchase order position not found: " + AllTrim(Str(nPo)) + "/" + AllTrim(Str(nPos))
+      RETURN hResult
+   ENDIF
+
+   // With a delivery schedule the position's delivery week is maintained via
+   // the schedule entries (the mask blocks the Lterm GET in that case)
+   bdel->(DbSetOrder(1))
+   lHasPlan := bdel->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))
+   IF lHasPlan .AND. nWeek > 0
+      DbSelectArea(nOldSelect)
+      RETURN "This position has a delivery schedule (Liefereinteilung) - its delivery week is maintained " + ;
+             "on the schedule entries. Book the confirmation without 'week' or adjust the schedule in Trader"
+   ENDIF
+
+   // Update the position and its follow-up (Folge) positions - same loop as
+   // the Bestellbestaetigung mask in BestellungConfirm.prg
+   DO WHILE ! bes->(Eof()) .AND. bes->Besnr == nPo .AND. (bes->Posnr == nPos .OR. bes->FolgeTo == nPos)
+      IF ! bes->(Rec_Lock(0))
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "error"
+         hResult["message"] := "Record is locked by another user - " + ;
+            IIF(nUpdated == 0, "nothing was booked", AllTrim(Str(nUpdated)) + " position(s) were already updated") + ;
+            ". Try again later"
+         RETURN hResult
+      ENDIF
+      IF ! Empty(cAbNr)
+         bes->AbNr := cAbNr
+      ENDIF
+      IF nWeek > 0
+         bes->Lterm := nWeek
+      ENDIF
+      bes->Confirmed := "Y"
+      bes->(dbUnlock())
+      nUpdated++
+      bes->(DbSkip())
+   ENDDO
+
+   // Re-read the main position for the response
+   bes->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))
+
+   hResult["po_number"] := nPo
+   hResult["item"] := nPos
+   hResult["supplier"] := HB_StrToUTF8(AllTrim(bes->Liefma))
+   hResult["article"] := HB_StrToUTF8(AllTrim(bes->Matchcode))
+   hResult["confirmed"] := Upper(AllTrim(bes->Confirmed)) == "Y"
+   IF ! Empty(bes->AbNr)
+      hResult["ab_number"] := HB_StrToUTF8(AllTrim(bes->AbNr))
+   ENDIF
+   IF HB_IsNumeric(bes->Lterm) .AND. bes->Lterm > 0
+      hResult["delivery_week"] := StrZero(bes->Lterm, 4)
+      IF (dTemp := BesWeekDate(bes->Lterm)) != NIL
+         hResult["delivery_date"] := dTemp
+      ENDIF
+   ENDIF
+   hResult["positions_updated"] := nUpdated
+   hResult["has_delivery_schedule"] := lHasPlan
+
+   DbSelectArea(nOldSelect)
+
+   hResult["status"] := "success"
+   hResult["message"] := "Order confirmation booked on position " + AllTrim(Str(nPos)) + ;
+      " of purchase order " + AllTrim(Str(nPo)) + ;
+      IIF(nUpdated > 1, " (including " + AllTrim(Str(nUpdated - 1)) + " follow-up position(s))", "")
+RETURN hResult
+
 FUNCTION MCP_Tool_Send_SMS(hArgs)
    LOCAL hResult := {=>}
    LOCAL aPhones := {}, aInvalid := {}

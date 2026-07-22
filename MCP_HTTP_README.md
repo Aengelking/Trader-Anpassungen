@@ -1,13 +1,18 @@
 # MCP over Streamable HTTP(S)
 
-`mcp_stdio.prg` now exposes the Trader MCP server over **two** transports that
-share the exact same dispatch (`ProcessMCPRequest()`) and the exact same
-`MCP_Tool_*` implementations:
+The Trader MCP server is exposed over **two** transports that share the exact
+same dispatch (`ProcessMCPRequest()`) and the exact same `MCP_Tool_*`
+implementations:
 
-| Transport | Entry function | Use for |
-|-----------|----------------|---------|
-| STDIO     | `MCP_StdIO()`  | Local launch by Claude Desktop (spawns the exe per client). |
-| HTTP      | `MCP_Http()`   | A long-running server reachable over the network / behind HTTPS. |
+| Transport | Entry function | Source file     | Use for |
+|-----------|----------------|-----------------|---------|
+| STDIO     | `MCP_StdIO()`  | `mcp_stdio.prg` | Local launch by Claude Desktop (spawns the exe per client). |
+| HTTP      | `MCP_Http()`   | `mcp_http.prg`  | A long-running server reachable over the network / behind HTTPS. |
+
+`mcp_http.prg` is not self-contained: it reuses the public
+`ProcessMCPRequest()` / `CreateErrorResponse()` functions (and, through them,
+every `MCP_Tool_*`) defined in `mcp_stdio.prg`, so **both files must be built
+together**.
 
 The HTTP transport implements the MCP **Streamable HTTP** transport in its
 *single JSON response* mode: the client `POST`s one JSON-RPC message to a
@@ -30,10 +35,11 @@ can reach it. The proxy owns the certificate and the public port.
 
 ## Build
 
-`mcp_stdio.prg` is compiled together with the rest of Trader (it calls
-`Adresse()`, `Auftrag()`, `NetUse()`, …), so no separate build target is
-required — the new `MCP_Http` / `MCP_Http_*` functions are part of the same
-binary. Rebuild Trader as usual, e.g.:
+`mcp_stdio.prg` and `mcp_http.prg` are compiled together with the rest of
+Trader (they call `Adresse()`, `Auftrag()`, `NetUse()`, …), so no separate
+build target is required — the `MCP_Http` / `MCP_Http_*` functions are part of
+the same binary. Ensure `mcp_http.prg` is included in the build alongside
+`mcp_stdio.prg`, then rebuild Trader as usual, e.g.:
 
 ```bash
 hbmk2 trader.hbp

@@ -26,7 +26,6 @@
  *
  */
 
-STATIC s_hMcpSessions    := NIL   // hash: session-id -> .T. (issued at initialize)
 STATIC s_nMcpSessionSeq  := 0     // monotonic counter for session-id uniqueness
 STATIC s_lMcpHttpStop    := .F.   // set when a "shutdown" request arrives
 STATIC s_lMcpHttpVerbose := .T.   // per-request console logging on/off
@@ -298,16 +297,14 @@ STATIC FUNCTION MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
 
    hReq := xMsg
 
-   // Reject an unknown (expired) session id, prompting the client to re-init.
    cMethod := IIF( HHasKey(hReq, "method"), hReq["method"], "" )
    MCP_Http_Log( "  JSON-RPC: " + cMethod + MCP_Http_ToolLabel( hReq ) )
-   IF cMethod != "initialize" .AND. ! Empty(cSessionId)
-      IF s_hMcpSessions == NIL .OR. ! HHasKey( s_hMcpSessions, cSessionId )
-         MCP_Http_Send( hSocket, 404, "application/json", ;
-            CreateErrorResponse( "Unknown or expired session", "" ), aHeaders )
-         RETURN NIL
-      ENDIF
-   ENDIF
+
+   // NOTE: session validation is intentionally NOT enforced. Per the MCP spec
+   // it is optional, and this single, stateless server keeps no per-session
+   // data. We still ISSUE an Mcp-Session-Id on initialize (some clients want
+   // it) but we accept any/none afterwards - rejecting an unrecognised id with
+   // 404 only broke clients (e.g. the MCP Inspector's notifications/initialized).
 
    cResponse := MCP_Http_DispatchOne( hReq, cSessionId, @lIsInitialize, @cNewSession )
 
@@ -368,17 +365,8 @@ RETURN ProcessMCPRequest( hReq )
 
 // Create, remember and return a new session id.
 STATIC FUNCTION MCP_Http_NewSession()
-   LOCAL cId
-
-   IF s_hMcpSessions == NIL
-      s_hMcpSessions := {=>}
-   ENDIF
-
    s_nMcpSessionSeq++
-   cId := "s" + LTrim( Str( Int( Seconds() * 1000 ) ) ) + "-" + LTrim( Str( s_nMcpSessionSeq ) )
-   s_hMcpSessions[ cId ] := .T.
-
-RETURN cId
+RETURN "s" + LTrim( Str( Int( Seconds() * 1000 ) ) ) + "-" + LTrim( Str( s_nMcpSessionSeq ) )
 
 // Origin allow-list. Empty list (the default) accepts any origin, which is
 // safe while the listener is bound to localhost behind a trusted proxy. When

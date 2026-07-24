@@ -68,10 +68,13 @@ FUNCTION MCP_Http( nPort, cBindAddr )
          LOOP
       ENDIF
 
+      MCP_Http_Log( "Eingehende Verbindung von " + MCP_Http_Peer( hSocket ) )
+
       BEGIN SEQUENCE
          MCP_Http_ServeConnection( hSocket )
       RECOVER
          // A single bad connection must never take the whole server down.
+         MCP_Http_Log( "  !! Fehler bei der Verarbeitung - Verbindung wird geschlossen" )
       END SEQUENCE
 
       hb_InetClose( hSocket )
@@ -150,6 +153,11 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    cOrigin    := IIF( HHasKey(hHeaders, "ORIGIN"), hHeaders["ORIGIN"], "" )
    cSessionId := IIF( HHasKey(hHeaders, "MCP-SESSION-ID"), hHeaders["MCP-SESSION-ID"], "" )
    aCors      := MCP_Http_CorsHeaders( cOrigin )
+
+   // Log the request line (method, path, and body size for POST).
+   MCP_Http_Log( "  " + cHttpMethod + " " + cPath + ;
+      IIF( HHasKey(hHeaders, "CONTENT-LENGTH"), " [" + AllTrim(hHeaders["CONTENT-LENGTH"]) + " bytes]", "" ) + ;
+      IIF( ! Empty(cOrigin), " origin=" + cOrigin, "" ) )
 
    // ---- Route by HTTP method -------------------------------------------
 
@@ -232,6 +240,7 @@ STATIC FUNCTION MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
    // array of the responses that actually carry an id (notifications yield
    // no response). If nothing needs a response, answer 202 Accepted.
    IF ValType( xMsg ) == "A"
+      MCP_Http_Log( "  JSON-RPC Batch mit " + LTrim(Str(Len(xMsg))) + " Nachricht(en)" )
       aOut := {}
       FOR nX := 1 TO Len( xMsg )
          IF ValType( xMsg[nX] ) == "H"
@@ -263,6 +272,7 @@ STATIC FUNCTION MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
 
    // Reject an unknown (expired) session id, prompting the client to re-init.
    cMethod := IIF( HHasKey(hReq, "method"), hReq["method"], "" )
+   MCP_Http_Log( "  JSON-RPC: " + cMethod + MCP_Http_ToolLabel( hReq ) )
    IF cMethod != "initialize" .AND. ! Empty(cSessionId)
       IF s_hMcpSessions == NIL .OR. ! HHasKey( s_hMcpSessions, cSessionId )
          MCP_Http_Send( hSocket, 404, "application/json", ;
@@ -408,6 +418,9 @@ STATIC FUNCTION MCP_Http_Send( hSocket, nStatus, cContentType, cBody, aHeaders )
    NEXT
    cOut += cCRLF + cBody
 
+   MCP_Http_Log( "  <= " + LTrim(Str(nStatus)) + " " + MCP_Http_StatusText(nStatus) + ;
+      " (" + LTrim(Str(Len(cBody))) + " bytes)" )
+
    MCP_Http_SendAll( hSocket, cOut )
 
 RETURN NIL
@@ -454,5 +467,37 @@ STATIC FUNCTION MCP_Http_StatusText( nStatus )
    ENDCASE
 
 RETURN cText
+
+//---------------------------------------------------------------------------
+// Console logging helpers
+//---------------------------------------------------------------------------
+
+// Write a timestamped line to the console (stdout). In HTTP mode stdout is not
+// used for the protocol (that goes over the socket), so this is safe.
+STATIC FUNCTION MCP_Http_Log( cMsg )
+   ? "[MCP-HTTP " + Time() + "] " + cMsg
+RETURN NIL
+
+// Remote peer address of an accepted socket (best effort).
+STATIC FUNCTION MCP_Http_Peer( hSocket )
+   LOCAL cAddr := hb_InetAddress( hSocket )
+   IF Empty( cAddr )
+      cAddr := "?"
+   ENDIF
+RETURN cAddr
+
+// For a tools/call request, return " (tool: <name>)" for the log, else "".
+STATIC FUNCTION MCP_Http_ToolLabel( hReq )
+   LOCAL hParams
+
+   IF ValType( hReq ) == "H" .AND. HHasKey( hReq, "method" ) .AND. hReq["method"] == "tools/call" ;
+      .AND. HHasKey( hReq, "params" )
+      hParams := hReq["params"]
+      IF ValType( hParams ) == "H" .AND. HHasKey( hParams, "name" ) .AND. ValType( hParams["name"] ) == "C"
+         RETURN " (tool: " + hParams["name"] + ")"
+      ENDIF
+   ENDIF
+
+RETURN ""
 
 #include 'mcp_stdio.prg'

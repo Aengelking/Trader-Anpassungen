@@ -20,12 +20,6 @@ single endpoint and gets one JSON-RPC response back with
 `Content-Type: application/json`. No SSE stream is opened yet (it can be added
 later without touching any tool code).
 
-It also ships a built-in **OAuth 2.1 layer** (on by default), because Claude's
-remote-connector flow — in both claude.ai and Claude Desktop — always performs
-OAuth with Dynamic Client Registration and refuses to connect without it. See
-[OAuth 2.1](#oauth-21-required-by-claude-connectors) below. You can turn it off
-for a pure authless server.
-
 ## Why there is no TLS in the Harbour code
 
 Harbour's raw sockets do not speak TLS unless linked against `hbssl`
@@ -38,84 +32,6 @@ Client ──HTTPS──▶ Reverse proxy (Caddy/nginx)  ──HTTP──▶ MCP
 
 `MCP_Http()` binds to `127.0.0.1` by default, so only a proxy on the same host
 can reach it. The proxy owns the certificate and the public port.
-
-## OAuth 2.1 (required by Claude connectors)
-
-Claude's remote-connector flow (claude.ai **and** Claude Desktop) always tries
-to authenticate via OAuth 2.1 with **Dynamic Client Registration** and will not
-connect to a server that offers no OAuth. A plain authless endpoint fails with
-*"Registrierung beim Anmeldedienst … fehlgeschlagen" / "Couldn't register with
-sign-in service"*.
-
-Therefore `mcp_http.prg` implements the full OAuth flow as an **auto-approve
-shim** — there is no real user login; it simply satisfies the protocol so
-Claude can connect:
-
-| Endpoint | RFC | Purpose |
-|----------|-----|---------|
-| `GET /.well-known/oauth-protected-resource`   | 9728 | points Claude at the authorization server |
-| `GET /.well-known/oauth-authorization-server` | 8414 | advertises the endpoints below |
-| `POST /register` | 7591 | Dynamic Client Registration (accepts any client) |
-| `GET /authorize` | 6749 | auto-approves, redirects back with a code (PKCE **S256**) |
-| `POST /token`    | 6749 | issues a signed **JWT** access + refresh token |
-
-An unauthenticated `POST` to the MCP endpoint returns `401` with a
-`WWW-Authenticate: Bearer resource_metadata="…"` header, which is what kicks the
-flow off. All artefacts (client_id, authorization code, access/refresh tokens)
-are self-contained JWTs signed with a keychain secret, so the server keeps **no
-OAuth state in memory** and survives a restart (clients just silently re-run the
-OAuth dance).
-
-### Setup (one-time)
-
-1. **Create the signing secret** in the Trader keychain under the name
-   **`MCPOAUTH`** (any long random string as the *value*). The keychain entry
-   **name** is limited to 10 characters, hence the short `MCPOAUTH`. Without it,
-   `MCP_Http()` refuses to start while OAuth is on and prints a clear message to
-   stderr. The JWT signing reuses `Trader/lib/jwt.prg` (HS256 / `hb_HMAC_SHA256`).
-2. **Set the public base URL** so the discovery metadata advertises correct
-   `https://…` URLs. Most robust is the stored value **`MCP_HTTP_PUBLIC_URL`**
-   in the `values` table (e.g. `https://mcp.example.com`). It is read once at
-   startup via `GetValue()` and auto-created (empty) on first run, so you can
-   simply edit it there. If left empty, the server derives the base URL from the
-   `X-Forwarded-Proto` / `X-Forwarded-Host` (or `Host`) headers — so the proxy
-   must forward the **original Host** (see the proxy sections below).
-3. **Mount the connector at the domain root.** Point Claude at
-   `https://mcp.example.com/` (not a sub-path), so the well-known and
-   `/authorize` `/token` `/register` paths line up with the advertised metadata.
-   If you must use a sub-path, set `MCP_HTTP_PUBLIC_URL` to that exact base.
-
-The reverse-proxy rules already shown forward **every** path to the listener, so
-`/authorize`, `/token`, `/register` and the `/.well-known/*` documents are
-covered automatically — no extra proxy rules are needed.
-
-### Build note
-
-PKCE S256 uses `hb_SHA256`, which `mcp_http.prg` forces into the link with
-`REQUEST HB_SHA256`. If your build strips it, add `HB_SHA256` to the `EXTERNAL`
-list in `tr_001.prg`.
-
-### Turning OAuth off (pure authless)
-
-For local testing or a network where you don't want the shim, start with
-`MCP_Http( 8765, "127.0.0.1", .F. )` or set the stored value **`MCP_HTTP_OAUTH`**
-to `.F.` in the `values` table (read via `GetValue()`, default `.T.`). Then the
-MCP endpoint answers without a token and the `/.well-known/*` and OAuth endpoints
-are disabled.
-
-### Security note
-
-The shim **grants a token to anyone who can reach the endpoint** — it is not a
-real identity check. The actual access boundary is the network / reverse proxy
-in front of it. Keep the listener bound to `127.0.0.1`, keep the public port
-behind TLS, and restrict who can reach the proxy (VPN, IP allow-list, etc.). If
-you need genuine per-user authentication, this shim is the wrong tool — front
-the server with a real identity provider instead.
-
-> Note: Anthropic has an open report ([claude-ai-mcp#457](https://github.com/anthropics/claude-ai-mcp/issues/457))
-> where even a fully correct OAuth+DCR server is occasionally rejected by the
-> **claude.ai web** connector. Claude **Desktop** is the reliable target for
-> this setup.
 
 ## Build
 
@@ -148,36 +64,16 @@ trader.exe ... -port 9000
 Or call it directly from code / a launcher:
 
 ```harbour
-MCP_Http( 8765 )                       // 127.0.0.1:8765, OAuth on (default)
-MCP_Http( 8765, "0.0.0.0" )            // all interfaces (only if not proxying)
-MCP_Http( 8765, "127.0.0.1", .F. )     // OAuth OFF (pure authless)
+MCP_Http( 8765 )                  // 127.0.0.1:8765
+MCP_Http( 8765, "0.0.0.0" )       // all interfaces (only if not proxying)
 ```
 
-Quick smoke test — health and OAuth discovery are open even with OAuth on:
+Quick smoke test (no proxy needed):
 
 ```bash
 curl -s http://127.0.0.1:8765/healthz
 # -> ok
 
-curl -s http://127.0.0.1:8765/.well-known/oauth-authorization-server
-# -> {"issuer":"https://…","authorization_endpoint":"…/authorize", …}
-```
-
-With OAuth **on**, a `POST` to the MCP endpoint without a Bearer token returns
-`401` (that is expected — it starts the OAuth flow):
-
-```bash
-curl -s -i http://127.0.0.1:8765/ \
-  -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
-# -> HTTP/1.1 401 Unauthorized
-#    WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource"
-```
-
-To exercise the JSON-RPC dispatch directly, start with OAuth **off**
-(`MCP_Http( 8765, "127.0.0.1", .F. )` or set `MCP_HTTP_OAUTH` to `.F.`):
-
-```bash
 curl -s http://127.0.0.1:8765/ \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
@@ -303,23 +199,17 @@ tool can run longer than the default 120 s.
 
 ## Endpoint behaviour
 
-- **`POST /`** (any path except the OAuth ones) — a JSON-RPC message. With
-  OAuth on it requires a valid `Authorization: Bearer <token>`, else `401` with
-  a `WWW-Authenticate` challenge. Returns the JSON-RPC response
+- **`POST /`** (any path) — a JSON-RPC message. Returns the JSON-RPC response
   (`application/json`). A JSON-RPC *notification* (no `id`) returns `202
-  Accepted` with an empty body; a *batch* (array) returns an array of the
-  responses that carry an `id`.
-- **`GET /healthz`**, `GET /health` — health check, returns `ok` (always open).
-- **OAuth endpoints** (only when OAuth is on): `GET /.well-known/oauth-protected-resource`,
-  `GET /.well-known/oauth-authorization-server`, `POST /register`,
-  `GET /authorize`, `POST /token` — see [OAuth 2.1](#oauth-21-required-by-claude-connectors).
+  Accepted` with an empty body. A JSON-RPC *batch* (array) returns an array of
+  the responses that carry an `id`.
+- **`GET /healthz`**, `GET /health`, `GET /` — health check, returns `ok`.
 - **`GET`** on any other path — `405` (single-response mode offers no SSE
-  stream). With OAuth **off**, `GET /` returns `ok` as a health check.
+  stream).
 - **`OPTIONS`** — CORS preflight, returns `204`.
 
-The MCP endpoint path is otherwise ignored, but mount the connector at the
-domain **root** so the OAuth well-known paths resolve (or set
-`MCP_HTTP_PUBLIC_URL`).
+Path is otherwise ignored, so mounting the proxy at a sub-path that rewrites to
+`/` works fine.
 
 ### Sessions
 
@@ -333,7 +223,7 @@ send no session id keep working (lenient by design).
 By default any `Origin` is accepted, which is safe while the listener is bound
 to localhost behind a trusted proxy. To lock the endpoint down to specific
 browser front-ends, return an allow-list from `MCP_Http_AllowedOrigins()` in
-`mcp_http.prg`, e.g.:
+`mcp_stdio.prg`, e.g.:
 
 ```harbour
 STATIC FUNCTION MCP_Http_AllowedOrigins()
@@ -354,13 +244,6 @@ Point the client at the proxied HTTPS URL as a Streamable HTTP server, e.g.:
   }
 }
 ```
-
-When you add it as a custom connector, Claude runs the OAuth dance
-automatically (discovery → registration → `/authorize` → `/token`). Because the
-`/authorize` step **auto-approves**, there is no login screen — Claude gets its
-token and connects. Make sure the keychain secret `MCPOAUTH` exists and
-`MCP_HTTP_PUBLIC_URL` (or a Host-preserving proxy) is set, otherwise the token
-step fails.
 
 ## Notes / limitations (single-response mode)
 

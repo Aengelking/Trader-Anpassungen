@@ -74,7 +74,7 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose )
       hSocket := hb_InetAccept( hListen )
       IF hSocket == NIL
          // Accept timed out (no pending connection) - keep the UI responsive.
-         Inkey( 0 )
+         Inkey( )
          LOOP
       ENDIF
 

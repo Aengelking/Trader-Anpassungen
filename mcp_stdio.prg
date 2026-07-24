@@ -3559,6 +3559,109 @@ FUNCTION MCP_Tool_Get_Article_Suppliers(hArgs)
    ENDIF
 RETURN hResult
 
+FUNCTION MCP_Tool_Get_Bom(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL lFound := .F.
+   LOCAL nArtnr
+   LOCAL aParts := {}, hPart
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "matchcode"=>{"type"=>"string","description"=>"Artikel Matchcode"},;
+            "partno"=>{"type"=>"string","description"=>"Artikelnummer"};
+         },;
+         "anyOf"=>{{"matchcode", "partno"}};
+      }
+      hResult["description"] := "Get the bill of materials (Stueckliste) of a manufactured article: components with " + ;
+                                "position, quantity per unit, factor, additional/setup quantity and current stock, " + ;
+                                "plus the production parameters (scrap, lot size). Components that are manufactured " + ;
+                                "themselves are flagged has_bom - call this tool again with their matchcode to descend"
+      RETURN hResult
+   ENDIF
+
+   NetUse("artikel", "art")
+   NetUse("parts", "part")
+   NetUse("bom", "bom")
+
+   IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+      art->(DbSetOrder(1))
+      lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+   ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
+      art->(DbSetOrder(2))
+      lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
+   ENDIF
+
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   nArtnr := art->Artikelnr
+   hResult["matchcode"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+   hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+   hResult["unit"] := HB_StrToUTF8(AllTrim(art->Me))
+   hResult["manufactured"] := art->Bezug >= 5  // procurement type >= 5 = made in-house
+
+   // Production parameters from the bom header, when present
+   IF bom->(DbSeek(Str(nArtnr, 6)))
+      hResult["scrap"] := bom->Scrap
+      hResult["min_scrap"] := bom->MinScrap
+      hResult["lot_size"] := bom->Lot
+   ENDIF
+
+   // Component lines from parts (Listart = parent). The Pos 0 row is the
+   // list header (carries the list factor), not a component.
+   art->(DbSetOrder(2))  // by Artikelnr, for component lookups
+   IF part->(DbSeek(Str(nArtnr, 6)))
+      DO WHILE ! part->(Eof()) .AND. part->Listart == nArtnr
+         IF part->Pos != 0
+            hPart := {=>}
+            hPart["item"] := part->Pos
+            hPart["quantity"] := part->Qty
+            hPart["factor"] := part->Factor
+            hPart["unit"] := HB_StrToUTF8(AllTrim(part->Me))
+            IF part->AddQty != 0
+               hPart["additional_quantity"] := part->AddQty  // setup/attrition add-on
+            ENDIF
+            IF part->AddPercent != 0
+               hPart["additional_percent"] := part->AddPercent
+            ENDIF
+            IF ! Empty(part->Notes)
+               hPart["notes"] := HB_StrToUTF8(AllTrim(part->Notes))
+            ENDIF
+            IF art->(DbSeek(Str(part->Partart, 6)))
+               hPart["article"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+               hPart["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+               hPart["stock"] := art->Bestand
+               IF art->Bezug >= 5
+                  hPart["has_bom"] := .T.  // manufactured component - recurse with get_bom
+               ENDIF
+            ELSE
+               hPart["article_number"] := part->Partart
+               hPart["description"] := "(article record not found)"
+            ENDIF
+            AAdd(aParts, hPart)
+         ENDIF
+         part->(DbSkip())
+      ENDDO
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["component_count"] := Len(aParts)
+   hResult["components"] := aParts
+   hResult["status"] := IIF(Len(aParts) > 0, "found", "not_found")
+   IF Len(aParts) == 0
+      hResult["message"] := "No parts list (Stueckliste) recorded for this article"
+   ENDIF
+RETURN hResult
+
 // Resolve a supplier from the 'supplier' (matchcode) / 'supplier_number'
 // arguments - suppliers are group "L" addresses. Returns NIL if not found.
 STATIC FUNCTION ResolveSupplier(hArgs)

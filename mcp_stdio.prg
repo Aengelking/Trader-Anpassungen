@@ -17,9 +17,6 @@
    #define DvArchivePersonalIn  101
 #endif
 
-// Chat messages collected while a tool call is running - see MCPChatMessage()
-STATIC saChatMessages := {}
-
 //---------------------------------------------------------------------------
 // General chat-output channel for hooks and other Trader code that runs
 // inside an MCP tool call. The function only exists while this script is
@@ -39,9 +36,20 @@ STATIC saChatMessages := {}
 //---------------------------------------------------------------------------
 FUNCTION MCPChatMessage(cText)
    IF ValType(cText) == "C" .AND. ! Empty(cText)
-      AAdd(saChatMessages, HB_StrToUTF8(cText))
+      AAdd(MCPChatBuffer(), HB_StrToUTF8(cText))
    ENDIF
 RETURN NIL
+
+// Buffer of chat messages for the current tool call. Uses a function-level
+// STATIC because mcp_http.prg #includes this file after its own code, where
+// a file-wide STATIC declaration would no longer compile (E0004). Pass
+// lReset=.T. to clear; the array itself is shared by reference.
+STATIC FUNCTION MCPChatBuffer(lReset)
+   STATIC aMessages := {}
+   IF HB_IsLogical(lReset) .AND. lReset
+      ASize(aMessages, 0)
+   ENDIF
+RETURN aMessages
 
 FUNCTION MCP_StdIO()
    LOCAL cInput, hRequest, cResponse
@@ -323,7 +331,7 @@ FUNCTION MCP_Tools_Call(hRequest, xId)
          hArguments := {"DUMMY"=>.T.}
       ENDIF
 
-      saChatMessages := {}  // fresh chat-message buffer for this call (see MCPChatMessage)
+      MCPChatBuffer(.T.)  // fresh chat-message buffer for this call (see MCPChatMessage)
       hToolData := HB_ExecFromArray(cFunctionName, {hArguments})
 
       IF ValType(hToolData) == "C" //string returned this is an error message
@@ -344,10 +352,10 @@ FUNCTION MCP_Tools_Call(hRequest, xId)
    // Append chat messages emitted during the call (via MCPChatMessage) as
    // additional content blocks so the model sees them with the result
    aContent := {hResult}
-   FOR EACH cChatMsg IN saChatMessages
+   FOR EACH cChatMsg IN MCPChatBuffer()
       AAdd(aContent, {"type"=>"text", "text"=>cChatMsg})
    NEXT
-   saChatMessages := {}
+   MCPChatBuffer(.T.)
 
 RETURN CreateSuccessResponse({"content"=>aContent}, xId)
 

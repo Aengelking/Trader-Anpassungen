@@ -177,7 +177,7 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
 
    cOrigin    := IIF( HHasKey(hHeaders, "ORIGIN"), hHeaders["ORIGIN"], "" )
    cSessionId := IIF( HHasKey(hHeaders, "MCP-SESSION-ID"), hHeaders["MCP-SESSION-ID"], "" )
-   aCors      := MCP_Http_CorsHeaders( cOrigin )
+   aCors      := MCP_Http_CorsHeaders( cOrigin, hHeaders )
 
    // Log the request line (method, path, and body size for POST).
    MCP_Http_Log( "  " + cHttpMethod + " " + cPath + ;
@@ -408,9 +408,19 @@ RETURN .F.
 STATIC FUNCTION MCP_Http_AllowedOrigins()
 RETURN {}
 
-// Build the CORS response headers for a given request Origin.
-STATIC FUNCTION MCP_Http_CorsHeaders( cOrigin )
+// Build the CORS response headers for a request. On a preflight the browser
+// lists the headers it intends to send in Access-Control-Request-Headers; we
+// echo them back verbatim so ANY header is allowed (e.g. MCP-Protocol-Version,
+// Mcp-Session-Id, which recent MCP clients like the Inspector send after
+// initialize). Without this the browser blocks the follow-up request and the
+// connection "fails" right after the preflight.
+STATIC FUNCTION MCP_Http_CorsHeaders( cOrigin, hHeaders )
    LOCAL aHeaders := {}
+   LOCAL cReqHeaders := ""
+
+   IF ValType( hHeaders ) == "H" .AND. HHasKey( hHeaders, "ACCESS-CONTROL-REQUEST-HEADERS" )
+      cReqHeaders := AllTrim( hHeaders["ACCESS-CONTROL-REQUEST-HEADERS"] )
+   ENDIF
 
    IF Empty( cOrigin )
       AAdd( aHeaders, "Access-Control-Allow-Origin: *" )
@@ -418,8 +428,13 @@ STATIC FUNCTION MCP_Http_CorsHeaders( cOrigin )
       AAdd( aHeaders, "Access-Control-Allow-Origin: " + cOrigin )
    ENDIF
    AAdd( aHeaders, "Access-Control-Allow-Methods: POST, GET, OPTIONS" )
-   AAdd( aHeaders, "Access-Control-Allow-Headers: Content-Type, Accept, Mcp-Session-Id, Authorization" )
-   AAdd( aHeaders, "Access-Control-Expose-Headers: Mcp-Session-Id" )
+   IF ! Empty( cReqHeaders )
+      AAdd( aHeaders, "Access-Control-Allow-Headers: " + cReqHeaders )
+   ELSE
+      AAdd( aHeaders, "Access-Control-Allow-Headers: Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID" )
+   ENDIF
+   AAdd( aHeaders, "Access-Control-Expose-Headers: Mcp-Session-Id, MCP-Protocol-Version" )
+   AAdd( aHeaders, "Access-Control-Max-Age: 86400" )
 
 RETURN aHeaders
 

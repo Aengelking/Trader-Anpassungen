@@ -38,13 +38,12 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose )
    IF nPort == NIL
       nPort := McpHttpPort()
    ENDIF
-   IF Empty(cBindAddr)
-      cBindAddr := "127.0.0.1"
-   ENDIF
    IF lVerbose == NIL
       lVerbose := .T.
    ENDIF
    s_lMcpHttpVerbose := lVerbose
+   // NOTE: cBindAddr is accepted for signature compatibility but not used - this
+   // build's hb_InetServer binds all interfaces (see below).
 
    // Same guard as the STDIO server: never let a hook / error handler pop a
    // modal Alert/MsgBox that would block the request loop forever.
@@ -52,25 +51,36 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose )
 
    hb_InetInit()
 
-   // Bind to the given interface only (localhost by default) - the reverse
-   // proxy is expected to run on the same host and terminate TLS.
-   hListen := hb_InetServer( nPort, NIL, cBindAddr )
+   // Use the single-argument form proven in this build (terminalserver.prg,
+   // uhttpd.prg). It binds all interfaces; the 3-arg (bind-address) form does
+   // NOT work here and produced a listener that accepted connections but never
+   // answered (clients timed out). Restrict exposure at the firewall/proxy.
+   hListen := hb_InetServer( nPort )
    IF hListen == NIL .OR. hb_InetErrorCode( hListen ) != 0
-      FWrite( nStdErr, "MCP_Http: cannot bind " + cBindAddr + ":" + LTrim(Str(nPort)) + Chr(10) )
+      FWrite( nStdErr, "MCP_Http: cannot listen on port " + LTrim(Str(nPort)) + Chr(10) )
       hb_InetCleanup()
       RETURN NIL
    ENDIF
 
-   FWrite( nStdErr, "MCP_Http: listening on " + cBindAddr + ":" + LTrim(Str(nPort)) + " (Streamable HTTP, single response)" + Chr(10) )
+   // Make accept() return every second so the loop can honour the stop flag
+   // and (under a GUI GT such as GTWVG) pump window messages via Inkey().
+   hb_InetTimeout( hListen, 1000 )
+
+   FWrite( nStdErr, "MCP_Http: listening on port " + LTrim(Str(nPort)) + " (all interfaces, Streamable HTTP)" + Chr(10) )
 
    s_lMcpHttpStop := .F.
 
    DO WHILE ! s_lMcpHttpStop
       hSocket := hb_InetAccept( hListen )
       IF hSocket == NIL
-         // Accept failed (interrupted / transient) - keep serving.
+         // Accept timed out (no pending connection) - keep the UI responsive.
+         Inkey( 0 )
          LOOP
       ENDIF
+
+      // Bound how long one (possibly stalled) client can occupy the
+      // single-threaded loop: each socket read/write times out after 10s.
+      hb_InetTimeout( hSocket, 10000 )
 
       BEGIN SEQUENCE
          MCP_Http_ServeConnection( hSocket )

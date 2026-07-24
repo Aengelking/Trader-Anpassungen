@@ -17,6 +17,31 @@
    #define DvArchivePersonalIn  101
 #endif
 
+// Chat messages collected while a tool call is running - see MCPChatMessage()
+STATIC saChatMessages := {}
+
+//---------------------------------------------------------------------------
+// General chat-output channel for hooks and other Trader code that runs
+// inside an MCP tool call. The function only exists while this script is
+// loaded, so callers must invoke it dynamically:
+//
+//    IF Type("MCPCHATMESSAGE()") != "U"   //running inside the MCP server?
+//       HB_ExecFromArray("MCPChatMessage", {"Sicherheitsdatenblatt abspeichern!"})
+//    ELSE
+//       ...interactive path (Tr_MsgBox etc.)...
+//    ENDIF
+//
+// Collected messages are appended to the current tool response as additional
+// content blocks, so the model sees them alongside the tool result. Text is
+// expected in the app codepage (OEM) like all other in-app strings.
+// (Deliberately named without the MCP_ prefix so it cannot be invoked as a
+// JSON-RPC method via the MCP_<method> dispatch.)
+//---------------------------------------------------------------------------
+FUNCTION MCPChatMessage(cText)
+   IF ValType(cText) == "C" .AND. ! Empty(cText)
+      AAdd(saChatMessages, HB_StrToUTF8(cText))
+   ENDIF
+RETURN NIL
 
 FUNCTION MCP_StdIO()
    LOCAL cInput, hRequest, cResponse
@@ -232,6 +257,7 @@ FUNCTION MCP_Tools_Call(hRequest, xId)
    LOCAL cGroupParams,oError
    LOCAL nProvidedCount := 0
    LOCAL cProvidedParams := ""
+   LOCAL aContent, cChatMsg
 
    
    // Convert tool name to function name: get_customer -> MCP_Tool_Get_Customer
@@ -295,26 +321,35 @@ FUNCTION MCP_Tools_Call(hRequest, xId)
       //make sure the tool is not called with no arguments, this would otherwise return the schmema
       IF hArguments == NIL .OR. ValType(hArguments) != "H" .OR. Len(hArguments) == 0
          hArguments := {"DUMMY"=>.T.}
-      ENDIF      
-      
+      ENDIF
+
+      saChatMessages := {}  // fresh chat-message buffer for this call (see MCPChatMessage)
       hToolData := HB_ExecFromArray(cFunctionName, {hArguments})
-      
+
       IF ValType(hToolData) == "C" //string returned this is an error message
          RETURN CreateErrorResponse(hToolData, xId)
-      ELSE   
+      ELSE
          // Convert structured data to readable text for MCP content
          //cFormattedText := FormatToolResult(hToolData)
          cFormattedText := HB_JsonEncode(hToolData)  // Use JSON encoding for structured data
-      
+
          hResult := {=>}
          hResult["type"] := "text"
          hResult["text"] := cFormattedText
-      ENDIF       
-   ELSE   
+      ENDIF
+   ELSE
       RETURN CreateErrorResponse("Unknown tool: " + cToolName + " (function: " + cFunctionName + ")", xId)
    ENDIF
-   
-RETURN CreateSuccessResponse({"content"=>{hResult}}, xId)
+
+   // Append chat messages emitted during the call (via MCPChatMessage) as
+   // additional content blocks so the model sees them with the result
+   aContent := {hResult}
+   FOR EACH cChatMsg IN saChatMessages
+      AAdd(aContent, {"type"=>"text", "text"=>cChatMsg})
+   NEXT
+   saChatMessages := {}
+
+RETURN CreateSuccessResponse({"content"=>aContent}, xId)
 
 FUNCTION MCP_Tool_Get_Customer(hArgs)
    LOCAL nCustomerNumber, cSearchTerm
@@ -3778,7 +3813,7 @@ FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)
    LOCAL cAbNr := ""
    LOCAL lHasPlan := .F.
    LOCAL nUpdated := 0
-   LOCAL dTemp, oExtra
+   LOCAL dTemp
    LOCAL nOldSelect := Select()
 
    // Return schema and description when called without arguments
@@ -3902,17 +3937,6 @@ FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)
    RECOVER
       hResult["hook_executed"] := .F.
       hResult["hook_message"] := "after_confirm_bes_pos hook raised an error - check its batch-mode path"
-   END SEQUENCE
-
-   // Keep surfacing the SDS reminder to the user even though the batch-safe
-   // hook no longer shows its dialog - the model relays it in chat instead
-   BEGIN SEQUENCE
-      NetUse("artikel", "art")
-      oExtra := art->(ExtraData():New(bes->Artikelnr))
-      IF oExtra != NIL .AND. oExtra:SDS
-         hResult["sds_note"] := "Article requires a safety data sheet (SDS) - remind the user to file it for this order"
-      ENDIF
-   RECOVER
    END SEQUENCE
 
    hResult["po_number"] := nPo

@@ -3025,6 +3025,8 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
 
    NetUse("engbes", "bes")
    NetUse("besdel", "bdel")  // Liefereinteilungen per position
+   NetUse("artlief", "ali")  // supplier part numbers
+   ali->(DbSetOrder(1))  // Kunde(supplier) + Str(Artikelnr,6)
    bes->(DbSetOrder(1))  // Str(Besnr,6) + Str(Posnr,3)
 
    IF ! bes->(DbSeek(Str(nPo, 6)))
@@ -3043,6 +3045,10 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       hLine := {=>}
       hLine["item"] := bes->Posnr
       hLine["article"] := HB_StrToUTF8(AllTrim(bes->Matchcode))
+      // Supplier's part number, same lookup as the PO print (bestellung_print.prg)
+      IF ali->(DbSeek(bes->Liefma + Str(bes->Artikelnr, 6))) .AND. ! Empty(ali->Artlief)
+         hLine["supplier_part_no"] := HB_StrToUTF8(AllTrim(ali->Artlief))
+      ENDIF
       hLine["quantity"] := bes->BeQty
       hLine["delivered_quantity"] := bes->GelQty
       hLine["open_quantity"] := IIF(bes->Bestat < 3, bes->BeQty - bes->GelQty, 0)

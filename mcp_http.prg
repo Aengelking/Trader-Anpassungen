@@ -30,6 +30,7 @@ STATIC s_hMcpSessions    := NIL   // hash: session-id -> .T. (issued at initiali
 STATIC s_nMcpSessionSeq  := 0     // monotonic counter for session-id uniqueness
 STATIC s_lMcpHttpStop    := .F.   // set when a "shutdown" request arrives
 STATIC s_lMcpHttpVerbose := .T.   // per-request console logging on/off
+STATIC s_cMcpLogSink     := ""    // "QOUT" or "STDERR"; decided from the GT on first use
 
 FUNCTION MCP_Http( nPort, cBindAddr, lVerbose )
    LOCAL nStdErr := hb_GetStdErr()
@@ -66,7 +67,7 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose )
    // and (under a GUI GT such as GTWVG) pump window messages via Inkey().
    hb_InetTimeout( hListen, 1000 )
 
-   FWrite( nStdErr, "MCP_Http: listening on port " + LTrim(Str(nPort)) + " (all interfaces, Streamable HTTP)" + Chr(10) )
+   MCP_Http_Log( "Listening on port " + LTrim(Str(nPort)) + " (all interfaces, Streamable HTTP)" )
 
    s_lMcpHttpStop := .F.
 
@@ -486,16 +487,40 @@ RETURN cText
 // Console logging helpers
 //---------------------------------------------------------------------------
 
-// Write a timestamped diagnostics line to STDERR. We deliberately do NOT use
-// ? / QOut (stdout): when the process is launched with stdout redirected to a
-// pipe nobody reads, QOut blocks once the buffer fills and the request loop
-// hangs (client times out). stderr is the codebase's diagnostics channel
-// (the stdio server and the startup line write there too).
+// Write a timestamped diagnostics line. The sink is chosen from the active GT
+// (once, cached):
+//   - GUI GTs (WVG/WVT/WIN/GUI): QOut, so it shows in the app's window.
+//   - everything else (CGI/STD/NUL/...): stderr, because under those GTs QOut
+//     goes to stdout, which can block on an unread pipe (or be discarded).
 STATIC FUNCTION MCP_Http_Log( cMsg )
-   IF s_lMcpHttpVerbose
-      FWrite( hb_GetStdErr(), "[MCP-HTTP " + Time() + "] " + cMsg + Chr(10) )
+   LOCAL cLine
+
+   IF ! s_lMcpHttpVerbose
+      RETURN NIL
    ENDIF
+
+   IF Empty( s_cMcpLogSink )
+      s_cMcpLogSink := MCP_Http_LogSink()
+   ENDIF
+
+   cLine := "[MCP-HTTP " + Time() + "] " + cMsg
+   IF s_cMcpLogSink == "QOUT"
+      QOut( cLine )
+   ELSE
+      FWrite( hb_GetStdErr(), cLine + Chr(10) )
+   ENDIF
+
 RETURN NIL
+
+// Pick the log sink from the active GT (see MCP_Http_Log).
+STATIC FUNCTION MCP_Http_LogSink()
+   LOCAL cGt := Upper( AllTrim( hb_gtVersion() ) )
+
+   IF cGt == "WVG" .OR. cGt == "WVT" .OR. cGt == "WIN" .OR. cGt == "GUI"
+      RETURN "QOUT"
+   ENDIF
+
+RETURN "STDERR"
 
 // Remote peer address of an accepted socket (best effort; never fatal).
 STATIC FUNCTION MCP_Http_Peer( hSocket )

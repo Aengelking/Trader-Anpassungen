@@ -549,26 +549,30 @@ FUNCTION MCP_Tool_Get_Order_Details(hArgs)
          },;
          "required"=>{"order_number"};
       }
-      hResult["description"] := "Retrieve detailed order information by order number, including all line items and their status"
+      hResult["description"] := "Retrieve detailed order information by order number, including all line items with " + ;
+                                "status, the confirmed delivery week/date, the customer's requested week and - when " + ;
+                                "the date was moved - the originally confirmed week"
       RETURN hResult
    ENDIF
-   
+
    oAuftrag := Auftrag():New()
    IF  oAuftrag:Load(hArgs["order_number"])
-      lFound := .T.         
+      lFound := .T.
       hResult["order_number"] := oAuftrag:abnr
       hResult["customer"] := oAuftrag:Kundma
       hResult["date"] := oAuftrag:Besda
       hResult["completed"] := oAuftrag:Erledigt //auf->Status == 3 .OR. auf->Status == 7
       hResult["total"] := oAuftrag:total
       hResult["lines"] := {}
-      oAuftrag:Positions:Each({|oPos| 
+      oAuftrag:Positions:Each({|oPos|
          LOCAL hPosition := {=>}
+         LOCAL dTemp
+         hPosition["item"] := oPos:Itmnr
          hPosition["article"] := AllTrim(oPos:Matchcode)
          //hPosition["description"] := AllTrim(oPos:Artikel:Artikel)
          hPosition["blanket_order"] := oPos:IsRahmen
          IF oPos:IsRahmen
-            hPosition["quantity"] := oPos:ContrQty            
+            hPosition["quantity"] := oPos:ContrQty
          ELSE
             hPosition["quantity"] := oPos:VkQty
          ENDIF
@@ -577,7 +581,30 @@ FUNCTION MCP_Tool_Get_Order_Details(hArgs)
          hPosition["price"] := oPos:VkPr/oPos:Pe
          hPosition["status"] := IF(oPos:lErledigt, "completed", "open")
          hPosition["total"] := oPos:GetLineTotal()
-         
+
+         // Delivery terms are JJWW calendar weeks: Dterm is the delivery week
+         // confirmed to the customer (99 = frame/call-off), Wterm the
+         // customer's requested week, UBTerm the originally confirmed week
+         // kept when the date was moved (see auftrag_print.prg)
+         IF HB_IsNumeric(oPos:Dterm) .AND. oPos:Dterm > 0
+            hPosition["delivery_week"] := StrZero(oPos:Dterm, 4)
+            IF (dTemp := BesWeekDate(oPos:Dterm)) != NIL
+               hPosition["delivery_date"] := dTemp
+            ENDIF
+         ENDIF
+         IF HB_IsNumeric(oPos:Wterm) .AND. oPos:Wterm > 0
+            hPosition["requested_week"] := StrZero(oPos:Wterm, 4)
+            IF (dTemp := BesWeekDate(oPos:Wterm)) != NIL
+               hPosition["requested_date"] := dTemp
+            ENDIF
+         ENDIF
+         IF HB_IsNumeric(oPos:UBTerm) .AND. oPos:UBTerm > 0 .AND. oPos:UBTerm != oPos:Dterm
+            hPosition["originally_confirmed_week"] := StrZero(oPos:UBTerm, 4)
+            IF (dTemp := BesWeekDate(oPos:UBTerm)) != NIL
+               hPosition["originally_confirmed_date"] := dTemp
+            ENDIF
+         ENDIF
+
          // Add position to order result
          AAdd(hResult["lines"], hPosition)
          RETURN .T.

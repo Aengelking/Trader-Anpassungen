@@ -40,6 +40,7 @@ FUNCTION MCP_StdIO()
    FWrite(nStdErr,"MCP_StdIO: Starting MCP server via STDIO..."+Chr(10))
 
    //? "MCP STDIO: Started"
+   //? "MCP STDIO: Started"
    
    // Set up error handler, changed the main error handler to ouput to stdErr
    /*bOldError := ErrorBlock({|oError| 
@@ -91,6 +92,7 @@ FUNCTION MCP_StdIO()
       
       IF !Empty(cLine)
          //? "Processing request: " + cLine
+         //? "Processing request: " + cLine
          // Parse JSON request
          hRequest := HB_JsonDecode(cLine)
          IF hRequest != NIL .AND. ValType(hRequest) == "H"
@@ -119,8 +121,12 @@ FUNCTION MCP_StdIO()
    
    // Cleanup
    dbCloseAll()
-   
+
 RETURN NIL
+
+// The MCP Streamable HTTP transport (MCP_Http) lives in mcp_http.prg. It
+// reuses the ProcessMCPRequest() dispatch below, so both files must be built
+// together.
 
 FUNCTION ProcessMCPRequest(hRequest)
    LOCAL cMethod, cResponse, cFunctionName

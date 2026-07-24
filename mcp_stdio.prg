@@ -3778,7 +3778,7 @@ FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)
    LOCAL cAbNr := ""
    LOCAL lHasPlan := .F.
    LOCAL nUpdated := 0
-   LOCAL dTemp
+   LOCAL dTemp, oExtra
    LOCAL nOldSelect := Select()
 
    // Return schema and description when called without arguments
@@ -3864,6 +3864,43 @@ FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)
 
    // Re-read the main position for the response
    bes->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))
+
+   // Fremdfertigung: when the position belongs to a production order
+   // (werkauf, index 6 = Besnr+Posnr), the confirmed week also sets the
+   // production order's end week: confirmed week plus the position's transit
+   // time (ShipTime); special weeks (>52) are taken verbatim and frame
+   // production orders (end week 99) are never touched. Same logic as
+   // BestellungConfirm.prg, but with bes repositioned on the main position
+   // first so ShipTime is read from the correct record.
+   IF nWeek > 0
+      NetUse("werkauf", "wer")
+      wer->(DbSetOrder(6))  // Str(Besnr,6) + Str(Posnr,3)
+      IF wer->(DbSeek(Str(nPo, 6) + Str(nPos, 3))) .AND. Right(Str(wer->End, 4), 2) != "99"
+         IF wer->(Rec_Lock(0))
+            wer->End := IIF(Val(Right(Str(nWeek, 4), 2)) <= 52, AddWeeks(nWeek, bes->ShipTime), nWeek)
+            wer->(dbUnlock())
+            hResult["production_order_updated"] := .T.
+            hResult["production_order_end_week"] := StrZero(wer->End, 4)
+            IF (dTemp := BesWeekDate(wer->End)) != NIL
+               hResult["production_order_end_date"] := dTemp
+            ENDIF
+         ELSE
+            hResult["production_order_updated"] := .F.
+            hResult["production_order_message"] := "Production order record is locked by another user - its end week was NOT updated"
+         ENDIF
+      ENDIF
+   ENDIF
+
+   // The interactive after_confirm_bes_pos hook (SDS reminder dialog) cannot
+   // run headless - surface its intent instead so the model can relay it
+   BEGIN SEQUENCE
+      NetUse("artikel", "art")
+      oExtra := art->(ExtraData():New(bes->Artikelnr))
+      IF oExtra != NIL .AND. oExtra:SDS
+         hResult["sds_note"] := "Article requires a safety data sheet (SDS) - remind the user to file it for this order"
+      ENDIF
+   RECOVER
+   END SEQUENCE
 
    hResult["po_number"] := nPo
    hResult["item"] := nPos

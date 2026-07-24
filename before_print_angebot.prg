@@ -4,6 +4,7 @@ FUNCTION HOOK_before_print_angebot(nAngnr,hSettings,hData)
    // Zum Aktivieren: lCrmQuotes := Tr_Getini(28) $ {9,33,28,58}
    LOCAL lCrmQuotes := Date() >= StoD("20260722") .OR. Tr_Getini(28) $ {9}
    LOCAL nRef
+   LOCAL lRet := .T.
    /*IF ku->Skonto == 8
       oExtra := ku->(ExtraData():New(ku->Nummer))
       IF oExtra:OnlineKauf
@@ -20,9 +21,14 @@ FUNCTION HOOK_before_print_angebot(nAngnr,hSettings,hData)
       BEGIN SEQUENCE
          LoadPrg(Path("run\crm_email.prg"))
          HB_ExecFromArray({"CRM_QuoteAssign", nAngnr, LTrim(Str(ku->Nummer)), ku->Name1, @nRef})
-         hData["crmtag"] := "[#EK-O"+LTrim(Str(nRef))+"]"
+         IF ValType(nRef) != "N"             
+            hData["crmtag"] := "[#EK-O"+LTrim(Str(nRef))+"]"
+         ELSE
+            Tr_MsgBox("Angebot konnte nicht einer Opportunity zugeordnet werden.")
+            lRet := .F.
+         ENDIF
       RECOVER
          //nicht fatal
       END SEQUENCE
    ENDIF
-RETURN .T.
+RETURN lRet

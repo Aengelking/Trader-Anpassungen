@@ -118,8 +118,7 @@ RETURN nPort
 
 // Read and answer exactly one HTTP request on hSocket.
 STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
-   LOCAL cCRLF := Chr(13) + Chr(10)
-   LOCAL cHead, nLen, cReqLine, cPath
+   LOCAL nLen, cReqLine, cPath
    LOCAL aLines, aReq, nX, cLine, nColon, nQ
    LOCAL hHeaders := {=>}
    LOCAL cHttpMethod, cKey, cVal
@@ -129,15 +128,26 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
 
    MCP_Http_Log( "Eingehende Verbindung von " + MCP_Http_Peer( hSocket ) )
 
-   // ---- Read request headers (up to the blank line) --------------------
-   cHead := hb_InetRecvEndBlock( hSocket, cCRLF + cCRLF, @nLen )
-   IF nLen <= 0 .OR. Empty(cHead)
-      RETURN NIL
-   ENDIF
+   // ---- Read request line + headers, one line at a time, up to the blank
+   // line. hb_InetRecvLine is the recv primitive proven to work in this build
+   // (terminalserver.prg); hb_InetRecvEndBlock did not read anything here.
+   aLines := {}
+   DO WHILE Len( aLines ) < 200
+      cLine := hb_InetRecvLine( hSocket, @nLen )
+      IF ValType( cLine ) != "C" .OR. nLen < 0
+         EXIT                              // error / connection closed
+      ENDIF
+      IF Right( cLine, 1 ) == Chr(13)      // strip a trailing CR if present
+         cLine := Left( cLine, Len( cLine ) - 1 )
+      ENDIF
+      IF Empty( cLine )                    // blank line -> end of headers
+         EXIT
+      ENDIF
+      AAdd( aLines, cLine )
+   ENDDO
 
-   aLines := hb_ATokens( cHead, cCRLF )
-   IF Len(aLines) < 1
-      MCP_Http_Send( hSocket, 400, "text/plain", "Bad Request", {} )
+   IF Len( aLines ) < 1
+      MCP_Http_Log( "  (keine Request-Daten empfangen)" )
       RETURN NIL
    ENDIF
 
@@ -215,11 +225,14 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    ENDIF
    cBody := ""
    IF nCL > 0
-      cBuf := Space( nCL )
-      nGot := hb_InetRecvAll( hSocket, @cBuf, nCL )
-      IF nGot > 0
-         cBody := Left( cBuf, nGot )
-      ENDIF
+      DO WHILE Len( cBody ) < nCL
+         cBuf := Space( nCL - Len( cBody ) )
+         nGot := hb_InetRecv( hSocket, @cBuf, nCL - Len( cBody ) )
+         IF nGot <= 0
+            EXIT                           // closed / timeout / error
+         ENDIF
+         cBody += Left( cBuf, nGot )
+      ENDDO
    ENDIF
 
    MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
@@ -443,13 +456,13 @@ RETURN NIL
 STATIC FUNCTION MCP_Http_SendAll( hSocket, cSend )
    LOCAL nLen
 
+   // Pass the length explicitly, like terminalserver.prg (proven in this build).
    DO WHILE Len( cSend ) > 0
-      nLen := hb_InetSendAll( hSocket, cSend )
-      IF nLen == -1
-         EXIT
-      ELSEIF nLen > 0
-         cSend := SubStr( cSend, nLen + 1 )
+      nLen := hb_InetSendAll( hSocket, cSend, Len( cSend ) )
+      IF nLen <= 0
+         EXIT                              // error / connection gone
       ENDIF
+      cSend := SubStr( cSend, nLen + 1 )
    ENDDO
 
 RETURN NIL

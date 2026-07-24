@@ -3416,6 +3416,87 @@ FUNCTION MCP_Tool_Get_Article_Prices(hArgs)
    hResult["status"] := "found"
 RETURN hResult
 
+FUNCTION MCP_Tool_Get_Article_Suppliers(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL lFound := .F.
+   LOCAL aSuppliers := {}, hSupplier
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "matchcode"=>{"type"=>"string","description"=>"Artikel Matchcode"},;
+            "partno"=>{"type"=>"string","description"=>"Artikelnummer"};
+         },;
+         "anyOf"=>{{"matchcode", "partno"}};
+      }
+      hResult["description"] := "List the suppliers of an article (sources from artlief), ordered by priority, with " + ;
+                                "the supplier's part number, lead time in weeks, minimum order quantity, package unit " + ;
+                                "and last purchase price"
+      RETURN hResult
+   ENDIF
+
+   NetUse("artikel", "art")
+   NetUse("artlief", "ali")
+   NetUse("engkund", "ku")
+
+   IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+      art->(DbSetOrder(1))
+      lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+   ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
+      art->(DbSetOrder(2))
+      lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
+   ENDIF
+
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   hResult["matchcode"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+   hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+   hResult["unit"] := HB_StrToUTF8(AllTrim(art->Me))
+
+   ali->(DbSetOrder(6))  // Str(Artikelnr,6) + Str(Priority,1)
+   ku->(DbSetOrder(1))   // Kunde + Group
+
+   IF ali->(DbSeek(Str(art->Artikelnr, 6)))
+      DO WHILE ! ali->(Eof()) .AND. ali->Artikelnr == art->Artikelnr
+         hSupplier := {=>}
+         hSupplier["supplier"] := HB_StrToUTF8(AllTrim(ali->Kunde))
+         IF ku->(DbSeek(ali->Kunde + "L"))
+            hSupplier["supplier_name"] := HB_StrToUTF8(Trim(Trim(ku->Name1) + " " + ku->Name2))
+            hSupplier["supplier_number"] := ku->Nummer
+            hSupplier["currency"] := IIF(Empty(ku->Money), "EUR", AllTrim(ku->Money))
+         ENDIF
+         IF ! Empty(ali->Artlief)
+            hSupplier["supplier_part_no"] := HB_StrToUTF8(AllTrim(ali->Artlief))
+         ENDIF
+         hSupplier["priority"] := ali->Priority
+         hSupplier["lead_time_weeks"] := ali->LZ
+         hSupplier["min_order_qty"] := ali->Min
+         hSupplier["package_unit"] := ali->VPE
+         hSupplier["last_price"] := ali->LastPrice
+         hSupplier["last_quantity"] := ali->LastMenge
+         AAdd(aSuppliers, hSupplier)
+         ali->(DbSkip())
+      ENDDO
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["count"] := Len(aSuppliers)
+   hResult["suppliers"] := aSuppliers
+   hResult["status"] := IIF(Len(aSuppliers) > 0, "found", "not_found")
+   IF Len(aSuppliers) == 0
+      hResult["message"] := "No suppliers recorded for this article"
+   ENDIF
+RETURN hResult
+
 // Resolve a supplier from the 'supplier' (matchcode) / 'supplier_number'
 // arguments - suppliers are group "L" addresses. Returns NIL if not found.
 STATIC FUNCTION ResolveSupplier(hArgs)

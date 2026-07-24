@@ -29,8 +29,9 @@
 STATIC s_hMcpSessions    := NIL   // hash: session-id -> .T. (issued at initialize)
 STATIC s_nMcpSessionSeq  := 0     // monotonic counter for session-id uniqueness
 STATIC s_lMcpHttpStop    := .F.   // set when a "shutdown" request arrives
+STATIC s_lMcpHttpVerbose := .T.   // per-request console logging on/off
 
-FUNCTION MCP_Http( nPort, cBindAddr )
+FUNCTION MCP_Http( nPort, cBindAddr, lVerbose )
    LOCAL nStdErr := hb_GetStdErr()
    LOCAL hListen, hSocket
 
@@ -40,6 +41,10 @@ FUNCTION MCP_Http( nPort, cBindAddr )
    IF Empty(cBindAddr)
       cBindAddr := "127.0.0.1"
    ENDIF
+   IF lVerbose == NIL
+      lVerbose := .T.
+   ENDIF
+   s_lMcpHttpVerbose := lVerbose
 
    // Same guard as the STDIO server: never let a hook / error handler pop a
    // modal Alert/MsgBox that would block the request loop forever.
@@ -57,7 +62,6 @@ FUNCTION MCP_Http( nPort, cBindAddr )
    ENDIF
 
    FWrite( nStdErr, "MCP_Http: listening on " + cBindAddr + ":" + LTrim(Str(nPort)) + " (Streamable HTTP, single response)" + Chr(10) )
-   ? "MCP HTTP: Started on " + cBindAddr + ":" + LTrim(Str(nPort))
 
    s_lMcpHttpStop := .F.
 
@@ -67,8 +71,6 @@ FUNCTION MCP_Http( nPort, cBindAddr )
          // Accept failed (interrupted / transient) - keep serving.
          LOOP
       ENDIF
-
-      MCP_Http_Log( "Eingehende Verbindung von " + MCP_Http_Peer( hSocket ) )
 
       BEGIN SEQUENCE
          MCP_Http_ServeConnection( hSocket )
@@ -113,6 +115,8 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    LOCAL nCL, cBody, cBuf, nGot
    LOCAL cOrigin, cSessionId
    LOCAL aCors
+
+   MCP_Http_Log( "Eingehende Verbindung von " + MCP_Http_Peer( hSocket ) )
 
    // ---- Read request headers (up to the blank line) --------------------
    cHead := hb_InetRecvEndBlock( hSocket, cCRLF + cCRLF, @nLen )
@@ -472,16 +476,26 @@ RETURN cText
 // Console logging helpers
 //---------------------------------------------------------------------------
 
-// Write a timestamped line to the console (stdout). In HTTP mode stdout is not
-// used for the protocol (that goes over the socket), so this is safe.
+// Write a timestamped diagnostics line to STDERR. We deliberately do NOT use
+// ? / QOut (stdout): when the process is launched with stdout redirected to a
+// pipe nobody reads, QOut blocks once the buffer fills and the request loop
+// hangs (client times out). stderr is the codebase's diagnostics channel
+// (the stdio server and the startup line write there too).
 STATIC FUNCTION MCP_Http_Log( cMsg )
-   ? "[MCP-HTTP " + Time() + "] " + cMsg
+   IF s_lMcpHttpVerbose
+      FWrite( hb_GetStdErr(), "[MCP-HTTP " + Time() + "] " + cMsg + Chr(10) )
+   ENDIF
 RETURN NIL
 
-// Remote peer address of an accepted socket (best effort).
+// Remote peer address of an accepted socket (best effort; never fatal).
 STATIC FUNCTION MCP_Http_Peer( hSocket )
-   LOCAL cAddr := hb_InetAddress( hSocket )
-   IF Empty( cAddr )
+   LOCAL cAddr := ""
+   BEGIN SEQUENCE
+      cAddr := hb_InetAddress( hSocket )
+   RECOVER
+      cAddr := ""
+   END SEQUENCE
+   IF ValType( cAddr ) != "C" .OR. Empty( cAddr )
       cAddr := "?"
    ENDIF
 RETURN cAddr

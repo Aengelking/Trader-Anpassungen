@@ -3891,8 +3891,21 @@ FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)
       ENDIF
    ENDIF
 
-   // The interactive after_confirm_bes_pos hook (SDS reminder dialog) cannot
-   // run headless - surface its intent instead so the model can relay it
+   // Run the after-confirmation hook exactly like the mask. BATCHMODE is set
+   // at server start, so the hook takes its non-interactive path there.
+   // IMPORTANT deploy order: the batch-safe version of after_confirm_bes_pos
+   // (Trader-Hooks) must be live before this server version - the original
+   // hook shows a Tr_MsgBox loop that would block the headless server.
+   BEGIN SEQUENCE
+      Hook("after_confirm_bes_pos", {BestellungPos():New()})
+      hResult["hook_executed"] := .T.
+   RECOVER
+      hResult["hook_executed"] := .F.
+      hResult["hook_message"] := "after_confirm_bes_pos hook raised an error - check its batch-mode path"
+   END SEQUENCE
+
+   // Keep surfacing the SDS reminder to the user even though the batch-safe
+   // hook no longer shows its dialog - the model relays it in chat instead
    BEGIN SEQUENCE
       NetUse("artikel", "art")
       oExtra := art->(ExtraData():New(bes->Artikelnr))

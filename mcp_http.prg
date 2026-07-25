@@ -229,6 +229,21 @@ STATIC FUNCTION MCP_Http_Auth( hHeaders, nUser, cUserName )
    ENDIF
 RETURN NIL
 
+// Reduce wire data to printable ASCII for log output: control and high-bit
+// bytes become "?", overlong input is truncated. Keeps binary garbage (port
+// scanners, TLS handshakes) from corrupting the console.
+STATIC FUNCTION MCP_Http_Printable( cStr )
+   LOCAL cOut := "", nX, cChar
+   LOCAL nMax := Min( Len( cStr ), 120 )
+   FOR nX := 1 TO nMax
+      cChar := SubStr( cStr, nX, 1 )
+      cOut += IIF( Asc( cChar ) >= 32 .AND. Asc( cChar ) <= 126, cChar, "?" )
+   NEXT
+   IF Len( cStr ) > nMax
+      cOut += "...(" + LTrim( Str( Len( cStr ) ) ) + " bytes)"
+   ENDIF
+RETURN cOut
+
 // Read and answer exactly one HTTP request on hSocket.
 STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    LOCAL nLen, cReqLine, cPath
@@ -267,8 +282,20 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    ENDIF
 
    cReqLine := aLines[1]
+
+   // A TLS ClientHello starts with the handshake record type 0x16: the client
+   // is speaking https:// against this plain-HTTP port. Say so clearly instead
+   // of spraying binary data into the log, and just close - a TLS client
+   // cannot read a plaintext answer anyway.
+   IF Left( cReqLine, 1 ) == Chr(22)
+      MCP_Http_Log( "  TLS-Handshake auf Klartext-Port erkannt - Client verwendet https:// statt http:// " + ;
+                    "(oder direkt statt ueber den Proxy). Verbindung geschlossen." )
+      RETURN NIL
+   ENDIF
+
    aReq := hb_ATokens( cReqLine, " " )
    IF Len(aReq) < 2
+      MCP_Http_Log( "  Keine gueltige HTTP-Request-Zeile: " + MCP_Http_Printable( cReqLine ) )
       MCP_Http_Send( hSocket, 400, "text/plain", "Bad Request", {} )
       RETURN NIL
    ENDIF
@@ -294,10 +321,12 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    cSessionId := IIF( HHasKey(hHeaders, "MCP-SESSION-ID"), hHeaders["MCP-SESSION-ID"], "" )
    aCors      := MCP_Http_CorsHeaders( cOrigin, hHeaders )
 
-   // Log the request line (method, path, and body size for POST).
-   MCP_Http_Log( "  " + cHttpMethod + " " + cPath + ;
-      IIF( HHasKey(hHeaders, "CONTENT-LENGTH"), " [" + AllTrim(hHeaders["CONTENT-LENGTH"]) + " bytes]", "" ) + ;
-      IIF( ! Empty(cOrigin), " origin=" + cOrigin, "" ) )
+   // Log the request line (method, path, and body size for POST). All parts
+   // come from the wire - print them filtered so binary/garbage input cannot
+   // corrupt the console.
+   MCP_Http_Log( "  " + MCP_Http_Printable( cHttpMethod + " " + cPath ) + ;
+      IIF( HHasKey(hHeaders, "CONTENT-LENGTH"), " [" + MCP_Http_Printable(AllTrim(hHeaders["CONTENT-LENGTH"])) + " bytes]", "" ) + ;
+      IIF( ! Empty(cOrigin), " origin=" + MCP_Http_Printable(cOrigin), "" ) )
 
    // ---- Route by HTTP method -------------------------------------------
 

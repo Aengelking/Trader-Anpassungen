@@ -3096,7 +3096,9 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
    NetUse("engbes", "bes")
    NetUse("besdel", "bdel")  // Liefereinteilungen per position
    NetUse("artlief", "ali")  // supplier part numbers
+   NetUse("werkauf", "wer")  // production orders (Fremdfertigung)
    ali->(DbSetOrder(1))  // Kunde(supplier) + Str(Artikelnr,6)
+   wer->(DbSetOrder(6))  // Str(Besnr,6) + Str(Posnr,3)
    bes->(DbSetOrder(1))  // Str(Besnr,6) + Str(Posnr,3)
 
    IF ! bes->(DbSeek(Str(nPo, 6)))
@@ -3199,6 +3201,10 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       ENDIF
       IF bes->ContrNo > 0
          hLine["frame_order"] := bes->ContrNo  // call-off from this blanket PO
+      ENDIF
+      // Fremdfertigung: the production order this position belongs to
+      IF wer->(DbSeek(Str(nPo, 6) + Str(bes->Posnr, 3)))
+         hLine["production_order"] := wer->Aufno  // details via get_production_order
       ENDIF
       hLine["line_total"] := Round(bes->BeQty * hLine["unit_price"], 2)
       nTotal += hLine["line_total"]
@@ -4190,6 +4196,112 @@ FUNCTION MCP_Tool_Send_SMS(hArgs)
    hResult["status"] := "success"
    hResult["recipients"] := aPhones
    hResult["message"] := "SMS handed to David for sending"
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Production_Order(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nFa, hComp, dTemp
+   LOCAL aComponents := {}
+   LOCAL nRequired
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "fa_number"=>{"type"=>"number","description"=>"Production order (Fertigungsauftrag) number"};
+         },;
+         "required"=>{"fa_number"};
+      }
+      hResult["description"] := "Retrieve a production order (Fertigungsauftrag) by number: article, quantities, " + ;
+                                "status, end week/date, and for external manufacturing (Fremdfertigung) the supplier " + ;
+                                "and linked purchase order. Includes the material list with required, booked and " + ;
+                                "missing quantities per component"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["fa_number"])
+      RETURN "Parameter 'fa_number' must be a number"
+   ENDIF
+   nFa := hArgs["fa_number"]
+
+   NetUse("werkauf", "wer")
+   NetUse("werks", "we")
+   NetUse("artikel", "art")
+
+   wer->(DbSetOrder(1))  // Aufno
+   IF ! wer->(DbSeek(Str(nFa, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Production order not found: " + AllTrim(Str(nFa))
+      RETURN hResult
+   ENDIF
+
+   art->(DbSetOrder(2))  // Artikelnr
+
+   hResult["fa_number"] := nFa
+   hResult["article"] := HB_StrToUTF8(AllTrim(wer->Matchcode))
+   IF art->(DbSeek(Str(wer->Artno, 6)))
+      hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+   ENDIF
+   hResult["quantity"] := wer->Qty
+   hResult["produced_quantity"] := wer->GelQty
+   hResult["open_quantity"] := Max(wer->Qty - wer->GelQty, 0)
+   hResult["fa_status"] := wer->Status
+   hResult["active"] := wer->Status < 4  // < 4 = not yet completed (see werkauf browses)
+   hResult["frame"] := Right(Str(wer->End, 4), 2) == "99"  // Rahmen-FA (see model/wa.prg)
+
+   IF HB_IsNumeric(wer->End) .AND. wer->End > 0
+      hResult["end_week"] := StrZero(wer->End, 4)
+      IF (dTemp := BesWeekDate(wer->End)) != NIL
+         hResult["end_date"] := dTemp
+      ENDIF
+   ENDIF
+   IF ! Empty(wer->StartDate)
+      hResult["start_date"] := wer->StartDate
+   ENDIF
+
+   // External manufacturing (Fremdfertigung): supplier and linked PO
+   IF ! Empty(wer->Liefma)
+      hResult["external"] := .T.
+      hResult["supplier"] := HB_StrToUTF8(AllTrim(wer->Liefma))
+      IF wer->Besnr > 0
+         hResult["purchase_order"] := wer->Besnr
+         hResult["purchase_order_item"] := wer->BesPos
+      ENDIF
+   ELSE
+      hResult["external"] := .F.
+   ENDIF
+
+   // Material list from werks: required = Qty * Factor, booked = BookQty
+   // (same arithmetic as the shortage checks in model/artikel.prg)
+   we->(DbSetOrder(1))  // Aufno (+ Pos)
+   IF we->(DbSeek(Str(nFa, 6)))
+      DO WHILE ! we->(Eof()) .AND. we->Aufno == nFa
+         hComp := {=>}
+         hComp["item"] := we->Pos
+         IF art->(DbSeek(Str(we->PartArt, 6)))
+            hComp["article"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+            hComp["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+            hComp["stock"] := art->Bestand
+         ELSE
+            hComp["article_number"] := we->PartArt
+         ENDIF
+         nRequired := we->Qty * we->Factor
+         hComp["required_quantity"] := nRequired
+         hComp["booked_quantity"] := we->BookQty
+         hComp["missing_quantity"] := Max(nRequired - we->BookQty, 0)
+         AAdd(aComponents, hComp)
+         we->(DbSkip())
+      ENDDO
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["component_count"] := Len(aComponents)
+   hResult["components"] := aComponents
+   hResult["status"] := "found"
 RETURN hResult
 
 FUNCTION MCP_Tool_Get_Current_User(hArgs)

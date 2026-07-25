@@ -4233,6 +4233,7 @@ FUNCTION MCP_Tool_Get_Article_Options(hArgs)
    LOCAL cBase := "", cMatch := "", cLang := "DE"
    LOCAL oBase, aEnv
    LOCAL aTables := {}
+   LOCAL aKeys   // function-level: nested codeblocks cannot reach outer-block locals (E0005)
    LOCAL nPos := 0
    LOCAL nOldSelect := Select()
 
@@ -4301,8 +4302,8 @@ FUNCTION MCP_Tool_Get_Article_Options(hArgs)
    nPos := oBase:GetLength(0) + 1  // model length only (no tables yet)
    oBase:oTables:Each({|oTable|
       LOCAL hTable := {=>}
-      LOCAL aKeys := {}
       LOCAL oSel, cCode
+      aKeys := {}
       hTable["table"] := oTable:Table
       hTable["function"] := HB_StrToUTF8(AllTrim(oTable:Funktion(cLang)))
       hTable["position"] := nPos

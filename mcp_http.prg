@@ -140,12 +140,8 @@ RETURN nPort
 // trader.ini - see IniFileName() in trade051.prg), NOT in the shared DATA
 // directory: it is per-machine/per-user and can be ACL-protected so only the
 // Windows account running the server can read it.
-STATIC FUNCTION MCP_Http_KeysFile()
-   LOCAL cDir := GetConfigValue( "configdir" )
-   IF Empty( cDir )
-      cDir := ""
-   ENDIF
-RETURN cDir + "mcp_keys.json"
+STATIC FUNCTION MCP_Http_KeysFile()   
+RETURN Path("config\mcp_keys.json")
 
 // Load/refresh the key table; cached until the file's timestamp changes.
 STATIC FUNCTION MCP_Http_LoadKeys()

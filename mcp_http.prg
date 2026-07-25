@@ -30,6 +30,9 @@ STATIC s_nMcpSessionSeq  := 0     // monotonic counter for session-id uniqueness
 STATIC s_lMcpHttpStop    := .F.   // set when a "shutdown" request arrives
 STATIC s_lMcpHttpVerbose := .T.   // per-request console logging on/off
 STATIC s_cMcpLogSink     := ""    // "QOUT" or "STDERR"; decided from the GT on first use
+STATIC s_hMcpKeys        := NIL   // API-key table from mcp_keys.json (NIL = auth disabled)
+STATIC s_cMcpKeysStamp   := ""    // file stamp of the loaded key table
+STATIC s_lMcpAuthWarned  := .F.   // "running without authentication" warned once
 
 FUNCTION MCP_Http( nPort, cBindAddr, lVerbose )
    LOCAL nStdErr := hb_GetStdErr()
@@ -115,6 +118,126 @@ STATIC FUNCTION McpHttpPort()
 
 RETURN nPort
 
+//---------------------------------------------------------------------------
+// Per-user API-key authentication (Option: keys instead of OAuth).
+//
+// Keys live in mcp_keys.json in the DATA directory:
+//    { "keys": { "<random-key>": {"user": 5, "name": "Amos"},
+//                "<other-key>":  7 } }
+// "user" is the Trader user (buyer) record number. While the file is missing
+// or contains no keys the server runs OPEN (as before) and logs a warning, so
+// rollout cannot lock anybody out. The table is cached and reloaded when the
+// file changes.
+//
+// On each authenticated POST the Trader user context (trader.ini entry 28,
+// i.e. DNUM) is switched to the key's user for the duration of the request -
+// SystemUser() reloads automatically on change (model/user.prg), so the
+// existing per-user permission checks apply. This is safe precisely because
+// the server is single threaded: requests never overlap.
+//---------------------------------------------------------------------------
+
+// The key file lives in the config folder below the data path. Protect it
+// with an ACL so only the Windows account running the server can read it.
+STATIC FUNCTION MCP_Http_KeysFile()
+RETURN Path("config\mcp_keys.json")
+
+// Load/refresh the key table; cached until the file's timestamp changes.
+STATIC FUNCTION MCP_Http_LoadKeys()
+   LOCAL cFile := MCP_Http_KeysFile()
+   LOCAL aDir, cStamp, hData
+
+   aDir := Directory( cFile )
+   IF Len( aDir ) == 0
+      s_hMcpKeys := NIL          // no file - authentication disabled
+      s_cMcpKeysStamp := ""
+      RETURN NIL
+   ENDIF
+   cStamp := DToS( aDir[1][3] ) + aDir[1][4] + LTrim( Str( aDir[1][2] ) )
+   IF s_hMcpKeys != NIL .AND. cStamp == s_cMcpKeysStamp
+      RETURN s_hMcpKeys
+   ENDIF
+
+   hData := hb_jsonDecode( hb_MemoRead( cFile ) )
+   IF HB_IsHash( hData ) .AND. HHasKey( hData, "keys" ) .AND. HB_IsHash( hData["keys"] ) .AND. Len( hData["keys"] ) > 0
+      s_hMcpKeys := hData["keys"]
+      MCP_Http_Log( "API-Schluessel geladen: " + LTrim( Str( Len( s_hMcpKeys ) ) ) + " Eintraege" )
+   ELSE
+      s_hMcpKeys := NIL
+      MCP_Http_Log( "WARNUNG: " + cFile + " enthaelt keine nutzbare 'keys'-Tabelle - Authentifizierung inaktiv" )
+   ENDIF
+   s_cMcpKeysStamp := cStamp
+RETURN s_hMcpKeys
+
+// Check the Authorization header against the key table and resolve the
+// Trader user. Returns NIL when the request may proceed (nUser/cUserName by
+// reference; nUser stays 0 when authentication is disabled), otherwise the
+// error text for the 401 response.
+STATIC FUNCTION MCP_Http_Auth( hHeaders, nUser, cUserName )
+   LOCAL hKeys := MCP_Http_LoadKeys()
+   LOCAL cAuth, cApiKey, xEntry
+
+   nUser := 0
+   cUserName := ""
+
+   IF hKeys == NIL
+      IF ! s_lMcpAuthWarned
+         s_lMcpAuthWarned := .T.
+         MCP_Http_Log( "WARNUNG: kein " + MCP_Http_KeysFile() + " - Server laeuft OHNE Authentifizierung" )
+      ENDIF
+      RETURN NIL              // open mode
+   ENDIF
+
+   cAuth := IIF( HHasKey( hHeaders, "AUTHORIZATION" ), AllTrim( hHeaders["AUTHORIZATION"] ), "" )
+   IF Upper( Left( cAuth, 7 ) ) == "BEARER "
+      cApiKey := AllTrim( SubStr( cAuth, 8 ) )
+   ELSE
+      cApiKey := cAuth        // accept a bare key as well
+   ENDIF
+   IF Empty( cApiKey ) .OR. ! HHasKey( hKeys, cApiKey )
+      RETURN "Invalid or missing API key"
+   ENDIF
+
+   xEntry := hKeys[cApiKey]
+   DO CASE
+   CASE HB_IsNumeric( xEntry )
+      nUser := xEntry
+   CASE HB_IsHash( xEntry ) .AND. HHasKey( xEntry, "user" ) .AND. HB_IsNumeric( xEntry["user"] )
+      nUser := xEntry["user"]
+      IF HHasKey( xEntry, "name" ) .AND. ValType( xEntry["name"] ) == "C"
+         cUserName := xEntry["name"]
+      ENDIF
+   ENDCASE
+   IF nUser <= 0
+      RETURN "API key has no valid user mapping"
+   ENDIF
+
+   // The mapped user must exist and be active
+   NetUse( "buyer", "buy" )
+   buy->(DbGoTo( nUser ))
+   IF buy->(Eof()) .OR. ! buy->Aktive
+      nUser := 0
+      RETURN "API key maps to an unknown or inactive user"
+   ENDIF
+   IF Empty( cUserName )
+      cUserName := AllTrim( buy->Buyer )
+   ENDIF
+RETURN NIL
+
+// Reduce wire data to printable ASCII for log output: control and high-bit
+// bytes become "?", overlong input is truncated. Keeps binary garbage (port
+// scanners, TLS handshakes) from corrupting the console.
+STATIC FUNCTION MCP_Http_Printable( cStr )
+   LOCAL cOut := "", nX, cChar
+   LOCAL nMax := Min( Len( cStr ), 120 )
+   FOR nX := 1 TO nMax
+      cChar := SubStr( cStr, nX, 1 )
+      cOut += IIF( Asc( cChar ) >= 32 .AND. Asc( cChar ) <= 126, cChar, "?" )
+   NEXT
+   IF Len( cStr ) > nMax
+      cOut += "...(" + LTrim( Str( Len( cStr ) ) ) + " bytes)"
+   ENDIF
+RETURN cOut
+
 // Read and answer exactly one HTTP request on hSocket.
 STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    LOCAL nLen, cReqLine, cPath
@@ -124,6 +247,8 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    LOCAL nCL, cBody, cBuf, nGot
    LOCAL cOrigin, cSessionId
    LOCAL aCors
+   LOCAL cAuthErr, nAuthUser := 0, cAuthName := ""
+   LOCAL nOldUser, oHttpErr
 
    MCP_Http_Log( "Eingehende Verbindung von " + MCP_Http_Peer( hSocket ) )
 
@@ -151,8 +276,20 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    ENDIF
 
    cReqLine := aLines[1]
+
+   // A TLS ClientHello starts with the handshake record type 0x16: the client
+   // is speaking https:// against this plain-HTTP port. Say so clearly instead
+   // of spraying binary data into the log, and just close - a TLS client
+   // cannot read a plaintext answer anyway.
+   IF Left( cReqLine, 1 ) == Chr(22)
+      MCP_Http_Log( "  TLS-Handshake auf Klartext-Port erkannt - Client verwendet https:// statt http:// " + ;
+                    "(oder direkt statt ueber den Proxy). Verbindung geschlossen." )
+      RETURN NIL
+   ENDIF
+
    aReq := hb_ATokens( cReqLine, " " )
    IF Len(aReq) < 2
+      MCP_Http_Log( "  Keine gueltige HTTP-Request-Zeile: " + MCP_Http_Printable( cReqLine ) )
       MCP_Http_Send( hSocket, 400, "text/plain", "Bad Request", {} )
       RETURN NIL
    ENDIF
@@ -178,10 +315,12 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    cSessionId := IIF( HHasKey(hHeaders, "MCP-SESSION-ID"), hHeaders["MCP-SESSION-ID"], "" )
    aCors      := MCP_Http_CorsHeaders( cOrigin, hHeaders )
 
-   // Log the request line (method, path, and body size for POST).
-   MCP_Http_Log( "  " + cHttpMethod + " " + cPath + ;
-      IIF( HHasKey(hHeaders, "CONTENT-LENGTH"), " [" + AllTrim(hHeaders["CONTENT-LENGTH"]) + " bytes]", "" ) + ;
-      IIF( ! Empty(cOrigin), " origin=" + cOrigin, "" ) )
+   // Log the request line (method, path, and body size for POST). All parts
+   // come from the wire - print them filtered so binary/garbage input cannot
+   // corrupt the console.
+   MCP_Http_Log( "  " + MCP_Http_Printable( cHttpMethod + " " + cPath ) + ;
+      IIF( HHasKey(hHeaders, "CONTENT-LENGTH"), " [" + MCP_Http_Printable(AllTrim(hHeaders["CONTENT-LENGTH"])) + " bytes]", "" ) + ;
+      IIF( ! Empty(cOrigin), " origin=" + MCP_Http_Printable(cOrigin), "" ) )
 
    // ---- Route by HTTP method -------------------------------------------
 
@@ -217,6 +356,15 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
       RETURN NIL
    ENDIF
 
+   // Per-user API-key authentication (mcp_keys.json in DATA); see above.
+   cAuthErr := MCP_Http_Auth( hHeaders, @nAuthUser, @cAuthName )
+   IF cAuthErr != NIL
+      MCP_Http_Log( "  401: " + cAuthErr )
+      AAdd( aCors, 'WWW-Authenticate: Bearer realm="Trader MCP"' )
+      MCP_Http_Send( hSocket, 401, "text/plain", cAuthErr, aCors )
+      RETURN NIL
+   ENDIF
+
    // Read the body according to Content-Length.
    nCL := 0
    IF HHasKey( hHeaders, "CONTENT-LENGTH" )
@@ -234,7 +382,20 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
       ENDDO
    ENDIF
 
-   MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
+   // Switch the Trader user context to the authenticated user for this one
+   // request; guaranteed to be restored even when the dispatch errors out.
+   nOldUser := Tr_GetIni( 28 )
+   IF nAuthUser > 0
+      Tr_GetIni( 28, nAuthUser )
+      MCP_Http_Log( "  Benutzer: " + cAuthName + " (" + LTrim( Str( nAuthUser ) ) + ")" )
+   ENDIF
+   BEGIN SEQUENCE
+      MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
+   RECOVER USING oHttpErr
+      Tr_GetIni( 28, nOldUser )
+      Break( oHttpErr )
+   END SEQUENCE
+   Tr_GetIni( 28, nOldUser )
 
 RETURN NIL
 

@@ -84,6 +84,52 @@ curl -s http://127.0.0.1:8765/ \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
 ```
 
+## Authentication: per-user API keys (no OAuth)
+
+Without further setup the server is **open** — anyone who can reach the port
+can call every tool under the user context of the process that started the
+server. To restore per-user boundaries, create `mcp_keys.json` in the
+**config folder below the data path** (`<DATA>\config\mcp_keys.json`).
+Protect the file with an ACL so that only the Windows account running the
+server can read it:
+
+```json
+{
+  "keys": {
+    "K7f3x…long-random-string…":  { "user": 5, "name": "Amos" },
+    "Q9zd…another-random-key…":   { "user": 12, "name": "Elias" },
+    "legacy-short-form-key":      7
+  }
+}
+```
+
+* `user` is the Trader user (buyer) record number; the user must exist and be
+  active. The short form (key → number) is also accepted.
+* As soon as the file contains at least one key, every `POST` must send
+  `Authorization: Bearer <key>` (a bare key without `Bearer` is accepted
+  too); anything else gets `401`. `OPTIONS` (CORS preflight) and
+  `GET /healthz` stay open.
+* For the duration of each authenticated request the Trader user context
+  (`trader.ini` entry 28 / `DNUM`) is switched to the key's user —
+  `SystemUser()` picks this up automatically, so existing per-user
+  permission checks apply. The context is restored after every request,
+  also on errors. This is race-free because the server is single threaded.
+* The file is re-read automatically when its timestamp changes; keys can be
+  added/revoked without restarting the server.
+* **No file (or an empty `keys` map) = authentication off** — the server
+  logs a warning and behaves as before, so the rollout cannot lock anyone
+  out.
+* Keys travel in plain text unless HTTPS is terminated in front of the
+  server — use one of the proxy setups below for anything beyond localhost.
+* Suggested ACL (as the server's Windows account or an admin):
+  `icacls "<DATA>\config\mcp_keys.json" /inheritance:r /grant:r "%USERNAME%:R" "SYSTEM:F"`
+* Note: the David connection (mail sending identity) remains that of the
+  server process regardless of the key — see the deployment notes if
+  per-user mail identity matters.
+
+Claude Desktop / MCP clients: configure the server URL plus a custom header
+`Authorization: Bearer <key>` for the respective user.
+
 ## HTTPS with Caddy (simplest — automatic certificates)
 
 `Caddyfile`:

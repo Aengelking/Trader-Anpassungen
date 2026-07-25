@@ -17,6 +17,39 @@
    #define DvArchivePersonalIn  101
 #endif
 
+//---------------------------------------------------------------------------
+// General chat-output channel for hooks and other Trader code that runs
+// inside an MCP tool call. The function only exists while this script is
+// loaded, so callers must invoke it dynamically:
+//
+//    IF Type("MCPCHATMESSAGE()") != "U"   //running inside the MCP server?
+//       HB_ExecFromArray("MCPChatMessage", {"Sicherheitsdatenblatt abspeichern!"})
+//    ELSE
+//       ...interactive path (Tr_MsgBox etc.)...
+//    ENDIF
+//
+// Collected messages are appended to the current tool response as additional
+// content blocks, so the model sees them alongside the tool result. Text is
+// expected in the app codepage (OEM) like all other in-app strings.
+// (Deliberately named without the MCP_ prefix so it cannot be invoked as a
+// JSON-RPC method via the MCP_<method> dispatch.)
+//---------------------------------------------------------------------------
+FUNCTION MCPChatMessage(cText)
+   IF ValType(cText) == "C" .AND. ! Empty(cText)
+      AAdd(MCPChatBuffer(), HB_StrToUTF8(cText))
+   ENDIF
+RETURN NIL
+
+// Buffer of chat messages for the current tool call. Uses a function-level
+// STATIC because mcp_http.prg #includes this file after its own code, where
+// a file-wide STATIC declaration would no longer compile (E0004). Pass
+// lReset=.T. to clear; the array itself is shared by reference.
+STATIC FUNCTION MCPChatBuffer(lReset)
+   STATIC aMessages := {}
+   IF HB_IsLogical(lReset) .AND. lReset
+      ASize(aMessages, 0)
+   ENDIF
+RETURN aMessages
 
 FUNCTION MCP_StdIO()
    LOCAL cInput, hRequest, cResponse
@@ -232,6 +265,7 @@ FUNCTION MCP_Tools_Call(hRequest, xId)
    LOCAL cGroupParams,oError
    LOCAL nProvidedCount := 0
    LOCAL cProvidedParams := ""
+   LOCAL aContent, cChatMsg
 
    
    // Convert tool name to function name: get_customer -> MCP_Tool_Get_Customer
@@ -295,26 +329,35 @@ FUNCTION MCP_Tools_Call(hRequest, xId)
       //make sure the tool is not called with no arguments, this would otherwise return the schmema
       IF hArguments == NIL .OR. ValType(hArguments) != "H" .OR. Len(hArguments) == 0
          hArguments := {"DUMMY"=>.T.}
-      ENDIF      
-      
+      ENDIF
+
+      MCPChatBuffer(.T.)  // fresh chat-message buffer for this call (see MCPChatMessage)
       hToolData := HB_ExecFromArray(cFunctionName, {hArguments})
-      
+
       IF ValType(hToolData) == "C" //string returned this is an error message
          RETURN CreateErrorResponse(hToolData, xId)
-      ELSE   
+      ELSE
          // Convert structured data to readable text for MCP content
          //cFormattedText := FormatToolResult(hToolData)
          cFormattedText := HB_JsonEncode(hToolData)  // Use JSON encoding for structured data
-      
+
          hResult := {=>}
          hResult["type"] := "text"
          hResult["text"] := cFormattedText
-      ENDIF       
-   ELSE   
+      ENDIF
+   ELSE
       RETURN CreateErrorResponse("Unknown tool: " + cToolName + " (function: " + cFunctionName + ")", xId)
    ENDIF
-   
-RETURN CreateSuccessResponse({"content"=>{hResult}}, xId)
+
+   // Append chat messages emitted during the call (via MCPChatMessage) as
+   // additional content blocks so the model sees them with the result
+   aContent := {hResult}
+   FOR EACH cChatMsg IN MCPChatBuffer()
+      AAdd(aContent, {"type"=>"text", "text"=>cChatMsg})
+   NEXT
+   MCPChatBuffer(.T.)
+
+RETURN CreateSuccessResponse({"content"=>aContent}, xId)
 
 FUNCTION MCP_Tool_Get_Customer(hArgs)
    LOCAL nCustomerNumber, cSearchTerm
@@ -514,26 +557,30 @@ FUNCTION MCP_Tool_Get_Order_Details(hArgs)
          },;
          "required"=>{"order_number"};
       }
-      hResult["description"] := "Retrieve detailed order information by order number, including all line items and their status"
+      hResult["description"] := "Retrieve detailed order information by order number, including all line items with " + ;
+                                "status, the confirmed delivery week/date, the customer's requested week and - when " + ;
+                                "the date was moved - the originally confirmed week"
       RETURN hResult
    ENDIF
-   
+
    oAuftrag := Auftrag():New()
    IF  oAuftrag:Load(hArgs["order_number"])
-      lFound := .T.         
+      lFound := .T.
       hResult["order_number"] := oAuftrag:abnr
       hResult["customer"] := oAuftrag:Kundma
       hResult["date"] := oAuftrag:Besda
       hResult["completed"] := oAuftrag:Erledigt //auf->Status == 3 .OR. auf->Status == 7
       hResult["total"] := oAuftrag:total
       hResult["lines"] := {}
-      oAuftrag:Positions:Each({|oPos| 
+      oAuftrag:Positions:Each({|oPos|
          LOCAL hPosition := {=>}
+         LOCAL dTemp
+         hPosition["item"] := oPos:Itmnr
          hPosition["article"] := AllTrim(oPos:Matchcode)
          //hPosition["description"] := AllTrim(oPos:Artikel:Artikel)
          hPosition["blanket_order"] := oPos:IsRahmen
          IF oPos:IsRahmen
-            hPosition["quantity"] := oPos:ContrQty            
+            hPosition["quantity"] := oPos:ContrQty
          ELSE
             hPosition["quantity"] := oPos:VkQty
          ENDIF
@@ -542,7 +589,30 @@ FUNCTION MCP_Tool_Get_Order_Details(hArgs)
          hPosition["price"] := oPos:VkPr/oPos:Pe
          hPosition["status"] := IF(oPos:lErledigt, "completed", "open")
          hPosition["total"] := oPos:GetLineTotal()
-         
+
+         // Delivery terms are JJWW calendar weeks: Dterm is the delivery week
+         // confirmed to the customer (99 = frame/call-off), Wterm the
+         // customer's requested week, UBTerm the originally confirmed week
+         // kept when the date was moved (see auftrag_print.prg)
+         IF HB_IsNumeric(oPos:Dterm) .AND. oPos:Dterm > 0
+            hPosition["delivery_week"] := StrZero(oPos:Dterm, 4)
+            IF (dTemp := BesWeekDate(oPos:Dterm)) != NIL
+               hPosition["delivery_date"] := dTemp
+            ENDIF
+         ENDIF
+         IF HB_IsNumeric(oPos:Wterm) .AND. oPos:Wterm > 0
+            hPosition["requested_week"] := StrZero(oPos:Wterm, 4)
+            IF (dTemp := BesWeekDate(oPos:Wterm)) != NIL
+               hPosition["requested_date"] := dTemp
+            ENDIF
+         ENDIF
+         IF HB_IsNumeric(oPos:UBTerm) .AND. oPos:UBTerm > 0 .AND. oPos:UBTerm != oPos:Dterm
+            hPosition["originally_confirmed_week"] := StrZero(oPos:UBTerm, 4)
+            IF (dTemp := BesWeekDate(oPos:UBTerm)) != NIL
+               hPosition["originally_confirmed_date"] := dTemp
+            ENDIF
+         ENDIF
+
          // Add position to order result
          AAdd(hResult["lines"], hPosition)
          RETURN .T.
@@ -3025,6 +3095,8 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
 
    NetUse("engbes", "bes")
    NetUse("besdel", "bdel")  // Liefereinteilungen per position
+   NetUse("artlief", "ali")  // supplier part numbers
+   ali->(DbSetOrder(1))  // Kunde(supplier) + Str(Artikelnr,6)
    bes->(DbSetOrder(1))  // Str(Besnr,6) + Str(Posnr,3)
 
    IF ! bes->(DbSeek(Str(nPo, 6)))
@@ -3043,6 +3115,10 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       hLine := {=>}
       hLine["item"] := bes->Posnr
       hLine["article"] := HB_StrToUTF8(AllTrim(bes->Matchcode))
+      // Supplier's part number, same lookup as the PO print (bestellung_print.prg)
+      IF ali->(DbSeek(bes->Liefma + Str(bes->Artikelnr, 6))) .AND. ! Empty(ali->Artlief)
+         hLine["supplier_part_no"] := HB_StrToUTF8(AllTrim(ali->Artlief))
+      ENDIF
       hLine["quantity"] := bes->BeQty
       hLine["delivered_quantity"] := bes->GelQty
       hLine["open_quantity"] := IIF(bes->Bestat < 3, bes->BeQty - bes->GelQty, 0)
@@ -3408,6 +3484,190 @@ FUNCTION MCP_Tool_Get_Article_Prices(hArgs)
 
    DbSelectArea(nOldSelect)
    hResult["status"] := "found"
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Article_Suppliers(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL lFound := .F.
+   LOCAL aSuppliers := {}, hSupplier
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "matchcode"=>{"type"=>"string","description"=>"Artikel Matchcode"},;
+            "partno"=>{"type"=>"string","description"=>"Artikelnummer"};
+         },;
+         "anyOf"=>{{"matchcode", "partno"}};
+      }
+      hResult["description"] := "List the suppliers of an article (sources from artlief), ordered by priority, with " + ;
+                                "the supplier's part number, lead time in weeks, minimum order quantity, package unit " + ;
+                                "and last purchase price"
+      RETURN hResult
+   ENDIF
+
+   NetUse("artikel", "art")
+   NetUse("artlief", "ali")
+   NetUse("engkund", "ku")
+
+   IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+      art->(DbSetOrder(1))
+      lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+   ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
+      art->(DbSetOrder(2))
+      lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
+   ENDIF
+
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   hResult["matchcode"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+   hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+   hResult["unit"] := HB_StrToUTF8(AllTrim(art->Me))
+
+   ali->(DbSetOrder(6))  // Str(Artikelnr,6) + Str(Priority,1)
+   ku->(DbSetOrder(1))   // Kunde + Group
+
+   IF ali->(DbSeek(Str(art->Artikelnr, 6)))
+      DO WHILE ! ali->(Eof()) .AND. ali->Artikelnr == art->Artikelnr
+         hSupplier := {=>}
+         hSupplier["supplier"] := HB_StrToUTF8(AllTrim(ali->Kunde))
+         IF ku->(DbSeek(ali->Kunde + "L"))
+            hSupplier["supplier_name"] := HB_StrToUTF8(Trim(Trim(ku->Name1) + " " + ku->Name2))
+            hSupplier["supplier_number"] := ku->Nummer
+            hSupplier["currency"] := IIF(Empty(ku->Money), "EUR", AllTrim(ku->Money))
+         ENDIF
+         IF ! Empty(ali->Artlief)
+            hSupplier["supplier_part_no"] := HB_StrToUTF8(AllTrim(ali->Artlief))
+         ENDIF
+         hSupplier["priority"] := ali->Priority
+         hSupplier["lead_time_weeks"] := ali->LZ
+         hSupplier["min_order_qty"] := ali->Min
+         hSupplier["package_unit"] := ali->VPE
+         hSupplier["last_price"] := ali->LastPrice
+         hSupplier["last_quantity"] := ali->LastMenge
+         AAdd(aSuppliers, hSupplier)
+         ali->(DbSkip())
+      ENDDO
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["count"] := Len(aSuppliers)
+   hResult["suppliers"] := aSuppliers
+   hResult["status"] := IIF(Len(aSuppliers) > 0, "found", "not_found")
+   IF Len(aSuppliers) == 0
+      hResult["message"] := "No suppliers recorded for this article"
+   ENDIF
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Bom(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL lFound := .F.
+   LOCAL nArtnr
+   LOCAL aParts := {}, hPart
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "matchcode"=>{"type"=>"string","description"=>"Artikel Matchcode"},;
+            "partno"=>{"type"=>"string","description"=>"Artikelnummer"};
+         },;
+         "anyOf"=>{{"matchcode", "partno"}};
+      }
+      hResult["description"] := "Get the bill of materials (Stueckliste) of a manufactured article: components with " + ;
+                                "position, quantity per unit, factor, additional/setup quantity and current stock, " + ;
+                                "plus the production parameters (scrap, lot size). Components that are manufactured " + ;
+                                "themselves are flagged has_bom - call this tool again with their matchcode to descend"
+      RETURN hResult
+   ENDIF
+
+   NetUse("artikel", "art")
+   NetUse("parts", "part")
+   NetUse("bom", "bom")
+
+   IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+      art->(DbSetOrder(1))
+      lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+   ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
+      art->(DbSetOrder(2))
+      lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
+   ENDIF
+
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   nArtnr := art->Artikelnr
+   hResult["matchcode"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+   hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+   hResult["unit"] := HB_StrToUTF8(AllTrim(art->Me))
+   hResult["manufactured"] := art->Bezug >= 5  // procurement type >= 5 = made in-house
+
+   // Production parameters from the bom header, when present
+   IF bom->(DbSeek(Str(nArtnr, 6)))
+      hResult["scrap"] := bom->Scrap
+      hResult["min_scrap"] := bom->MinScrap
+      hResult["lot_size"] := bom->Lot
+   ENDIF
+
+   // Component lines from parts (Listart = parent). The Pos 0 row is the
+   // list header (carries the list factor), not a component.
+   art->(DbSetOrder(2))  // by Artikelnr, for component lookups
+   IF part->(DbSeek(Str(nArtnr, 6)))
+      DO WHILE ! part->(Eof()) .AND. part->Listart == nArtnr
+         IF part->Pos != 0
+            hPart := {=>}
+            hPart["item"] := part->Pos
+            hPart["quantity"] := part->Qty
+            hPart["factor"] := part->Factor
+            hPart["unit"] := HB_StrToUTF8(AllTrim(part->Me))
+            IF part->AddQty != 0
+               hPart["additional_quantity"] := part->AddQty  // setup/attrition add-on
+            ENDIF
+            IF part->AddPercent != 0
+               hPart["additional_percent"] := part->AddPercent
+            ENDIF
+            IF ! Empty(part->Notes)
+               hPart["notes"] := HB_StrToUTF8(AllTrim(part->Notes))
+            ENDIF
+            IF art->(DbSeek(Str(part->Partart, 6)))
+               hPart["article"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+               hPart["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+               hPart["stock"] := art->Bestand
+               IF art->Bezug >= 5
+                  hPart["has_bom"] := .T.  // manufactured component - recurse with get_bom
+               ENDIF
+            ELSE
+               hPart["article_number"] := part->Partart
+               hPart["description"] := "(article record not found)"
+            ENDIF
+            AAdd(aParts, hPart)
+         ENDIF
+         part->(DbSkip())
+      ENDDO
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["component_count"] := Len(aParts)
+   hResult["components"] := aParts
+   hResult["status"] := IIF(Len(aParts) > 0, "found", "not_found")
+   IF Len(aParts) == 0
+      hResult["message"] := "No parts list (Stueckliste) recorded for this article"
+   ENDIF
 RETURN hResult
 
 // Resolve a supplier from the 'supplier' (matchcode) / 'supplier_number'
@@ -3778,6 +4038,45 @@ FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)
    // Re-read the main position for the response
    bes->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))
 
+   // Fremdfertigung: when the position belongs to a production order
+   // (werkauf, index 6 = Besnr+Posnr), the confirmed week also sets the
+   // production order's end week: confirmed week plus the position's transit
+   // time (ShipTime); special weeks (>52) are taken verbatim and frame
+   // production orders (end week 99) are never touched. Same logic as
+   // BestellungConfirm.prg, but with bes repositioned on the main position
+   // first so ShipTime is read from the correct record.
+   IF nWeek > 0
+      NetUse("werkauf", "wer")
+      wer->(DbSetOrder(6))  // Str(Besnr,6) + Str(Posnr,3)
+      IF wer->(DbSeek(Str(nPo, 6) + Str(nPos, 3))) .AND. Right(Str(wer->End, 4), 2) != "99"
+         IF wer->(Rec_Lock(0))
+            wer->End := IIF(Val(Right(Str(nWeek, 4), 2)) <= 52, AddWeeks(nWeek, bes->ShipTime), nWeek)
+            wer->(dbUnlock())
+            hResult["production_order_updated"] := .T.
+            hResult["production_order_end_week"] := StrZero(wer->End, 4)
+            IF (dTemp := BesWeekDate(wer->End)) != NIL
+               hResult["production_order_end_date"] := dTemp
+            ENDIF
+         ELSE
+            hResult["production_order_updated"] := .F.
+            hResult["production_order_message"] := "Production order record is locked by another user - its end week was NOT updated"
+         ENDIF
+      ENDIF
+   ENDIF
+
+   // Run the after-confirmation hook exactly like the mask. BATCHMODE is set
+   // at server start, so the hook takes its non-interactive path there.
+   // IMPORTANT deploy order: the batch-safe version of after_confirm_bes_pos
+   // (Trader-Hooks) must be live before this server version - the original
+   // hook shows a Tr_MsgBox loop that would block the headless server.
+   BEGIN SEQUENCE
+      Hook("after_confirm_bes_pos", {BestellungPos():New()})
+      hResult["hook_executed"] := .T.
+   RECOVER
+      hResult["hook_executed"] := .F.
+      hResult["hook_message"] := "after_confirm_bes_pos hook raised an error - check its batch-mode path"
+   END SEQUENCE
+
    hResult["po_number"] := nPo
    hResult["item"] := nPos
    hResult["supplier"] := HB_StrToUTF8(AllTrim(bes->Liefma))
@@ -3888,6 +4187,341 @@ FUNCTION MCP_Tool_Send_SMS(hArgs)
    hResult["status"] := "success"
    hResult["recipients"] := aPhones
    hResult["message"] := "SMS handed to David for sending"
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Current_User(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nUser
+   LOCAL aRoles := {}, aMail := {}
+   LOCAL cAddr
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{=>},;
+         "required"=>{};
+      }
+      hResult["description"] := "Information about the Trader user the current request runs as: number, name, email, " + ;
+                                "active flag, David link and roles. With HTTP API-key authentication this reflects " + ;
+                                "the authenticated key's user; via STDIO it is the user the server was started as"
+      RETURN hResult
+   ENDIF
+
+   nUser := Tr_GetIni(28)
+   hResult["user_number"] := nUser
+
+   IF ! HB_IsNumeric(nUser) .OR. nUser <= 0
+      hResult["status"] := "none"
+      hResult["message"] := "No user context - server started without a user (-U) and no authenticated API key"
+      RETURN hResult
+   ENDIF
+
+   NetUse("buyer", "buy")
+   buy->(DbGoTo(nUser))
+   IF buy->(Eof())
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "User " + AllTrim(Str(nUser)) + " not found in the user file"
+      RETURN hResult
+   ENDIF
+
+   hResult["name"] := HB_StrToUTF8(AllTrim(buy->Buyer))
+   hResult["email"] := HB_StrToUTF8(AllTrim(buy->Email))
+   hResult["initials"] := HB_StrToUTF8(AllTrim(buy->Initials))
+   hResult["phone"] := HB_StrToUTF8(AllTrim(buy->Telefon))
+   hResult["active"] := buy->Aktive
+   hResult["david_linked"] := ! Empty(buy->David_ID)
+
+   // Roles via the user model; guarded - a missing roles file must not fail
+   // the whole call
+   BEGIN SEQUENCE
+      SystemUser():oRoles:Each({|oRole|
+         AAdd(aRoles, HB_StrToUTF8(AllTrim(oRole:Name)))
+         RETURN .T.
+      })
+   RECOVER
+   END SEQUENCE
+   hResult["roles"] := aRoles
+
+   // Outgoing mail addresses are known once the David connection was made
+   BEGIN SEQUENCE
+      FOR EACH cAddr IN SystemUser():aOutMailAddresses
+         AAdd(aMail, DV_Utf8(cAddr))
+      NEXT
+   RECOVER
+   END SEQUENCE
+   IF Len(aMail) > 0
+      hResult["mail_addresses"] := aMail
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+   hResult["status"] := "found"
+RETURN hResult
+
+
+//---------------------------------------------------------------------------
+// Archive tools - store documents/emails on a business transaction (Vorgang)
+// through the existing archive hooks (AddFileToArchive / GetArchiveFiles in
+// source\archive.prg -> Trader-Hooks). Valid doc types come from
+// Trader-Hooks/archive.ch - keep the list below in sync with it.
+//---------------------------------------------------------------------------
+
+//#define ARCHIVE_DOC_TYPES "AB,AUF,ANG,ANF,BA,BES,BB,LS,RE,PI,TA,NT,KA,KAM,INV,ER,COC,QT,PP"
+
+// Replace characters that are invalid in file names
+STATIC FUNCTION SafeFileName(cName)
+   LOCAL cOut := "", nX, cChar
+   FOR nX := 1 TO Len(cName)
+      cChar := SubStr(cName, nX, 1)
+      IF cChar $ '\/:*?"<>|' + Chr(13) + Chr(10) + Chr(9)
+         cOut += "_"
+      ELSE
+         cOut += cChar
+      ENDIF
+   NEXT
+RETURN AllTrim(cOut)
+
+FUNCTION MCP_Tool_Archive_Document(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cTyp, nNo, cFile, cId, cMailbox := "inbox"
+   LOCAL cAttFilter := ""
+   LOCAL oArchive, oItem, nAtt := 0, nX, oAtt, cName
+   LOCAL cTempDir, cTarget, cArchived
+   LOCAL aArchived := {}, aAvailable := {}
+   LOCAL cSubject, cSender, cBody, cText
+   LOCAL hDocType
+   #include '..\hooks\archive.ch'
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "doc_type"=>{"type"=>"string","enum"=>{},"description"=>"Transaction type: "},;      
+            "number"=>{"type"=>"number","description"=>"Number of the transaction (e.g. the Bestellnummer for BES/BB)"},;
+            "file"=>{"type"=>"string","description"=>"Full path (as seen by the Trader server) of a file to archive"},;
+            "message_id"=>{"type"=>"string","description"=>"David message id (from list_inbox) - archives the message's attachments, or the mail text when it has none"},;
+            "mailbox"=>{"type"=>"string","enum"=>{"inbox","common"},"description"=>"Mailbox of message_id (default inbox)"},;
+            "attachment"=>{"type"=>"string","description"=>"Archive only the attachment with this file name (default: all attachments)"};
+         },;
+         "required"=>{"doc_type","number"},;
+         "anyOf"=>{{"file", "message_id"}};
+      }
+            //"AB","AUF","ANG","ANF","BA","BES","BB","LS","RE","PI","TA","NT","KA","KAM","INV","ER","COC","QT","PP"},"description"=>"Transaction type: AB=Auftragsbestaetigung, AUF=Auftrag, ANG=Angebot, ANF=Anfrage, BES=Bestellung, BB=Bestellbestaetigung, LS=Lieferschein, RE=Rechnung, ER=Eingangsrechnung, QT=Einkaufsangebot, NT=Notiz, COC=Werksbescheinigung, PP=Pruefprotokoll, ..."},;
+      FOR EACH hDocType IN hTypes
+         Aadd(hResult["schema"]["properties"]["doc_type"]["enum"],hDocType:__enumKey)
+         hResult["schema"]["properties"]["doc_type"]["description"] += IF(hDocType:__eNumIndex>1,",","")+hDocType:__enumKey+"="+HB_StrToUtf8(hDocType["NAME"])
+      NEXT
+      hResult["description"] := "Archive a document or a David email to a business transaction (Vorgang), e.g. a " + ;
+                                "supplier's order confirmation PDF to purchase order BB/4711. Files are stored via " + ;
+                                "the standard Trader archive (same location the archive browser shows). Source is " + ;
+                                "either a file path or an inbox message (its attachments; the mail text as .txt when " + ;
+                                "there are none)"
+      RETURN hResult
+   ENDIF
+
+   
+
+   IF ValType(hArgs["doc_type"]) != "C" .OR. ! Upper(AllTrim(hArgs["doc_type"])) $ hTypes
+      RETURN "Invalid doc_type. Valid types: " + DV_Join(HGetKeys(hTypes), ", ")
+   ENDIF
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   cTyp := Upper(AllTrim(hArgs["doc_type"]))
+   nNo := hArgs["number"]
+
+   IF HHasKey(hArgs, "attachment") .AND. ValType(hArgs["attachment"]) == "C"
+      cAttFilter := Upper(AllTrim(hArgs["attachment"]))
+   ENDIF
+
+   IF HHasKey(hArgs, "file") .AND. ! Empty(hArgs["file"])
+      // ---- archive a file from disk ----
+      cFile := HB_UTF8ToStr(AllTrim(hArgs["file"]))
+      IF ! File(cFile)
+         RETURN "File not found: " + cFile
+      ENDIF
+      BEGIN SEQUENCE
+         cArchived := AddFileToArchive(cTyp, nNo, cFile, .T.)
+      RECOVER
+         cArchived := ""
+      END SEQUENCE
+      IF Empty(cArchived)
+         hResult["status"] := "error"
+         hResult["message"] := "Archiving failed - the archive hook returned no target file"
+         RETURN hResult
+      ENDIF
+      AAdd(aArchived, {"source"=>HB_StrToUTF8(cFile), "archived_as"=>HB_StrToUTF8(cArchived)})
+   ELSE
+      // ---- archive a David message (attachments, or the text body) ----
+      cId := hArgs["message_id"]
+      IF HHasKey(hArgs, "mailbox") .AND. ! Empty(hArgs["mailbox"])
+         cMailbox := Lower(AllTrim(hArgs["mailbox"]))
+      ENDIF
+      oArchive := Inbox_Archive(cMailbox)
+      IF oArchive == NIL
+         hResult["status"] := "error"
+         hResult["message"] := "David not connected"
+         RETURN hResult
+      ENDIF
+      BEGIN SEQUENCE
+         oItem := oArchive:GetArchiveEntryByID(cId)
+      RECOVER
+         oItem := NIL
+      END SEQUENCE
+      IF oItem == NIL
+         hResult["status"] := "not_found"
+         hResult["message"] := "Message not found: " + cId
+         RETURN hResult
+      ENDIF
+
+      cTempDir := hb_DirTemp()
+      BEGIN SEQUENCE ; nAtt := oItem:Attachments:Count ; RECOVER ; nAtt := 0 ; END SEQUENCE
+
+      FOR nX := 0 TO nAtt - 1
+         cName := ""
+         BEGIN SEQUENCE
+            oAtt := oItem:Attachments:Item(nX)
+            cName := oAtt:FileName
+         RECOVER
+            oAtt := NIL
+         END SEQUENCE
+         IF oAtt == NIL .OR. Empty(cName)
+            LOOP
+         ENDIF
+         AAdd(aAvailable, DV_Utf8(cName))
+         IF ! Empty(cAttFilter) .AND. Upper(AllTrim(cName)) != cAttFilter
+            LOOP
+         ENDIF
+         cTarget := cTempDir + SafeFileName(cName)
+         cArchived := ""
+         BEGIN SEQUENCE
+            oAtt:SaveAs(cTarget)
+            IF File(cTarget)
+               cArchived := AddFileToArchive(cTyp, nNo, cTarget, .T.)
+               FErase(cTarget)
+            ENDIF
+         RECOVER
+            cArchived := ""
+         END SEQUENCE
+         IF ! Empty(cArchived)
+            AAdd(aArchived, {"source"=>DV_Utf8(cName), "archived_as"=>HB_StrToUTF8(cArchived)})
+         ELSE
+            AAdd(aArchived, {"source"=>DV_Utf8(cName), "error"=>"could not be saved/archived"})
+         ENDIF
+      NEXT
+
+      IF ! Empty(cAttFilter) .AND. Len(aArchived) == 0
+         RETURN "Attachment not found: " + hArgs["attachment"] + ". Available: " + DV_Join(aAvailable, ", ")
+      ENDIF
+
+      // No attachments (and no filter): archive the mail text itself
+      IF Len(aArchived) == 0
+         BEGIN SEQUENCE ; cSubject := oItem:Subject ; RECOVER ; cSubject := "" ; END SEQUENCE
+         BEGIN SEQUENCE ; cSender := oItem:Fields:Item("SRFrom"):Value ; RECOVER ; cSender := "" ; END SEQUENCE
+         BEGIN SEQUENCE ; cBody := oItem:Fields:Item("Content"):Value ; RECOVER ; cBody := "" ; END SEQUENCE
+         cText := "Von: " + cSender + Chr(13) + Chr(10) + ;
+                  "Betreff: " + cSubject + Chr(13) + Chr(10) + ;
+                  Replicate("-", 60) + Chr(13) + Chr(10) + cBody
+         cTarget := cTempDir + SafeFileName(IIF(Empty(cSubject), "email", cSubject)) + ".txt"
+         cArchived := ""
+         BEGIN SEQUENCE
+            hb_MemoWrit(cTarget, cText)
+            cArchived := AddFileToArchive(cTyp, nNo, cTarget, .T.)
+            FErase(cTarget)
+         RECOVER
+            cArchived := ""
+         END SEQUENCE
+         IF Empty(cArchived)
+            hResult["status"] := "error"
+            hResult["message"] := "Archiving the mail text failed"
+            RETURN hResult
+         ENDIF
+         AAdd(aArchived, {"source"=>"mail text: " + DV_Utf8(cSubject), "archived_as"=>HB_StrToUTF8(cArchived)})
+      ENDIF
+   ENDIF
+
+   hResult["doc_type"] := cTyp
+   hResult["number"] := nNo
+   hResult["archived"] := aArchived
+   hResult["count"] := Len(aArchived)
+   hResult["status"] := "success"
+RETURN hResult
+
+FUNCTION MCP_Tool_List_Archive_Documents(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cTyp, nNo
+   LOCAL aFiles, aFile, hDoc
+   LOCAL aDocs := {}
+   LOCAL hDocType
+   #include '..\hooks\archive.ch'
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "doc_type"=>{"type"=>"string","enum"=>{},"description"=>"Transaction type: "},; //"AB","AUF","ANG","ANF","BA","BES","BB","LS","RE","PI","TA","NT","KA","KAM","INV","ER","COC","QT","PP"},"description"=>"Transaction type (same codes as archive_document)"},;
+            "number"=>{"type"=>"number","description"=>"Number of the transaction"};
+         },;
+         "required"=>{"doc_type","number"};
+      }
+      FOR EACH hDocType IN hTypes
+         Aadd(hResult["schema"]["properties"]["doc_type"]["enum"],hDocType:__enumKey)
+         hResult["schema"]["properties"]["doc_type"]["description"] += IF(hDocType:__eNumIndex>1,",","")+hDocType:__enumKey+"="+HB_StrToUtf8(hDocType["NAME"])
+      NEXT
+      hResult["description"] := "List the documents archived on a business transaction (Vorgang), oldest first, " + ;
+                                "with name, date and file path - e.g. everything filed on Bestellung 4711 under BES/BB"
+      RETURN hResult
+   ENDIF
+
+   IF ValType(hArgs["doc_type"]) != "C" .OR. ! Upper(AllTrim(hArgs["doc_type"])) $ hTypes
+      RETURN "Invalid doc_type. Valid types: " + DV_Join(HGetKeys(hTypes), ", ")
+   ENDIF
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   cTyp := Upper(AllTrim(hArgs["doc_type"]))
+   nNo := hArgs["number"]
+
+   BEGIN SEQUENCE
+      aFiles := GetArchiveFiles({cTyp => nNo})
+   RECOVER
+      aFiles := NIL
+   END SEQUENCE
+
+   IF ! HB_IsArray(aFiles)
+      hResult["status"] := "error"
+      hResult["message"] := "Archive lookup failed"
+      RETURN hResult
+   ENDIF
+
+   // Directory()-style entries: [1] display name, [2] size, [3] date,
+   // [4] time, [6] full path (see Trader-Hooks/get_archive_files.prg)
+   FOR EACH aFile IN aFiles
+      IF HB_IsArray(aFile) .AND. Len(aFile) >= 6
+         hDoc := {=>}
+         hDoc["name"] := HB_StrToUTF8(AllTrim(aFile[1]))
+         IF HB_IsNumeric(aFile[2])
+            hDoc["size"] := aFile[2]
+         ENDIF
+         hDoc["date"] := aFile[3]
+         hDoc["time"] := aFile[4]
+         hDoc["path"] := HB_StrToUTF8(aFile[6])
+         AAdd(aDocs, hDoc)
+      ENDIF
+   NEXT
+
+   hResult["doc_type"] := cTyp
+   hResult["number"] := nNo
+   hResult["count"] := Len(aDocs)
+   hResult["documents"] := aDocs
+   hResult["status"] := IIF(Len(aDocs) > 0, "found", "not_found")
+   IF Len(aDocs) == 0
+      hResult["message"] := "No documents archived on this transaction"
+   ENDIF
 RETURN hResult
 
 // Convert all string values in a hash from OEM to ANSI

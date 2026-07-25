@@ -88,8 +88,10 @@ curl -s http://127.0.0.1:8765/ \
 
 Without further setup the server is **open** — anyone who can reach the port
 can call every tool under the user context of the process that started the
-server. To restore per-user boundaries, create `mcp_keys.json` in the DATA
-directory:
+server. To restore per-user boundaries, create `mcp_keys.json` in the
+**config directory** (`%LOCALAPPDATA%`, next to `trader.ini`, on the machine
+running the server). Protect the file with an ACL so that only the Windows
+account running the server can read it:
 
 ```json
 {
@@ -119,6 +121,8 @@ directory:
   out.
 * Keys travel in plain text unless HTTPS is terminated in front of the
   server — use one of the proxy setups below for anything beyond localhost.
+* Suggested ACL (as the server's Windows account or an admin):
+  `icacls "%LOCALAPPDATA%\mcp_keys.json" /inheritance:r /grant:r "%USERNAME%:R" "SYSTEM:F"`
 * Note: the David connection (mail sending identity) remains that of the
   server process regardless of the key — see the deployment notes if
   per-user mail identity matters.

@@ -3163,6 +3163,9 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       IF bes->(FieldPos("SHIPPED")) > 0 .AND. ! Empty(bes->Shipped)
          hLine["shipped_date"] := bes->Shipped
       ENDIF
+      IF bes->(FieldPos("CARRIER")) > 0 .AND. ! Empty(bes->Carrier)
+         hLine["carrier"] := HB_StrToUTF8(AllTrim(bes->Carrier))
+      ENDIF
       IF bes->Bestat < 3 .AND. bes->(FieldPos("TRACKING")) > 0 .AND. bes->(FieldPos("SHIPPED")) > 0
          // Same criterion as the checkstock shipping watchdog: a confirmation
          // exists once a tracking number or a shipped date is recorded
@@ -3185,6 +3188,9 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
             ENDIF
             IF bdel->(FieldPos("SHIPPED")) > 0 .AND. ! Empty(bdel->Shipped)
                hSched["shipped_date"] := bdel->Shipped
+            ENDIF
+            IF bdel->(FieldPos("CARRIER")) > 0 .AND. ! Empty(bdel->Carrier)
+               hSched["carrier"] := HB_StrToUTF8(AllTrim(bdel->Carrier))
             ENDIF
             AAdd(aSched, hSched)
             bdel->(DbSkip())
@@ -3799,7 +3805,7 @@ RETURN hResult
 FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
    LOCAL hResult := {=>}
    LOCAL nPo, nPos, nWeek := 0, nWeekRec := 0
-   LOCAL cTracking := "", dShipped := NIL
+   LOCAL cTracking := "", dShipped := NIL, cCarrier := ""
    LOCAL aWeeks := {}
    LOCAL lHasPlan := .F.
    LOCAL nOldSelect := Select()
@@ -3813,15 +3819,16 @@ FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
             "item"=>{"type"=>"number","description"=>"Position number within the purchase order"},;
             "tracking"=>{"type"=>"string","description"=>"Carrier tracking number reported by the supplier"},;
             "shipped_date"=>{"type"=>"string","description"=>"Date the supplier shipped, YYYY-MM-DD"},;
+            "carrier"=>{"type"=>"string","description"=>"Shipping company / carrier reported by the supplier (e.g. UPS, DHL, Schenker)"},;
             "week"=>{"type"=>"string","description"=>"JJWW calendar week of the delivery-schedule entry to book on. Required when the position has a Liefereinteilung; must be omitted otherwise"};
          },;
          "required"=>{"po_number","item"};
       }
-      hResult["description"] := "Book a supplier shipping confirmation (tracking number and/or shipped date) on a " + ;
-                                "purchase order position - or, when the position has a delivery schedule " + ;
+      hResult["description"] := "Book a supplier shipping confirmation (tracking number, shipped date and/or carrier) " + ;
+                                "on a purchase order position - or, when the position has a delivery schedule " + ;
                                 "(Liefereinteilung), on the schedule entry of the given week. At least one of " + ;
-                                "'tracking' or 'shipped_date' is required. Existing values are only overwritten " + ;
-                                "by non-empty inputs, never cleared"
+                                "'tracking', 'shipped_date' or 'carrier' is required. Existing values are only " + ;
+                                "overwritten by non-empty inputs, never cleared"
       RETURN hResult
    ENDIF
 
@@ -3840,8 +3847,11 @@ FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
          RETURN "Invalid shipped_date: " + hArgs["shipped_date"] + " (expected YYYY-MM-DD)"
       ENDIF
    ENDIF
-   IF Empty(cTracking) .AND. Empty(dShipped)
-      RETURN "Provide at least one of 'tracking' or 'shipped_date'"
+   IF HHasKey(hArgs, "carrier") .AND. ValType(hArgs["carrier"]) == "C"
+      cCarrier := HB_UTF8ToStr(AllTrim(hArgs["carrier"]))
+   ENDIF
+   IF Empty(cTracking) .AND. Empty(dShipped) .AND. Empty(cCarrier)
+      RETURN "Provide at least one of 'tracking', 'shipped_date' or 'carrier'"
    ENDIF
    IF HHasKey(hArgs, "week") .AND. ! Empty(hArgs["week"])
       nWeek := IIF(HB_IsNumeric(hArgs["week"]), hArgs["week"], Val(AllTrim(hArgs["week"])))
@@ -3906,6 +3916,13 @@ FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
       IF ! Empty(dShipped)
          bdel->Shipped := dShipped
       ENDIF
+      IF ! Empty(cCarrier)
+         IF bdel->(FieldPos("CARRIER")) > 0
+            bdel->Carrier := cCarrier
+         ELSE
+            hResult["carrier_message"] := "CARRIER field not present on besdel yet - carrier not stored"
+         ENDIF
+      ENDIF
       bdel->(dbUnlock())
 
       hResult["level"] := "schedule"
@@ -3913,6 +3930,9 @@ FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
       hResult["tracking"] := HB_StrToUTF8(AllTrim(bdel->Tracking))
       IF ! Empty(bdel->Shipped)
          hResult["shipped_date"] := bdel->Shipped
+      ENDIF
+      IF bdel->(FieldPos("CARRIER")) > 0 .AND. ! Empty(bdel->Carrier)
+         hResult["carrier"] := HB_StrToUTF8(AllTrim(bdel->Carrier))
       ENDIF
    ELSE
       IF nWeek > 0
@@ -3931,12 +3951,22 @@ FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
       IF ! Empty(dShipped)
          bes->Shipped := dShipped
       ENDIF
+      IF ! Empty(cCarrier)
+         IF bes->(FieldPos("CARRIER")) > 0
+            bes->Carrier := cCarrier
+         ELSE
+            hResult["carrier_message"] := "CARRIER field not present on engbes yet - carrier not stored"
+         ENDIF
+      ENDIF
       bes->(dbUnlock())
 
       hResult["level"] := "position"
       hResult["tracking"] := HB_StrToUTF8(AllTrim(bes->Tracking))
       IF ! Empty(bes->Shipped)
          hResult["shipped_date"] := bes->Shipped
+      ENDIF
+      IF bes->(FieldPos("CARRIER")) > 0 .AND. ! Empty(bes->Carrier)
+         hResult["carrier"] := HB_StrToUTF8(AllTrim(bes->Carrier))
       ENDIF
    ENDIF
 

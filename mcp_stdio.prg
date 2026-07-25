@@ -4189,6 +4189,78 @@ FUNCTION MCP_Tool_Send_SMS(hArgs)
    hResult["message"] := "SMS handed to David for sending"
 RETURN hResult
 
+FUNCTION MCP_Tool_Get_Current_User(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nUser
+   LOCAL aRoles := {}, aMail := {}
+   LOCAL cAddr
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{=>},;
+         "required"=>{};
+      }
+      hResult["description"] := "Information about the Trader user the current request runs as: number, name, email, " + ;
+                                "active flag, David link and roles. With HTTP API-key authentication this reflects " + ;
+                                "the authenticated key's user; via STDIO it is the user the server was started as"
+      RETURN hResult
+   ENDIF
+
+   nUser := Tr_GetIni(28)
+   hResult["user_number"] := nUser
+
+   IF ! HB_IsNumeric(nUser) .OR. nUser <= 0
+      hResult["status"] := "none"
+      hResult["message"] := "No user context - server started without a user (-U) and no authenticated API key"
+      RETURN hResult
+   ENDIF
+
+   NetUse("buyer", "buy")
+   buy->(DbGoTo(nUser))
+   IF buy->(Eof())
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "User " + AllTrim(Str(nUser)) + " not found in the user file"
+      RETURN hResult
+   ENDIF
+
+   hResult["name"] := HB_StrToUTF8(AllTrim(buy->Buyer))
+   hResult["email"] := HB_StrToUTF8(AllTrim(buy->Email))
+   hResult["initials"] := HB_StrToUTF8(AllTrim(buy->Initials))
+   hResult["phone"] := HB_StrToUTF8(AllTrim(buy->Telefon))
+   hResult["active"] := buy->Aktive
+   hResult["david_linked"] := ! Empty(buy->David_ID)
+
+   // Roles via the user model; guarded - a missing roles file must not fail
+   // the whole call
+   BEGIN SEQUENCE
+      SystemUser():oRoles:Each({|oRole|
+         AAdd(aRoles, HB_StrToUTF8(AllTrim(oRole:Name)))
+         RETURN .T.
+      })
+   RECOVER
+   END SEQUENCE
+   hResult["roles"] := aRoles
+
+   // Outgoing mail addresses are known once the David connection was made
+   BEGIN SEQUENCE
+      FOR EACH cAddr IN SystemUser():aOutMailAddresses
+         AAdd(aMail, DV_Utf8(cAddr))
+      NEXT
+   RECOVER
+   END SEQUENCE
+   IF Len(aMail) > 0
+      hResult["mail_addresses"] := aMail
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+   hResult["status"] := "found"
+RETURN hResult
+
+
 //---------------------------------------------------------------------------
 // Archive tools - store documents/emails on a business transaction (Vorgang)
 // through the existing archive hooks (AddFileToArchive / GetArchiveFiles in
@@ -4252,8 +4324,8 @@ FUNCTION MCP_Tool_Archive_Document(hArgs)
 
    
 
-   IF ValType(hArgs["doc_type"]) != "C" .OR. ! Upper(AllTrim(hArgs["doc_type"])) $ HGetKeys(hTypes)
-      RETURN "Invalid doc_type. Valid types: " //+  HB_HGetKeys(hTypes)
+   IF ValType(hArgs["doc_type"]) != "C" .OR. ! Upper(AllTrim(hArgs["doc_type"])) $ hTypes
+      RETURN "Invalid doc_type. Valid types: " + DV_Join(HGetKeys(hTypes), ", ")
    ENDIF
    IF ! HB_IsNumeric(hArgs["number"])
       RETURN "Parameter 'number' must be a number"
@@ -4406,7 +4478,7 @@ FUNCTION MCP_Tool_List_Archive_Documents(hArgs)
    ENDIF
 
    IF ValType(hArgs["doc_type"]) != "C" .OR. ! Upper(AllTrim(hArgs["doc_type"])) $ hTypes
-      RETURN "Invalid doc_type. Valid types: " //+ ARCHIVE_DOC_TYPES
+      RETURN "Invalid doc_type. Valid types: " + DV_Join(HGetKeys(hTypes), ", ")
    ENDIF
    IF ! HB_IsNumeric(hArgs["number"])
       RETURN "Parameter 'number' must be a number"

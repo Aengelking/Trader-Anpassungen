@@ -1,1 +1,5 @@
 cleverreach_token.json
+
+# local build-aid symlink for syntax checks on POSIX (mirrors the
+# Windows-relative include path ..\hooks\archive.ch in mcp_stdio.prg)
+..\\hooks\\archive.ch

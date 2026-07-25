@@ -4203,6 +4203,9 @@ FUNCTION MCP_Tool_Get_Production_Order(hArgs)
    LOCAL nFa, hComp, dTemp
    LOCAL aComponents := {}
    LOCAL nRequired
+   LOCAL nForecast := 0, lProducible
+   LOCAL cMissing, cForecastMissing, aMissing, aForecastMissing
+   LOCAL hMiss, hMissOut, aMissOut
    LOCAL nOldSelect := Select()
 
    // Return schema and description when called without arguments
@@ -4216,8 +4219,10 @@ FUNCTION MCP_Tool_Get_Production_Order(hArgs)
       }
       hResult["description"] := "Retrieve a production order (Fertigungsauftrag) by number: article, quantities, " + ;
                                 "status, end week/date, and for external manufacturing (Fremdfertigung) the supplier " + ;
-                                "and linked purchase order. Includes the material list with required, booked and " + ;
-                                "missing quantities per component"
+                                "and linked purchase order. Includes the material list (required/booked/missing per " + ;
+                                "component) and a producibility check: 'producible' (with current stock, incl. " + ;
+                                "blocks and approvals), 'due' (start date reached), and for future starts " + ;
+                                "'producible_by_start' considering expected receipts"
       RETURN hResult
    ENDIF
 
@@ -4295,6 +4300,60 @@ FUNCTION MCP_Tool_Get_Production_Order(hArgs)
          AAdd(aComponents, hComp)
          we->(DbSkip())
       ENDDO
+   ENDIF
+
+   // Producibility via WAStatus() (fertigung_edit.prg) - the same routine the
+   // Fertigung screens and RUN_FIND_FA_PRODUCABLE use. The return value
+   // reflects the CURRENT stock; with a future start date the forecast lists
+   // additionally consider expected receipts up to the start (working days).
+   IF wer->Status < 4 .AND. ! hResult["frame"]
+      wer->(DbSetOrder(1))
+      wer->(DbSeek(Str(nFa, 6)))  // WAStatus works on the current wer record
+      hResult["due"] := Empty(wer->StartDate) .OR. wer->StartDate <= Date()
+      nForecast := 0
+      IF ! Empty(wer->StartDate) .AND. wer->StartDate > Date()
+         BEGIN SEQUENCE
+            nForecast := CountWorkingDays(Date(), wer->StartDate, GetConfigValue("STATE"), .T.)
+         RECOVER
+            nForecast := 0
+         END SEQUENCE
+      ENDIF
+      BEGIN SEQUENCE
+         lProducible := WAStatus(NIL, @cMissing, nForecast, @cForecastMissing, @aMissing, @aForecastMissing)
+         hResult["producible"] := lProducible
+         aMissOut := {}
+         FOR EACH hMiss IN aMissing
+            IF HB_IsHash(hMiss)
+               hMissOut := {=>}
+               hMissOut["type"] := hMiss["TYPE"]
+               hMissOut["message"] := HB_StrToUTF8(hMiss["MESSAGE"])
+               IF HHasKey(hMiss, "DATA")
+                  hMissOut["data"] := _HashToUtf8(hMiss["DATA"])
+               ENDIF
+               AAdd(aMissOut, hMissOut)
+            ENDIF
+         NEXT
+         hResult["missing"] := aMissOut
+         IF nForecast > 0
+            hResult["forecast_working_days"] := nForecast
+            hResult["producible_by_start"] := Len(aForecastMissing) == 0
+            aMissOut := {}
+            FOR EACH hMiss IN aForecastMissing
+               IF HB_IsHash(hMiss)
+                  hMissOut := {=>}
+                  hMissOut["type"] := hMiss["TYPE"]
+                  hMissOut["message"] := HB_StrToUTF8(hMiss["MESSAGE"])
+                  IF HHasKey(hMiss, "DATA")
+                     hMissOut["data"] := _HashToUtf8(hMiss["DATA"])
+                  ENDIF
+                  AAdd(aMissOut, hMissOut)
+               ENDIF
+            NEXT
+            hResult["missing_by_start"] := aMissOut
+         ENDIF
+      RECOVER
+         hResult["producible_message"] := "Producibility check failed"
+      END SEQUENCE
    ENDIF
 
    DbSelectArea(nOldSelect)

@@ -3192,7 +3192,10 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
          hLine["delivery_schedule"] := aSched
       ENDIF
       IF ! Empty(bes->AbNr)  // character field in engbes
-         hLine["sales_order"] := HB_StrToUTF8(AllTrim(bes->AbNr))  // linked customer order
+         // The supplier's order confirmation (AB) number - the reference under
+         // which the SUPPLIER runs this order (booked via confirm_purchase_order).
+         // Not to be confused with our own sales order numbers.
+         hLine["supplier_ab_number"] := HB_StrToUTF8(AllTrim(bes->AbNr))
       ENDIF
       IF bes->ContrNo > 0
          hLine["frame_order"] := bes->ContrNo  // call-off from this blanket PO
@@ -4083,7 +4086,7 @@ FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)
    hResult["article"] := HB_StrToUTF8(AllTrim(bes->Matchcode))
    hResult["confirmed"] := Upper(AllTrim(bes->Confirmed)) == "Y"
    IF ! Empty(bes->AbNr)
-      hResult["ab_number"] := HB_StrToUTF8(AllTrim(bes->AbNr))
+      hResult["supplier_ab_number"] := HB_StrToUTF8(AllTrim(bes->AbNr))
    ENDIF
    IF HB_IsNumeric(bes->Lterm) .AND. bes->Lterm > 0
       hResult["delivery_week"] := StrZero(bes->Lterm, 4)

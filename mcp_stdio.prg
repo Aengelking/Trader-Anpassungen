@@ -4228,6 +4228,114 @@ FUNCTION MCP_Tool_Send_SMS(hArgs)
    hResult["message"] := "SMS handed to David for sending"
 RETURN hResult
 
+FUNCTION MCP_Tool_Get_Article_Options(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cBase := "", cMatch := "", cLang := "DE"
+   LOCAL oBase, aEnv
+   LOCAL aTables := {}
+   LOCAL nPos := 0
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "base"=>{"type"=>"string","description"=>"Option base/model code - the fixed matchcode prefix of the variant family"},;
+            "matchcode"=>{"type"=>"string","description"=>"Full matchcode of a variant article - resolves the base and additionally decodes which option is selected per table"},;
+            "language"=>{"type"=>"string","description"=>"Language for table names and option descriptions (e.g. DE, EN; default DE)"};
+         },;
+         "anyOf"=>{{"base", "matchcode"}};
+      }
+      hResult["description"] := "Read the article variant option tables (Optionen/Varianten): per option table its " + ;
+                                "function name, character position and length within the matchcode, and all keys with " + ;
+                                "their descriptions. Given a full variant matchcode, the selected key per table is " + ;
+                                "decoded as well - useful to configure or explain a variant article"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "language") .AND. ! Empty(hArgs["language"])
+      cLang := Upper(AllTrim(hArgs["language"]))
+   ENDIF
+
+   NetUse("artikel", "art")
+   NetUse("optbas", "opb")
+   NetUse("option", "op")
+
+   IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+      art->(DbSetOrder(1))
+      IF ! art->(DbSeek(Upper(AllTrim(HB_UTF8ToStr(hArgs["matchcode"])))))
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "not_found"
+         hResult["message"] := "Article not found"
+         RETURN hResult
+      ENDIF
+      IF ! (art->Variant == "V" .AND. art->Length > 0)
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "error"
+         hResult["message"] := "Article is not a variant article - pass 'base' if you meant an option family code"
+         RETURN hResult
+      ENDIF
+      cMatch := art->Matchcode
+      cBase := SubStr(art->Matchcode, 1, art->Length)
+      hResult["matchcode"] := HB_StrToUTF8(AllTrim(cMatch))
+   ELSE
+      cBase := Upper(AllTrim(HB_UTF8ToStr(hArgs["base"])))
+   ENDIF
+
+   aEnv := SaveEnv()
+   oBase := OptionBase():New()
+   IF ! oBase:Load(cBase)
+      RestEnv(aEnv)
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Option base not found: " + AllTrim(cBase)
+      RETURN hResult
+   ENDIF
+
+   hResult["base"] := HB_StrToUTF8(AllTrim(cBase))
+   hResult["language"] := cLang
+
+   // Tables in matchcode order; nPos walks the character position within the
+   // matchcode (base prefix first), same decoding as GetEnhancedDescription
+   nPos := oBase:GetLength(0) + 1  // model length only (no tables yet)
+   oBase:oTables:Each({|oTable|
+      LOCAL hTable := {=>}
+      LOCAL aKeys := {}
+      LOCAL oSel, cCode
+      hTable["table"] := oTable:Table
+      hTable["function"] := HB_StrToUTF8(AllTrim(oTable:Funktion(cLang)))
+      hTable["position"] := nPos
+      hTable["length"] := oTable:Length
+      oTable:oKeys:Each({|oKey|
+         AAdd(aKeys, {;
+            "code"=>HB_StrToUTF8(oKey:TabKey),;
+            "description"=>HB_StrToUTF8(AllTrim(oKey:Descript(cLang)));
+         })
+         RETURN .T.
+      })
+      hTable["keys"] := aKeys
+      IF ! Empty(cMatch)
+         cCode := SubStr(cMatch, nPos, oTable:Length)
+         hTable["selected_code"] := HB_StrToUTF8(cCode)
+         oSel := oTable:oKeys:GetRecord(cCode)
+         IF oSel != NIL
+            hTable["selected"] := HB_StrToUTF8(AllTrim(oSel:Descript(cLang)))
+         ENDIF
+      ENDIF
+      nPos += oTable:Length
+      AAdd(aTables, hTable)
+      RETURN .T.
+   })
+
+   RestEnv(aEnv)
+   DbSelectArea(nOldSelect)
+
+   hResult["table_count"] := Len(aTables)
+   hResult["tables"] := aTables
+   hResult["status"] := "found"
+RETURN hResult
+
 FUNCTION MCP_Tool_Get_Production_Order(hArgs)
    LOCAL hResult := {=>}
    LOCAL nFa, hComp, dTemp

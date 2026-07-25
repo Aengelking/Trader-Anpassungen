@@ -4189,6 +4189,254 @@ FUNCTION MCP_Tool_Send_SMS(hArgs)
    hResult["message"] := "SMS handed to David for sending"
 RETURN hResult
 
+//---------------------------------------------------------------------------
+// Archive tools - store documents/emails on a business transaction (Vorgang)
+// through the existing archive hooks (AddFileToArchive / GetArchiveFiles in
+// source\archive.prg -> Trader-Hooks). Valid doc types come from
+// Trader-Hooks/archive.ch - keep the list below in sync with it.
+//---------------------------------------------------------------------------
+
+#define ARCHIVE_DOC_TYPES "AB,AUF,ANG,ANF,BA,BES,BB,LS,RE,PI,TA,NT,KA,KAM,INV,ER,COC,QT,PP"
+
+// Replace characters that are invalid in file names
+STATIC FUNCTION SafeFileName(cName)
+   LOCAL cOut := "", nX, cChar
+   FOR nX := 1 TO Len(cName)
+      cChar := SubStr(cName, nX, 1)
+      IF cChar $ '\/:*?"<>|' + Chr(13) + Chr(10) + Chr(9)
+         cOut += "_"
+      ELSE
+         cOut += cChar
+      ENDIF
+   NEXT
+RETURN AllTrim(cOut)
+
+FUNCTION MCP_Tool_Archive_Document(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cTyp, nNo, cFile, cId, cMailbox := "inbox"
+   LOCAL cAttFilter := ""
+   LOCAL oArchive, oItem, nAtt := 0, nX, oAtt, cName
+   LOCAL cTempDir, cTarget, cArchived
+   LOCAL aArchived := {}, aAvailable := {}
+   LOCAL cSubject, cSender, cBody, cText
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "doc_type"=>{"type"=>"string","enum"=>{"AB","AUF","ANG","ANF","BA","BES","BB","LS","RE","PI","TA","NT","KA","KAM","INV","ER","COC","QT","PP"},"description"=>"Transaction type: AB=Auftragsbestaetigung, AUF=Auftrag, ANG=Angebot, ANF=Anfrage, BES=Bestellung, BB=Bestellbestaetigung, LS=Lieferschein, RE=Rechnung, ER=Eingangsrechnung, QT=Einkaufsangebot, NT=Notiz, COC=Werksbescheinigung, PP=Pruefprotokoll, ..."},;
+            "number"=>{"type"=>"number","description"=>"Number of the transaction (e.g. the Bestellnummer for BES/BB)"},;
+            "file"=>{"type"=>"string","description"=>"Full path (as seen by the Trader server) of a file to archive"},;
+            "message_id"=>{"type"=>"string","description"=>"David message id (from list_inbox) - archives the message's attachments, or the mail text when it has none"},;
+            "mailbox"=>{"type"=>"string","enum"=>{"inbox","common"},"description"=>"Mailbox of message_id (default inbox)"},;
+            "attachment"=>{"type"=>"string","description"=>"Archive only the attachment with this file name (default: all attachments)"};
+         },;
+         "required"=>{"doc_type","number"},;
+         "anyOf"=>{{"file", "message_id"}};
+      }
+      hResult["description"] := "Archive a document or a David email to a business transaction (Vorgang), e.g. a " + ;
+                                "supplier's order confirmation PDF to purchase order BB/4711. Files are stored via " + ;
+                                "the standard Trader archive (same location the archive browser shows). Source is " + ;
+                                "either a file path or an inbox message (its attachments; the mail text as .txt when " + ;
+                                "there are none)"
+      RETURN hResult
+   ENDIF
+
+   IF ValType(hArgs["doc_type"]) != "C" .OR. ! ("," + Upper(AllTrim(hArgs["doc_type"])) + ",") $ ("," + ARCHIVE_DOC_TYPES + ",")
+      RETURN "Invalid doc_type. Valid types: " + ARCHIVE_DOC_TYPES
+   ENDIF
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   cTyp := Upper(AllTrim(hArgs["doc_type"]))
+   nNo := hArgs["number"]
+
+   IF HHasKey(hArgs, "attachment") .AND. ValType(hArgs["attachment"]) == "C"
+      cAttFilter := Upper(AllTrim(hArgs["attachment"]))
+   ENDIF
+
+   IF HHasKey(hArgs, "file") .AND. ! Empty(hArgs["file"])
+      // ---- archive a file from disk ----
+      cFile := HB_UTF8ToStr(AllTrim(hArgs["file"]))
+      IF ! File(cFile)
+         RETURN "File not found: " + cFile
+      ENDIF
+      BEGIN SEQUENCE
+         cArchived := AddFileToArchive(cTyp, nNo, cFile, .T.)
+      RECOVER
+         cArchived := ""
+      END SEQUENCE
+      IF Empty(cArchived)
+         hResult["status"] := "error"
+         hResult["message"] := "Archiving failed - the archive hook returned no target file"
+         RETURN hResult
+      ENDIF
+      AAdd(aArchived, {"source"=>HB_StrToUTF8(cFile), "archived_as"=>HB_StrToUTF8(cArchived)})
+   ELSE
+      // ---- archive a David message (attachments, or the text body) ----
+      cId := hArgs["message_id"]
+      IF HHasKey(hArgs, "mailbox") .AND. ! Empty(hArgs["mailbox"])
+         cMailbox := Lower(AllTrim(hArgs["mailbox"]))
+      ENDIF
+      oArchive := Inbox_Archive(cMailbox)
+      IF oArchive == NIL
+         hResult["status"] := "error"
+         hResult["message"] := "David not connected"
+         RETURN hResult
+      ENDIF
+      BEGIN SEQUENCE
+         oItem := oArchive:GetArchiveEntryByID(cId)
+      RECOVER
+         oItem := NIL
+      END SEQUENCE
+      IF oItem == NIL
+         hResult["status"] := "not_found"
+         hResult["message"] := "Message not found: " + cId
+         RETURN hResult
+      ENDIF
+
+      cTempDir := hb_DirTemp()
+      BEGIN SEQUENCE ; nAtt := oItem:Attachments:Count ; RECOVER ; nAtt := 0 ; END SEQUENCE
+
+      FOR nX := 0 TO nAtt - 1
+         cName := ""
+         BEGIN SEQUENCE
+            oAtt := oItem:Attachments:Item(nX)
+            cName := oAtt:FileName
+         RECOVER
+            oAtt := NIL
+         END SEQUENCE
+         IF oAtt == NIL .OR. Empty(cName)
+            LOOP
+         ENDIF
+         AAdd(aAvailable, DV_Utf8(cName))
+         IF ! Empty(cAttFilter) .AND. Upper(AllTrim(cName)) != cAttFilter
+            LOOP
+         ENDIF
+         cTarget := cTempDir + SafeFileName(cName)
+         cArchived := ""
+         BEGIN SEQUENCE
+            oAtt:SaveAs(cTarget)
+            IF File(cTarget)
+               cArchived := AddFileToArchive(cTyp, nNo, cTarget, .T.)
+               FErase(cTarget)
+            ENDIF
+         RECOVER
+            cArchived := ""
+         END SEQUENCE
+         IF ! Empty(cArchived)
+            AAdd(aArchived, {"source"=>DV_Utf8(cName), "archived_as"=>HB_StrToUTF8(cArchived)})
+         ELSE
+            AAdd(aArchived, {"source"=>DV_Utf8(cName), "error"=>"could not be saved/archived"})
+         ENDIF
+      NEXT
+
+      IF ! Empty(cAttFilter) .AND. Len(aArchived) == 0
+         RETURN "Attachment not found: " + hArgs["attachment"] + ". Available: " + DV_Join(aAvailable, ", ")
+      ENDIF
+
+      // No attachments (and no filter): archive the mail text itself
+      IF Len(aArchived) == 0
+         BEGIN SEQUENCE ; cSubject := oItem:Subject ; RECOVER ; cSubject := "" ; END SEQUENCE
+         BEGIN SEQUENCE ; cSender := oItem:Fields:Item("SRFrom"):Value ; RECOVER ; cSender := "" ; END SEQUENCE
+         BEGIN SEQUENCE ; cBody := oItem:Fields:Item("Content"):Value ; RECOVER ; cBody := "" ; END SEQUENCE
+         cText := "Von: " + cSender + Chr(13) + Chr(10) + ;
+                  "Betreff: " + cSubject + Chr(13) + Chr(10) + ;
+                  Replicate("-", 60) + Chr(13) + Chr(10) + cBody
+         cTarget := cTempDir + SafeFileName(IIF(Empty(cSubject), "email", cSubject)) + ".txt"
+         cArchived := ""
+         BEGIN SEQUENCE
+            hb_MemoWrit(cTarget, cText)
+            cArchived := AddFileToArchive(cTyp, nNo, cTarget, .T.)
+            FErase(cTarget)
+         RECOVER
+            cArchived := ""
+         END SEQUENCE
+         IF Empty(cArchived)
+            hResult["status"] := "error"
+            hResult["message"] := "Archiving the mail text failed"
+            RETURN hResult
+         ENDIF
+         AAdd(aArchived, {"source"=>"mail text: " + DV_Utf8(cSubject), "archived_as"=>HB_StrToUTF8(cArchived)})
+      ENDIF
+   ENDIF
+
+   hResult["doc_type"] := cTyp
+   hResult["number"] := nNo
+   hResult["archived"] := aArchived
+   hResult["count"] := Len(aArchived)
+   hResult["status"] := "success"
+RETURN hResult
+
+FUNCTION MCP_Tool_List_Archive_Documents(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cTyp, nNo
+   LOCAL aFiles, aFile, hDoc
+   LOCAL aDocs := {}
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "doc_type"=>{"type"=>"string","enum"=>{"AB","AUF","ANG","ANF","BA","BES","BB","LS","RE","PI","TA","NT","KA","KAM","INV","ER","COC","QT","PP"},"description"=>"Transaction type (same codes as archive_document)"},;
+            "number"=>{"type"=>"number","description"=>"Number of the transaction"};
+         },;
+         "required"=>{"doc_type","number"};
+      }
+      hResult["description"] := "List the documents archived on a business transaction (Vorgang), oldest first, " + ;
+                                "with name, date and file path - e.g. everything filed on Bestellung 4711 under BES/BB"
+      RETURN hResult
+   ENDIF
+
+   IF ValType(hArgs["doc_type"]) != "C" .OR. ! ("," + Upper(AllTrim(hArgs["doc_type"])) + ",") $ ("," + ARCHIVE_DOC_TYPES + ",")
+      RETURN "Invalid doc_type. Valid types: " + ARCHIVE_DOC_TYPES
+   ENDIF
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   cTyp := Upper(AllTrim(hArgs["doc_type"]))
+   nNo := hArgs["number"]
+
+   BEGIN SEQUENCE
+      aFiles := GetArchiveFiles({cTyp => nNo})
+   RECOVER
+      aFiles := NIL
+   END SEQUENCE
+
+   IF ! HB_IsArray(aFiles)
+      hResult["status"] := "error"
+      hResult["message"] := "Archive lookup failed"
+      RETURN hResult
+   ENDIF
+
+   // Directory()-style entries: [1] display name, [2] size, [3] date,
+   // [4] time, [6] full path (see Trader-Hooks/get_archive_files.prg)
+   FOR EACH aFile IN aFiles
+      IF HB_IsArray(aFile) .AND. Len(aFile) >= 6
+         hDoc := {=>}
+         hDoc["name"] := HB_StrToUTF8(AllTrim(aFile[1]))
+         IF HB_IsNumeric(aFile[2])
+            hDoc["size"] := aFile[2]
+         ENDIF
+         hDoc["date"] := aFile[3]
+         hDoc["time"] := aFile[4]
+         hDoc["path"] := HB_StrToUTF8(aFile[6])
+         AAdd(aDocs, hDoc)
+      ENDIF
+   NEXT
+
+   hResult["doc_type"] := cTyp
+   hResult["number"] := nNo
+   hResult["count"] := Len(aDocs)
+   hResult["documents"] := aDocs
+   hResult["status"] := IIF(Len(aDocs) > 0, "found", "not_found")
+   IF Len(aDocs) == 0
+      hResult["message"] := "No documents archived on this transaction"
+   ENDIF
+RETURN hResult
+
 // Convert all string values in a hash from OEM to ANSI
 STATIC FUNCTION _HashToUtf8(hHash)
    LOCAL cKey, xValue

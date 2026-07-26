@@ -139,7 +139,27 @@ server can read it:
   per-user mail identity matters.
 
 Claude Desktop / MCP clients: configure the server URL plus a custom header
-`Authorization: Bearer <key>` for the respective user.
+`Authorization: Bearer <key>` for the respective user. With `mcp-remote` the
+header must be passed statically:
+
+```json
+{
+  "mcpServers": {
+    "trader": {
+      "command": "npx",
+      "args": ["mcp-remote", "https://mcp.example.com/",
+               "--header", "Authorization: Bearer <key>"]
+    }
+  }
+}
+```
+
+Note: a `401` answers in the OAuth Bearer error format of RFC 6750
+(`{"error":"invalid_token","error_description":"…"}`) plus a matching
+`WWW-Authenticate` header — that is the shape MCP clients parse on auth
+failures. There is no OAuth flow behind it: unknown endpoints such as
+`/register` return `404`, so OAuth-probing clients fail fast with a clear
+message instead of looping. Fix a 401 by correcting the static key.
 
 ## HTTPS with Caddy (simplest — automatic certificates)
 

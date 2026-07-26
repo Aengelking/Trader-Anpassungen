@@ -311,7 +311,6 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    LOCAL aCors
    LOCAL cAuthErr, nAuthUser := 0, cAuthName := ""
    LOCAL nOldUser, oHttpErr
-   LOCAL xAuthId, xMsgId
 
    MCP_Http_Log( "Eingehende Verbindung von " + MCP_Http_Peer( hSocket ) )
 
@@ -419,8 +418,17 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
       RETURN NIL
    ENDIF
 
-   // Read the body according to Content-Length. Read BEFORE the auth check so
-   // a 401 can echo the request id in a proper JSON-RPC error body.
+   // Only "/" is the MCP endpoint. Anything else (e.g. the OAuth endpoints
+   // /register etc. that mcp-remote probes after a 401) gets an explicit 404
+   // so OAuth-capable clients conclude "not supported" instead of looping
+   // through our auth with unparseable results.
+   IF ! ( cPath == "/" )
+      MCP_Http_Send( hSocket, 404, "application/json", ;
+         hb_jsonEncode( {"error"=>"not_found", "error_description"=>"Unknown endpoint - the MCP endpoint is /"} ), aCors )
+      RETURN NIL
+   ENDIF
+
+   // Read the body according to Content-Length.
    nCL := 0
    IF HHasKey( hHeaders, "CONTENT-LENGTH" )
       nCL := Val( hHeaders["CONTENT-LENGTH"] )
@@ -438,25 +446,17 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    ENDIF
 
    // Per-user API-key authentication (mcp_keys.json); see above. The 401 body
-   // is a JSON-RPC error object (Content-Type: application/json) with the
-   // request id when one can be extracted - clients like mcp-remote expect
-   // parseable JSON, a text/plain body makes them fail with a parse error.
+   // uses the OAuth Bearer error format of RFC 6750 ({"error": "<string>",
+   // "error_description": ...}) - that is what MCP clients like mcp-remote
+   // parse on a 401; a JSON-RPC error object here makes them fail ("expected
+   // string, received object"). The right client setup is a static header
+   // (e.g. mcp-remote --header "Authorization: Bearer <key>").
    cAuthErr := MCP_Http_Auth( hHeaders, @nAuthUser, @cAuthName )
    IF cAuthErr != NIL
       MCP_Http_Log( "  401: " + cAuthErr )
-      xAuthId := NIL
-      BEGIN SEQUENCE
-         xMsgId := hb_jsonDecode( cBody )
-         IF HB_IsHash( xMsgId ) .AND. HHasKey( xMsgId, "id" )
-            xAuthId := xMsgId["id"]
-         ELSEIF HB_IsArray( xMsgId ) .AND. Len( xMsgId ) > 0 .AND. HB_IsHash( xMsgId[1] ) .AND. HHasKey( xMsgId[1], "id" )
-            xAuthId := xMsgId[1]["id"]
-         ENDIF
-      RECOVER
-         xAuthId := NIL
-      END SEQUENCE
-      AAdd( aCors, 'WWW-Authenticate: Bearer realm="Trader MCP"' )
-      MCP_Http_Send( hSocket, 401, "application/json", CreateErrorResponse( cAuthErr, xAuthId ), aCors )
+      AAdd( aCors, 'WWW-Authenticate: Bearer realm="Trader MCP", error="invalid_token", error_description="' + cAuthErr + '"' )
+      MCP_Http_Send( hSocket, 401, "application/json", ;
+         hb_jsonEncode( {"error"=>"invalid_token", "error_description"=>cAuthErr} ), aCors )
       RETURN NIL
    ENDIF
 

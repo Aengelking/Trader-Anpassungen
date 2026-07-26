@@ -138,21 +138,26 @@ server can read it:
   server process regardless of the key — see the deployment notes if
   per-user mail identity matters.
 
-Claude Desktop / MCP clients: configure the server URL plus a custom header
-`Authorization: Bearer <key>` for the respective user. With `mcp-remote` the
-header must be passed statically:
+Claude Desktop / MCP clients: pass the key either as a header
+`Authorization: Bearer <key>` **or in the URL as `?key=<key>`**. The URL form
+is the recommended one for `mcp-remote`: its `--header` argument is mangled by
+npx/cmd on Windows (spaces get split), which ends in a `401` and a doomed
+OAuth probe. With the key in the URL no header is needed and the OAuth path
+is never entered:
 
 ```json
 {
   "mcpServers": {
     "trader": {
       "command": "npx",
-      "args": ["mcp-remote", "https://mcp.example.com/",
-               "--header", "Authorization: Bearer <key>"]
+      "args": ["mcp-remote", "https://mcp.example.com/?key=<key>"]
     }
   }
 }
 ```
+
+(Keys in URLs can end up in proxy logs — with the recommended local
+proxy-only exposure that is the same trust domain as the server log.)
 
 Note: a `401` answers in the OAuth Bearer error format of RFC 6750
 (`{"error":"invalid_token","error_description":"…"}`) plus a matching

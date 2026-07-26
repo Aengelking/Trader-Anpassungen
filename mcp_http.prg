@@ -234,7 +234,7 @@ RETURN s_hMcpKeys
 // Trader user. Returns NIL when the request may proceed (nUser/cUserName by
 // reference; nUser stays 0 when authentication is disabled), otherwise the
 // error text for the 401 response.
-STATIC FUNCTION MCP_Http_Auth( hHeaders, nUser, cUserName )
+STATIC FUNCTION MCP_Http_Auth( hHeaders, cUrlKey, nUser, cUserName )
    LOCAL hKeys := MCP_Http_LoadKeys()
    LOCAL cAuth, cApiKey, xEntry
 
@@ -254,6 +254,9 @@ STATIC FUNCTION MCP_Http_Auth( hHeaders, nUser, cUserName )
       cApiKey := AllTrim( SubStr( cAuth, 8 ) )
    ELSE
       cApiKey := cAuth        // accept a bare key as well
+   ENDIF
+   IF Empty( cApiKey ) .AND. ValType( cUrlKey ) == "C" .AND. ! Empty( cUrlKey )
+      cApiKey := cUrlKey      // fallback: ?key=... in the URL (see ServeConnection)
    ENDIF
    IF Empty( cApiKey ) .OR. ! HHasKey( hKeys, cApiKey )
       RETURN "Invalid or missing API key"
@@ -311,6 +314,7 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    LOCAL aCors
    LOCAL cAuthErr, nAuthUser := 0, cAuthName := ""
    LOCAL nOldUser, oHttpErr
+   LOCAL cUrlKey := "", cQPart
 
    MCP_Http_Log( "Eingehende Verbindung von " + MCP_Http_Peer( hSocket ) )
 
@@ -359,6 +363,14 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    cPath := aReq[2]
    nQ := At( "?", cPath )
    IF nQ > 0
+      // Extract a ?key=... query parameter as an alternative way to pass the
+      // API key: clients like mcp-remote mangle --header arguments on Windows,
+      // a key in the URL avoids headers (and thus the 401/OAuth path) fully.
+      FOR EACH cQPart IN hb_ATokens( SubStr( cPath, nQ + 1 ), "&" )
+         IF Upper( Left( cQPart, 4 ) ) == "KEY="
+            cUrlKey := AllTrim( SubStr( cQPart, 5 ) )
+         ENDIF
+      NEXT
       cPath := Left( cPath, nQ - 1 )
    ENDIF
 
@@ -451,7 +463,7 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    // parse on a 401; a JSON-RPC error object here makes them fail ("expected
    // string, received object"). The right client setup is a static header
    // (e.g. mcp-remote --header "Authorization: Bearer <key>").
-   cAuthErr := MCP_Http_Auth( hHeaders, @nAuthUser, @cAuthName )
+   cAuthErr := MCP_Http_Auth( hHeaders, cUrlKey, @nAuthUser, @cAuthName )
    IF cAuthErr != NIL
       MCP_Http_Log( "  401: " + cAuthErr )
       AAdd( aCors, 'WWW-Authenticate: Bearer realm="Trader MCP", error="invalid_token", error_description="' + cAuthErr + '"' )

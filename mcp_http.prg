@@ -67,6 +67,9 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
    IF hListen == NIL .OR. hb_InetErrorCode( hListen ) != 0
       FWrite( nStdErr, "MCP_Http: cannot listen on port " + LTrim(Str(nPort)) + Chr(10) )
       hb_InetCleanup()
+      IF MCP_Http_LogSink() == "QOUT"
+         Alert( "MCP_Http: cannot listen on port " + LTrim(Str(nPort)) )
+      ENDIF
       RETURN NIL
    ENDIF
 
@@ -143,6 +146,7 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
       MCP_Http_Log( "Alte Instanz wird beendet." )
       QUIT
    ENDIF
+   
 
 RETURN NIL
 

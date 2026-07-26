@@ -311,6 +311,7 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    LOCAL aCors
    LOCAL cAuthErr, nAuthUser := 0, cAuthName := ""
    LOCAL nOldUser, oHttpErr
+   LOCAL xAuthId, xMsgId
 
    MCP_Http_Log( "Eingehende Verbindung von " + MCP_Http_Peer( hSocket ) )
 
@@ -418,16 +419,8 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
       RETURN NIL
    ENDIF
 
-   // Per-user API-key authentication (mcp_keys.json in DATA); see above.
-   cAuthErr := MCP_Http_Auth( hHeaders, @nAuthUser, @cAuthName )
-   IF cAuthErr != NIL
-      MCP_Http_Log( "  401: " + cAuthErr )
-      AAdd( aCors, 'WWW-Authenticate: Bearer realm="Trader MCP"' )
-      MCP_Http_Send( hSocket, 401, "text/plain", cAuthErr, aCors )
-      RETURN NIL
-   ENDIF
-
-   // Read the body according to Content-Length.
+   // Read the body according to Content-Length. Read BEFORE the auth check so
+   // a 401 can echo the request id in a proper JSON-RPC error body.
    nCL := 0
    IF HHasKey( hHeaders, "CONTENT-LENGTH" )
       nCL := Val( hHeaders["CONTENT-LENGTH"] )
@@ -442,6 +435,29 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
          ENDIF
          cBody += Left( cBuf, nGot )
       ENDDO
+   ENDIF
+
+   // Per-user API-key authentication (mcp_keys.json); see above. The 401 body
+   // is a JSON-RPC error object (Content-Type: application/json) with the
+   // request id when one can be extracted - clients like mcp-remote expect
+   // parseable JSON, a text/plain body makes them fail with a parse error.
+   cAuthErr := MCP_Http_Auth( hHeaders, @nAuthUser, @cAuthName )
+   IF cAuthErr != NIL
+      MCP_Http_Log( "  401: " + cAuthErr )
+      xAuthId := NIL
+      BEGIN SEQUENCE
+         xMsgId := hb_jsonDecode( cBody )
+         IF HB_IsHash( xMsgId ) .AND. HHasKey( xMsgId, "id" )
+            xAuthId := xMsgId["id"]
+         ELSEIF HB_IsArray( xMsgId ) .AND. Len( xMsgId ) > 0 .AND. HB_IsHash( xMsgId[1] ) .AND. HHasKey( xMsgId[1], "id" )
+            xAuthId := xMsgId[1]["id"]
+         ENDIF
+      RECOVER
+         xAuthId := NIL
+      END SEQUENCE
+      AAdd( aCors, 'WWW-Authenticate: Bearer realm="Trader MCP"' )
+      MCP_Http_Send( hSocket, 401, "application/json", CreateErrorResponse( cAuthErr, xAuthId ), aCors )
+      RETURN NIL
    ENDIF
 
    // Switch the Trader user context to the authenticated user for this one

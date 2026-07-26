@@ -4763,6 +4763,345 @@ FUNCTION MCP_Tool_Archive_Document(hArgs)
    hResult["status"] := "success"
 RETURN hResult
 
+FUNCTION MCP_Tool_Archive_Incoming_Invoice(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cFile := "", cId, cMailbox := "inbox", cAttFilter := ""
+   LOCAL cLiefma := "", nLiefnr := 0, nKonto := 0
+   LOCAL cBeleg, cBelegKurz := "", cKS := ""
+   LOCAL nBetrag, dEingang := Date()
+   LOCAL nApprover := 0
+   LOCAL lFound := .F., lBooked := .F.
+   LOCAL nID := 0, nRev := 0, nYear := Year(Date())
+   LOCAL oArchive, oItem, oAtt, nAtt := 0, nX, cName
+   LOCAL aNames := {}, cTarget := "", lTempFile := .F.
+   LOCAL cArchived
+   LOCAL oKu
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "file"=>{"type"=>"string","description"=>"Full path (on the Trader server) of the invoice document"},;
+            "message_id"=>{"type"=>"string","description"=>"David message id (from list_inbox) - archives the invoice attachment of that mail"},;
+            "mailbox"=>{"type"=>"string","enum"=>{"inbox","common"},"description"=>"Mailbox of message_id (default inbox)"},;
+            "attachment"=>{"type"=>"string","description"=>"File name of the attachment to use; required when the message has more than one attachment"},;
+            "supplier"=>{"type"=>"string","description"=>"Supplier matchcode (Kreditor with address record)"},;
+            "konto"=>{"type"=>"number","description"=>"Kreditor account number - for creditors without a supplier address (e.g. utilities)"},;
+            "beleg"=>{"type"=>"string","description"=>"The supplier's invoice number as printed on the document"},;
+            "beleg_short"=>{"type"=>"string","description"=>"Short form of the invoice number when the bookkeeping uses a truncated one"},;
+            "amount"=>{"type"=>"number","description"=>"Gross invoice amount (negative for credit notes)"},;
+            "date"=>{"type"=>"string","description"=>"Receipt date YYYY-MM-DD (default today)"},;
+            "cost_center"=>{"type"=>"string","description"=>"Cost center (Kostenstelle), e.g. 000, 100, ... 800"},;
+            "approver_user"=>{"type"=>"number","description"=>"Trader user number who must approve the invoice. Required for NEW invoices that are not booked yet - ask the user if unknown"};
+         },;
+         "required"=>{"beleg","amount"},;
+         "anyOf"=>{{"file","message_id"},{"supplier","konto"}};
+      }
+      hResult["description"] := "Archive an incoming supplier invoice (Eingangsrechnung): registers it in the invoice " + ;
+                                "register (reb) with a new ER number - or books a new revision when the same supplier " + ;
+                                "invoice number already exists - writes the receipt/archive protocol and files the " + ;
+                                "document under ER in the archive. Unbooked new invoices go to the approval workflow " + ;
+                                "and need 'approver_user'. Lexware booking-text tagging and the auto-approval rules " + ;
+                                "of the interactive mask are NOT applied here"
+      RETURN hResult
+   ENDIF
+
+   // ---- validate arguments ----
+   IF ValType(hArgs["beleg"]) != "C" .OR. Empty(AllTrim(hArgs["beleg"]))
+      RETURN "Parameter 'beleg' must be a non-empty string"
+   ENDIF
+   IF ! HB_IsNumeric(hArgs["amount"])
+      RETURN "Parameter 'amount' must be a number"
+   ENDIF
+   cBeleg := Pad(HB_UTF8ToStr(AllTrim(hArgs["beleg"])), 30)
+   nBetrag := hArgs["amount"]
+   IF HHasKey(hArgs, "beleg_short") .AND. ValType(hArgs["beleg_short"]) == "C"
+      cBelegKurz := HB_UTF8ToStr(AllTrim(hArgs["beleg_short"]))
+   ENDIF
+   IF HHasKey(hArgs, "cost_center") .AND. ValType(hArgs["cost_center"]) == "C"
+      cKS := AllTrim(hArgs["cost_center"])
+   ENDIF
+   IF HHasKey(hArgs, "date") .AND. ValType(hArgs["date"]) == "C" .AND. ! Empty(hArgs["date"])
+      dEingang := SToD(StrTran(AllTrim(hArgs["date"]), "-", ""))
+      IF Empty(dEingang)
+         RETURN "Invalid date: " + hArgs["date"] + " (expected YYYY-MM-DD)"
+      ENDIF
+   ENDIF
+   nYear := Year(dEingang)
+   IF HHasKey(hArgs, "approver_user") .AND. HB_IsNumeric(hArgs["approver_user"])
+      nApprover := hArgs["approver_user"]
+   ENDIF
+
+   NetUse("reb", "reb")
+   NetUse("rebprot", "rebp")
+   NetUse("idx", "idx")
+   NetUse("engkund", "ku")
+   NetUse("engrech", "rech")
+   NetUse("buyer", "buy")
+
+   // ---- resolve creditor ----
+   IF HHasKey(hArgs, "supplier") .AND. ! Empty(hArgs["supplier"])
+      oKu := Adresse():New()
+      IF ! oKu:LoadMatchcode(Pad(Upper(AllTrim(hArgs["supplier"])), 8), "L")
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "not_found"
+         hResult["message"] := "Supplier not found: " + hArgs["supplier"]
+         RETURN hResult
+      ENDIF
+      cLiefma := oKu:Kunde
+      nLiefnr := oKu:Nummer
+   ELSE
+      IF ! HB_IsNumeric(hArgs["konto"]) .OR. hArgs["konto"] <= 0
+         DbSelectArea(nOldSelect)
+         RETURN "Parameter 'konto' must be a positive number"
+      ENDIF
+      nKonto := hArgs["konto"]
+   ENDIF
+
+   // ---- resolve the document file ----
+   IF HHasKey(hArgs, "file") .AND. ! Empty(hArgs["file"])
+      cFile := HB_UTF8ToStr(AllTrim(hArgs["file"]))
+      IF ! File(cFile)
+         DbSelectArea(nOldSelect)
+         RETURN "File not found: " + cFile
+      ENDIF
+   ELSE
+      cId := hArgs["message_id"]
+      IF HHasKey(hArgs, "mailbox") .AND. ! Empty(hArgs["mailbox"])
+         cMailbox := Lower(AllTrim(hArgs["mailbox"]))
+      ENDIF
+      IF HHasKey(hArgs, "attachment") .AND. ValType(hArgs["attachment"]) == "C"
+         cAttFilter := Upper(AllTrim(hArgs["attachment"]))
+      ENDIF
+      oArchive := Inbox_Archive(cMailbox)
+      IF oArchive == NIL
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "error"
+         hResult["message"] := "David not connected"
+         RETURN hResult
+      ENDIF
+      BEGIN SEQUENCE
+         oItem := oArchive:GetArchiveEntryByID(cId)
+      RECOVER
+         oItem := NIL
+      END SEQUENCE
+      IF oItem == NIL
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "not_found"
+         hResult["message"] := "Message not found: " + cId
+         RETURN hResult
+      ENDIF
+      BEGIN SEQUENCE ; nAtt := oItem:Attachments:Count ; RECOVER ; nAtt := 0 ; END SEQUENCE
+      FOR nX := 0 TO nAtt - 1
+         cName := ""
+         BEGIN SEQUENCE
+            oAtt := oItem:Attachments:Item(nX)
+            cName := oAtt:FileName
+         RECOVER
+            oAtt := NIL
+         END SEQUENCE
+         IF oAtt == NIL .OR. Empty(cName)
+            LOOP
+         ENDIF
+         AAdd(aNames, DV_Utf8(cName))
+         IF Empty(cTarget) .AND. ( Empty(cAttFilter) .OR. Upper(AllTrim(cName)) == cAttFilter )
+            cTarget := hb_DirTemp() + SafeFileName(cName)
+            BEGIN SEQUENCE
+               oAtt:SaveAs(cTarget)
+               IF File(cTarget)
+                  cFile := cTarget
+                  lTempFile := .T.
+               ELSE
+                  cTarget := ""
+               ENDIF
+            RECOVER
+               cTarget := ""
+            END SEQUENCE
+         ENDIF
+      NEXT
+      IF Empty(cFile)
+         DbSelectArea(nOldSelect)
+         RETURN IIF(Len(aNames) == 0, "The message has no attachments", ;
+            "Attachment could not be resolved. Available: " + DV_Join(aNames, ", "))
+      ENDIF
+      IF Empty(cAttFilter) .AND. Len(aNames) > 1
+         FErase(cFile)
+         DbSelectArea(nOldSelect)
+         RETURN "The message has " + AllTrim(Str(Len(aNames))) + " attachments - specify 'attachment'. Available: " + DV_Join(aNames, ", ")
+      ENDIF
+   ENDIF
+
+   // ---- duplicate / revision detection (same as the mask, skipping STORNs) ----
+   rebp->(DbSetOrder(2))  // Str(ID,9) + Type
+   IF nLiefnr > 0
+      reb->(DbSetOrder(6))  // Str(Liefnr,6) + Beleg
+      IF reb->(DbSeek(Str(nLiefnr, 6) + cBeleg))
+         DO WHILE reb->Liefnr == nLiefnr .AND. reb->Beleg == cBeleg .AND. rebp->(DbSeek(Str(reb->ID, 9) + "STORN"))
+            reb->(DbSkip())
+         ENDDO
+         IF reb->Liefnr == nLiefnr .AND. reb->Beleg == cBeleg
+            lFound := .T.
+            nID := reb->ID
+         ENDIF
+      ENDIF
+      // booked already? (goods-receipt invoice register)
+      rech->(DbSetOrder(2))
+      IF rech->(DbSeek(cLiefma + IIF(Empty(cBelegKurz), cBeleg, cBelegKurz)))
+         lBooked := rech->Booked
+      ENDIF
+   ELSE
+      reb->(DbSetOrder(7))  // Str(Konto,6) + Beleg
+      IF reb->(DbSeek(Str(nKonto, 6) + cBeleg))
+         DO WHILE reb->Konto == nKonto .AND. reb->Beleg == cBeleg .AND. rebp->(DbSeek(Str(reb->ID, 9) + "STORN"))
+            reb->(DbSkip())
+         ENDDO
+         IF reb->Konto == nKonto .AND. reb->Beleg == cBeleg
+            lFound := .T.
+            nID := reb->ID
+         ENDIF
+      ENDIF
+   ENDIF
+
+   // New, unbooked invoices enter the approval workflow and need an approver
+   IF ! lFound .AND. ! lBooked
+      IF nApprover <= 0
+         IF lTempFile
+            FErase(cFile)
+         ENDIF
+         DbSelectArea(nOldSelect)
+         RETURN "This is a new, not yet booked invoice - 'approver_user' is required so it enters the approval workflow"
+      ENDIF
+      buy->(DbGoTo(nApprover))
+      IF buy->(Eof()) .OR. ! buy->Aktive
+         IF lTempFile
+            FErase(cFile)
+         ENDIF
+         DbSelectArea(nOldSelect)
+         RETURN "approver_user " + AllTrim(Str(nApprover)) + " is unknown or inactive"
+      ENDIF
+   ENDIF
+
+   // ---- register in reb/rebp inside a transaction (same as the mask) ----
+   LETO_BEGINTRANSACTION()
+   BEGIN SEQUENCE
+      IF ! lFound
+         // New ER number: YY + type(0 = no barcode) + idx counter
+         IF ! idx->(DbSeek(Pad("REB", 5) + Right(Str(nYear, 4), 2) + Str(0, 1)))
+            idx->(Add_Rec(0))
+            idx->Alias := "REB"
+            idx->Type := 0
+            idx->Year := nYear
+         ELSE
+            idx->(Rec_Lock())
+         ENDIF
+         idx->ID++
+         nID := Val(Right(Str(nYear, 4), 2) + Str(0, 1) + StrZero(idx->ID, 6))
+
+         reb->(Add_Rec(0))
+         reb->ID := nID
+         IF nLiefnr > 0
+            reb->Liefnr := nLiefnr
+            reb->Name := Trim(ku->Name1) + " " + Trim(ku->Name2)
+         ELSE
+            reb->Konto := nKonto
+         ENDIF
+         reb->Beleg := cBeleg
+         IF ! Empty(cBelegKurz)
+            reb->Beleg_Kurz := cBelegKurz
+         ENDIF
+         reb->Status := IIF(lBooked, 9, 0)
+         IF ! lBooked
+            reb->Person := nApprover
+         ENDIF
+         nRev := 0
+      ELSE
+         reb->(Rec_Lock(0))
+         reb->Rev++
+         nRev := reb->Rev
+         rebp->(Add_Rec(0))
+         rebp->ID := nID
+         rebp->Type := "NEW"
+         rebp->DateTime := TtoS(DateTime())
+         rebp->Person := Tr_Getini(28)
+         rebp->Rev := nRev
+      ENDIF
+
+      reb->Betrag := nBetrag
+      IF ! Empty(cKS)
+         reb->KS := cKS
+      ENDIF
+
+      rebp->(Add_Rec(0))
+      rebp->ID := nID
+      rebp->DateTime := DtoS(dEingang)
+      rebp->Type := "RECV"
+      rebp->Person := Tr_Getini(28)
+      rebp->Rev := nRev
+
+      rebp->(Add_Rec(0))
+      rebp->ID := nID
+      rebp->DateTime := TtoS(DateTime())
+      rebp->Type := "ARCHIV"
+      rebp->Person := Tr_Getini(28)
+      rebp->Rev := nRev
+
+      IF ! LETO_COMMITTRANSACTION()
+         LETO_ROLLBACK()
+         BREAK
+      ENDIF
+   RECOVER
+      BEGIN SEQUENCE ; LETO_ROLLBACK() ; RECOVER ; END SEQUENCE
+      IF lTempFile
+         FErase(cFile)
+      ENDIF
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "error"
+      hResult["message"] := "Registering the invoice failed - nothing was saved"
+      RETURN hResult
+   END SEQUENCE
+
+   // ---- file the document (after the commit, like the mask) ----
+   BEGIN SEQUENCE
+      cArchived := AddFileToArchive("ER", nID, cFile)
+   RECOVER
+      cArchived := ""
+   END SEQUENCE
+   IF lTempFile
+      FErase(cFile)
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["er_number"] := nID
+   hResult["revision"] := nRev
+   IF nLiefnr > 0
+      hResult["supplier"] := HB_StrToUTF8(AllTrim(cLiefma))
+   ELSE
+      hResult["konto"] := nKonto
+   ENDIF
+   hResult["beleg"] := HB_StrToUTF8(AllTrim(cBeleg))
+   hResult["amount"] := nBetrag
+   hResult["receipt_date"] := dEingang
+   hResult["booked"] := lBooked
+   IF ! lFound .AND. ! lBooked
+      hResult["approver_user"] := nApprover
+      hResult["approval"] := "pending"
+   ENDIF
+   IF Empty(cArchived)
+      hResult["status"] := "warning"
+      hResult["message"] := "Invoice registered as ER" + AllTrim(Str(nID)) + ;
+         " but filing the document in the archive FAILED - archive the file manually"
+   ELSE
+      hResult["archived_as"] := HB_StrToUTF8(cArchived)
+      hResult["status"] := "success"
+      hResult["message"] := IIF(lFound, ;
+         "New revision " + AllTrim(Str(nRev)) + " archived on existing ER" + AllTrim(Str(nID)), ;
+         "Invoice registered and archived as ER" + AllTrim(Str(nID)))
+   ENDIF
+RETURN hResult
+
 FUNCTION MCP_Tool_List_Archive_Documents(hArgs)
    LOCAL hResult := {=>}
    LOCAL cTyp, nNo

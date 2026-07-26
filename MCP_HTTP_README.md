@@ -84,6 +84,17 @@ curl -s http://127.0.0.1:8765/ \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
 ```
 
+## Auto-reload on source changes
+
+The listener watches `run\mcp_http.prg` and `run\mcp_stdio.prg` (checked
+roughly every 10 idle seconds, never during a request). When either file
+changes, the server frees the port, launches a **new instance with the same
+command line** (`WAPI_ShellExecute` + `Exename()`/`DosParam()`, the same
+relaunch idiom as `tr_001.prg`) and quits — deploying a new server version is
+just copying the file. If the relaunch fails, the old instance re-binds the
+port and keeps running on the old code (logged). Disable with the fourth
+parameter: `MCP_Http( , , , .F. )`.
+
 ## Authentication: per-user API keys (no OAuth)
 
 Without further setup the server is **open** — anyone who can reach the port

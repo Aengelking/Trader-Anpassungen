@@ -33,16 +33,21 @@ STATIC s_cMcpLogSink     := ""    // "QOUT" or "STDERR"; decided from the GT on 
 STATIC s_hMcpKeys        := NIL   // API-key table from mcp_keys.json (NIL = auth disabled)
 STATIC s_cMcpKeysStamp   := ""    // file stamp of the loaded key table
 STATIC s_lMcpAuthWarned  := .F.   // "running without authentication" warned once
+STATIC s_cMcpSrcStamp    := ""    // stamp of the MCP source files for auto-reload
 
-FUNCTION MCP_Http( nPort, cBindAddr, lVerbose )
+FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
    LOCAL nStdErr := hb_GetStdErr()
    LOCAL hListen, hSocket
+   LOCAL nReloadTick := 0, lRestart := .F., nSpawn
 
    IF nPort == NIL
       nPort := McpHttpPort()
    ENDIF
    IF lVerbose == NIL
       lVerbose := .T.
+   ENDIF
+   IF lAutoReload == NIL
+      lAutoReload := .T.
    ENDIF
    s_lMcpHttpVerbose := lVerbose
    // NOTE: cBindAddr is accepted for signature compatibility but not used - this
@@ -71,6 +76,17 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose )
 
    MCP_Http_Log( "Listening on port " + LTrim(Str(nPort)) + " (all interfaces, Streamable HTTP)" )
 
+   // Auto-reload: remember the source stamp; when mcp_http.prg/mcp_stdio.prg
+   // change on disk the server relaunches itself with the same command line.
+   IF lAutoReload
+      s_cMcpSrcStamp := MCP_Http_SourceStamp()
+      IF Empty( s_cMcpSrcStamp )
+         MCP_Http_Log( "Auto-Reload: Quelldateien nicht gefunden - Ueberwachung inaktiv" )
+      ELSE
+         MCP_Http_Log( "Auto-Reload aktiv (mcp_http.prg / mcp_stdio.prg)" )
+      ENDIF
+   ENDIF
+
    s_lMcpHttpStop := .F.
 
    DO WHILE ! s_lMcpHttpStop
@@ -78,6 +94,28 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose )
       IF hSocket == NIL
          // Accept timed out (no pending connection) - keep the UI responsive.
          Inkey( )
+
+         // Check the sources roughly every 10 idle seconds. Runs only between
+         // requests, so a restart can never interrupt a running tool call.
+         IF lAutoReload .AND. ! Empty( s_cMcpSrcStamp ) .AND. ++nReloadTick >= 10
+            nReloadTick := 0
+            IF ! ( MCP_Http_SourceStamp() == s_cMcpSrcStamp )
+               MCP_Http_Log( "Quelldatei geaendert - starte neue Instanz mit gleicher Kommandozeile..." )
+               // Free the port FIRST so the new instance can bind it.
+               hb_InetClose( hListen )
+               hListen := NIL
+               nSpawn := WAPI_ShellExecute( NIL, "open", Exename(), DosParam() )
+               IF HB_IsNumeric( nSpawn ) .AND. nSpawn <= 32   // ShellExecute error codes
+                  MCP_Http_Log( "  Neustart fehlgeschlagen (Code " + LTrim(Str(nSpawn)) + ") - Server laeuft mit altem Stand weiter" )
+                  s_cMcpSrcStamp := MCP_Http_SourceStamp()    // do not retry every tick
+                  hListen := hb_InetServer( nPort )
+                  hb_InetTimeout( hListen, 1000 )
+               ELSE
+                  lRestart := .T.
+                  s_lMcpHttpStop := .T.
+               ENDIF
+            ENDIF
+         ENDIF
          LOOP
       ENDIF
 
@@ -95,11 +133,31 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose )
       hb_InetClose( hSocket )
    ENDDO
 
-   hb_InetClose( hListen )
+   IF hListen != NIL
+      hb_InetClose( hListen )
+   ENDIF
    hb_InetCleanup()
    dbCloseAll()
 
+   IF lRestart
+      MCP_Http_Log( "Alte Instanz wird beendet." )
+      QUIT
+   ENDIF
+
 RETURN NIL
+
+// Combined date/time/size stamp of the MCP source files. mcp_stdio.prg is
+// watched too because it is #included into the HTTP build.
+STATIC FUNCTION MCP_Http_SourceStamp()
+   LOCAL cStamp := "", aDir, cFile
+
+   FOR EACH cFile IN { Path( "run\mcp_http.prg" ), Path( "run\mcp_stdio.prg" ) }
+      aDir := Directory( cFile )
+      IF Len( aDir ) > 0
+         cStamp += DToS( aDir[1][3] ) + aDir[1][4] + LTrim( Str( aDir[1][2] ) ) + ";"
+      ENDIF
+   NEXT
+RETURN cStamp
 
 // Determine the listen port: -port / --port on the command line, else 8765.
 STATIC FUNCTION McpHttpPort()

@@ -520,7 +520,7 @@ FUNCTION MCP_Tool_Get_Article(hArgs)
    IF HHasKey(hArgs,"matchcode") .AND. !Empty(hArgs["matchcode"])
       // Load by matchcode
       art->(DbSetOrder(1))  // Assume order 1 is by matchcode
-      lFound := art->(DbSeek(Upper(hArgs["matchcode"])))
+      lFound := art->(DbSeek(Pad(hArgs["matchcode"],25)))
    ELSEIF HHasKey(hArgs,"partno") .AND. !Empty(hArgs["partno"])
       // Search by part number
       art->(DbSetOrder(2))  
@@ -2771,7 +2771,7 @@ FUNCTION MCP_Tool_Get_Customer_Quotes(hArgs)
                hQuote := {=>}
                hQuote["quote_number"] := ang->Angnr
                hQuote["date"] := ang->Besda
-               hQuote["buyer"] := HB_StrToUTF8(AllTrim(ang->Buyer))
+               hQuote["buyer"] := ang->Buyer
                hQuote["currency"] := IIF(Empty(ang->Money), "EUR", AllTrim(ang->Money))
                hQuote["status"] := cLineStatus
                hQuote["line_count"] := 0

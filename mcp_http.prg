@@ -315,8 +315,17 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    LOCAL cAuthErr, nAuthUser := 0, cAuthName := ""
    LOCAL nOldUser, oHttpErr
    LOCAL cUrlKey := "", cQPart
+   LOCAL lQuiet, cPeer
 
-   MCP_Http_Log( "Eingehende Verbindung von " + MCP_Http_Peer( hSocket ) )
+   // In GUI mode (QOUT log sink) the routine "/" traffic is not logged - it
+   // would flood the visible console. Warnings, errors and requests to other
+   // paths stay visible; the stderr sink keeps logging everything.
+   lQuiet := ( MCP_Http_LogSink() == "QOUT" )
+   cPeer := MCP_Http_Peer( hSocket )
+
+   IF ! lQuiet
+      MCP_Http_Log( "Eingehende Verbindung von " + cPeer )
+   ENDIF
 
    // ---- Read request line + headers, one line at a time, up to the blank
    // line. hb_InetRecvLine is the recv primitive proven to work in this build
@@ -349,13 +358,13 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    // cannot read a plaintext answer anyway.
    IF Left( cReqLine, 1 ) == Chr(22)
       MCP_Http_Log( "  TLS-Handshake auf Klartext-Port erkannt - Client verwendet https:// statt http:// " + ;
-                    "(oder direkt statt ueber den Proxy). Verbindung geschlossen." )
+                    "(oder direkt statt ueber den Proxy). Verbindung geschlossen." + IIF( lQuiet, " [" + cPeer + "]", "" ) )
       RETURN NIL
    ENDIF
 
    aReq := hb_ATokens( cReqLine, " " )
    IF Len(aReq) < 2
-      MCP_Http_Log( "  Keine gueltige HTTP-Request-Zeile: " + MCP_Http_Printable( cReqLine ) )
+      MCP_Http_Log( "  Keine gueltige HTTP-Request-Zeile: " + MCP_Http_Printable( cReqLine ) + IIF( lQuiet, " [" + cPeer + "]", "" ) )
       MCP_Http_Send( hSocket, 400, "text/plain", "Bad Request", {} )
       RETURN NIL
    ENDIF
@@ -391,10 +400,12 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
 
    // Log the request line (method, path, and body size for POST). All parts
    // come from the wire - print them filtered so binary/garbage input cannot
-   // corrupt the console.
-   MCP_Http_Log( "  " + MCP_Http_Printable( cHttpMethod + " " + cPath ) + ;
-      IIF( HHasKey(hHeaders, "CONTENT-LENGTH"), " [" + MCP_Http_Printable(AllTrim(hHeaders["CONTENT-LENGTH"])) + " bytes]", "" ) + ;
-      IIF( ! Empty(cOrigin), " origin=" + MCP_Http_Printable(cOrigin), "" ) )
+   // corrupt the console. Routine "/" calls are hidden in GUI mode.
+   IF ! lQuiet .OR. ! ( cPath == "/" )
+      MCP_Http_Log( "  " + MCP_Http_Printable( cHttpMethod + " " + cPath ) + ;
+         IIF( HHasKey(hHeaders, "CONTENT-LENGTH"), " [" + MCP_Http_Printable(AllTrim(hHeaders["CONTENT-LENGTH"])) + " bytes]", "" ) + ;
+         IIF( ! Empty(cOrigin), " origin=" + MCP_Http_Printable(cOrigin), "" ) )
+   ENDIF
 
    // ---- Route by HTTP method -------------------------------------------
 
@@ -465,7 +476,7 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    // (e.g. mcp-remote --header "Authorization: Bearer <key>").
    cAuthErr := MCP_Http_Auth( hHeaders, cUrlKey, @nAuthUser, @cAuthName )
    IF cAuthErr != NIL
-      MCP_Http_Log( "  401: " + cAuthErr )
+      MCP_Http_Log( "  401: " + cAuthErr + IIF( lQuiet, " [" + cPeer + "]", "" ) )
       AAdd( aCors, 'WWW-Authenticate: Bearer realm="Trader MCP", error="invalid_token", error_description="' + cAuthErr + '"' )
       MCP_Http_Send( hSocket, 401, "application/json", ;
          hb_jsonEncode( {"error"=>"invalid_token", "error_description"=>cAuthErr} ), aCors )
@@ -477,7 +488,9 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    nOldUser := Tr_GetIni( 28 )
    IF nAuthUser > 0
       Tr_GetIni( 28, nAuthUser )
-      MCP_Http_Log( "  Benutzer: " + cAuthName + " (" + LTrim( Str( nAuthUser ) ) + ")" )
+      IF ! lQuiet
+         MCP_Http_Log( "  Benutzer: " + cAuthName + " (" + LTrim( Str( nAuthUser ) ) + ")" )
+      ENDIF
    ENDIF
    BEGIN SEQUENCE
       MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )

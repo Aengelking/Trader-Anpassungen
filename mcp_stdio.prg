@@ -4101,6 +4101,7 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
    LOCAL aOrders := {}
    LOCAL cStatus := "open", lOpen
    LOCAL nMaxResults := 50
+   LOCAL nScanned := 0, nScanCap := 20000, lScanLimited := .F.
    LOCAL dTemp
    LOCAL nOldSelect := Select()
 
@@ -4140,6 +4141,17 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
 
    IF bes->(DbSeek(oLief:Kunde))
       DO WHILE ! bes->(Eof()) .AND. bes->Liefma == oLief:Kunde
+         // Index 2 groups a supplier's lines by Bestat ascending, so for the
+         // open view we can stop at the first completed line instead of reading
+         // the supplier's whole (potentially years-long) history.
+         IF cStatus == "open" .AND. bes->Bestat >= 3
+            EXIT
+         ENDIF
+         // Hard safety bound so a very large history can never hit a timeout.
+         IF ++nScanned > nScanCap
+            lScanLimited := .T.
+            EXIT
+         ENDIF
          lOpen := bes->Bestat < 3
          IF cStatus == "all" .OR. (cStatus == "open" .AND. lOpen) .OR. (cStatus == "completed" .AND. ! lOpen)
             cKey := Str(bes->Besnr, 6)
@@ -4195,6 +4207,11 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
       hResult["message"] := "No " + IIF(cStatus == "all", "", cStatus + " ") + "purchase orders found for this supplier"
    ELSEIF Len(aOrders) == nMaxResults
       hResult["message"] := "Result limited to " + AllTrim(Str(nMaxResults)) + " purchase orders"
+   ENDIF
+   IF lScanLimited
+      hResult["scan_limited"] := .T.
+      hResult["message"] := "Scan stopped after " + AllTrim(Str(nScanCap)) + " lines - the result may be " + ;
+         "incomplete. Use status_filter=open (much faster) or query specific orders with get_purchase_order"
    ENDIF
 RETURN hResult
 

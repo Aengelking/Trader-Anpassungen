@@ -33,16 +33,22 @@ STATIC s_cMcpLogSink     := ""    // "QOUT" or "STDERR"; decided from the GT on 
 STATIC s_hMcpKeys        := NIL   // API-key table from mcp_keys.json (NIL = auth disabled)
 STATIC s_cMcpKeysStamp   := ""    // file stamp of the loaded key table
 STATIC s_lMcpAuthWarned  := .F.   // "running without authentication" warned once
+STATIC s_cMcpSrcStamp    := ""    // stamp of the MCP source files for auto-reload
+STATIC s_lMcpQuietReq    := .F.   // current request is routine "/" traffic in GUI mode - suppress 2xx response log
 
-FUNCTION MCP_Http( nPort, cBindAddr, lVerbose )
+FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
    LOCAL nStdErr := hb_GetStdErr()
    LOCAL hListen, hSocket
+   LOCAL nReloadTick := 0, lRestart := .F., nSpawn
 
    IF nPort == NIL
       nPort := McpHttpPort()
    ENDIF
    IF lVerbose == NIL
       lVerbose := .T.
+   ENDIF
+   IF lAutoReload == NIL
+      lAutoReload := .T.
    ENDIF
    s_lMcpHttpVerbose := lVerbose
    // NOTE: cBindAddr is accepted for signature compatibility but not used - this
@@ -62,6 +68,9 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose )
    IF hListen == NIL .OR. hb_InetErrorCode( hListen ) != 0
       FWrite( nStdErr, "MCP_Http: cannot listen on port " + LTrim(Str(nPort)) + Chr(10) )
       hb_InetCleanup()
+      IF MCP_Http_LogSink() == "QOUT"
+         Alert( "MCP_Http: cannot listen on port " + LTrim(Str(nPort)) )
+      ENDIF
       RETURN NIL
    ENDIF
 
@@ -71,6 +80,17 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose )
 
    MCP_Http_Log( "Listening on port " + LTrim(Str(nPort)) + " (all interfaces, Streamable HTTP)" )
 
+   // Auto-reload: remember the source stamp; when mcp_http.prg/mcp_stdio.prg
+   // change on disk the server relaunches itself with the same command line.
+   IF lAutoReload
+      s_cMcpSrcStamp := MCP_Http_SourceStamp()
+      IF Empty( s_cMcpSrcStamp )
+         MCP_Http_Log( "Auto-Reload: Quelldateien nicht gefunden - Ueberwachung inaktiv" )
+      ELSE
+         MCP_Http_Log( "Auto-Reload aktiv (mcp_http.prg / mcp_stdio.prg)" )
+      ENDIF
+   ENDIF
+
    s_lMcpHttpStop := .F.
 
    DO WHILE ! s_lMcpHttpStop
@@ -78,6 +98,28 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose )
       IF hSocket == NIL
          // Accept timed out (no pending connection) - keep the UI responsive.
          Inkey( )
+
+         // Check the sources roughly every 10 idle seconds. Runs only between
+         // requests, so a restart can never interrupt a running tool call.
+         IF lAutoReload .AND. ! Empty( s_cMcpSrcStamp ) .AND. ++nReloadTick >= 10
+            nReloadTick := 0
+            IF ! ( MCP_Http_SourceStamp() == s_cMcpSrcStamp )
+               MCP_Http_Log( "Quelldatei geaendert - starte neue Instanz mit gleicher Kommandozeile..." )
+               // Free the port FIRST so the new instance can bind it.
+               hb_InetClose( hListen )
+               hListen := NIL
+               nSpawn := WAPI_ShellExecute( NIL, "open", Exename(), DosParam() )
+               IF HB_IsNumeric( nSpawn ) .AND. nSpawn <= 32   // ShellExecute error codes
+                  MCP_Http_Log( "  Neustart fehlgeschlagen (Code " + LTrim(Str(nSpawn)) + ") - Server laeuft mit altem Stand weiter" )
+                  s_cMcpSrcStamp := MCP_Http_SourceStamp()    // do not retry every tick
+                  hListen := hb_InetServer( nPort )
+                  hb_InetTimeout( hListen, 1000 )
+               ELSE
+                  lRestart := .T.
+                  s_lMcpHttpStop := .T.
+               ENDIF
+            ENDIF
+         ENDIF
          LOOP
       ENDIF
 
@@ -95,11 +137,32 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose )
       hb_InetClose( hSocket )
    ENDDO
 
-   hb_InetClose( hListen )
+   IF hListen != NIL
+      hb_InetClose( hListen )
+   ENDIF
    hb_InetCleanup()
    dbCloseAll()
 
+   IF lRestart
+      MCP_Http_Log( "Alte Instanz wird beendet." )
+      QUIT
+   ENDIF
+   
+
 RETURN NIL
+
+// Combined date/time/size stamp of the MCP source files. mcp_stdio.prg is
+// watched too because it is #included into the HTTP build.
+STATIC FUNCTION MCP_Http_SourceStamp()
+   LOCAL cStamp := "", aDir, cFile
+
+   FOR EACH cFile IN { Path( "run\mcp_http.prg" ), Path( "run\mcp_stdio.prg" ) }
+      aDir := Directory( cFile )
+      IF Len( aDir ) > 0
+         cStamp += DToS( aDir[1][3] ) + aDir[1][4] + LTrim( Str( aDir[1][2] ) ) + ";"
+      ENDIF
+   NEXT
+RETURN cStamp
 
 // Determine the listen port: -port / --port on the command line, else 8765.
 STATIC FUNCTION McpHttpPort()
@@ -172,7 +235,7 @@ RETURN s_hMcpKeys
 // Trader user. Returns NIL when the request may proceed (nUser/cUserName by
 // reference; nUser stays 0 when authentication is disabled), otherwise the
 // error text for the 401 response.
-STATIC FUNCTION MCP_Http_Auth( hHeaders, nUser, cUserName )
+STATIC FUNCTION MCP_Http_Auth( hHeaders, cUrlKey, nUser, cUserName )
    LOCAL hKeys := MCP_Http_LoadKeys()
    LOCAL cAuth, cApiKey, xEntry
 
@@ -192,6 +255,9 @@ STATIC FUNCTION MCP_Http_Auth( hHeaders, nUser, cUserName )
       cApiKey := AllTrim( SubStr( cAuth, 8 ) )
    ELSE
       cApiKey := cAuth        // accept a bare key as well
+   ENDIF
+   IF Empty( cApiKey ) .AND. ValType( cUrlKey ) == "C" .AND. ! Empty( cUrlKey )
+      cApiKey := cUrlKey      // fallback: ?key=... in the URL (see ServeConnection)
    ENDIF
    IF Empty( cApiKey ) .OR. ! HHasKey( hKeys, cApiKey )
       RETURN "Invalid or missing API key"
@@ -249,8 +315,19 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    LOCAL aCors
    LOCAL cAuthErr, nAuthUser := 0, cAuthName := ""
    LOCAL nOldUser, oHttpErr
+   LOCAL cUrlKey := "", cQPart
+   LOCAL lQuiet, cPeer
 
-   MCP_Http_Log( "Eingehende Verbindung von " + MCP_Http_Peer( hSocket ) )
+   // In GUI mode (QOUT log sink) the routine "/" traffic is not logged - it
+   // would flood the visible console. Warnings, errors and requests to other
+   // paths stay visible; the stderr sink keeps logging everything.
+   lQuiet := ( MCP_Http_LogSink() == "QOUT" )
+   cPeer := MCP_Http_Peer( hSocket )
+   s_lMcpQuietReq := .F.  // set once the path is known; early sends stay logged
+
+   IF ! lQuiet
+      MCP_Http_Log( "Eingehende Verbindung von " + cPeer )
+   ENDIF
 
    // ---- Read request line + headers, one line at a time, up to the blank
    // line. hb_InetRecvLine is the recv primitive proven to work in this build
@@ -283,13 +360,13 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    // cannot read a plaintext answer anyway.
    IF Left( cReqLine, 1 ) == Chr(22)
       MCP_Http_Log( "  TLS-Handshake auf Klartext-Port erkannt - Client verwendet https:// statt http:// " + ;
-                    "(oder direkt statt ueber den Proxy). Verbindung geschlossen." )
+                    "(oder direkt statt ueber den Proxy). Verbindung geschlossen." + IIF( lQuiet, " [" + cPeer + "]", "" ) )
       RETURN NIL
    ENDIF
 
    aReq := hb_ATokens( cReqLine, " " )
    IF Len(aReq) < 2
-      MCP_Http_Log( "  Keine gueltige HTTP-Request-Zeile: " + MCP_Http_Printable( cReqLine ) )
+      MCP_Http_Log( "  Keine gueltige HTTP-Request-Zeile: " + MCP_Http_Printable( cReqLine ) + IIF( lQuiet, " [" + cPeer + "]", "" ) )
       MCP_Http_Send( hSocket, 400, "text/plain", "Bad Request", {} )
       RETURN NIL
    ENDIF
@@ -297,6 +374,14 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    cPath := aReq[2]
    nQ := At( "?", cPath )
    IF nQ > 0
+      // Extract a ?key=... query parameter as an alternative way to pass the
+      // API key: clients like mcp-remote mangle --header arguments on Windows,
+      // a key in the URL avoids headers (and thus the 401/OAuth path) fully.
+      FOR EACH cQPart IN hb_ATokens( SubStr( cPath, nQ + 1 ), "&" )
+         IF Upper( Left( cQPart, 4 ) ) == "KEY="
+            cUrlKey := AllTrim( SubStr( cQPart, 5 ) )
+         ENDIF
+      NEXT
       cPath := Left( cPath, nQ - 1 )
    ENDIF
 
@@ -315,12 +400,18 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    cSessionId := IIF( HHasKey(hHeaders, "MCP-SESSION-ID"), hHeaders["MCP-SESSION-ID"], "" )
    aCors      := MCP_Http_CorsHeaders( cOrigin, hHeaders )
 
+   // Routine "/" traffic in GUI mode: also mute the 2xx response log lines
+   // written by MCP_Http_Send (errors are always logged there).
+   s_lMcpQuietReq := lQuiet .AND. cPath == "/"
+
    // Log the request line (method, path, and body size for POST). All parts
    // come from the wire - print them filtered so binary/garbage input cannot
-   // corrupt the console.
-   MCP_Http_Log( "  " + MCP_Http_Printable( cHttpMethod + " " + cPath ) + ;
-      IIF( HHasKey(hHeaders, "CONTENT-LENGTH"), " [" + MCP_Http_Printable(AllTrim(hHeaders["CONTENT-LENGTH"])) + " bytes]", "" ) + ;
-      IIF( ! Empty(cOrigin), " origin=" + MCP_Http_Printable(cOrigin), "" ) )
+   // corrupt the console. Routine "/" calls are hidden in GUI mode.
+   IF ! lQuiet .OR. ! ( cPath == "/" )
+      MCP_Http_Log( "  " + MCP_Http_Printable( cHttpMethod + " " + cPath ) + ;
+         IIF( HHasKey(hHeaders, "CONTENT-LENGTH"), " [" + MCP_Http_Printable(AllTrim(hHeaders["CONTENT-LENGTH"])) + " bytes]", "" ) + ;
+         IIF( ! Empty(cOrigin), " origin=" + MCP_Http_Printable(cOrigin), "" ) )
+   ENDIF
 
    // ---- Route by HTTP method -------------------------------------------
 
@@ -356,12 +447,13 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
       RETURN NIL
    ENDIF
 
-   // Per-user API-key authentication (mcp_keys.json in DATA); see above.
-   cAuthErr := MCP_Http_Auth( hHeaders, @nAuthUser, @cAuthName )
-   IF cAuthErr != NIL
-      MCP_Http_Log( "  401: " + cAuthErr )
-      AAdd( aCors, 'WWW-Authenticate: Bearer realm="Trader MCP"' )
-      MCP_Http_Send( hSocket, 401, "text/plain", cAuthErr, aCors )
+   // Only "/" is the MCP endpoint. Anything else (e.g. the OAuth endpoints
+   // /register etc. that mcp-remote probes after a 401) gets an explicit 404
+   // so OAuth-capable clients conclude "not supported" instead of looping
+   // through our auth with unparseable results.
+   IF ! ( cPath == "/" )
+      MCP_Http_Send( hSocket, 404, "application/json", ;
+         hb_jsonEncode( {"error"=>"not_found", "error_description"=>"Unknown endpoint - the MCP endpoint is /"} ), aCors )
       RETURN NIL
    ENDIF
 
@@ -382,12 +474,29 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
       ENDDO
    ENDIF
 
+   // Per-user API-key authentication (mcp_keys.json); see above. The 401 body
+   // uses the OAuth Bearer error format of RFC 6750 ({"error": "<string>",
+   // "error_description": ...}) - that is what MCP clients like mcp-remote
+   // parse on a 401; a JSON-RPC error object here makes them fail ("expected
+   // string, received object"). The right client setup is a static header
+   // (e.g. mcp-remote --header "Authorization: Bearer <key>").
+   cAuthErr := MCP_Http_Auth( hHeaders, cUrlKey, @nAuthUser, @cAuthName )
+   IF cAuthErr != NIL
+      MCP_Http_Log( "  401: " + cAuthErr + IIF( lQuiet, " [" + cPeer + "]", "" ) )
+      AAdd( aCors, 'WWW-Authenticate: Bearer realm="Trader MCP", error="invalid_token", error_description="' + cAuthErr + '"' )
+      MCP_Http_Send( hSocket, 401, "application/json", ;
+         hb_jsonEncode( {"error"=>"invalid_token", "error_description"=>cAuthErr} ), aCors )
+      RETURN NIL
+   ENDIF
+
    // Switch the Trader user context to the authenticated user for this one
    // request; guaranteed to be restored even when the dispatch errors out.
    nOldUser := Tr_GetIni( 28 )
    IF nAuthUser > 0
       Tr_GetIni( 28, nAuthUser )
-      MCP_Http_Log( "  Benutzer: " + cAuthName + " (" + LTrim( Str( nAuthUser ) ) + ")" )
+      IF ! lQuiet
+         MCP_Http_Log( "  Benutzer: " + cAuthName + " (" + LTrim( Str( nAuthUser ) ) + ")" )
+      ENDIF
    ENDIF
    BEGIN SEQUENCE
       MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
@@ -610,8 +719,12 @@ STATIC FUNCTION MCP_Http_Send( hSocket, nStatus, cContentType, cBody, aHeaders )
    NEXT
    cOut += cCRLF + cBody
 
-   MCP_Http_Log( "  <= " + LTrim(Str(nStatus)) + " " + MCP_Http_StatusText(nStatus) + ;
-      " (" + LTrim(Str(Len(cBody))) + " bytes)" )
+   // Success responses of routine "/" requests are muted in GUI mode
+   // (s_lMcpQuietReq, see ServeConnection); errors are always logged.
+   IF ! s_lMcpQuietReq .OR. nStatus >= 400
+      MCP_Http_Log( "  <= " + LTrim(Str(nStatus)) + " " + MCP_Http_StatusText(nStatus) + ;
+         " (" + LTrim(Str(Len(cBody))) + " bytes)" )
+   ENDIF
 
    MCP_Http_SendAll( hSocket, cOut )
 

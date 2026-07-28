@@ -84,6 +84,17 @@ curl -s http://127.0.0.1:8765/ \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
 ```
 
+## Auto-reload on source changes
+
+The listener watches `run\mcp_http.prg` and `run\mcp_stdio.prg` (checked
+roughly every 10 idle seconds, never during a request). When either file
+changes, the server frees the port, launches a **new instance with the same
+command line** (`WAPI_ShellExecute` + `Exename()`/`DosParam()`, the same
+relaunch idiom as `tr_001.prg`) and quits — deploying a new server version is
+just copying the file. If the relaunch fails, the old instance re-binds the
+port and keeps running on the old code (logged). Disable with the fourth
+parameter: `MCP_Http( , , , .F. )`.
+
 ## Authentication: per-user API keys (no OAuth)
 
 Without further setup the server is **open** — anyone who can reach the port
@@ -127,8 +138,33 @@ server can read it:
   server process regardless of the key — see the deployment notes if
   per-user mail identity matters.
 
-Claude Desktop / MCP clients: configure the server URL plus a custom header
-`Authorization: Bearer <key>` for the respective user.
+Claude Desktop / MCP clients: pass the key either as a header
+`Authorization: Bearer <key>` **or in the URL as `?key=<key>`**. The URL form
+is the recommended one for `mcp-remote`: its `--header` argument is mangled by
+npx/cmd on Windows (spaces get split), which ends in a `401` and a doomed
+OAuth probe. With the key in the URL no header is needed and the OAuth path
+is never entered:
+
+```json
+{
+  "mcpServers": {
+    "trader": {
+      "command": "npx",
+      "args": ["mcp-remote", "https://mcp.example.com/?key=<key>"]
+    }
+  }
+}
+```
+
+(Keys in URLs can end up in proxy logs — with the recommended local
+proxy-only exposure that is the same trust domain as the server log.)
+
+Note: a `401` answers in the OAuth Bearer error format of RFC 6750
+(`{"error":"invalid_token","error_description":"…"}`) plus a matching
+`WWW-Authenticate` header — that is the shape MCP clients parse on auth
+failures. There is no OAuth flow behind it: unknown endpoints such as
+`/register` return `404`, so OAuth-probing clients fail fast with a clear
+message instead of looping. Fix a 401 by correcting the static key.
 
 ## HTTPS with Caddy (simplest — automatic certificates)
 

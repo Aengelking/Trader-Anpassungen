@@ -3777,6 +3777,133 @@ FUNCTION MCP_Tool_Get_Bom(hArgs)
    ENDIF
 RETURN hResult
 
+FUNCTION MCP_Tool_Get_Article_Where_Used(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL lFound := .F.
+   LOCAL nArtnr
+   LOCAL aParents := {}, hParent, aRows := {}, hRow
+   LOCAL nLimit := 200, nCount := 0
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "matchcode"=>{"type"=>"string","description"=>"Artikel Matchcode"},;
+            "partno"=>{"type"=>"string","description"=>"Artikelnummer"},;
+            "limit"=>{"type"=>"number","description"=>"Maximum number of parent articles to return (default 200, max 2000)"};
+         },;
+         "anyOf"=>{{"matchcode", "partno"}};
+      }
+      hResult["description"] := "Where-used (Teileverwendungsnachweis): list the articles whose parts list " + ;
+                                "(Stueckliste) consumes this article as a direct component, each with the position " + ;
+                                "and quantity per parent. Parents flagged used_elsewhere are themselves a component " + ;
+                                "in a higher-level list - call this tool again with their matchcode to ascend"
+      RETURN hResult
+   ENDIF
+
+   NetUse("artikel", "art")
+   NetUse("parts", "part")
+
+   IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+      art->(DbSetOrder(1))
+      lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+   ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
+      art->(DbSetOrder(2))
+      lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
+   ENDIF
+
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   nArtnr := art->Artikelnr
+   hResult["matchcode"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+   hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+   hResult["unit"] := HB_StrToUTF8(AllTrim(art->Me))
+
+   IF HHasKey(hArgs, "limit") .AND. HB_IsNumeric(hArgs["limit"]) .AND. hArgs["limit"] > 0
+      nLimit := Min(Int(hArgs["limit"]), 2000)
+   ENDIF
+
+   // Pass 1: collect the parts rows that consume this article. parts index 2 is
+   // keyed on Partart (component), so seeking the article number and iterating
+   // while Partart matches yields every parent. Only the parts cursor is
+   // touched here so its position survives the loop.
+   part->(DbSetOrder(2))  // Str(Partart,6) + ...
+   IF part->(DbSeek(Str(nArtnr, 6), .T.))
+      DO WHILE ! part->(Eof()) .AND. part->Partart == nArtnr .AND. nCount < nLimit
+         IF part->Pos != 0  // skip the list header row (not a real consumption)
+            hRow := {=>}
+            hRow["listart"]  := part->Listart
+            hRow["item"]     := part->Pos
+            hRow["quantity"] := part->Qty
+            hRow["factor"]   := part->Factor
+            hRow["unit"]     := HB_StrToUTF8(AllTrim(part->Me))
+            IF part->AddQty != 0
+               hRow["additional_quantity"] := part->AddQty
+            ENDIF
+            IF part->AddPercent != 0
+               hRow["additional_percent"] := part->AddPercent
+            ENDIF
+            IF ! Empty(part->Notes)
+               hRow["notes"] := HB_StrToUTF8(AllTrim(part->Notes))
+            ENDIF
+            AAdd(aRows, hRow)
+            nCount++
+         ENDIF
+         part->(DbSkip())
+      ENDDO
+      hResult["truncated"] := nCount >= nLimit .AND. ! part->(Eof()) .AND. part->Partart == nArtnr
+   ENDIF
+
+   // Pass 2: resolve each parent article and flag whether it is itself consumed
+   // higher up (its Artikelnr appears as a Partart somewhere). Safe to seek the
+   // parts cursor now that pass 1 has finished iterating it.
+   art->(DbSetOrder(2))  // by Artikelnr
+   FOR EACH hRow IN aRows
+      hParent := {=>}
+      IF art->(DbSeek(Str(hRow["listart"], 6)))
+         hParent["article"]      := HB_StrToUTF8(AllTrim(art->Matchcode))
+         hParent["description"]  := HB_StrToUTF8(AllTrim(art->Artikel))
+         hParent["stock"]        := art->Bestand
+         hParent["manufactured"] := art->Bezug >= 5
+      ELSE
+         hParent["article_number"] := hRow["listart"]
+         hParent["description"]    := "(article record not found)"
+      ENDIF
+      hParent["used_at_item"] := hRow["item"]
+      hParent["quantity_per"] := hRow["quantity"]
+      hParent["factor"]       := hRow["factor"]
+      hParent["unit"]         := hRow["unit"]
+      IF HHasKey(hRow, "additional_quantity")
+         hParent["additional_quantity"] := hRow["additional_quantity"]
+      ENDIF
+      IF HHasKey(hRow, "additional_percent")
+         hParent["additional_percent"] := hRow["additional_percent"]
+      ENDIF
+      IF HHasKey(hRow, "notes")
+         hParent["notes"] := hRow["notes"]
+      ENDIF
+      // Does this parent itself flow into a higher-level list?
+      hParent["used_elsewhere"] := part->(DbSeek(Str(hRow["listart"], 6)))
+      AAdd(aParents, hParent)
+   NEXT
+
+   DbSelectArea(nOldSelect)
+
+   hResult["used_in_count"] := Len(aParents)
+   hResult["used_in"] := aParents
+   hResult["status"] := IIF(Len(aParents) > 0, "found", "not_found")
+   IF Len(aParents) == 0
+      hResult["message"] := "This article is not used as a component in any parts list (Stueckliste)"
+   ENDIF
+RETURN hResult
+
 // Resolve a supplier from the 'supplier' (matchcode) / 'supplier_number'
 // arguments - suppliers are group "L" addresses. Returns NIL if not found.
 STATIC FUNCTION ResolveSupplier(hArgs)

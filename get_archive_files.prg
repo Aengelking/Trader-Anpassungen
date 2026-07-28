@@ -15,7 +15,7 @@ LOCAL cDocType
 LOCAL aHistory
 LOCAL bAdd
 LOCAL hDocTypes := {;
-         "ek_customer_order_confirmation"=>"Auftragsbest„tigung",;
+         "ek_customer_order_confirmation"=>"Auftragsbestï¿½tigung",;
          "ek_customer_order"=>"Auftrag",;
          "ek_supplier_order"=>"Bestellung";
       }
@@ -25,7 +25,7 @@ IF .F. //Tr_getini(28) $ {9,45}
    oAgorum := AgorumCustomApi():New() 
    bAdd := {|cDate|
       LOCAL dDT := StoT(StrTran(StrTran(StrTran(cDate,"-",""),"T",""),":",""))+2/24
-      Aadd(aDirs,{cDocType+" (Agorum)",,StoD(TtoS(dDT)),SubStr(TtoC(dDT),10,8),,'agorum:open:path:get:'+aFile["uuid"]})
+      Aadd(aDirs,{cDocType+" (Agorum)",,StoD(TtoS(dDT)),SubStr(TtoC(dDT),10,8),,'agorum:open:path:get:'+aFile["uuid"],cDocType})
       RETURN NIL
    }
    FOR EACH aFile IN oAgorum:Search(HGetKeyAt(hTyp,1),HGetValueAt(hTyp,1))
@@ -85,7 +85,8 @@ FOR EACH nNo IN hTyp
          ENDIF
          //FileStats(cDir+aFile[1],,,,,@dChangeDate,@nChangeTime)
          //aFile[3] := dChangeDate
-         //aFile[4] := SecToTime(nChangeTime)         
+         //aFile[4] := SecToTime(nChangeTime)
+         Aadd(aFile,hTypes[cTyp]:Name)  //[7] = readable document type (e.g. "Bestellung")
          Aadd(aDirs,aFile)
          RETURN NIL
       })

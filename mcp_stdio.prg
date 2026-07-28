@@ -5006,6 +5006,122 @@ FUNCTION MCP_Tool_Get_Production_Order(hArgs)
    hResult["status"] := "found"
 RETURN hResult
 
+FUNCTION MCP_Tool_List_Users(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL aUsers := {}, hUser
+   LOCAL lInactive := .F., lAbsence := .F.
+   LOCAL nOne := 0
+   LOCAL oAR, lAbsErr := .F.
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "number"=>{"type"=>"number","description"=>"Optional: return only this user (by user number)"},;
+            "include_inactive"=>{"type"=>"boolean","description"=>"Also list deactivated users (default false)"},;
+            "include_absence"=>{"type"=>"boolean","description"=>"Attach the David out-of-office status and substitute (Vertretung) per user. Slower - one David lookup per user (default false)"};
+         };
+      }
+      hResult["description"] := "List the Trader users with their number, name, initials, email and phone. With " + ;
+                                "include_absence also the David out-of-office status (absent, from/until, mail " + ;
+                                "forwarding) and the substitute (Vertretung)"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "number") .AND. HB_IsNumeric(hArgs["number"]) .AND. hArgs["number"] > 0
+      nOne := Int(hArgs["number"])
+   ENDIF
+   IF HHasKey(hArgs, "include_inactive") .AND. HB_IsLogical(hArgs["include_inactive"])
+      lInactive := hArgs["include_inactive"]
+   ENDIF
+   IF HHasKey(hArgs, "include_absence") .AND. HB_IsLogical(hArgs["include_absence"])
+      lAbsence := hArgs["include_absence"]
+   ENDIF
+
+   NetUse("buyer", "buy")
+
+   // Pass 1: collect the users from the buyer file (user number = record
+   // number). Pure iteration - no David calls that would move the cursor.
+   IF nOne > 0
+      buy->(DbGoTo(nOne))
+      IF ! buy->(Eof()) .AND. ! Empty(buy->Buyer)
+         AAdd(aUsers, _MCP_UserRow(nOne))
+      ENDIF
+   ELSE
+      buy->(DbGoTop())
+      DO WHILE ! buy->(Eof())
+         IF ! Empty(buy->Buyer) .AND. ( lInactive .OR. buy->Aktive )
+            AAdd(aUsers, _MCP_UserRow(buy->(RecNo())))
+         ENDIF
+         buy->(DbSkip())
+      ENDDO
+   ENDIF
+
+   // Pass 2 (opt-in): David out-of-office status and substitute per user. This
+   // is expensive (one OLE logon each) and moves the buyer cursor, so it runs
+   // after pass 1 and is guarded per user - a David error (or the class not
+   // being registered in this runtime) only marks that user "unavailable".
+   IF lAbsence
+      FOR EACH hUser IN aUsers
+         BEGIN SEQUENCE
+            oAR := DavidAutoReply():New( hUser["number"] )
+            hUser["absent"] := oAR:lIsActive
+            IF oAR:lIsActive
+               hUser["absent_from"]  := oAR:dFrom
+               hUser["absent_until"] := oAR:dUntil
+               hUser["forwarding"]   := oAR:lForward
+               IF HB_IsNumeric(oAR:nVertreter) .AND. oAR:nVertreter > 0
+                  buy->(DbGoTo(oAR:nVertreter))   // record number - order independent
+                  IF ! buy->(Eof()) .AND. ! Empty(buy->Buyer)
+                     hUser["substitute_number"] := oAR:nVertreter
+                     hUser["substitute_name"]   := HB_StrToUTF8(AllTrim(buy->Buyer))
+                  ENDIF
+               ENDIF
+            ENDIF
+         RECOVER
+            hUser["absence_status"] := "unavailable"
+            lAbsErr := .T.
+         END SEQUENCE
+      NEXT
+      IF lAbsErr
+         hResult["absence_note"] := "Absence data comes from David (DavidAutoReply); 'unavailable' means David " + ;
+                                    "could not be queried for that user on the server"
+      ENDIF
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["users"] := aUsers
+   hResult["count"] := Len(aUsers)
+   hResult["status"] := IIF(Len(aUsers) > 0, "found", "not_found")
+   IF Len(aUsers) == 0
+      hResult["message"] := IIF(nOne > 0, "User " + AllTrim(Str(nOne)) + " not found", "No users found")
+   ENDIF
+RETURN hResult
+
+// Build the base user row from the buyer record currently positioned at nNum.
+STATIC FUNCTION _MCP_UserRow(nNum)
+   LOCAL hUser := {=>}
+   buy->(DbGoTo(nNum))
+   hUser["number"] := nNum
+   hUser["name"] := HB_StrToUTF8(AllTrim(buy->Buyer))
+   IF ! Empty(buy->Initials)
+      hUser["initials"] := HB_StrToUTF8(AllTrim(buy->Initials))
+   ENDIF
+   IF ! Empty(buy->Short)
+      hUser["short"] := HB_StrToUTF8(AllTrim(buy->Short))
+   ENDIF
+   IF ! Empty(buy->Email)
+      hUser["email"] := HB_StrToUTF8(AllTrim(buy->Email))
+   ENDIF
+   IF ! Empty(buy->Telefon)
+      hUser["phone"] := HB_StrToUTF8(AllTrim(buy->Telefon))
+   ENDIF
+   hUser["active"] := buy->Aktive
+RETURN hUser
+
 FUNCTION MCP_Tool_Get_Current_User(hArgs)
    LOCAL hResult := {=>}
    LOCAL nUser

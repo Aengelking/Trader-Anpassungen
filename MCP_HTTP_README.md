@@ -95,6 +95,23 @@ just copying the file. If the relaunch fails, the old instance re-binds the
 port and keeps running on the old code (logged). Disable with the fourth
 parameter: `MCP_Http( , , , .F. )`.
 
+Note that the source check only advances on **idle** ticks (between requests).
+The relaunch itself never waits for clients — it frees the port and spawns the
+new instance regardless — but under constant request load the idle ticks needed
+to notice the change come rarely, so a reload can lag until traffic quiets. Use
+the client overview below to see whether clients are still hammering the server.
+
+## Connected-client overview (GUI)
+
+In GUI mode press **`C`** in the server window to log an overview of the
+currently connected clients. Because the server is single-threaded
+(accept → serve → close), a "client" is tracked by its MCP session id across
+requests (clients that send none are collapsed onto one peer+user entry). Each
+line shows the user (from the API key), the peer address, the request count and
+the time / age of the last request; "aktiv" means a request within the last
+120 seconds. A `Neuer Client verbunden` line is logged the first time a session
+is seen. The table is pruned after an hour of inactivity per client.
+
 ## Authentication: per-user API keys (no OAuth)
 
 Without further setup the server is **open** — anyone who can reach the port

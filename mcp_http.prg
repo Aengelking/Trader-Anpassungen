@@ -35,11 +35,16 @@ STATIC s_cMcpKeysStamp   := ""    // file stamp of the loaded key table
 STATIC s_lMcpAuthWarned  := .F.   // "running without authentication" warned once
 STATIC s_cMcpSrcStamp    := ""    // stamp of the MCP source files for auto-reload
 STATIC s_lMcpQuietReq    := .F.   // current request is routine "/" traffic in GUI mode - suppress 2xx response log
+STATIC s_hMcpClients     := {=>}  // connected-client overview, keyed by session id (fallback peer#user)
+STATIC s_nReqUser        := 0     // current request's authenticated user (fed into client tracking)
+STATIC s_cReqName        := ""    // current request's user name
+STATIC s_cReqPeer        := ""    // current request's peer address
 
 FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
    LOCAL nStdErr := hb_GetStdErr()
    LOCAL hListen, hSocket
    LOCAL nReloadTick := 0, lRestart := .F., nSpawn
+   LOCAL nKey
 
    IF nPort == NIL
       nPort := McpHttpPort()
@@ -79,6 +84,9 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
    hb_InetTimeout( hListen, 1000 )
 
    MCP_Http_Log( "Listening on port " + LTrim(Str(nPort)) + " (all interfaces, Streamable HTTP)" )
+   IF MCP_Http_LogSink() == "QOUT"
+      MCP_Http_Log( "Taste 'C' zeigt eine Uebersicht der aktuell verbundenen Clients" )
+   ENDIF
 
    // Auto-reload: remember the source stamp; when mcp_http.prg/mcp_stdio.prg
    // change on disk the server relaunches itself with the same command line.
@@ -97,7 +105,11 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
       hSocket := hb_InetAccept( hListen )
       IF hSocket == NIL
          // Accept timed out (no pending connection) - keep the UI responsive.
-         Inkey( )
+         // A 'C' keypress in the GUI window prints the connected-client overview.
+         nKey := Inkey( )
+         IF nKey == Asc( "c" ) .OR. nKey == Asc( "C" )
+            MCP_Http_ShowClients()
+         ENDIF
 
          // Check the sources roughly every 10 idle seconds. Runs only between
          // requests, so a restart can never interrupt a running tool call.
@@ -325,6 +337,12 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    cPeer := MCP_Http_Peer( hSocket )
    s_lMcpQuietReq := .F.  // set once the path is known; early sends stay logged
 
+   // Request context for the connected-client overview (see MCP_Http_TrackClient).
+   // Peer is known now; the user/name follow once authentication succeeds.
+   s_cReqPeer := cPeer
+   s_nReqUser := 0
+   s_cReqName := ""
+
    IF ! lQuiet
       MCP_Http_Log( "Eingehende Verbindung von " + cPeer )
    ENDIF
@@ -492,6 +510,8 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    // Switch the Trader user context to the authenticated user for this one
    // request; guaranteed to be restored even when the dispatch errors out.
    nOldUser := Tr_GetIni( 28 )
+   s_nReqUser := nAuthUser
+   s_cReqName := cAuthName
    IF nAuthUser > 0
       Tr_GetIni( 28, nAuthUser )
       IF ! lQuiet
@@ -577,6 +597,10 @@ STATIC FUNCTION MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
    // 404 only broke clients (e.g. the MCP Inspector's notifications/initialized).
 
    cResponse := MCP_Http_DispatchOne( hReq, cSessionId, @lIsInitialize, @cNewSession )
+
+   // Record the client for the GUI overview (uses the request context set in
+   // ServeConnection). Only real JSON-RPC POSTs reach here - health GETs do not.
+   MCP_Http_TrackClient( cSessionId, cNewSession, cMethod )
 
    // A notification (no id) produced no response -> acknowledge with 202.
    IF Empty( cResponse )
@@ -838,5 +862,85 @@ STATIC FUNCTION MCP_Http_ToolLabel( hReq )
    ENDIF
 
 RETURN ""
+
+//---------------------------------------------------------------------------
+// Connected-client overview (GUI): the 'C' key prints the clients seen most
+// recently. The server is single-threaded (accept -> serve -> close), so a
+// "client" is tracked by its MCP session id across requests; clients that send
+// no session id are collapsed onto one peer+user entry.
+//---------------------------------------------------------------------------
+
+STATIC FUNCTION MCP_Http_TrackClient( cSessionId, cNewSession, cMethod )
+   LOCAL cKey, hRec, lNew := .F.
+   LOCAL nNow := Seconds()
+
+   cKey := IIF( ! Empty( cSessionId ), cSessionId, ;
+           IIF( ! Empty( cNewSession ), cNewSession, ;
+                s_cReqPeer + "#" + LTrim( Str( s_nReqUser ) ) ) )
+
+   IF ! HHasKey( s_hMcpClients, cKey )
+      s_hMcpClients[ cKey ] := { "user"=>s_nReqUser, "name"=>s_cReqName, "peer"=>s_cReqPeer, ;
+         "first"=>nNow, "count"=>0, "last"=>nNow, "lasttime"=>Time(), "method"=>"" }
+      lNew := .T.
+   ENDIF
+   hRec := s_hMcpClients[ cKey ]
+   hRec[ "count" ]++
+   hRec[ "last" ]     := nNow
+   hRec[ "lasttime" ] := Time()
+   hRec[ "method" ]   := cMethod
+   IF s_nReqUser > 0        // identity may have been unknown on the very first hit
+      hRec[ "user" ] := s_nReqUser
+      hRec[ "name" ] := s_cReqName
+   ENDIF
+   IF ! Empty( s_cReqPeer )
+      hRec[ "peer" ] := s_cReqPeer
+   ENDIF
+
+   IF lNew
+      MCP_Http_Log( "Neuer Client verbunden: " + MCP_Http_ClientLabel( hRec ) + "  [Sitzung " + Left( cKey, 32 ) + "]" )
+   ENDIF
+RETURN NIL
+
+STATIC FUNCTION MCP_Http_ClientLabel( hRec )
+RETURN IIF( hRec[ "user" ] > 0, ;
+           AllTrim( hRec[ "name" ] ) + " (" + LTrim( Str( hRec[ "user" ] ) ) + ")", ;
+           "ohne Key" ) + " @ " + hRec[ "peer" ]
+
+// Print the overview to the GUI log. "aktiv" = a request within the last 120s;
+// entries idle for more than an hour are pruned so the table stays bounded.
+STATIC FUNCTION MCP_Http_ShowClients()
+   LOCAL cKey, hRec, nNow := Seconds(), nAge
+   LOCAL aActive := {}, nTotal, nX
+
+   FOR EACH cKey IN HGetKeys( s_hMcpClients )   // a snapshot array - safe to HDel below
+      nAge := nNow - s_hMcpClients[ cKey ][ "last" ]
+      IF nAge < 0
+         nAge += 86400          // clock passed midnight since the last request
+      ENDIF
+      IF nAge > 3600
+         HDel( s_hMcpClients, cKey )
+      ELSEIF nAge <= 120
+         AAdd( aActive, { nAge, cKey, s_hMcpClients[ cKey ] } )
+      ENDIF
+   NEXT
+
+   nTotal := Len( s_hMcpClients )
+   ASort( aActive,,, {| a, b | a[ 1 ] < b[ 1 ] } )   // most recent activity first
+
+   MCP_Http_Log( "==== Verbundene Clients: " + LTrim( Str( Len( aActive ) ) ) + ;
+      " aktiv (<=120s), " + LTrim( Str( nTotal ) ) + " bekannt ====" )
+   IF Len( aActive ) == 0
+      MCP_Http_Log( "  (keine aktiven Clients)" )
+   ENDIF
+   FOR nX := 1 TO Len( aActive )
+      nAge := aActive[ nX ][ 1 ]
+      cKey := aActive[ nX ][ 2 ]
+      hRec := aActive[ nX ][ 3 ]
+      MCP_Http_Log( "  " + MCP_Http_ClientLabel( hRec ) + ;
+         "  Anfragen " + LTrim( Str( hRec[ "count" ] ) ) + ;
+         "  zuletzt " + hRec[ "lasttime" ] + " (vor " + LTrim( Str( Int( nAge ) ) ) + "s, " + AllTrim( hRec[ "method" ] ) + ")" + ;
+         "  Sitzung " + Left( cKey, 24 ) )
+   NEXT
+RETURN NIL
 
 #include 'mcp_stdio.prg'

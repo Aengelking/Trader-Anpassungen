@@ -5263,6 +5263,148 @@ FUNCTION MCP_Tool_Archive_Document(hArgs)
    hResult["status"] := "success"
 RETURN hResult
 
+FUNCTION MCP_Tool_List_Unposted_Incoming_Invoices(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL aInv := {}, hInv, aHist, hEv
+   LOCAL nLief := 0, nLimit := 200, nCount := 0
+   LOCAL lHistory := .F.
+   LOCAL nTotal := 0
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "supplier_number"=>{"type"=>"number","description"=>"Optional: restrict to one creditor by supplier number (Liefnr)"},;
+            "include_history"=>{"type"=>"boolean","description"=>"Also attach the full event log (received/scanned/approved/... with reasons) per invoice (default false)"},;
+            "limit"=>{"type"=>"number","description"=>"Maximum number of invoices to return (default 200, max 2000)"};
+         };
+      }
+      hResult["description"] := "List the not-yet-booked invoices in the incoming-invoice journal (Rechnungseingangs" + ;
+                                "buch, reb where Status <> 9), each with supplier, document number, amount, received " + ;
+                                "date, approval state and its free-text comment (rebnotes). Set include_history for " + ;
+                                "the full event log"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "supplier_number") .AND. HB_IsNumeric(hArgs["supplier_number"]) .AND. hArgs["supplier_number"] > 0
+      nLief := Int(hArgs["supplier_number"])
+   ENDIF
+   IF HHasKey(hArgs, "include_history") .AND. HB_IsLogical(hArgs["include_history"])
+      lHistory := hArgs["include_history"]
+   ENDIF
+   IF HHasKey(hArgs, "limit") .AND. HB_IsNumeric(hArgs["limit"]) .AND. hArgs["limit"] > 0
+      nLimit := Min(Int(hArgs["limit"]), 2000)
+   ENDIF
+
+   NetUse("reb", "reb")
+   NetUse("rebprot", "rebp")
+   NetUse("rebnotes", "rebn")
+
+   IF nLief > 0
+      reb->(DbSetOrder(6))  // Str(Liefnr,6) + Beleg
+      reb->(DbSeek(Str(nLief, 6)))
+   ELSE
+      reb->(DbSetOrder(0))  // natural order - no index on Status
+      reb->(DbGoTop())
+   ENDIF
+
+   DO WHILE ! reb->(Eof()) .AND. nCount < nLimit
+      IF nLief > 0 .AND. reb->Liefnr != nLief
+         EXIT
+      ENDIF
+      IF reb->Status != 9  // 9 = verbucht (booked); everything else is unposted
+         hInv := {=>}
+         hInv["id"] := reb->ID
+         hInv["document_no"] := HB_StrToUTF8(AllTrim(reb->Beleg))
+         IF HB_IsNumeric(reb->Liefnr) .AND. reb->Liefnr != 0
+            hInv["supplier_number"] := reb->Liefnr
+         ENDIF
+         IF ! Empty(reb->Name)
+            hInv["supplier_name"] := HB_StrToUTF8(AllTrim(reb->Name))
+         ENDIF
+         IF HB_IsNumeric(reb->Konto) .AND. reb->Konto != 0
+            hInv["account"] := reb->Konto  // creditor account when booked by account, not Liefnr
+         ENDIF
+         IF HB_IsNumeric(reb->KS)
+            IF reb->KS != 0
+               hInv["cost_center"] := reb->KS
+            ENDIF
+         ELSEIF ValType(reb->KS) == "C" .AND. ! Empty(reb->KS)
+            hInv["cost_center"] := HB_StrToUTF8(AllTrim(reb->KS))
+         ENDIF
+         hInv["amount"] := reb->Betrag
+         hInv["revision"] := reb->Rev
+         hInv["status"] := reb->Status
+         hInv["status_text"] := IIF(reb->Status == 8, "approved", "open")  // 8 = genehmigt
+         IF ValType(reb->Stapel) == "L"
+            hInv["in_batch"] := reb->Stapel  // queued in the booking batch
+         ENDIF
+         IF ! Empty(reb->Person)
+            hInv["person"] := HB_StrToUTF8(AllTrim(reb->Person))
+         ENDIF
+
+         // Received date from the RECV protocol entry (rebp index 2 = ID+Type)
+         rebp->(DbSetOrder(2))
+         IF rebp->(DbSeek(Str(reb->ID, 9) + "RECV")) .AND. ! Empty(rebp->DateTime)
+            hInv["received_date"] := SToD(Left(rebp->DateTime, 8))
+         ENDIF
+
+         // Free-text comment (rebnotes, keyed by ID)
+         IF rebn->(DbSeek(Str(reb->ID, 9))) .AND. ! Empty(rebn->Notes)
+            hInv["comment"] := HB_StrToUTF8(AllTrim(rebn->Notes))
+         ENDIF
+
+         // Optional full event log
+         IF lHistory
+            aHist := {}
+            rebp->(DbSetOrder(1))  // by ID (chronological)
+            IF rebp->(DbSeek(Str(reb->ID, 9), .T.))
+               DO WHILE ! rebp->(Eof()) .AND. rebp->ID == reb->ID
+                  hEv := {=>}
+                  hEv["type"] := HB_StrToUTF8(AllTrim(rebp->Type))
+                  hEv["event"] := HB_StrToUTF8(AllTrim(RebTypeText(rebp->Type)))
+                  IF ! Empty(rebp->DateTime)
+                     hEv["date"] := SToD(Left(rebp->DateTime, 8))
+                  ENDIF
+                  IF ! Empty(rebp->Person)
+                     hEv["person"] := HB_StrToUTF8(AllTrim(rebp->Person))
+                  ENDIF
+                  IF ! Empty(rebp->Grund)
+                     hEv["reason"] := HB_StrToUTF8(AllTrim(rebp->Grund))
+                  ENDIF
+                  AAdd(aHist, hEv)
+                  rebp->(DbSkip())
+               ENDDO
+            ENDIF
+            hInv["history"] := aHist
+         ENDIF
+
+         IF HB_IsNumeric(reb->Betrag)
+            nTotal += reb->Betrag
+         ENDIF
+         AAdd(aInv, hInv)
+         nCount++
+      ENDIF
+      reb->(DbSkip())
+   ENDDO
+
+   hResult["truncated"] := nCount >= nLimit .AND. ! reb->(Eof()) .AND. ;
+      (nLief == 0 .OR. reb->Liefnr == nLief)
+
+   DbSelectArea(nOldSelect)
+
+   hResult["invoices"] := aInv
+   hResult["count"] := Len(aInv)
+   hResult["total_amount"] := Round(nTotal, 2)
+   hResult["status"] := IIF(Len(aInv) > 0, "found", "not_found")
+   IF Len(aInv) == 0
+      hResult["message"] := "No unposted invoices in the incoming-invoice journal" + ;
+         IIF(nLief > 0, " for supplier " + AllTrim(Str(nLief)), "")
+   ENDIF
+RETURN hResult
+
 FUNCTION MCP_Tool_Archive_Incoming_Invoice(hArgs)
    LOCAL hResult := {=>}
    LOCAL cFile := "", cId, cMailbox := "inbox", cAttFilter := ""

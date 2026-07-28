@@ -5306,12 +5306,19 @@ FUNCTION MCP_Tool_List_Unposted_Incoming_Invoices(hArgs)
       reb->(DbSetOrder(6))  // Str(Liefnr,6) + Beleg
       reb->(DbSeek(Str(nLief, 6)))
    ELSE
-      reb->(DbSetOrder(0))  // natural order - no index on Status
+      // Index 4 = Str(Status,1) + Str(ID,9): the unposted rows (Status 0-8)
+      // sort before the booked block (Status 9), so the scan stops at the
+      // first booked row instead of reading the whole journal.
+      reb->(DbSetOrder(4))
       reb->(DbGoTop())
    ENDIF
 
    DO WHILE ! reb->(Eof()) .AND. nCount < nLimit
-      IF nLief > 0 .AND. reb->Liefnr != nLief
+      IF nLief > 0
+         IF reb->Liefnr != nLief
+            EXIT
+         ENDIF
+      ELSEIF reb->Status == 9  // reached the booked block - nothing unposted beyond it
          EXIT
       ENDIF
       IF reb->Status != 9  // 9 = verbucht (booked); everything else is unposted
@@ -5391,7 +5398,7 @@ FUNCTION MCP_Tool_List_Unposted_Incoming_Invoices(hArgs)
    ENDDO
 
    hResult["truncated"] := nCount >= nLimit .AND. ! reb->(Eof()) .AND. ;
-      (nLief == 0 .OR. reb->Liefnr == nLief)
+      IIF(nLief > 0, reb->Liefnr == nLief, reb->Status != 9)
 
    DbSelectArea(nOldSelect)
 

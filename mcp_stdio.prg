@@ -5263,6 +5263,27 @@ FUNCTION MCP_Tool_Archive_Document(hArgs)
    hResult["status"] := "success"
 RETURN hResult
 
+// Local copy of reb.prg's RebTypeText - that GUI helper is not registered in
+// the server runtime (calling it raised BASE/6101 "Unknown symbol REBTYPETEXT").
+STATIC FUNCTION _MCP_RebEventText(cType)
+   LOCAL c := AllTrim(cType)
+   LOCAL cText := ""
+   DO CASE
+   CASE c == "RECV"
+      cText := "eingegangen"
+   CASE c == "SCAN"
+      cText := "gescant"
+   CASE c == "ARCHIV"
+      cText := "archiviert"
+   CASE c == "APR"
+      cText := "genehmigt"
+   CASE c == "STORN"
+      cText := "storniert"
+   CASE c == "NEW"
+      cText := "ersetzt"
+   ENDCASE
+RETURN cText
+
 FUNCTION MCP_Tool_List_Unposted_Incoming_Invoices(hArgs)
    LOCAL hResult := {=>}
    LOCAL aInv := {}, hInv, aHist, hEv
@@ -5371,7 +5392,7 @@ FUNCTION MCP_Tool_List_Unposted_Incoming_Invoices(hArgs)
                DO WHILE ! rebp->(Eof()) .AND. rebp->ID == reb->ID
                   hEv := {=>}
                   hEv["type"] := HB_StrToUTF8(AllTrim(rebp->Type))
-                  hEv["event"] := HB_StrToUTF8(AllTrim(RebTypeText(rebp->Type)))
+                  hEv["event"] := HB_StrToUTF8(_MCP_RebEventText(rebp->Type))
                   IF ! Empty(rebp->DateTime)
                      hEv["date"] := SToD(Left(rebp->DateTime, 8))
                   ENDIF

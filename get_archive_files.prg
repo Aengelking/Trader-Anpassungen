@@ -83,7 +83,7 @@ FOR EACH nNo IN hTyp
                ENDIF
                aFile[1] := SubStr(hFields["/Subject"],2,Len(hFields["/Subject"])-2)
             ELSE
-               aFile[1] := HB_AnsiToOem(hTypes[cTyp]:Name)
+               //aFile[1] := HB_AnsiToOem(hTypes[cTyp]:Name)
             ENDIF
          ELSEIF cExtension == ".tif"
             aFile[1] := hTypes[cTyp]:Name+" (Fax von: "+Lower(SubStr(aFile[1],AT("_",aFile[1])+1,Rat(".",aFile[1])-AT("_",aFile[1])-1))+")"

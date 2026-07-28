@@ -5011,7 +5011,7 @@ FUNCTION MCP_Tool_List_Users(hArgs)
    LOCAL aUsers := {}, hUser
    LOCAL lInactive := .F., lAbsence := .F.
    LOCAL nOne := 0
-   LOCAL oAR, lAbsErr := .F.
+   LOCAL oUsr, dFrom, dUntil, nSubst, lAbsErr := .F.
    LOCAL nOldSelect := Select()
 
    // Return schema and description when called without arguments
@@ -5021,12 +5021,13 @@ FUNCTION MCP_Tool_List_Users(hArgs)
          "properties"=>{;
             "number"=>{"type"=>"number","description"=>"Optional: return only this user (by user number)"},;
             "include_inactive"=>{"type"=>"boolean","description"=>"Also list deactivated users (default false)"},;
-            "include_absence"=>{"type"=>"boolean","description"=>"Attach the David out-of-office status and substitute (Vertretung) per user. Slower - one David lookup per user (default false)"};
+            "include_absence"=>{"type"=>"boolean","description"=>"Attach the away/absence status and substitute (Vertretung) from the user settings (default false)"};
          };
       }
       hResult["description"] := "List the Trader users with their number, name, initials, email and phone. With " + ;
-                                "include_absence also the David out-of-office status (absent, from/until, mail " + ;
-                                "forwarding) and the substitute (Vertretung)"
+                                "include_absence also the absence period (away_from/away_until), whether the user " + ;
+                                "is currently absent, and the substitute (Vertretung) - read from the user settings " + ;
+                                "(AwayFrom/AwayUntil/AwaySubst)"
       RETURN hResult
    ENDIF
 
@@ -5059,26 +5060,38 @@ FUNCTION MCP_Tool_List_Users(hArgs)
       ENDDO
    ENDIF
 
-   // Pass 2 (opt-in): David out-of-office status and substitute per user. This
-   // is expensive (one OLE logon each) and moves the buyer cursor, so it runs
-   // after pass 1 and is guarded per user - a David error (or the class not
-   // being registered in this runtime) only marks that user "unavailable".
+   // Pass 2 (opt-in): away/absence status and substitute from each user's
+   // settings (AwayFrom/AwayUntil/AwaySubst, as maintained by timebutler_sync).
+   // Runs after pass 1 because User():Load moves the buyer cursor; guarded per
+   // user so an unreadable settings record only marks that user "unavailable".
    IF lAbsence
       FOR EACH hUser IN aUsers
          BEGIN SEQUENCE
-            oAR := DavidAutoReply():New( hUser["number"] )
-            hUser["absent"] := oAR:lIsActive
-            IF oAR:lIsActive
-               hUser["absent_from"]  := oAR:dFrom
-               hUser["absent_until"] := oAR:dUntil
-               hUser["forwarding"]   := oAR:lForward
-               IF HB_IsNumeric(oAR:nVertreter) .AND. oAR:nVertreter > 0
-                  buy->(DbGoTo(oAR:nVertreter))   // record number - order independent
+            oUsr := User():New()
+            IF oUsr:Load( hUser["number"] )
+               dFrom  := oUsr:oSettings:AwayFrom
+               dUntil := oUsr:oSettings:AwayUntil
+               nSubst := oUsr:oSettings:AwaySubst
+
+               // Currently absent: an end date that has not passed, and either
+               // no start date or a start date that has already been reached.
+               hUser["absent"] := ! Empty(dUntil) .AND. dUntil >= Date() .AND. ( Empty(dFrom) .OR. dFrom <= Date() )
+               IF ! Empty(dFrom)
+                  hUser["away_from"] := dFrom
+               ENDIF
+               IF ! Empty(dUntil)
+                  hUser["away_until"] := dUntil
+               ENDIF
+               IF HB_IsNumeric(nSubst) .AND. nSubst > 0
+                  hUser["substitute_number"] := nSubst
+                  buy->(DbGoTo(nSubst))   // record number - order independent
                   IF ! buy->(Eof()) .AND. ! Empty(buy->Buyer)
-                     hUser["substitute_number"] := oAR:nVertreter
-                     hUser["substitute_name"]   := HB_StrToUTF8(AllTrim(buy->Buyer))
+                     hUser["substitute_name"] := HB_StrToUTF8(AllTrim(buy->Buyer))
                   ENDIF
                ENDIF
+            ELSE
+               hUser["absence_status"] := "unavailable"
+               lAbsErr := .T.
             ENDIF
          RECOVER
             hUser["absence_status"] := "unavailable"
@@ -5086,8 +5099,8 @@ FUNCTION MCP_Tool_List_Users(hArgs)
          END SEQUENCE
       NEXT
       IF lAbsErr
-         hResult["absence_note"] := "Absence data comes from David (DavidAutoReply); 'unavailable' means David " + ;
-                                    "could not be queried for that user on the server"
+         hResult["absence_note"] := "Absence is read from the user settings (AwayFrom/AwayUntil/AwaySubst); " + ;
+                                    "'unavailable' means that user's settings could not be read"
       ENDIF
    ENDIF
 

@@ -3608,6 +3608,133 @@ FUNCTION MCP_Tool_Get_Article_Movements(hArgs)
    hResult["status"] := "found"
 RETURN hResult
 
+FUNCTION MCP_Tool_Get_Customer_Part_Number(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oKunde, cKundma, lFound := .F.
+   LOCAL lReverse := .F.
+   LOCAL cWanted, cArtlief := ""
+   LOCAL aMatches := {}, hMatch
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "customer"=>{"type"=>"string","description"=>"Customer matchcode"},;
+            "customer_number"=>{"type"=>"number","description"=>"Customer number"},;
+            "matchcode"=>{"type"=>"string","description"=>"Forward lookup: our article matchcode - returns the customer's part number for it"},;
+            "partno"=>{"type"=>"string","description"=>"Forward lookup: our article number - returns the customer's part number for it"},;
+            "customer_part_no"=>{"type"=>"string","description"=>"Reverse lookup: the customer's own part number - returns our matching article(s)"};
+         },;
+         "anyOf"=>{{"customer", "customer_number"}, {"matchcode", "partno", "customer_part_no"}};
+      }
+      hResult["description"] := "Map an article to a customer's own part number (Kundenartikelnummer) in both " + ;
+                                "directions, from artkund. Forward: our article (matchcode/partno) + customer -> the " + ;
+                                "customer's part number. Reverse: customer_part_no + customer -> our matching " + ;
+                                "article(s). A customer identifier (customer or customer_number) is always required"
+      RETURN hResult
+   ENDIF
+
+   NetUse("engkund", "ku")
+   NetUse("artikel", "art")
+   NetUse("artkund", "aku")
+
+   // Resolve the customer (matchcode or number) - both directions need it
+   oKunde := Adresse():New()
+   IF HHasKey(hArgs, "customer_number") .AND. HB_IsNumeric(hArgs["customer_number"]) .AND. hArgs["customer_number"] > 0
+      ku->(DbSetOrder(8))
+      lFound := oKunde:Load(hArgs["customer_number"])
+   ELSEIF HHasKey(hArgs, "customer") .AND. ! Empty(hArgs["customer"])
+      lFound := oKunde:LoadMatchcode(Pad(Upper(AllTrim(hArgs["customer"])), 8), "K")
+   ENDIF
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Customer not found"
+      RETURN hResult
+   ENDIF
+   cKundma := Pad(oKunde:Kunde, 8)
+   hResult["customer"] := HB_StrToUTF8(AllTrim(oKunde:Kunde))
+   hResult["customer_number"] := oKunde:Nummer
+
+   lReverse := HHasKey(hArgs, "customer_part_no") .AND. ! Empty(hArgs["customer_part_no"])
+
+   IF lReverse
+      // Reverse: iterate this customer's artkund rows (index 1 = Kunde +
+      // Artikelnr; there is no index on Artlief) and match the part number.
+      cWanted := Upper(AllTrim(hArgs["customer_part_no"]))
+      hResult["direction"] := "reverse"
+      hResult["customer_part_no"] := HB_StrToUTF8(AllTrim(hArgs["customer_part_no"]))
+      art->(DbSetOrder(2))  // by Artikelnr
+      aku->(DbSetOrder(1))  // Kunde + Str(Artikelnr,6)
+      IF aku->(DbSeek(cKundma, .T.))
+         DO WHILE ! aku->(Eof()) .AND. aku->Kunde == cKundma
+            IF ! Empty(aku->Artlief) .AND. Upper(AllTrim(aku->Artlief)) == cWanted
+               hMatch := {=>}
+               hMatch["partno"] := aku->Artikelnr
+               IF art->(DbSeek(Str(aku->Artikelnr, 6)))
+                  hMatch["article"]     := HB_StrToUTF8(AllTrim(art->Matchcode))
+                  hMatch["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+                  hMatch["stock"]       := art->Bestand
+               ELSE
+                  hMatch["description"] := "(article record not found)"
+               ENDIF
+               AAdd(aMatches, hMatch)
+            ENDIF
+            aku->(DbSkip())
+         ENDDO
+      ENDIF
+      hResult["matches"] := aMatches
+      hResult["match_count"] := Len(aMatches)
+      hResult["status"] := IIF(Len(aMatches) > 0, "found", "not_found")
+      IF Len(aMatches) == 0
+         hResult["message"] := "No article found for customer part number " + AllTrim(hArgs["customer_part_no"])
+      ENDIF
+   ELSE
+      // Forward: resolve our article, then read the customer's part number
+      hResult["direction"] := "forward"
+      IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+         art->(DbSetOrder(1))
+         lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+      ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
+         art->(DbSetOrder(2))
+         lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
+      ELSE
+         lFound := .F.
+      ENDIF
+      IF ! lFound
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "not_found"
+         hResult["message"] := "Article not found"
+         RETURN hResult
+      ENDIF
+      hResult["article"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+      hResult["partno"] := art->Artikelnr
+      hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+
+      aku->(DbSetOrder(1))  // Kunde + Str(Artikelnr,6)
+      IF aku->(DbSeek(cKundma + Str(art->Artikelnr, 6)))
+         DO WHILE ! aku->(Eof()) .AND. aku->Kunde == cKundma .AND. aku->Artikelnr == art->Artikelnr
+            IF ! Empty(aku->Artlief)
+               cArtlief := AllTrim(aku->Artlief)
+               EXIT
+            ENDIF
+            aku->(DbSkip())
+         ENDDO
+      ENDIF
+      IF ! Empty(cArtlief)
+         hResult["customer_part_no"] := HB_StrToUTF8(cArtlief)
+         hResult["status"] := "found"
+      ELSE
+         hResult["status"] := "not_found"
+         hResult["message"] := "No customer part number recorded for this article"
+      ENDIF
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+RETURN hResult
+
 FUNCTION MCP_Tool_Get_Article_Suppliers(hArgs)
    LOCAL hResult := {=>}
    LOCAL lFound := .F.

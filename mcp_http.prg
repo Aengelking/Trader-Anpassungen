@@ -34,6 +34,7 @@ STATIC s_hMcpKeys        := NIL   // API-key table from mcp_keys.json (NIL = aut
 STATIC s_cMcpKeysStamp   := ""    // file stamp of the loaded key table
 STATIC s_lMcpAuthWarned  := .F.   // "running without authentication" warned once
 STATIC s_cMcpSrcStamp    := ""    // stamp of the MCP source files for auto-reload
+STATIC s_lMcpQuietReq    := .F.   // current request is routine "/" traffic in GUI mode - suppress 2xx response log
 
 FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
    LOCAL nStdErr := hb_GetStdErr()
@@ -322,6 +323,7 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    // paths stay visible; the stderr sink keeps logging everything.
    lQuiet := ( MCP_Http_LogSink() == "QOUT" )
    cPeer := MCP_Http_Peer( hSocket )
+   s_lMcpQuietReq := .F.  // set once the path is known; early sends stay logged
 
    IF ! lQuiet
       MCP_Http_Log( "Eingehende Verbindung von " + cPeer )
@@ -397,6 +399,10 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    cOrigin    := IIF( HHasKey(hHeaders, "ORIGIN"), hHeaders["ORIGIN"], "" )
    cSessionId := IIF( HHasKey(hHeaders, "MCP-SESSION-ID"), hHeaders["MCP-SESSION-ID"], "" )
    aCors      := MCP_Http_CorsHeaders( cOrigin, hHeaders )
+
+   // Routine "/" traffic in GUI mode: also mute the 2xx response log lines
+   // written by MCP_Http_Send (errors are always logged there).
+   s_lMcpQuietReq := lQuiet .AND. cPath == "/"
 
    // Log the request line (method, path, and body size for POST). All parts
    // come from the wire - print them filtered so binary/garbage input cannot
@@ -713,8 +719,12 @@ STATIC FUNCTION MCP_Http_Send( hSocket, nStatus, cContentType, cBody, aHeaders )
    NEXT
    cOut += cCRLF + cBody
 
-   MCP_Http_Log( "  <= " + LTrim(Str(nStatus)) + " " + MCP_Http_StatusText(nStatus) + ;
-      " (" + LTrim(Str(Len(cBody))) + " bytes)" )
+   // Success responses of routine "/" requests are muted in GUI mode
+   // (s_lMcpQuietReq, see ServeConnection); errors are always logged.
+   IF ! s_lMcpQuietReq .OR. nStatus >= 400
+      MCP_Http_Log( "  <= " + LTrim(Str(nStatus)) + " " + MCP_Http_StatusText(nStatus) + ;
+         " (" + LTrim(Str(Len(cBody))) + " bytes)" )
+   ENDIF
 
    MCP_Http_SendAll( hSocket, cOut )
 

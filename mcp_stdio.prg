@@ -4564,7 +4564,11 @@ FUNCTION MCP_Tool_Get_Stock_Withdrawal(hArgs)
          IF HB_IsNumeric(lne->Buyer) .AND. lne->Buyer > 0
             hResult["buyer"] := lne->Buyer
          ENDIF
-         IF ! Empty(lne->Person)
+         IF HB_IsNumeric(lne->Person)
+            IF lne->Person != 0
+               hResult["person"] := lne->Person  // buyer/contact id
+            ENDIF
+         ELSEIF ValType(lne->Person) == "C" .AND. ! Empty(lne->Person)
             hResult["person"] := HB_StrToUTF8(AllTrim(lne->Person))
          ENDIF
          lHeader := .T.
@@ -5369,7 +5373,11 @@ FUNCTION MCP_Tool_List_Unposted_Incoming_Invoices(hArgs)
          IF ValType(reb->Stapel) == "L"
             hInv["in_batch"] := reb->Stapel  // queued in the booking batch
          ENDIF
-         IF ! Empty(reb->Person)
+         IF HB_IsNumeric(reb->Person)
+            IF reb->Person != 0
+               hInv["person"] := reb->Person  // buyer id (-1 = automatic)
+            ENDIF
+         ELSEIF ValType(reb->Person) == "C" .AND. ! Empty(reb->Person)
             hInv["person"] := HB_StrToUTF8(AllTrim(reb->Person))
          ENDIF
 
@@ -5396,7 +5404,11 @@ FUNCTION MCP_Tool_List_Unposted_Incoming_Invoices(hArgs)
                   IF ! Empty(rebp->DateTime)
                      hEv["date"] := SToD(Left(rebp->DateTime, 8))
                   ENDIF
-                  IF ! Empty(rebp->Person)
+                  IF HB_IsNumeric(rebp->Person)
+                     IF rebp->Person != 0
+                        hEv["person"] := rebp->Person  // buyer id (-1 = automatic)
+                     ENDIF
+                  ELSEIF ValType(rebp->Person) == "C" .AND. ! Empty(rebp->Person)
                      hEv["person"] := HB_StrToUTF8(AllTrim(rebp->Person))
                   ENDIF
                   IF ! Empty(rebp->Grund)

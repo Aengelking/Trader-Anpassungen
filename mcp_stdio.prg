@@ -410,6 +410,41 @@ FUNCTION MCP_Tool_Get_Customer(hArgs)
    
 RETURN _HashToUtf8(hResult)
 
+FUNCTION MCP_Tool_Get_Supplier(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oLief
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "supplier"=>{"type"=>"string","description"=>"Supplier matchcode"},;
+            "supplier_number"=>{"type"=>"number","description"=>"Supplier number"};
+         },;
+         "anyOf"=>{{"supplier", "supplier_number"}};
+      }
+      hResult["description"] := "Retrieve supplier (Lieferant) information by supplier matchcode or number - the " + ;
+                                "supplier equivalent of get_customer"
+      RETURN hResult
+   ENDIF
+
+   NetUse("engkund", "ku")
+   oLief := ResolveSupplier(hArgs)   // group "L" address, by supplier / supplier_number
+   IF oLief == NIL
+      hResult["status"] := "not_found"
+      hResult["message"] := "Supplier not found"
+      RETURN hResult
+   ENDIF
+
+   hResult["number"] := oLief:nummer
+   hResult["name"] := AllTrim(oLief:cName)
+   hResult["street"] := AllTrim(oLief:street)
+   hResult["city"] := AllTrim(oLief:town)
+   hResult["country"] := AllTrim(oLief:cLand)
+   hResult["status"] := "found"
+RETURN _HashToUtf8(hResult)
+
 FUNCTION MCP_Tool_Search_Customers(hArgs)
    LOCAL hResult := {=>}
    LOCAL aCustomers := {}

@@ -579,7 +579,7 @@ ELSEIF nTab == 60  //Engelking
                      nEk := oFolArt:GetAvgBuyPrice()*CURRATE(oFolArt:money,"E")*oFolArt:pe
                      IF nEk == 0
                         nEk := oFolArt:GetAvgBuyPrice(dDate)*oFolArt:Pe
-                     ENDIF
+                     ENDIF                     
                   ELSE
                      // Insufficient stock - use supplier price
                      nEk := GetLowestBuyPrice(oFolArt:Artikelnr,nQ*fol->Faktor,dDate,@cSupplier)*oFolArt:Pe

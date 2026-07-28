@@ -7,6 +7,7 @@ LOCAL hTypes  := { ;
    "BA"=>{"PREFIX"=>"Belastungsanzeige_","NAME"=>"Belastungsanzeige","DIR"=>"Belastungsanzeigen","KEEPFOR"=>6},;
    "BES"=>{"PREFIX"=>"Bestellung_","NAME"=>"Bestellung","DIR"=>"Bestellungen","KEEPFOR"=>6},;
    "BB"=>{"PREFIX"=>"BB","NAME"=>"Bestellbestätigung","DIR"=>HB_AnsiToOem("Bestellbestätigungen"),"KEEPFOR"=>6},;
+   "ASN"=>{"PREFIX"=>"ASN","NAME"=>"Versandbestätigung","DIR"=>HB_AnsiToOem("Versandbestätigungen"),"KEEPFOR"=>6},;
    "LS"=>{"PREFIX"=>"LS","NAME"=>"Lieferschein","DIR"=>"Lieferscheine","KEEPFOR"=>6},;
    "RE"=>{"PREFIX"=>"RE","NAME"=>"Rechnung","DIR"=>"Rechnungen","KEEPFOR"=>10},;
    "PI"=>{"PREFIX"=>"PI","NAME"=>"Proformarechnung","DIR"=>"Proformarechnungen","KEEPFOR"=>6},;

@@ -4375,6 +4375,145 @@ FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)
       IIF(nUpdated > 1, " (including " + AllTrim(Str(nUpdated - 1)) + " follow-up position(s))", "")
 RETURN hResult
 
+FUNCTION MCP_Tool_Get_Stock_Withdrawal(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nNummer
+   LOCAL aRows := {}, hRow, aLines := {}, hLine
+   LOCAL nFremdDel
+   LOCAL nTotMenge := 0, nTotFremd := 0, nTotDeliv := 0
+   LOCAL lHeader := .F.
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "number"=>{"type"=>"number","description"=>"Entnahme-Nummer (the Lagerentnahme / goods-issue document number)"};
+         },;
+         "required"=>{"number"};
+      }
+      hResult["description"] := "Get a stock withdrawal (Lagerentnahme) by its number: header (date, customer, " + ;
+                                "group) plus each position with article, quantity issued from own stock (menge), the " + ;
+                                "quantity assigned to the external warehouse (fremd_quantity) and the quantity " + ;
+                                "actually delivered to the external warehouse / Fremdlager (fremd_delivered)"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   nNummer := Int(hArgs["number"])
+
+   NetUse("lagerne", "lne")
+   NetUse("artikel", "art")
+
+   lne->(DbSetOrder(1))  // numeric Nummer
+   IF ! lne->(DbSeek(nNummer))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Stock withdrawal (Lagerentnahme) not found: " + AllTrim(Str(nNummer))
+      RETURN hResult
+   ENDIF
+
+   hResult["number"] := nNummer
+
+   // Pass 1: collect the positions with a clean lne iteration - no external
+   // calls here that could move a cursor. The header fields are shared across
+   // the positions, so take them from the first row.
+   DO WHILE ! lne->(Eof()) .AND. lne->Nummer == nNummer
+      IF ! lHeader
+         hResult["date"] := lne->Datum
+         IF ValType(lne->Kunde) == "C"
+            IF ! Empty(lne->Kunde)
+               hResult["customer"] := HB_StrToUTF8(AllTrim(lne->Kunde))
+            ENDIF
+         ELSEIF HB_IsNumeric(lne->Kunde) .AND. lne->Kunde > 0
+            hResult["customer_no"] := lne->Kunde
+         ENDIF
+         IF ! Empty(lne->Gruppe)
+            hResult["group"] := HB_StrToUTF8(AllTrim(lne->Gruppe))
+         ENDIF
+         IF HB_IsNumeric(lne->Buyer) .AND. lne->Buyer > 0
+            hResult["buyer"] := lne->Buyer
+         ENDIF
+         IF ! Empty(lne->Person)
+            hResult["person"] := HB_StrToUTF8(AllTrim(lne->Person))
+         ENDIF
+         lHeader := .T.
+      ENDIF
+      hRow := {=>}
+      hRow["pos"]       := lne->Pos
+      hRow["artikelnr"] := lne->Artikelnr
+      hRow["matchcode"] := HB_StrToUTF8(AllTrim(lne->Matchcode))
+      hRow["menge"]     := lne->Menge
+      hRow["fremd"]     := lne->Fremd
+      hRow["me"]        := HB_StrToUTF8(AllTrim(lne->Me))
+      hRow["reftyp"]    := HB_StrToUTF8(AllTrim(lne->RefTyp))
+      hRow["refbeleg"]  := lne->RefBeleg
+      hRow["refpos"]    := lne->RefPos
+      IF ! Empty(lne->Zweck)
+         hRow["zweck"]  := HB_StrToUTF8(AllTrim(lne->Zweck))
+      ENDIF
+      hRow["packed"]    := lne->Packed
+      AAdd(aRows, hRow)
+      lne->(DbSkip())
+   ENDDO
+
+   // Pass 2: the quantity actually delivered to the external warehouse per
+   // position via GetEntFremdLagerQty(Nummer, Pos), plus the article
+   // description. The helper lives in the app runtime and may touch other
+   // work areas, so it runs guarded and after pass 1 finished iterating lne;
+   // the art order is re-asserted each iteration for the same reason.
+   FOR EACH hRow IN aRows
+      hLine := {=>}
+      hLine["item"] := hRow["pos"]
+      hLine["article"] := hRow["matchcode"]
+      art->(DbSetOrder(2))  // by Artikelnr
+      IF art->(DbSeek(Str(hRow["artikelnr"], 6)))
+         hLine["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+      ENDIF
+      hLine["unit"] := hRow["me"]
+      hLine["quantity"] := hRow["menge"]         // issued from own stock
+      hLine["fremd_quantity"] := hRow["fremd"]   // assigned to the external warehouse
+
+      nFremdDel := NIL
+      BEGIN SEQUENCE
+         nFremdDel := GetEntFremdLagerQty(nNummer, hRow["pos"])
+      RECOVER
+         nFremdDel := NIL
+      END SEQUENCE
+      IF HB_IsNumeric(nFremdDel)
+         hLine["fremd_delivered"] := nFremdDel                  // delivered to Fremdlager
+         hLine["fremd_open"] := hRow["fremd"] - nFremdDel       // still to deliver
+         nTotDeliv += nFremdDel
+      ELSE
+         hLine["fremd_delivered_error"] := "GetEntFremdLagerQty could not be evaluated"
+      ENDIF
+
+      IF ! Empty(hRow["reftyp"]) .OR. hRow["refbeleg"] != 0
+         hLine["reference"] := {"type"=>hRow["reftyp"], "document"=>hRow["refbeleg"], "position"=>hRow["refpos"]}
+      ENDIF
+      IF HHasKey(hRow, "zweck")
+         hLine["purpose"] := hRow["zweck"]
+      ENDIF
+      hLine["packed"] := hRow["packed"]
+
+      nTotMenge += hRow["menge"]
+      nTotFremd += hRow["fremd"]
+      AAdd(aLines, hLine)
+   NEXT
+
+   DbSelectArea(nOldSelect)
+
+   hResult["positions"] := aLines
+   hResult["position_count"] := Len(aLines)
+   hResult["total_quantity"] := nTotMenge
+   hResult["total_fremd_quantity"] := nTotFremd
+   hResult["total_fremd_delivered"] := nTotDeliv
+   hResult["status"] := "found"
+RETURN hResult
+
 FUNCTION MCP_Tool_Send_SMS(hArgs)
    LOCAL hResult := {=>}
    LOCAL aPhones := {}, aInvalid := {}

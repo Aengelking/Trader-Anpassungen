@@ -3486,6 +3486,113 @@ FUNCTION MCP_Tool_Get_Article_Prices(hArgs)
    hResult["status"] := "found"
 RETURN hResult
 
+FUNCTION MCP_Tool_Get_Article_Movements(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL lFound := .F.
+   LOCAL cMatch, cBuArt := ""
+   LOCAL aMoves := {}, hMove
+   LOCAL nLimit := 100, nCount := 0
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "matchcode"=>{"type"=>"string","description"=>"Artikel Matchcode"},;
+            "partno"=>{"type"=>"string","description"=>"Artikelnummer"},;
+            "booking_type"=>{"type"=>"string","description"=>"Optional filter on the booking type (BuArt), e.g. 'WE' (Wareneingang), 'RE' (Rechnung), 'UMB' (Umbuchung), 'STO' (Storno). Case-insensitive"},;
+            "limit"=>{"type"=>"number","description"=>"Maximum number of movements to return, newest first (default 100, max 1000)"};
+         },;
+         "anyOf"=>{{"matchcode", "partno"}};
+      }
+      hResult["description"] := "Get the stock movement history (Bewegungskonto) of an article from engabg, newest " + ;
+                               "first: goods receipts, issues, invoices, corrections and transfers. Each entry has " + ;
+                               "date, booking type (BuArt), quantity, resulting stock, price and the linked " + ;
+                               "document/order/supplier/customer"
+      RETURN hResult
+   ENDIF
+
+   NetUse("artikel", "art")
+
+   // Resolve the article first (validates it exists and yields the canonical
+   // matchcode engabg is keyed on)
+   IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+      art->(DbSetOrder(1))
+      lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+   ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
+      art->(DbSetOrder(2))
+      lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
+   ENDIF
+
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   cMatch := AllTrim(art->Matchcode)
+
+   IF HHasKey(hArgs, "booking_type") .AND. ! Empty(hArgs["booking_type"])
+      cBuArt := Upper(AllTrim(hArgs["booking_type"]))
+   ENDIF
+   IF HHasKey(hArgs, "limit") .AND. HB_IsNumeric(hArgs["limit"]) .AND. hArgs["limit"] > 0
+      nLimit := Min(Int(hArgs["limit"]), 1000)
+   ENDIF
+
+   hResult["matchcode"] := HB_StrToUTF8(cMatch)
+   hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+   hResult["unit"] := HB_StrToUTF8(AllTrim(art->Me))
+   hResult["current_stock"] := art->Bestand
+
+   NetUse("engabg", "abg")
+   abg->(DbSetOrder(3))  // Matchcode + Descend(RecNo()) -> newest first per article
+
+   IF abg->(DbSeek(cMatch))
+      DO WHILE ! abg->(Eof()) .AND. AllTrim(abg->Matchcode) == cMatch .AND. nCount < nLimit
+         IF ! Empty(cBuArt) .AND. Upper(AllTrim(abg->BuArt)) != cBuArt
+            abg->(DbSkip())
+            LOOP
+         ENDIF
+         hMove := {=>}
+         hMove["date"] := abg->Datum
+         hMove["booking_type"] := HB_StrToUTF8(AllTrim(abg->BuArt))
+         hMove["quantity"] := abg->Menge
+         hMove["stock_after"] := abg->Bestand
+         hMove["price"] := abg->Preis
+         hMove["price_unit"] := abg->Pe
+         IF ! Empty(abg->Liefma)
+            hMove["supplier"] := HB_StrToUTF8(AllTrim(abg->Liefma))
+         ENDIF
+         IF HB_IsNumeric(abg->Kundennr) .AND. abg->Kundennr > 0
+            hMove["customer_no"] := abg->Kundennr
+         ENDIF
+         IF HB_IsNumeric(abg->Besnr) .AND. abg->Besnr > 0
+            hMove["order_no"] := abg->Besnr
+            hMove["order_pos"] := abg->BesPos
+         ENDIF
+         IF ! Empty(abg->Beleg)
+            hMove["document"] := HB_StrToUTF8(AllTrim(abg->Beleg))
+         ENDIF
+         IF ! Empty(abg->Info)
+            hMove["info"] := HB_StrToUTF8(AllTrim(abg->Info))
+         ENDIF
+         AAdd(aMoves, hMove)
+         nCount++
+         abg->(DbSkip())
+      ENDDO
+      // More records for this article than the limit returned?
+      hResult["truncated"] := nCount >= nLimit .AND. ! abg->(Eof()) .AND. AllTrim(abg->Matchcode) == cMatch
+   ENDIF
+
+   hResult["movements"] := aMoves
+   hResult["count"] := Len(aMoves)
+
+   DbSelectArea(nOldSelect)
+   hResult["status"] := "found"
+RETURN hResult
+
 FUNCTION MCP_Tool_Get_Article_Suppliers(hArgs)
    LOCAL hResult := {=>}
    LOCAL lFound := .F.

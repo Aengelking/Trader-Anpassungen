@@ -76,7 +76,12 @@ FOR EACH nNo IN hTyp
                aFile[4] := SubStr(cDate,9,2)+":"+SubStr(cDate,11,2)+":"+SubStr(cDate,13,2)
             ENDIF
             IF hFields["/Subject"] != "(" .AND. ! Empty(hFields["/Subject"])
-               aFile[1] := HB_AnsiToOem(SubStr(hFields["/Subject"],2,Len(hFields["/Subject"])-2))
+               IF AT("utf8",hFields["/Subject"])
+                  hFields["/Subject"] := hb_utf8tostr(hFields["/Subject"])
+               ELSE
+                  hFields["/Subject"] := HB_AnsiToOem(hFields["/Subject"])
+               ENDIF
+               aFile[1] := SubStr(hFields["/Subject"],2,Len(hFields["/Subject"])-2)
             ELSE
                aFile[1] := HB_AnsiToOem(hTypes[cTyp]:Name)
             ENDIF
@@ -86,7 +91,7 @@ FOR EACH nNo IN hTyp
          //FileStats(cDir+aFile[1],,,,,@dChangeDate,@nChangeTime)
          //aFile[3] := dChangeDate
          //aFile[4] := SecToTime(nChangeTime)
-         Aadd(aFile,hTypes[cTyp]:Name)  //[7] = readable document type (e.g. "Bestellung")
+         Aadd(aFile,HB_AnsiToOem(hTypes[cTyp]:Name))  //[7] = readable document type (e.g. "Bestellung")
          Aadd(aDirs,aFile)
          RETURN NIL
       })

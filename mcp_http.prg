@@ -44,7 +44,6 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
    LOCAL nStdErr := hb_GetStdErr()
    LOCAL hListen, hSocket
    LOCAL nReloadTick := 0, lRestart := .F., nSpawn
-   LOCAL nKey
 
    IF nPort == NIL
       nPort := McpHttpPort()
@@ -104,12 +103,9 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
    DO WHILE ! s_lMcpHttpStop
       hSocket := hb_InetAccept( hListen )
       IF hSocket == NIL
-         // Accept timed out (no pending connection) - keep the UI responsive.
-         // A 'C' keypress in the GUI window prints the connected-client overview.
-         nKey := Inkey( )
-         IF nKey == Asc( "c" ) .OR. nKey == Asc( "C" )
-            MCP_Http_ShowClients()
-         ENDIF
+         // Accept timed out (no pending connection) - keep the UI responsive
+         // and handle a 'C' keypress (connected-client overview).
+         MCP_Http_PumpKeys()
 
          // Check the sources roughly every 10 idle seconds. Runs only between
          // requests, so a restart can never interrupt a running tool call.
@@ -147,6 +143,10 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
       END SEQUENCE
 
       hb_InetClose( hSocket )
+
+      // Handle keys between requests too, so 'C' still responds under a steady
+      // stream of requests (the idle branch above may rarely be reached then).
+      MCP_Http_PumpKeys()
    ENDDO
 
    IF hListen != NIL
@@ -535,6 +535,7 @@ STATIC FUNCTION MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
    LOCAL aOut, cItem
    LOCAL aHeaders := {}
    LOCAL nX
+   LOCAL nT0, nMs
 
    FOR nX := 1 TO Len(aCors)
       AAdd( aHeaders, aCors[nX] )
@@ -596,7 +597,17 @@ STATIC FUNCTION MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
    // it) but we accept any/none afterwards - rejecting an unrecognised id with
    // 404 only broke clients (e.g. the MCP Inspector's notifications/initialized).
 
+   nT0 := Seconds()
    cResponse := MCP_Http_DispatchOne( hReq, cSessionId, @lIsInitialize, @cNewSession )
+   nMs := Int( ( Seconds() - nT0 ) * 1000 )
+   IF nMs < 0                       // clock passed midnight during the request
+      nMs += 86400000
+   ENDIF
+   // Surface slow requests - they are what makes a second, queued request time
+   // out on this single-threaded server. Only >=1s is logged, to avoid noise.
+   IF nMs >= 1000
+      MCP_Http_Log( "  langsam: " + cMethod + MCP_Http_ToolLabel( hReq ) + " " + LTrim( Str( nMs ) ) + "ms" )
+   ENDIF
 
    // Record the client for the GUI overview (uses the request context set in
    // ServeConnection). Only real JSON-RPC POSTs reach here - health GETs do not.
@@ -941,6 +952,18 @@ STATIC FUNCTION MCP_Http_ShowClients()
          "  zuletzt " + hRec[ "lasttime" ] + " (vor " + LTrim( Str( Int( nAge ) ) ) + "s, " + AllTrim( hRec[ "method" ] ) + ")" + ;
          "  Sitzung " + Left( cKey, 24 ) )
    NEXT
+RETURN NIL
+
+// Poll the keyboard once (non-blocking) and act on hotkeys. Called both while
+// idle and between requests so the 'C' overview still works under load. It does
+// NOT help while a single request is stuck - a dangling request is itself the
+// diagnosis (see the request timing in MCP_Http_HandleMessage).
+STATIC FUNCTION MCP_Http_PumpKeys()
+   LOCAL nKey := Inkey()
+   DO CASE
+   CASE nKey == Asc( "c" ) .OR. nKey == Asc( "C" )
+      MCP_Http_ShowClients()
+   ENDCASE
 RETURN NIL
 
 #include 'mcp_stdio.prg'

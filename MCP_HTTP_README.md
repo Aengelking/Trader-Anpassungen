@@ -302,7 +302,13 @@ tool can run longer than the default 120 s.
   (`application/json`). A JSON-RPC *notification* (no `id`) returns `202
   Accepted` with an empty body. A JSON-RPC *batch* (array) returns an array of
   the responses that carry an `id`.
-- **`GET /healthz`**, `GET /health`, `GET /` — health check, returns `ok`.
+- **`GET /healthz`**, `GET /health` — health check, always returns `ok`.
+- **`GET /`** — returns `ok` for a plain health probe, but `405` when the
+  client asks for the server→client SSE stream (`Accept: text/event-stream`).
+  Single-response mode offers no stream, and per the MCP spec `405` tells the
+  client to stop; answering such a stream GET with `200 ok` made some clients
+  retry the GET in a loop (a source of request storms on `/`). The count of
+  `GET /` health/stream pings is logged once a minute in GUI mode.
 - **`GET`** on any other path — `405` (single-response mode offers no SSE
   stream).
 - **`OPTIONS`** — CORS preflight, returns `204`.

@@ -36,6 +36,8 @@ STATIC s_lMcpAuthWarned  := .F.   // "running without authentication" warned onc
 STATIC s_cMcpSrcStamp    := ""    // stamp of the MCP source files for auto-reload
 STATIC s_lMcpQuietReq    := .F.   // current request is routine "/" traffic in GUI mode - suppress 2xx response log
 STATIC s_hMcpClients     := {=>}  // connected-client overview, keyed by session id (fallback peer#user)
+STATIC s_nSlashHits      := 0     // GET / (health/stream) pings since the last stats flush
+STATIC s_nSlashSince     := -1    // Seconds() baseline for the slash-rate log (-1 = unset)
 STATIC s_nReqUser        := 0     // current request's authenticated user (fed into client tracking)
 STATIC s_cReqName        := ""    // current request's user name
 STATIC s_cReqPeer        := ""    // current request's peer address
@@ -439,10 +441,24 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
       RETURN NIL
    ENDIF
 
-   // Health probe / no SSE stream on GET.
+   // GET: health probes answer 200; a client opening the optional MCP
+   // server->client SSE stream (Accept: text/event-stream) gets 405, because
+   // this is single-response mode. Answering that stream GET with 200 "ok"
+   // made some clients treat the stream as broken and retry in a loop - a
+   // source of the "very many GET / requests" seen in the log.
    IF cHttpMethod == "GET"
-      IF cPath == "/healthz" .OR. cPath == "/health" .OR. cPath == "/"
+      IF cPath == "/" .OR. cPath == "/health" .OR. cPath == "/healthz"
+         s_nSlashHits++      // count health/stream pings for the per-minute stats
+      ENDIF
+      IF cPath == "/healthz" .OR. cPath == "/health"
          MCP_Http_Send( hSocket, 200, "text/plain", "ok", aCors )
+      ELSEIF cPath == "/"
+         IF "text/event-stream" $ Lower( IIF( HHasKey(hHeaders, "ACCEPT"), hHeaders["ACCEPT"], "" ) )
+            AAdd( aCors, "Allow: POST, OPTIONS" )
+            MCP_Http_Send( hSocket, 405, "text/plain", "Method Not Allowed (no SSE stream)", aCors )
+         ELSE
+            MCP_Http_Send( hSocket, 200, "text/plain", "ok", aCors )
+         ENDIF
       ELSE
          // Single response mode does not offer a server -> client SSE stream.
          AAdd( aCors, "Allow: POST, OPTIONS" )
@@ -964,6 +980,30 @@ STATIC FUNCTION MCP_Http_PumpKeys()
    CASE nKey == Asc( "c" ) .OR. nKey == Asc( "C" )
       MCP_Http_ShowClients()
    ENDCASE
+   MCP_Http_FlushSlashStats()   // piggyback the periodic housekeeping
+RETURN NIL
+
+// Once a minute, if there were GET / (health/stream) pings, log how many. This
+// traffic is otherwise muted in GUI mode, so a request storm on / stays
+// invisible; the count makes it measurable.
+STATIC FUNCTION MCP_Http_FlushSlashStats()
+   LOCAL nNow := Seconds(), nElapsed
+   IF s_nSlashSince < 0
+      s_nSlashSince := nNow
+      RETURN NIL
+   ENDIF
+   nElapsed := nNow - s_nSlashSince
+   IF nElapsed < 0
+      nElapsed += 86400
+   ENDIF
+   IF nElapsed >= 60
+      IF s_nSlashHits > 0
+         MCP_Http_Log( LTrim( Str( s_nSlashHits ) ) + " GET-/ (Health/Stream) Anfragen in " + ;
+            LTrim( Str( Int( nElapsed ) ) ) + "s" )
+      ENDIF
+      s_nSlashHits := 0
+      s_nSlashSince := nNow
+   ENDIF
 RETURN NIL
 
 #include 'mcp_stdio.prg'

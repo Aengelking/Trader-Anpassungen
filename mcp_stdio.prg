@@ -4558,8 +4558,9 @@ FUNCTION MCP_Tool_Get_Stock_Withdrawal(hArgs)
    LOCAL hResult := {=>}
    LOCAL nNummer
    LOCAL aRows := {}, hRow, aLines := {}, hLine
-   LOCAL nFremdDel
-   LOCAL nTotMenge := 0, nTotFremd := 0, nTotDeliv := 0
+   LOCAL nFremdDel, nFremdTaken
+   LOCAL nTotMenge := 0, nTotFremd := 0, nTotDeliv := 0, nTotTaken := 0
+   LOCAL aLoc, hLoc
    LOCAL lHeader := .F.
    LOCAL nOldSelect := Select()
 
@@ -4574,8 +4575,9 @@ FUNCTION MCP_Tool_Get_Stock_Withdrawal(hArgs)
       }
       hResult["description"] := "Get a stock withdrawal (Lagerentnahme) by its number: header (date, customer, " + ;
                                 "group) plus each position with article, quantity issued from own stock (menge), the " + ;
-                                "quantity assigned to the external warehouse (fremd_quantity) and the quantity " + ;
-                                "actually delivered to the external warehouse / Fremdlager (fremd_delivered)"
+                                "quantity assigned to the external warehouse (fremd_quantity), the quantity actually " + ;
+                                "delivered to the external warehouse / Fremdlager (fremd_delivered), and the quantity " + ;
+                                "taken FROM the external warehouse (fremd_taken) with the per-location split"
       RETURN hResult
    ENDIF
 
@@ -4586,6 +4588,8 @@ FUNCTION MCP_Tool_Get_Stock_Withdrawal(hArgs)
 
    NetUse("lagerne", "lne")
    NetUse("artikel", "art")
+   NetUse("lagent", "lage")     // per-position storage-location breakdown of the withdrawal
+   NetUse("lagerort", "lago")   // location master - carries the Fremd (external) flag
 
    lne->(DbSetOrder(1))  // numeric Nummer
    IF ! lne->(DbSeek(nNummer))
@@ -4674,6 +4678,36 @@ FUNCTION MCP_Tool_Get_Stock_Withdrawal(hArgs)
          hLine["fremd_delivered_error"] := "GetEntFremdLagerQty could not be evaluated"
       ENDIF
 
+      // How much was taken FROM the external warehouse: walk this position's
+      // storage-location breakdown (lagent) and sum the quantity at locations
+      // flagged Fremd in the location master (lagerort), plus the per-location
+      // split. Done last with self-contained seeks, so the external
+      // GetEntFremdLagerQty call above cannot disturb the lage/lago cursors;
+      // the orders are re-asserted here for the same reason.
+      nFremdTaken := 0
+      aLoc := {}
+      lage->(DbSetOrder(1))  // Str(Nummer,6) + Str(Pos,3)
+      lago->(DbSetOrder(1))  // Lagerort
+      IF lage->(DbSeek(Str(nNummer, 6) + Str(hRow["pos"], 3)))
+         DO WHILE ! lage->(Eof()) .AND. lage->Nummer == nNummer .AND. lage->Pos == hRow["pos"]
+            hLoc := {=>}
+            hLoc["location"] := HB_StrToUTF8(AllTrim(lage->Lagerort))
+            hLoc["quantity"] := lage->Lagermenge
+            hLoc["external"] := .F.
+            IF lago->(DbSeek(lage->Lagerort)) .AND. lago->Fremd
+               hLoc["external"] := .T.
+               nFremdTaken += lage->Lagermenge
+            ENDIF
+            AAdd(aLoc, hLoc)
+            lage->(DbSkip())
+         ENDDO
+      ENDIF
+      IF Len(aLoc) > 0
+         hLine["locations"] := aLoc
+      ENDIF
+      hLine["fremd_taken"] := nFremdTaken    // withdrawn FROM the external warehouse
+      nTotTaken += nFremdTaken
+
       IF ! Empty(hRow["reftyp"]) .OR. hRow["refbeleg"] != 0
          hLine["reference"] := {"type"=>hRow["reftyp"], "document"=>hRow["refbeleg"], "position"=>hRow["refpos"]}
       ENDIF
@@ -4694,6 +4728,7 @@ FUNCTION MCP_Tool_Get_Stock_Withdrawal(hArgs)
    hResult["total_quantity"] := nTotMenge
    hResult["total_fremd_quantity"] := nTotFremd
    hResult["total_fremd_delivered"] := nTotDeliv
+   hResult["total_fremd_taken"] := nTotTaken
    hResult["status"] := "found"
 RETURN hResult
 

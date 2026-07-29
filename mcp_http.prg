@@ -38,6 +38,7 @@ STATIC s_lMcpQuietReq    := .F.   // current request is routine "/" traffic in G
 STATIC s_hMcpClients     := {=>}  // connected-client overview, keyed by session id (fallback peer#user)
 STATIC s_nSlashHits      := 0     // GET / (health/stream) pings since the last stats flush
 STATIC s_nSlashSince     := -1    // Seconds() baseline for the slash-rate log (-1 = unset)
+STATIC s_nLastReloadCheck := -1   // Seconds() of the last source-stamp check (-1 = unset)
 STATIC s_nReqUser        := 0     // current request's authenticated user (fed into client tracking)
 STATIC s_cReqName        := ""    // current request's user name
 STATIC s_cReqPeer        := ""    // current request's peer address
@@ -45,7 +46,7 @@ STATIC s_cReqPeer        := ""    // current request's peer address
 FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
    LOCAL nStdErr := hb_GetStdErr()
    LOCAL hListen, hSocket
-   LOCAL nReloadTick := 0, lRestart := .F., nSpawn
+   LOCAL lRestart := .F.
 
    IF nPort == NIL
       nPort := McpHttpPort()
@@ -108,28 +109,7 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
          // Accept timed out (no pending connection) - keep the UI responsive
          // and handle a 'C' keypress (connected-client overview).
          MCP_Http_PumpKeys()
-
-         // Check the sources roughly every 10 idle seconds. Runs only between
-         // requests, so a restart can never interrupt a running tool call.
-         IF lAutoReload .AND. ! Empty( s_cMcpSrcStamp ) .AND. ++nReloadTick >= 10
-            nReloadTick := 0
-            IF ! ( MCP_Http_SourceStamp() == s_cMcpSrcStamp )
-               MCP_Http_Log( "Quelldatei geaendert - starte neue Instanz mit gleicher Kommandozeile..." )
-               // Free the port FIRST so the new instance can bind it.
-               hb_InetClose( hListen )
-               hListen := NIL
-               nSpawn := WAPI_ShellExecute( NIL, "open", Exename(), DosParam() )
-               IF HB_IsNumeric( nSpawn ) .AND. nSpawn <= 32   // ShellExecute error codes
-                  MCP_Http_Log( "  Neustart fehlgeschlagen (Code " + LTrim(Str(nSpawn)) + ") - Server laeuft mit altem Stand weiter" )
-                  s_cMcpSrcStamp := MCP_Http_SourceStamp()    // do not retry every tick
-                  hListen := hb_InetServer( nPort )
-                  hb_InetTimeout( hListen, 1000 )
-               ELSE
-                  lRestart := .T.
-                  s_lMcpHttpStop := .T.
-               ENDIF
-            ENDIF
-         ENDIF
+         MCP_Http_MaybeReload( nPort, lAutoReload, @hListen, @lRestart )
          LOOP
       ENDIF
 
@@ -146,9 +126,12 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
 
       hb_InetClose( hSocket )
 
-      // Handle keys between requests too, so 'C' still responds under a steady
-      // stream of requests (the idle branch above may rarely be reached then).
+      // Keys AND the reload check also run between requests, so that under a
+      // steady request stream (when the idle branch above is never reached)
+      // 'C' still responds and a source change is still picked up. Both are
+      // safe here - we are between requests, never inside a tool call.
       MCP_Http_PumpKeys()
+      MCP_Http_MaybeReload( nPort, lAutoReload, @hListen, @lRestart )
    ENDDO
 
    IF hListen != NIL
@@ -983,11 +966,14 @@ STATIC FUNCTION MCP_Http_PumpKeys()
    MCP_Http_FlushSlashStats()   // piggyback the periodic housekeeping
 RETURN NIL
 
-// Once a minute, if there were GET / (health/stream) pings, log how many. This
-// traffic is otherwise muted in GUI mode, so a request storm on / stays
-// invisible; the count makes it measurable.
+// Once a minute log a heartbeat: active clients and the number of GET / (health
+// /stream) pings in the interval. Runs from the loop's housekeeping (idle and
+// between requests), so it also proves the loop is alive: if the heartbeat
+// STOPS while the server is up, the loop is stuck inside a single request (a
+// hanging tool/hook) - that is the definitive hang indicator, and 'C' being
+// dead at the same time is the same cause.
 STATIC FUNCTION MCP_Http_FlushSlashStats()
-   LOCAL nNow := Seconds(), nElapsed
+   LOCAL nNow := Seconds(), nElapsed, nActive := 0, cKey, nAge
    IF s_nSlashSince < 0
       s_nSlashSince := nNow
       RETURN NIL
@@ -996,13 +982,60 @@ STATIC FUNCTION MCP_Http_FlushSlashStats()
    IF nElapsed < 0
       nElapsed += 86400
    ENDIF
-   IF nElapsed >= 60
-      IF s_nSlashHits > 0
-         MCP_Http_Log( LTrim( Str( s_nSlashHits ) ) + " GET-/ (Health/Stream) Anfragen in " + ;
-            LTrim( Str( Int( nElapsed ) ) ) + "s" )
+   IF nElapsed < 60
+      RETURN NIL
+   ENDIF
+   FOR EACH cKey IN HGetKeys( s_hMcpClients )
+      nAge := nNow - s_hMcpClients[ cKey ][ "last" ]
+      IF nAge < 0
+         nAge += 86400
       ENDIF
-      s_nSlashHits := 0
-      s_nSlashSince := nNow
+      IF nAge <= 120
+         nActive++
+      ENDIF
+   NEXT
+   MCP_Http_Log( "Heartbeat: " + LTrim( Str( nActive ) ) + " Client(s) aktiv, " + ;
+      LTrim( Str( s_nSlashHits ) ) + " GET-/ Pings in " + LTrim( Str( Int( nElapsed ) ) ) + "s" )
+   s_nSlashHits := 0
+   s_nSlashSince := nNow
+RETURN NIL
+
+// Time-based auto-reload, callable both while idle and between requests so a
+// source change is picked up even under constant load (when the idle branch is
+// never reached). Never runs mid-request, so a restart cannot interrupt a tool
+// call. hListen and lRestart are updated by reference.
+STATIC FUNCTION MCP_Http_MaybeReload( nPort, lAutoReload, phListen, plRestart )
+   LOCAL nNow := Seconds(), nElapsed, nSpawn
+   IF ! lAutoReload .OR. Empty( s_cMcpSrcStamp )
+      RETURN NIL
+   ENDIF
+   IF s_nLastReloadCheck < 0
+      s_nLastReloadCheck := nNow
+      RETURN NIL
+   ENDIF
+   nElapsed := nNow - s_nLastReloadCheck
+   IF nElapsed < 0
+      nElapsed += 86400
+   ENDIF
+   IF nElapsed < 10          // at most one source check every ~10 wall-clock s
+      RETURN NIL
+   ENDIF
+   s_nLastReloadCheck := nNow
+   IF MCP_Http_SourceStamp() == s_cMcpSrcStamp
+      RETURN NIL
+   ENDIF
+   MCP_Http_Log( "Quelldatei geaendert - starte neue Instanz mit gleicher Kommandozeile..." )
+   hb_InetClose( phListen )   // free the port FIRST so the new instance can bind
+   phListen := NIL
+   nSpawn := WAPI_ShellExecute( NIL, "open", Exename(), DosParam() )
+   IF HB_IsNumeric( nSpawn ) .AND. nSpawn <= 32   // ShellExecute error code
+      MCP_Http_Log( "  Neustart fehlgeschlagen (Code " + LTrim( Str( nSpawn ) ) + ") - Server laeuft mit altem Stand weiter" )
+      s_cMcpSrcStamp := MCP_Http_SourceStamp()    // do not retry every check
+      phListen := hb_InetServer( nPort )
+      hb_InetTimeout( phListen, 1000 )
+   ELSE
+      plRestart := .T.
+      s_lMcpHttpStop := .T.
    ENDIF
 RETURN NIL
 

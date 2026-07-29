@@ -573,8 +573,12 @@ STATIC FUNCTION MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
       IF Len( aOut ) == 0
          MCP_Http_Send( hSocket, 202, "", "", aHeaders )
       ELSE
-         MCP_Http_Send( hSocket, 200, "application/json; charset=utf-8", ;
-            "[" + MCP_Http_Join( aOut, "," ) + "]", aHeaders )
+         cResponse := "[" + MCP_Http_Join( aOut, "," ) + "]"
+         IF Len( cResponse ) > 1000000
+            MCP_Http_Log( "  Batch-Antwort zu gross (" + LTrim( Str( Len( cResponse ) ) ) + " bytes) - durch Fehler ersetzt" )
+            cResponse := CreateErrorResponse( "Batch response too large for the MCP client buffer", "" )
+         ENDIF
+         MCP_Http_Send( hSocket, 200, "application/json; charset=utf-8", cResponse, aHeaders )
       ENDIF
       RETURN NIL
    ENDIF
@@ -611,6 +615,18 @@ STATIC FUNCTION MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
    // Record the client for the GUI overview (uses the request context set in
    // ServeConnection). Only real JSON-RPC POSTs reach here - health GETs do not.
    MCP_Http_TrackClient( cSessionId, cNewSession, cMethod )
+
+   // Safety net: a response larger than the MCP client's message buffer
+   // (~1 MB) makes the client fail to decode and drop the connection - the
+   // whole server then looks "unreachable". Replace an oversized result with a
+   // JSON-RPC error so one big tool result can never take the transport down.
+   IF ! Empty( cResponse ) .AND. Len( cResponse ) > 1000000
+      MCP_Http_Log( "  Antwort zu gross (" + LTrim( Str( Len( cResponse ) ) ) + " bytes) fuer " + ;
+         cMethod + MCP_Http_ToolLabel( hReq ) + " - durch Fehler ersetzt" )
+      cResponse := CreateErrorResponse( "Response too large (" + LTrim( Str( Len( cResponse ) ) ) + ;
+         " bytes) for the MCP client buffer - narrow the query (limit/filters) or fetch large files via their path", ;
+         IIF( HHasKey( hReq, "id" ), hReq["id"], "" ) )
+   ENDIF
 
    // A notification (no id) produced no response -> acknowledge with 202.
    IF Empty( cResponse )

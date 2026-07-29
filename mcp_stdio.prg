@@ -6078,7 +6078,7 @@ FUNCTION MCP_Tool_Get_Archive_Document(hArgs)
    LOCAL hResult := {=>}
    LOCAL cTyp, nNo, cWant := "", nIndex := 0
    LOCAL aFiles, aFile, aValid := {}, aNames := {}
-   LOCAL nMax := 20 * 1024 * 1024
+   LOCAL nMax := 650000    // stay well under the MCP client's ~1 MB message buffer (base64 is ~33% larger)
    LOCAL nSel := 0, nX, nSize, cPath, cName, cData
    LOCAL hDocType
    #include '..\hooks\archive.ch'
@@ -6092,7 +6092,7 @@ FUNCTION MCP_Tool_Get_Archive_Document(hArgs)
             "number"=>{"type"=>"number","description"=>"Number of the transaction (e.g. the ER number)"},;
             "filename"=>{"type"=>"string","description"=>"Name of the document to fetch (from list_archive_documents); optional when the transaction has exactly one document"},;
             "index"=>{"type"=>"number","description"=>"1-based position in the archived-documents list, as an alternative to filename"},;
-            "max_bytes"=>{"type"=>"number","description"=>"Refuse files larger than this many bytes (default 20 MB, max 50 MB); the content is returned base64-encoded (~33% larger)"};
+            "max_bytes"=>{"type"=>"number","description"=>"Refuse files larger than this many raw bytes (default and hard cap ~650 KB). The content is returned base64-encoded (~33% larger) and must fit the MCP client's ~1 MB message buffer; larger documents must be fetched via the path from list_archive_documents"};
          },;
          "required"=>{"doc_type","number"};
       }
@@ -6120,7 +6120,7 @@ FUNCTION MCP_Tool_Get_Archive_Document(hArgs)
       nIndex := Int(hArgs["index"])
    ENDIF
    IF HHasKey(hArgs, "max_bytes") .AND. HB_IsNumeric(hArgs["max_bytes"]) .AND. hArgs["max_bytes"] > 0
-      nMax := Min(Int(hArgs["max_bytes"]), 50 * 1024 * 1024)
+      nMax := Min(Int(hArgs["max_bytes"]), 650000)   // never above the buffer-safe ceiling
    ENDIF
 
    BEGIN SEQUENCE
@@ -6192,8 +6192,8 @@ FUNCTION MCP_Tool_Get_Archive_Document(hArgs)
    IF nSize > nMax
       hResult["size"] := nSize
       hResult["status"] := "too_large"
-      hResult["message"] := "Document is " + AllTrim(Str(nSize)) + " bytes, larger than max_bytes (" + ;
-         AllTrim(Str(nMax)) + "). Raise max_bytes or fetch it via the path"
+      hResult["message"] := "Document is " + AllTrim(Str(nSize)) + " bytes, larger than the buffer-safe limit (" + ;
+         AllTrim(Str(nMax)) + "). Fetch it via the path from list_archive_documents instead"
       RETURN hResult
    ENDIF
 

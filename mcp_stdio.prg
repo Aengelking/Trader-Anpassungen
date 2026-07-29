@@ -740,7 +740,7 @@ FUNCTION MCP_Tool_Search_Articles(hArgs)
    ENDIF
    
    // Get filter parameters
-   cMatchcodePrefix := IIF(HHasKey(hArgs, "matchcode_prefix"), Upper(AllTrim(hArgs["matchcode_prefix"])), "")
+   cMatchcodePrefix := IIF(HHasKey(hArgs, "matchcode_prefix"), AllTrim(hArgs["matchcode_prefix"]), "")  // matchcode is case-sensitive
    cDescriptionContains := IIF(HHasKey(hArgs, "description_contains"), Upper(AllTrim(hArgs["description_contains"])), "")
    cGroup := IIF(HHasKey(hArgs, "group"), AllTrim(hArgs["group"]), "")
    cStockFilter := IIF(HHasKey(hArgs, "stock_filter"), Lower(AllTrim(hArgs["stock_filter"])), "")
@@ -840,7 +840,7 @@ FUNCTION MCP_Tool_Search_Articles(hArgs)
       hResult["filter_after_order"] := art->(dbFilter() )
       art->(DbSeek(cMatchcodePrefix))
          hResult["filter_after_seek"] := art->(dbFilter() )   
-      WHILE !art->(Eof()) .AND. Left(Upper(art->matchcode), Len(cMatchcodePrefix)) == cMatchcodePrefix .AND. nCount < nMaxResults         
+      WHILE !art->(Eof()) .AND. Left(art->matchcode, Len(cMatchcodePrefix)) == cMatchcodePrefix .AND. nCount < nMaxResults
          Eval(bMatchAndAdd)
          //AAdd(aArticles, {"bestand"=>art->Bestand,"filter"=>art->(dbFilter())})
          art->(DbSkip())
@@ -3460,7 +3460,7 @@ FUNCTION MCP_Tool_Get_Article_Prices(hArgs)
 
    IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
       art->(DbSetOrder(1))
-      lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+      lFound := art->(DbSeek(AllTrim(hArgs["matchcode"])))  // matchcode is case-sensitive - do NOT upper
    ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
       art->(DbSetOrder(2))
       lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
@@ -3569,7 +3569,7 @@ FUNCTION MCP_Tool_Get_Article_Movements(hArgs)
    // matchcode engabg is keyed on)
    IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
       art->(DbSetOrder(1))
-      lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+      lFound := art->(DbSeek(AllTrim(hArgs["matchcode"])))  // matchcode is case-sensitive - do NOT upper
    ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
       art->(DbSetOrder(2))
       lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
@@ -3731,7 +3731,7 @@ FUNCTION MCP_Tool_Get_Customer_Part_Number(hArgs)
       hResult["direction"] := "forward"
       IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
          art->(DbSetOrder(1))
-         lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+         lFound := art->(DbSeek(AllTrim(hArgs["matchcode"])))  // matchcode is case-sensitive - do NOT upper
       ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
          art->(DbSetOrder(2))
          lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
@@ -3798,7 +3798,7 @@ FUNCTION MCP_Tool_Get_Article_Suppliers(hArgs)
 
    IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
       art->(DbSetOrder(1))
-      lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+      lFound := art->(DbSeek(AllTrim(hArgs["matchcode"])))  // matchcode is case-sensitive - do NOT upper
    ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
       art->(DbSetOrder(2))
       lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
@@ -3881,7 +3881,7 @@ FUNCTION MCP_Tool_Get_Bom(hArgs)
 
    IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
       art->(DbSetOrder(1))
-      lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+      lFound := art->(DbSeek(AllTrim(hArgs["matchcode"])))  // matchcode is case-sensitive - do NOT upper
    ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
       art->(DbSetOrder(2))
       lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
@@ -3985,7 +3985,7 @@ FUNCTION MCP_Tool_Get_Article_Where_Used(hArgs)
 
    IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
       art->(DbSetOrder(1))
-      lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+      lFound := art->(DbSeek(AllTrim(hArgs["matchcode"])))  // matchcode is case-sensitive - do NOT upper
    ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
       art->(DbSetOrder(2))
       lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
@@ -4821,7 +4821,7 @@ FUNCTION MCP_Tool_Get_Article_Options(hArgs)
 
    IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
       art->(DbSetOrder(1))
-      IF ! art->(DbSeek(Upper(AllTrim(HB_UTF8ToStr(hArgs["matchcode"])))))
+      IF ! art->(DbSeek(AllTrim(HB_UTF8ToStr(hArgs["matchcode"]))))  // matchcode is case-sensitive - do NOT upper
          DbSelectArea(nOldSelect)
          hResult["status"] := "not_found"
          hResult["message"] := "Article not found"

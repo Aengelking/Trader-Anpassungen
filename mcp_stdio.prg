@@ -4095,6 +4095,102 @@ STATIC FUNCTION ResolveSupplier(hArgs)
    ENDIF
 RETURN IIF(lFound, oLief, NIL)
 
+FUNCTION MCP_Tool_Set_Supplier_Holiday(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oLief
+   LOCAL lClear := .F.
+   LOCAL dFrom, dUntil
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "supplier"=>{"type"=>"string","description"=>"Supplier matchcode"},;
+            "supplier_number"=>{"type"=>"number","description"=>"Supplier number"},;
+            "from"=>{"type"=>"string","description"=>"First day of the holiday / company closure (YYYY-MM-DD)"},;
+            "until"=>{"type"=>"string","description"=>"Last day of the holiday (YYYY-MM-DD); the supplier counts as away while this date is today or later"},;
+            "clear"=>{"type"=>"boolean","description"=>"Set true to remove a recorded holiday instead of setting one"};
+         },;
+         "anyOf"=>{{"supplier", "supplier_number"}};
+      }
+      hResult["description"] := "Record or clear a supplier's holiday / company closure (Betriebsurlaub) on the " + ;
+                               "supplier master (St_Holiday/En_Holiday). Purchasing treats a supplier whose end " + ;
+                               "date is today or later as currently away"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "clear") .AND. HB_IsLogical(hArgs["clear"])
+      lClear := hArgs["clear"]
+   ENDIF
+
+   IF ! lClear
+      IF ! HHasKey(hArgs, "from") .OR. Empty(hArgs["from"]) .OR. ! HHasKey(hArgs, "until") .OR. Empty(hArgs["until"])
+         RETURN "Provide both 'from' and 'until' (YYYY-MM-DD), or set 'clear' to remove the holiday"
+      ENDIF
+      dFrom  := SToD(StrTran(AllTrim(hArgs["from"]), "-", ""))
+      dUntil := SToD(StrTran(AllTrim(hArgs["until"]), "-", ""))
+      IF Empty(dFrom)
+         RETURN "Invalid 'from' date - expected YYYY-MM-DD"
+      ENDIF
+      IF Empty(dUntil)
+         RETURN "Invalid 'until' date - expected YYYY-MM-DD"
+      ENDIF
+      IF dUntil < dFrom
+         RETURN "'until' (" + DToC(dUntil) + ") is before 'from' (" + DToC(dFrom) + ")"
+      ENDIF
+   ENDIF
+
+   NetUse("engkund", "ku")
+   oLief := ResolveSupplier(hArgs)   // group "L" address, by supplier / supplier_number
+   IF oLief == NIL
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Supplier not found"
+      RETURN hResult
+   ENDIF
+
+   // Reposition ku on the supplier record for the write (number index).
+   ku->(DbSetOrder(8))
+   IF ! ku->(DbSeek(Str(oLief:Nummer, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "error"
+      hResult["message"] := "Supplier record could not be located for writing"
+      RETURN hResult
+   ENDIF
+
+   IF ! ku->(Rec_Lock(0))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "error"
+      hResult["message"] := "Supplier record is locked by another user - try again later"
+      RETURN hResult
+   ENDIF
+   IF lClear
+      ku->St_Holiday := SToD("")   // empty date - no longer on holiday
+      ku->En_Holiday := SToD("")
+   ELSE
+      ku->St_Holiday := dFrom
+      ku->En_Holiday := dUntil
+   ENDIF
+   ku->(dbUnLock())
+
+   DbSelectArea(nOldSelect)
+
+   hResult["supplier"] := HB_StrToUTF8(AllTrim(oLief:Kunde))
+   hResult["supplier_number"] := oLief:Nummer
+   IF lClear
+      hResult["cleared"] := .T.
+      hResult["message"] := "Supplier holiday removed"
+   ELSE
+      hResult["holiday_from"] := dFrom
+      hResult["holiday_until"] := dUntil
+      hResult["currently_on_holiday"] := dFrom <= Date() .AND. dUntil >= Date()
+      hResult["message"] := "Supplier holiday recorded from " + DToC(dFrom) + " until " + DToC(dUntil)
+   ENDIF
+   hResult["status"] := "success"
+RETURN hResult
+
 FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
    LOCAL hResult := {=>}
    LOCAL oLief, hOrders := {=>}, hOrder, cKey

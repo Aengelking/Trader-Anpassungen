@@ -5165,6 +5165,89 @@ FUNCTION MCP_Tool_Get_Article_Orders(hArgs)
    hResult["status"] := "found"
 RETURN hResult
 
+FUNCTION MCP_Tool_Get_Article_Schedule(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL lFound := .F.
+   LOCAL nArtnr
+   LOCAL aAvail, aRow, hRow, aOut := {}
+   LOCAL dTemp
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "matchcode"=>{"type"=>"string","description"=>"Artikel Matchcode"},;
+            "partno"=>{"type"=>"string","description"=>"Artikelnummer"};
+         },;
+         "anyOf"=>{{"matchcode", "partno"}};
+      }
+      hResult["description"] := "The article's date/availability overview (Terminuebersicht, the F3 view in the " + ;
+                               "article master): per calendar week the resulting projected stock, computed with " + ;
+                               "GetKwQty - the same engine the F3 screen uses - so the figures match. Each row also " + ;
+                               "carries the raw movement columns"
+      RETURN hResult
+   ENDIF
+
+   NetUse("artikel", "art")
+
+   IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+      art->(DbSetOrder(1))
+      lFound := art->(DbSeek(AllTrim(hArgs["matchcode"])))   // matchcode is case-sensitive
+   ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
+      art->(DbSetOrder(2))
+      lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
+   ENDIF
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   nArtnr := art->Artikelnr
+   hResult["matchcode"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+   hResult["partno"] := nArtnr
+   hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+   hResult["current_stock"] := art->Bestand
+
+   // GetKwQty(artnr) is the engine behind the F3 schedule: one row per week,
+   // column 1 = calendar week, column 6 = the running projected stock.
+   BEGIN SEQUENCE
+      aAvail := GetKwQty(nArtnr)
+   RECOVER
+      aAvail := NIL
+   END SEQUENCE
+   IF ! HB_IsArray(aAvail)
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "error"
+      hResult["message"] := "Schedule (GetKwQty) could not be evaluated"
+      RETURN hResult
+   ENDIF
+
+   FOR EACH aRow IN aAvail
+      IF HB_IsArray(aRow) .AND. Len(aRow) >= 6
+         hRow := {=>}
+         IF HB_IsNumeric(aRow[1]) .AND. aRow[1] > 0
+            hRow["week"] := StrZero(aRow[1], 4)
+            IF (dTemp := BesWeekDate(aRow[1])) != NIL
+               hRow["date"] := dTemp
+            ENDIF
+         ENDIF
+         hRow["stock"] := aRow[6]     // running projected stock at this week
+         hRow["raw"] := aRow          // full GetKwQty row - column meanings pending confirmation
+         AAdd(aOut, hRow)
+      ENDIF
+   NEXT
+
+   DbSelectArea(nOldSelect)
+
+   hResult["schedule"] := aOut
+   hResult["count"] := Len(aOut)
+   hResult["status"] := "found"
+RETURN hResult
+
 FUNCTION MCP_Tool_Get_Production_Order(hArgs)
    LOCAL hResult := {=>}
    LOCAL nFa, hComp, dTemp

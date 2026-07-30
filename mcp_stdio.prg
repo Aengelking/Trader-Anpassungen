@@ -4099,7 +4099,7 @@ FUNCTION MCP_Tool_Set_Supplier_Holiday(hArgs)
    LOCAL hResult := {=>}
    LOCAL oLief
    LOCAL lClear := .F.
-   LOCAL dFrom, dUntil
+   LOCAL dFrom, dUntil, xSaved
    LOCAL nOldSelect := Select()
 
    // Return schema and description when called without arguments
@@ -4151,29 +4151,27 @@ FUNCTION MCP_Tool_Set_Supplier_Holiday(hArgs)
       RETURN hResult
    ENDIF
 
-   // Reposition ku on the supplier record for the write (number index).
-   ku->(DbSetOrder(8))
-   IF ! ku->(DbSeek(Str(oLief:Nummer, 6)))
-      DbSelectArea(nOldSelect)
-      hResult["status"] := "error"
-      hResult["message"] := "Supplier record could not be located for writing"
-      RETURN hResult
-   ENDIF
-
-   IF ! ku->(Rec_Lock(0))
-      DbSelectArea(nOldSelect)
-      hResult["status"] := "error"
-      hResult["message"] := "Supplier record is locked by another user - try again later"
-      RETURN hResult
-   ENDIF
+   // Write through the Adresse model (ResolveSupplier already loaded it) rather
+   // than straight into the work area, so the model's own locking/logic runs.
+   // All DBF fields are reachable as object members.
    IF lClear
-      ku->St_Holiday := SToD("")   // empty date - no longer on holiday
-      ku->En_Holiday := SToD("")
+      oLief:St_Holiday := SToD("")   // empty date - no longer on holiday
+      oLief:En_Holiday := SToD("")
    ELSE
-      ku->St_Holiday := dFrom
-      ku->En_Holiday := dUntil
+      oLief:St_Holiday := dFrom
+      oLief:En_Holiday := dUntil
    ENDIF
-   ku->(dbUnLock())
+   BEGIN SEQUENCE
+      xSaved := oLief:Save()
+   RECOVER
+      xSaved := .F.
+   END SEQUENCE
+   IF HB_IsLogical(xSaved) .AND. ! xSaved
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "error"
+      hResult["message"] := "Saving the supplier failed (record locked by another user or model error) - try again later"
+      RETURN hResult
+   ENDIF
 
    DbSelectArea(nOldSelect)
 

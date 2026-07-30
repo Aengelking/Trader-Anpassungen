@@ -5024,6 +5024,147 @@ FUNCTION MCP_Tool_Get_Article_Options(hArgs)
    hResult["status"] := "found"
 RETURN hResult
 
+FUNCTION MCP_Tool_Get_Article_Orders(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL lFound := .F.
+   LOCAL nArtnr, cMatch
+   LOCAL cStatus := "open"
+   LOCAL aFA := {}, hFA, aPO := {}, hPO
+   LOCAL nLimit := 200, nFa := 0, nPo := 0
+   LOCAL lFaTrunc := .F., lPoTrunc := .F.
+   LOCAL dTemp
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "matchcode"=>{"type"=>"string","description"=>"Artikel Matchcode"},;
+            "partno"=>{"type"=>"string","description"=>"Artikelnummer"},;
+            "status_filter"=>{"type"=>"string","enum"=>{"open","all"},"description"=>"open = only active production orders (Status<4) and open purchase orders (Bestat<3); all = everything (default open)"},;
+            "limit"=>{"type"=>"number","description"=>"Maximum entries per list (default 200, max 1000)"};
+         },;
+         "anyOf"=>{{"matchcode", "partno"}};
+      }
+      hResult["description"] := "List the production orders (Fertigungsauftraege, from werkauf) and purchase orders " + ;
+                               "(Bestellungen, from engbes) for an article - each with quantities, open quantity, " + ;
+                               "status and the end/delivery week; external production orders show their supplier and " + ;
+                               "linked purchase order. Defaults to only active/open orders"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "status_filter") .AND. hArgs["status_filter"] == "all"
+      cStatus := "all"
+   ENDIF
+   IF HHasKey(hArgs, "limit") .AND. HB_IsNumeric(hArgs["limit"]) .AND. hArgs["limit"] > 0
+      nLimit := Min(Int(hArgs["limit"]), 1000)
+   ENDIF
+
+   NetUse("artikel", "art")
+   NetUse("werkauf", "wer")
+   NetUse("engbes", "bes")
+
+   IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+      art->(DbSetOrder(1))
+      lFound := art->(DbSeek(AllTrim(hArgs["matchcode"])))   // matchcode is case-sensitive
+   ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
+      art->(DbSetOrder(2))
+      lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
+   ENDIF
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   nArtnr := art->Artikelnr
+   cMatch := AllTrim(art->Matchcode)
+   hResult["matchcode"] := HB_StrToUTF8(cMatch)
+   hResult["partno"] := nArtnr
+   hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+   hResult["stock"] := art->Bestand
+
+   // Production orders: werkauf index 2 is keyed on Artno (see ChangeDrawingRevision).
+   wer->(DbSetOrder(2))
+   IF wer->(DbSeek(Str(nArtnr, 6)))
+      DO WHILE ! wer->(Eof()) .AND. wer->Artno == nArtnr .AND. nFa < nLimit
+         IF cStatus == "all" .OR. wer->Status < 4
+            hFA := {=>}
+            hFA["fa_number"] := wer->Aufno
+            hFA["quantity"] := wer->Qty
+            hFA["produced_quantity"] := wer->GelQty
+            hFA["open_quantity"] := Max(wer->Qty - wer->GelQty, 0)
+            hFA["status"] := wer->Status
+            hFA["active"] := wer->Status < 4
+            IF HB_IsNumeric(wer->End) .AND. wer->End > 0
+               hFA["end_week"] := StrZero(wer->End, 4)
+               IF (dTemp := BesWeekDate(wer->End)) != NIL
+                  hFA["end_date"] := dTemp
+               ENDIF
+            ENDIF
+            IF ! Empty(wer->Liefma)   // Fremdfertigung
+               hFA["external"] := .T.
+               hFA["supplier"] := HB_StrToUTF8(AllTrim(wer->Liefma))
+               IF HB_IsNumeric(wer->Besnr) .AND. wer->Besnr > 0
+                  hFA["purchase_order"] := wer->Besnr
+                  hFA["purchase_order_item"] := wer->BesPos
+               ENDIF
+            ENDIF
+            AAdd(aFA, hFA)
+            nFa++
+         ENDIF
+         wer->(DbSkip())
+      ENDDO
+      lFaTrunc := nFa >= nLimit .AND. ! wer->(Eof()) .AND. wer->Artno == nArtnr
+   ENDIF
+
+   // Purchase orders: engbes index 3 is keyed on Matchcode.
+   bes->(DbSetOrder(3))
+   IF bes->(DbSeek(cMatch))
+      DO WHILE ! bes->(Eof()) .AND. AllTrim(bes->Matchcode) == cMatch .AND. nPo < nLimit
+         IF cStatus == "all" .OR. bes->Bestat < 3
+            hPO := {=>}
+            hPO["po_number"] := bes->Besnr
+            hPO["item"] := bes->Posnr
+            IF ! Empty(bes->Liefma)
+               hPO["supplier"] := HB_StrToUTF8(AllTrim(bes->Liefma))
+            ENDIF
+            hPO["quantity"] := bes->BeQty
+            hPO["delivered_quantity"] := bes->GelQty
+            hPO["open_quantity"] := Max(bes->BeQty - bes->GelQty, 0)
+            hPO["status"] := IIF(bes->Bestat < 3, "open", "completed")
+            hPO["confirmed"] := Upper(AllTrim(bes->Confirmed)) == "Y"
+            IF HB_IsNumeric(bes->Lterm) .AND. bes->Lterm > 0
+               hPO["delivery_week"] := StrZero(bes->Lterm, 4)
+               IF (dTemp := BesWeekDate(bes->Lterm)) != NIL
+                  hPO["delivery_date"] := dTemp
+               ENDIF
+            ENDIF
+            IF ! Empty(bes->AbNr)
+               hPO["supplier_ab_number"] := HB_StrToUTF8(AllTrim(bes->AbNr))
+            ENDIF
+            AAdd(aPO, hPO)
+            nPo++
+         ENDIF
+         bes->(DbSkip())
+      ENDDO
+      lPoTrunc := nPo >= nLimit .AND. ! bes->(Eof()) .AND. AllTrim(bes->Matchcode) == cMatch
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["production_orders"] := aFA
+   hResult["production_order_count"] := Len(aFA)
+   hResult["purchase_orders"] := aPO
+   hResult["purchase_order_count"] := Len(aPO)
+   IF lFaTrunc .OR. lPoTrunc
+      hResult["truncated"] := .T.
+   ENDIF
+   hResult["status"] := "found"
+RETURN hResult
+
 FUNCTION MCP_Tool_Get_Production_Order(hArgs)
    LOCAL hResult := {=>}
    LOCAL nFa, hComp, dTemp

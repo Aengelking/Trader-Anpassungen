@@ -5184,9 +5184,11 @@ FUNCTION MCP_Tool_Get_Article_Schedule(hArgs)
          "anyOf"=>{{"matchcode", "partno"}};
       }
       hResult["description"] := "The article's date/availability overview (Terminuebersicht, the F3 view in the " + ;
-                               "article master): per calendar week the resulting projected stock, computed with " + ;
-                               "GetKwQty - the same engine the F3 screen uses - so the figures match. Each row also " + ;
-                               "carries the raw movement columns"
+                               "article master), computed with GetKwQty (the same engine the F3 screen uses). One " + ;
+                               "row per calendar week with the running available stock and the movements that week: " + ;
+                               "customer_orders (demand), purchase_orders (incoming), production_requirement/" + ;
+                               "production_receipt (Fertigung), plus available (verfuegbar). Zero movement columns " + ;
+                               "are omitted per row"
       RETURN hResult
    ENDIF
 
@@ -5226,17 +5228,39 @@ FUNCTION MCP_Tool_Get_Article_Schedule(hArgs)
       RETURN hResult
    ENDIF
 
+   // GetKwQty row layout (model/artikel.prg): 1=week, 2=customer orders (demand),
+   // 3=purchase orders (incoming), 4=production material requirement, 5=production
+   // receipt, 6=available (verfuegbar), 7=uncovered production receipt,
+   // 8=production start. Row 1 is the opening placeholder (week 0) - skipped;
+   // the opening stock is current_stock above.
    FOR EACH aRow IN aAvail
-      IF HB_IsArray(aRow) .AND. Len(aRow) >= 6
+      IF HB_IsArray(aRow) .AND. Len(aRow) >= 6 .AND. HB_IsNumeric(aRow[1]) .AND. aRow[1] > 0
          hRow := {=>}
-         IF HB_IsNumeric(aRow[1]) .AND. aRow[1] > 0
-            hRow["week"] := StrZero(aRow[1], 4)
-            IF (dTemp := BesWeekDate(aRow[1])) != NIL
-               hRow["date"] := dTemp
+         hRow["week"] := StrZero(aRow[1], 4)
+         IF (dTemp := BesWeekDate(aRow[1])) != NIL
+            hRow["date"] := dTemp
+         ENDIF
+         hRow["available"] := aRow[6]                     // running available stock (verfuegbar)
+         IF aRow[2] != 0
+            hRow["customer_orders"] := aRow[2]            // demand from sales orders
+         ENDIF
+         IF aRow[3] != 0
+            hRow["purchase_orders"] := aRow[3]            // incoming from purchase orders
+         ENDIF
+         IF aRow[4] != 0
+            hRow["production_requirement"] := aRow[4]     // component demand for production (WA Bedarf)
+         ENDIF
+         IF aRow[5] != 0
+            hRow["production_receipt"] := aRow[5]         // incoming from production orders (WA Eingang)
+         ENDIF
+         IF Len(aRow) >= 8
+            IF aRow[7] != 0
+               hRow["uncovered_production_receipt"] := aRow[7]
+            ENDIF
+            IF aRow[8] != 0
+               hRow["production_start"] := aRow[8]
             ENDIF
          ENDIF
-         hRow["stock"] := aRow[6]     // running projected stock at this week
-         hRow["raw"] := aRow          // full GetKwQty row - column meanings pending confirmation
          AAdd(aOut, hRow)
       ENDIF
    NEXT

@@ -5170,6 +5170,7 @@ FUNCTION MCP_Tool_Get_Article_Schedule(hArgs)
    LOCAL lFound := .F.
    LOCAL nArtnr
    LOCAL aAvail, aRow, hRow, aOut := {}
+   LOCAL lConfirmOnly := .F., lUseMelde := .F., lTBAasLT := .F., lBlanketReq := .T.
    LOCAL dTemp
    LOCAL nOldSelect := Select()
 
@@ -5179,16 +5180,21 @@ FUNCTION MCP_Tool_Get_Article_Schedule(hArgs)
          "type"=>"object",;
          "properties"=>{;
             "matchcode"=>{"type"=>"string","description"=>"Artikel Matchcode"},;
-            "partno"=>{"type"=>"string","description"=>"Artikelnummer"};
+            "partno"=>{"type"=>"string","description"=>"Artikelnummer"},;
+            "confirmed_only"=>{"type"=>"boolean","description"=>"Only count confirmed purchase orders as incoming (default false)"},;
+            "use_reorder_point"=>{"type"=>"boolean","description"=>"Include the reorder point (Meldebestand) in the demand (default false)"},;
+            "tba_as_leadtime"=>{"type"=>"boolean","description"=>"Schedule TBA orders (week xx97) at the standard lead time instead of listing them as 'unknown' (default false)"},;
+            "blanket_use_requested_week"=>{"type"=>"boolean","description"=>"For blanket call-offs (week 99) use the customer's requested week; false lists them as 'unknown' (default true)"};
          },;
          "anyOf"=>{{"matchcode", "partno"}};
       }
       hResult["description"] := "The article's date/availability overview (Terminuebersicht, the F3 view in the " + ;
-                               "article master), computed with GetKwQty (the same engine the F3 screen uses). One " + ;
-                               "row per calendar week with the running available stock and the movements that week: " + ;
-                               "customer_orders (demand), purchase_orders (incoming), production_requirement/" + ;
-                               "production_receipt (Fertigung), plus available (verfuegbar). Zero movement columns " + ;
-                               "are omitted per row"
+                               "article master), computed with GetKwQty (the same engine, same default flags, as the " + ;
+                               "F3 screen). One row per calendar week with the running available stock and the " + ;
+                               "movements that week: customer_orders (demand), purchase_orders (incoming), " + ;
+                               "production_requirement/production_receipt (Fertigung), plus available (verfuegbar). " + ;
+                               "kind is 'week', 'backlog' (Rueckstand, overdue) or 'unknown' (TBA); zero movement " + ;
+                               "columns are omitted. Optional flags mirror GetKwQty's parameters"
       RETURN hResult
    ENDIF
 
@@ -5208,16 +5214,29 @@ FUNCTION MCP_Tool_Get_Article_Schedule(hArgs)
       RETURN hResult
    ENDIF
 
+   IF HHasKey(hArgs, "confirmed_only") .AND. HB_IsLogical(hArgs["confirmed_only"])
+      lConfirmOnly := hArgs["confirmed_only"]
+   ENDIF
+   IF HHasKey(hArgs, "use_reorder_point") .AND. HB_IsLogical(hArgs["use_reorder_point"])
+      lUseMelde := hArgs["use_reorder_point"]
+   ENDIF
+   IF HHasKey(hArgs, "tba_as_leadtime") .AND. HB_IsLogical(hArgs["tba_as_leadtime"])
+      lTBAasLT := hArgs["tba_as_leadtime"]
+   ENDIF
+   IF HHasKey(hArgs, "blanket_use_requested_week") .AND. HB_IsLogical(hArgs["blanket_use_requested_week"])
+      lBlanketReq := hArgs["blanket_use_requested_week"]
+   ENDIF
+
    nArtnr := art->Artikelnr
    hResult["matchcode"] := HB_StrToUTF8(AllTrim(art->Matchcode))
    hResult["partno"] := nArtnr
    hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
    hResult["current_stock"] := art->Bestand
 
-   // GetKwQty(artnr) is the engine behind the F3 schedule: one row per week,
-   // column 1 = calendar week, column 6 = the running projected stock.
+   // GetKwQty is the engine behind the F3 schedule. The default flags below
+   // match how the F3 screen (ShowKw in artikel_browse.prg) calls it.
    BEGIN SEQUENCE
-      aAvail := GetKwQty(nArtnr)
+      aAvail := GetKwQty(nArtnr, lConfirmOnly, lUseMelde, lTBAasLT, lBlanketReq)
    RECOVER
       aAvail := NIL
    END SEQUENCE
@@ -5231,15 +5250,23 @@ FUNCTION MCP_Tool_Get_Article_Schedule(hArgs)
    // GetKwQty row layout (model/artikel.prg): 1=week, 2=customer orders (demand),
    // 3=purchase orders (incoming), 4=production material requirement, 5=production
    // receipt, 6=available (verfuegbar), 7=uncovered production receipt,
-   // 8=production start. Row 1 is the opening placeholder (week 0) - skipped;
-   // the opening stock is current_stock above.
+   // 8=production start. Week 0 is the backlog (Rueckstand, overdue) and 9999 the
+   // unknown/TBA bucket - the F3 screen (ShowKw) shows both.
    FOR EACH aRow IN aAvail
-      IF HB_IsArray(aRow) .AND. Len(aRow) >= 6 .AND. HB_IsNumeric(aRow[1]) .AND. aRow[1] > 0
+      IF HB_IsArray(aRow) .AND. Len(aRow) >= 6 .AND. HB_IsNumeric(aRow[1])
          hRow := {=>}
-         hRow["week"] := StrZero(aRow[1], 4)
-         IF (dTemp := BesWeekDate(aRow[1])) != NIL
-            hRow["date"] := dTemp
-         ENDIF
+         DO CASE
+         CASE aRow[1] == 0
+            hRow["kind"] := "backlog"    // Rueckstand - overdue orders/receipts
+         CASE aRow[1] == 9999
+            hRow["kind"] := "unknown"    // unbekannt - TBA orders without a firm week
+         OTHERWISE
+            hRow["kind"] := "week"
+            hRow["week"] := StrZero(aRow[1], 4)
+            IF (dTemp := BesWeekDate(aRow[1])) != NIL
+               hRow["date"] := dTemp
+            ENDIF
+         ENDCASE
          hRow["available"] := aRow[6]                     // running available stock (verfuegbar)
          IF aRow[2] != 0
             hRow["customer_orders"] := aRow[2]            // demand from sales orders

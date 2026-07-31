@@ -592,8 +592,9 @@ FUNCTION MCP_Tool_Get_Order_Details(hArgs)
          },;
          "required"=>{"order_number"};
       }
-      hResult["description"] := "Retrieve detailed order information by order number, including the customer's own " + ;
-                                "order number (Kundenauftragsnummer) and all line items with status, the confirmed " + ;
+      hResult["description"] := "Retrieve detailed order information by order number. The customer's own order " + ;
+                                "number (Kundenauftragsnummer) is per line item (customer_order_number on each line); " + ;
+                                "the header value is the first line's. Line items include status, the confirmed " + ;
                                 "delivery week/date, the customer's requested week and - when the date was moved - " + ;
                                 "the originally confirmed week"
       RETURN hResult
@@ -604,7 +605,7 @@ FUNCTION MCP_Tool_Get_Order_Details(hArgs)
       lFound := .T.
       hResult["order_number"] := oAuftrag:abnr
       hResult["customer"] := oAuftrag:Kundma
-      hResult["customer_order_number"] := HB_StrToUTF8(AllTrim(oAuftrag:Aufnr))  // the customer's own PO/order number
+      hResult["customer_order_number"] := HB_StrToUTF8(AllTrim(oAuftrag:Aufnr))  // header = first line's; per-line values are on each line
       hResult["date"] := oAuftrag:Besda
       hResult["completed"] := oAuftrag:Erledigt //auf->Status == 3 .OR. auf->Status == 7
       hResult["total"] := oAuftrag:total
@@ -614,6 +615,7 @@ FUNCTION MCP_Tool_Get_Order_Details(hArgs)
          LOCAL dTemp
          hPosition["item"] := oPos:Itmnr
          hPosition["article"] := AllTrim(oPos:Matchcode)
+         hPosition["customer_order_number"] := HB_StrToUTF8(AllTrim(oPos:Aufnr))  // the customer PO no is per position
          //hPosition["description"] := AllTrim(oPos:Artikel:Artikel)
          hPosition["blanket_order"] := oPos:IsRahmen
          IF oPos:IsRahmen

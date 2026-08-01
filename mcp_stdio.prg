@@ -3250,6 +3250,18 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       // Fremdfertigung: the production order this position belongs to
       IF wer->(DbSeek(Str(nPo, 6) + Str(bes->Posnr, 3)))
          hLine["production_order"] := wer->Aufno  // details via get_production_order
+         hLine["production_order_status"] := wer->Status
+         // The finished-goods receipt (Wareneingang) of an external-production
+         // position can only be booked once the FA material has been withdrawn
+         // (and the papers printed) - FA status 3 (see fertigung_wareneingang.prg:
+         // "STATUS <> 3 -> LOOP"; werkback.prg blocks < 3 with "Ware noch nicht
+         // entnommen"). Status 4 means it is already fully received.
+         hLine["goods_receipt_bookable"] := wer->Status == 3
+         IF wer->Status < 3
+            hLine["goods_receipt_block_reason"] := "production order material not yet withdrawn (FA status " + AllTrim(Str(wer->Status)) + ")"
+         ELSEIF wer->Status > 3
+            hLine["goods_receipt_block_reason"] := "production order already completed (FA status " + AllTrim(Str(wer->Status)) + ")"
+         ENDIF
       ENDIF
       hLine["line_total"] := Round(bes->BeQty * hLine["unit_price"], 2)
       nTotal += hLine["line_total"]

@@ -3105,7 +3105,7 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
    LOCAL hResult := {=>}
    LOCAL nPo, hLine, aLines := {}
    LOCAL nTotal := 0, nPriceEur
-   LOCAL aSched, hSched, dTemp
+   LOCAL aSched, hSched, dTemp, nArr
    LOCAL nOldSelect := Select()
 
    // Return schema and description when called without arguments
@@ -3119,7 +3119,9 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       }
       hResult["description"] := "Retrieve a purchase order (Bestellung) by number, including all line items with " + ;
                                 "ordered/delivered quantities, prices, and delivery dates given as calendar week " + ;
-                                "(JJWW) plus resolved date. When 'confirmed' is true the delivery date is the " + ;
+                                "(JJWW) plus resolved date. delivery_week is the supplier's ship/ready week; " + ;
+                                "ship_time is the transit (weeks) and expected_arrival_week/date = delivery + transit " + ;
+                                "(when the goods arrive at us). When 'confirmed' is true the delivery date is the " + ;
                                 "supplier-confirmed date, otherwise the expected date. Lines with a delivery " + ;
                                 "schedule (Liefereinteilungen) list their partial deliveries under 'delivery_schedule'. " + ;
                                 "Shipping confirmations appear as 'tracking'/'shipped_date' per line and per schedule " + ;
@@ -3178,10 +3180,22 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       // Lterm/Wterm are calendar weeks (JJWW). Lterm is the supplier-confirmed
       // date when Confirmed == "Y", otherwise the expected date (see the GET
       // label logic in bestellung_edit.prg)
+      IF HB_IsNumeric(bes->ShipTime) .AND. bes->ShipTime > 0
+         hLine["ship_time"] := bes->ShipTime   // transit time (weeks) supplier -> us
+      ENDIF
       IF HB_IsNumeric(bes->Lterm) .AND. bes->Lterm > 0
          hLine["delivery_week"] := StrZero(bes->Lterm, 4)
          IF (dTemp := BesWeekDate(bes->Lterm)) != NIL
             hLine["delivery_date"] := dTemp
+         ENDIF
+         // Expected arrival at us = delivery week + transit time (ShipTime).
+         // Only real calendar weeks (WW<=52) get the transit added; special
+         // weeks (99 frame, 97/98 unknown) are taken verbatim - same rule as
+         // BestellungConfirm.prg.
+         nArr := IIF(Val(Right(Str(bes->Lterm, 4), 2)) <= 52, AddWeeks(bes->Lterm, bes->ShipTime), bes->Lterm)
+         hLine["expected_arrival_week"] := StrZero(nArr, 4)
+         IF (dTemp := BesWeekDate(nArr)) != NIL
+            hLine["expected_arrival_date"] := dTemp
          ENDIF
       ENDIF
       IF HB_IsNumeric(bes->Wterm) .AND. bes->Wterm > 0
@@ -3220,6 +3234,11 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
             hSched["week"] := StrZero(bdel->Lterm, 4)
             IF (dTemp := BesWeekDate(bdel->Lterm)) != NIL
                hSched["date"] := dTemp
+            ENDIF
+            nArr := IIF(Val(Right(Str(bdel->Lterm, 4), 2)) <= 52, AddWeeks(bdel->Lterm, bes->ShipTime), bdel->Lterm)
+            hSched["expected_arrival_week"] := StrZero(nArr, 4)
+            IF (dTemp := BesWeekDate(nArr)) != NIL
+               hSched["expected_arrival_date"] := dTemp
             ENDIF
             hSched["quantity"] := bdel->Qty
             IF bdel->(FieldPos("TRACKING")) > 0 .AND. ! Empty(bdel->Tracking)
@@ -4212,7 +4231,7 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
    LOCAL cStatus := "open", lOpen
    LOCAL nMaxResults := 50
    LOCAL nScanned := 0, nScanCap := 20000, lScanLimited := .F.
-   LOCAL dTemp
+   LOCAL dTemp, nArr
    LOCAL nOldSelect := Select()
 
    // Return schema and description when called without arguments
@@ -4228,7 +4247,8 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
          "anyOf"=>{{"supplier", "supplier_number"}};
       }
       hResult["description"] := "List purchase orders (Bestellungen) for a supplier, newest first, with value, open " + ;
-                                "quantities and the next expected delivery date. Use get_purchase_order for line details"
+                                "quantities, the next delivery week and next_arrival_week/date (delivery + transit " + ;
+                                "time). Use get_purchase_order for line details"
       RETURN hResult
    ENDIF
 
@@ -4275,6 +4295,7 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
                hOrder["open_quantity"] := 0
                hOrder["value"] := 0
                hOrder["next_delivery_week"] := NIL
+               hOrder["next_ship_time"] := 0
                hOrders[cKey] := hOrder
             ENDIF
             hOrders[cKey]["line_count"] := hOrders[cKey]["line_count"] + 1
@@ -4287,6 +4308,7 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
                IF HB_IsNumeric(bes->Lterm) .AND. bes->Lterm > 0 .AND. ;
                   (hOrders[cKey]["next_delivery_week"] == NIL .OR. bes->Lterm < hOrders[cKey]["next_delivery_week"])
                   hOrders[cKey]["next_delivery_week"] := bes->Lterm
+                  hOrders[cKey]["next_ship_time"] := bes->ShipTime   // transit of the earliest line
                ENDIF
             ENDIF
          ENDIF
@@ -4301,8 +4323,20 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
          IF (dTemp := BesWeekDate(hOrder["next_delivery_week"])) != NIL
             hOrder["next_delivery_date"] := dTemp
          ENDIF
+         // Expected arrival of the earliest delivery = its week + transit time;
+         // real weeks (WW<=52) only, special weeks verbatim.
+         nArr := IIF(Val(Right(Str(hOrder["next_delivery_week"], 4), 2)) <= 52, ;
+            AddWeeks(hOrder["next_delivery_week"], hOrder["next_ship_time"]), hOrder["next_delivery_week"])
+         hOrder["next_arrival_week"] := StrZero(nArr, 4)
+         IF (dTemp := BesWeekDate(nArr)) != NIL
+            hOrder["next_arrival_date"] := dTemp
+         ENDIF
          hOrder["next_delivery_week"] := StrZero(hOrder["next_delivery_week"], 4)
       ENDIF
+      IF hOrder["next_ship_time"] > 0
+         hOrder["ship_time"] := hOrder["next_ship_time"]
+      ENDIF
+      HDel(hOrder, "next_ship_time")   // internal accumulator - not part of the output
       AAdd(aOrders, hOrder)
    NEXT
    ASort(aOrders,,, {|x, y| x["po_number"] > y["po_number"]})
@@ -5046,7 +5080,7 @@ FUNCTION MCP_Tool_Get_Article_Orders(hArgs)
    LOCAL aFA := {}, hFA, aPO := {}, hPO
    LOCAL nLimit := 200, nFa := 0, nPo := 0
    LOCAL lFaTrunc := .F., lPoTrunc := .F.
-   LOCAL dTemp
+   LOCAL dTemp, nArr
    LOCAL nOldSelect := Select()
 
    // Return schema and description when called without arguments
@@ -5063,8 +5097,9 @@ FUNCTION MCP_Tool_Get_Article_Orders(hArgs)
       }
       hResult["description"] := "List the production orders (Fertigungsauftraege, from werkauf) and purchase orders " + ;
                                "(Bestellungen, from engbes) for an article - each with quantities, open quantity, " + ;
-                               "status and the end/delivery week; external production orders show their supplier and " + ;
-                               "linked purchase order. Defaults to only active/open orders"
+                               "status and the end/delivery week (purchase orders also carry ship_time and " + ;
+                               "expected_arrival_week/date = delivery + transit); external production orders show " + ;
+                               "their supplier and linked purchase order. Defaults to only active/open orders"
       RETURN hResult
    ENDIF
 
@@ -5150,10 +5185,19 @@ FUNCTION MCP_Tool_Get_Article_Orders(hArgs)
             hPO["open_quantity"] := Max(bes->BeQty - bes->GelQty, 0)
             hPO["status"] := IIF(bes->Bestat < 3, "open", "completed")
             hPO["confirmed"] := Upper(AllTrim(bes->Confirmed)) == "Y"
+            IF HB_IsNumeric(bes->ShipTime) .AND. bes->ShipTime > 0
+               hPO["ship_time"] := bes->ShipTime   // transit time (weeks) supplier -> us
+            ENDIF
             IF HB_IsNumeric(bes->Lterm) .AND. bes->Lterm > 0
                hPO["delivery_week"] := StrZero(bes->Lterm, 4)
                IF (dTemp := BesWeekDate(bes->Lterm)) != NIL
                   hPO["delivery_date"] := dTemp
+               ENDIF
+               // Expected arrival = delivery week + transit (only real weeks WW<=52)
+               nArr := IIF(Val(Right(Str(bes->Lterm, 4), 2)) <= 52, AddWeeks(bes->Lterm, bes->ShipTime), bes->Lterm)
+               hPO["expected_arrival_week"] := StrZero(nArr, 4)
+               IF (dTemp := BesWeekDate(nArr)) != NIL
+                  hPO["expected_arrival_date"] := dTemp
                ENDIF
             ENDIF
             IF ! Empty(bes->AbNr)

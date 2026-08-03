@@ -410,6 +410,41 @@ FUNCTION MCP_Tool_Get_Customer(hArgs)
    
 RETURN _HashToUtf8(hResult)
 
+FUNCTION MCP_Tool_Get_Supplier(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oLief
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "supplier"=>{"type"=>"string","description"=>"Supplier matchcode"},;
+            "supplier_number"=>{"type"=>"number","description"=>"Supplier number"};
+         },;
+         "anyOf"=>{{"supplier", "supplier_number"}};
+      }
+      hResult["description"] := "Retrieve supplier (Lieferant) information by supplier matchcode or number - the " + ;
+                                "supplier equivalent of get_customer"
+      RETURN hResult
+   ENDIF
+
+   NetUse("engkund", "ku")
+   oLief := ResolveSupplier(hArgs)   // group "L" address, by supplier / supplier_number
+   IF oLief == NIL
+      hResult["status"] := "not_found"
+      hResult["message"] := "Supplier not found"
+      RETURN hResult
+   ENDIF
+
+   hResult["number"] := oLief:nummer
+   hResult["name"] := AllTrim(oLief:cName)
+   hResult["street"] := AllTrim(oLief:street)
+   hResult["city"] := AllTrim(oLief:town)
+   hResult["country"] := AllTrim(oLief:cLand)
+   hResult["status"] := "found"
+RETURN _HashToUtf8(hResult)
+
 FUNCTION MCP_Tool_Search_Customers(hArgs)
    LOCAL hResult := {=>}
    LOCAL aCustomers := {}
@@ -520,7 +555,7 @@ FUNCTION MCP_Tool_Get_Article(hArgs)
    IF HHasKey(hArgs,"matchcode") .AND. !Empty(hArgs["matchcode"])
       // Load by matchcode
       art->(DbSetOrder(1))  // Assume order 1 is by matchcode
-      lFound := art->(DbSeek(Upper(hArgs["matchcode"])))
+      lFound := art->(DbSeek(Pad(hArgs["matchcode"],25)))
    ELSEIF HHasKey(hArgs,"partno") .AND. !Empty(hArgs["partno"])
       // Search by part number
       art->(DbSetOrder(2))  
@@ -557,9 +592,11 @@ FUNCTION MCP_Tool_Get_Order_Details(hArgs)
          },;
          "required"=>{"order_number"};
       }
-      hResult["description"] := "Retrieve detailed order information by order number, including all line items with " + ;
-                                "status, the confirmed delivery week/date, the customer's requested week and - when " + ;
-                                "the date was moved - the originally confirmed week"
+      hResult["description"] := "Retrieve detailed order information by order number. The customer's own order " + ;
+                                "number (Kundenauftragsnummer) is per line item (customer_order_number on each line); " + ;
+                                "the header value is the first line's. Line items include status, the confirmed " + ;
+                                "delivery week/date, the customer's requested week and - when the date was moved - " + ;
+                                "the originally confirmed week"
       RETURN hResult
    ENDIF
 
@@ -568,6 +605,7 @@ FUNCTION MCP_Tool_Get_Order_Details(hArgs)
       lFound := .T.
       hResult["order_number"] := oAuftrag:abnr
       hResult["customer"] := oAuftrag:Kundma
+      hResult["customer_order_number"] := HB_StrToUTF8(AllTrim(oAuftrag:Aufnr))  // header = first line's; per-line values are on each line
       hResult["date"] := oAuftrag:Besda
       hResult["completed"] := oAuftrag:Erledigt //auf->Status == 3 .OR. auf->Status == 7
       hResult["total"] := oAuftrag:total
@@ -577,6 +615,7 @@ FUNCTION MCP_Tool_Get_Order_Details(hArgs)
          LOCAL dTemp
          hPosition["item"] := oPos:Itmnr
          hPosition["article"] := AllTrim(oPos:Matchcode)
+         hPosition["customer_order_number"] := HB_StrToUTF8(AllTrim(oPos:Aufnr))  // the customer PO no is per position
          //hPosition["description"] := AllTrim(oPos:Artikel:Artikel)
          hPosition["blanket_order"] := oPos:IsRahmen
          IF oPos:IsRahmen
@@ -705,7 +744,7 @@ FUNCTION MCP_Tool_Search_Articles(hArgs)
    ENDIF
    
    // Get filter parameters
-   cMatchcodePrefix := IIF(HHasKey(hArgs, "matchcode_prefix"), Upper(AllTrim(hArgs["matchcode_prefix"])), "")
+   cMatchcodePrefix := IIF(HHasKey(hArgs, "matchcode_prefix"), AllTrim(hArgs["matchcode_prefix"]), "")  // matchcode is case-sensitive
    cDescriptionContains := IIF(HHasKey(hArgs, "description_contains"), Upper(AllTrim(hArgs["description_contains"])), "")
    cGroup := IIF(HHasKey(hArgs, "group"), AllTrim(hArgs["group"]), "")
    cStockFilter := IIF(HHasKey(hArgs, "stock_filter"), Lower(AllTrim(hArgs["stock_filter"])), "")
@@ -805,7 +844,7 @@ FUNCTION MCP_Tool_Search_Articles(hArgs)
       hResult["filter_after_order"] := art->(dbFilter() )
       art->(DbSeek(cMatchcodePrefix))
          hResult["filter_after_seek"] := art->(dbFilter() )   
-      WHILE !art->(Eof()) .AND. Left(Upper(art->matchcode), Len(cMatchcodePrefix)) == cMatchcodePrefix .AND. nCount < nMaxResults         
+      WHILE !art->(Eof()) .AND. Left(art->matchcode, Len(cMatchcodePrefix)) == cMatchcodePrefix .AND. nCount < nMaxResults
          Eval(bMatchAndAdd)
          //AAdd(aArticles, {"bestand"=>art->Bestand,"filter"=>art->(dbFilter())})
          art->(DbSkip())
@@ -2771,7 +2810,7 @@ FUNCTION MCP_Tool_Get_Customer_Quotes(hArgs)
                hQuote := {=>}
                hQuote["quote_number"] := ang->Angnr
                hQuote["date"] := ang->Besda
-               hQuote["buyer"] := HB_StrToUTF8(AllTrim(ang->Buyer))
+               hQuote["buyer"] := ang->Buyer
                hQuote["currency"] := IIF(Empty(ang->Money), "EUR", AllTrim(ang->Money))
                hQuote["status"] := cLineStatus
                hQuote["line_count"] := 0
@@ -3096,7 +3135,9 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
    NetUse("engbes", "bes")
    NetUse("besdel", "bdel")  // Liefereinteilungen per position
    NetUse("artlief", "ali")  // supplier part numbers
+   NetUse("werkauf", "wer")  // production orders (Fremdfertigung)
    ali->(DbSetOrder(1))  // Kunde(supplier) + Str(Artikelnr,6)
+   wer->(DbSetOrder(6))  // Str(Besnr,6) + Str(Posnr,3)
    bes->(DbSetOrder(1))  // Str(Besnr,6) + Str(Posnr,3)
 
    IF ! bes->(DbSeek(Str(nPo, 6)))
@@ -3161,6 +3202,9 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       IF bes->(FieldPos("SHIPPED")) > 0 .AND. ! Empty(bes->Shipped)
          hLine["shipped_date"] := bes->Shipped
       ENDIF
+      IF bes->(FieldPos("CARRIER")) > 0 .AND. ! Empty(bes->Carrier)
+         hLine["carrier"] := HB_StrToUTF8(AllTrim(bes->Carrier))
+      ENDIF
       IF bes->Bestat < 3 .AND. bes->(FieldPos("TRACKING")) > 0 .AND. bes->(FieldPos("SHIPPED")) > 0
          // Same criterion as the checkstock shipping watchdog: a confirmation
          // exists once a tracking number or a shipped date is recorded
@@ -3184,6 +3228,9 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
             IF bdel->(FieldPos("SHIPPED")) > 0 .AND. ! Empty(bdel->Shipped)
                hSched["shipped_date"] := bdel->Shipped
             ENDIF
+            IF bdel->(FieldPos("CARRIER")) > 0 .AND. ! Empty(bdel->Carrier)
+               hSched["carrier"] := HB_StrToUTF8(AllTrim(bdel->Carrier))
+            ENDIF
             AAdd(aSched, hSched)
             bdel->(DbSkip())
          ENDDO
@@ -3192,10 +3239,29 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
          hLine["delivery_schedule"] := aSched
       ENDIF
       IF ! Empty(bes->AbNr)  // character field in engbes
-         hLine["sales_order"] := HB_StrToUTF8(AllTrim(bes->AbNr))  // linked customer order
+         // The supplier's order confirmation (AB) number - the reference under
+         // which the SUPPLIER runs this order (booked via confirm_purchase_order).
+         // Not to be confused with our own sales order numbers.
+         hLine["supplier_ab_number"] := HB_StrToUTF8(AllTrim(bes->AbNr))
       ENDIF
       IF bes->ContrNo > 0
          hLine["frame_order"] := bes->ContrNo  // call-off from this blanket PO
+      ENDIF
+      // Fremdfertigung: the production order this position belongs to
+      IF wer->(DbSeek(Str(nPo, 6) + Str(bes->Posnr, 3)))
+         hLine["production_order"] := wer->Aufno  // details via get_production_order
+         hLine["production_order_status"] := wer->Status
+         // The finished-goods receipt (Wareneingang) of an external-production
+         // position can only be booked once the FA material has been withdrawn
+         // (and the papers printed) - FA status 3 (see fertigung_wareneingang.prg:
+         // "STATUS <> 3 -> LOOP"; werkback.prg blocks < 3 with "Ware noch nicht
+         // entnommen"). Status 4 means it is already fully received.
+         hLine["goods_receipt_bookable"] := wer->Status == 3
+         IF wer->Status < 3
+            hLine["goods_receipt_block_reason"] := "production order material not yet withdrawn (FA status " + AllTrim(Str(wer->Status)) + ")"
+         ELSEIF wer->Status > 3
+            hLine["goods_receipt_block_reason"] := "production order already completed (FA status " + AllTrim(Str(wer->Status)) + ")"
+         ENDIF
       ENDIF
       hLine["line_total"] := Round(bes->BeQty * hLine["unit_price"], 2)
       nTotal += hLine["line_total"]
@@ -3410,7 +3476,7 @@ FUNCTION MCP_Tool_Get_Article_Prices(hArgs)
 
    IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
       art->(DbSetOrder(1))
-      lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+      lFound := art->(DbSeek(AllTrim(hArgs["matchcode"])))  // matchcode is case-sensitive - do NOT upper
    ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
       art->(DbSetOrder(2))
       lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
@@ -3486,6 +3552,240 @@ FUNCTION MCP_Tool_Get_Article_Prices(hArgs)
    hResult["status"] := "found"
 RETURN hResult
 
+FUNCTION MCP_Tool_Get_Article_Movements(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL lFound := .F.
+   LOCAL cMatch, cBuArt := ""
+   LOCAL aMoves := {}, hMove
+   LOCAL nLimit := 100, nCount := 0
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "matchcode"=>{"type"=>"string","description"=>"Artikel Matchcode"},;
+            "partno"=>{"type"=>"string","description"=>"Artikelnummer"},;
+            "booking_type"=>{"type"=>"string","description"=>"Optional filter on the booking type (BuArt), e.g. 'WE' (Wareneingang), 'RE' (Rechnung), 'UMB' (Umbuchung), 'STO' (Storno). Case-insensitive"},;
+            "limit"=>{"type"=>"number","description"=>"Maximum number of movements to return, newest first (default 100, max 1000)"};
+         },;
+         "anyOf"=>{{"matchcode", "partno"}};
+      }
+      hResult["description"] := "Get the stock movement history (Bewegungskonto) of an article from engabg, newest " + ;
+                               "first: goods receipts, issues, invoices, corrections and transfers. Each entry has " + ;
+                               "date, booking type (BuArt), quantity, resulting stock, price and the linked " + ;
+                               "document/order/supplier/customer"
+      RETURN hResult
+   ENDIF
+
+   NetUse("artikel", "art")
+
+   // Resolve the article first (validates it exists and yields the canonical
+   // matchcode engabg is keyed on)
+   IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+      art->(DbSetOrder(1))
+      lFound := art->(DbSeek(AllTrim(hArgs["matchcode"])))  // matchcode is case-sensitive - do NOT upper
+   ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
+      art->(DbSetOrder(2))
+      lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
+   ENDIF
+
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   cMatch := AllTrim(art->Matchcode)
+
+   IF HHasKey(hArgs, "booking_type") .AND. ! Empty(hArgs["booking_type"])
+      cBuArt := Upper(AllTrim(hArgs["booking_type"]))
+   ENDIF
+   IF HHasKey(hArgs, "limit") .AND. HB_IsNumeric(hArgs["limit"]) .AND. hArgs["limit"] > 0
+      nLimit := Min(Int(hArgs["limit"]), 1000)
+   ENDIF
+
+   hResult["matchcode"] := HB_StrToUTF8(cMatch)
+   hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+   hResult["unit"] := HB_StrToUTF8(AllTrim(art->Me))
+   hResult["current_stock"] := art->Bestand
+
+   NetUse("engabg", "abg")
+   abg->(DbSetOrder(3))  // Matchcode + Descend(RecNo()) -> newest first per article
+
+   IF abg->(DbSeek(cMatch))
+      DO WHILE ! abg->(Eof()) .AND. AllTrim(abg->Matchcode) == cMatch .AND. nCount < nLimit
+         IF ! Empty(cBuArt) .AND. Upper(AllTrim(abg->BuArt)) != cBuArt
+            abg->(DbSkip())
+            LOOP
+         ENDIF
+         hMove := {=>}
+         hMove["date"] := abg->Datum
+         hMove["booking_type"] := HB_StrToUTF8(AllTrim(abg->BuArt))
+         hMove["quantity"] := abg->Menge
+         hMove["stock_after"] := abg->Bestand
+         hMove["price"] := abg->Preis
+         hMove["price_unit"] := abg->Pe
+         IF ! Empty(abg->Liefma)
+            hMove["supplier"] := HB_StrToUTF8(AllTrim(abg->Liefma))
+         ENDIF
+         IF HB_IsNumeric(abg->Kundennr) .AND. abg->Kundennr > 0
+            hMove["customer_no"] := abg->Kundennr
+         ENDIF
+         IF HB_IsNumeric(abg->Besnr) .AND. abg->Besnr > 0
+            hMove["order_no"] := abg->Besnr
+            hMove["order_pos"] := abg->BesPos
+         ENDIF
+         IF ! Empty(abg->Beleg)
+            hMove["document"] := HB_StrToUTF8(AllTrim(abg->Beleg))
+         ENDIF
+         IF ! Empty(abg->Info)
+            hMove["info"] := HB_StrToUTF8(AllTrim(abg->Info))
+         ENDIF
+         AAdd(aMoves, hMove)
+         nCount++
+         abg->(DbSkip())
+      ENDDO
+      // More records for this article than the limit returned?
+      hResult["truncated"] := nCount >= nLimit .AND. ! abg->(Eof()) .AND. AllTrim(abg->Matchcode) == cMatch
+   ENDIF
+
+   hResult["movements"] := aMoves
+   hResult["count"] := Len(aMoves)
+
+   DbSelectArea(nOldSelect)
+   hResult["status"] := "found"
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Customer_Part_Number(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oKunde, cKundma, lFound := .F.
+   LOCAL lReverse := .F.
+   LOCAL cWanted, cArtlief := ""
+   LOCAL aMatches := {}, hMatch
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "customer"=>{"type"=>"string","description"=>"Customer matchcode"},;
+            "customer_number"=>{"type"=>"number","description"=>"Customer number"},;
+            "matchcode"=>{"type"=>"string","description"=>"Forward lookup: our article matchcode - returns the customer's part number for it"},;
+            "partno"=>{"type"=>"string","description"=>"Forward lookup: our article number - returns the customer's part number for it"},;
+            "customer_part_no"=>{"type"=>"string","description"=>"Reverse lookup: the customer's own part number - returns our matching article(s)"};
+         },;
+         "anyOf"=>{{"customer", "customer_number"}, {"matchcode", "partno", "customer_part_no"}};
+      }
+      hResult["description"] := "Map an article to a customer's own part number (Kundenartikelnummer) in both " + ;
+                                "directions, from artkund. Forward: our article (matchcode/partno) + customer -> the " + ;
+                                "customer's part number. Reverse: customer_part_no + customer -> our matching " + ;
+                                "article(s). A customer identifier (customer or customer_number) is always required"
+      RETURN hResult
+   ENDIF
+
+   NetUse("engkund", "ku")
+   NetUse("artikel", "art")
+   NetUse("artkund", "aku")
+
+   // Resolve the customer (matchcode or number) - both directions need it
+   oKunde := Adresse():New()
+   IF HHasKey(hArgs, "customer_number") .AND. HB_IsNumeric(hArgs["customer_number"]) .AND. hArgs["customer_number"] > 0
+      ku->(DbSetOrder(8))
+      lFound := oKunde:Load(hArgs["customer_number"])
+   ELSEIF HHasKey(hArgs, "customer") .AND. ! Empty(hArgs["customer"])
+      lFound := oKunde:LoadMatchcode(Pad(Upper(AllTrim(hArgs["customer"])), 8), "K")
+   ENDIF
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Customer not found"
+      RETURN hResult
+   ENDIF
+   cKundma := Pad(oKunde:Kunde, 8)
+   hResult["customer"] := HB_StrToUTF8(AllTrim(oKunde:Kunde))
+   hResult["customer_number"] := oKunde:Nummer
+
+   lReverse := HHasKey(hArgs, "customer_part_no") .AND. ! Empty(hArgs["customer_part_no"])
+
+   IF lReverse
+      // Reverse: iterate this customer's artkund rows (index 1 = Kunde +
+      // Artikelnr; there is no index on Artlief) and match the part number.
+      cWanted := Upper(AllTrim(hArgs["customer_part_no"]))
+      hResult["direction"] := "reverse"
+      hResult["customer_part_no"] := HB_StrToUTF8(AllTrim(hArgs["customer_part_no"]))
+      art->(DbSetOrder(2))  // by Artikelnr
+      aku->(DbSetOrder(1))  // Kunde + Str(Artikelnr,6)
+      IF aku->(DbSeek(cKundma, .T.))
+         DO WHILE ! aku->(Eof()) .AND. aku->Kunde == cKundma
+            IF ! Empty(aku->Artlief) .AND. Upper(AllTrim(aku->Artlief)) == cWanted
+               hMatch := {=>}
+               hMatch["partno"] := aku->Artikelnr
+               IF art->(DbSeek(Str(aku->Artikelnr, 6)))
+                  hMatch["article"]     := HB_StrToUTF8(AllTrim(art->Matchcode))
+                  hMatch["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+                  hMatch["stock"]       := art->Bestand
+               ELSE
+                  hMatch["description"] := "(article record not found)"
+               ENDIF
+               AAdd(aMatches, hMatch)
+            ENDIF
+            aku->(DbSkip())
+         ENDDO
+      ENDIF
+      hResult["matches"] := aMatches
+      hResult["match_count"] := Len(aMatches)
+      hResult["status"] := IIF(Len(aMatches) > 0, "found", "not_found")
+      IF Len(aMatches) == 0
+         hResult["message"] := "No article found for customer part number " + AllTrim(hArgs["customer_part_no"])
+      ENDIF
+   ELSE
+      // Forward: resolve our article, then read the customer's part number
+      hResult["direction"] := "forward"
+      IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+         art->(DbSetOrder(1))
+         lFound := art->(DbSeek(AllTrim(hArgs["matchcode"])))  // matchcode is case-sensitive - do NOT upper
+      ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
+         art->(DbSetOrder(2))
+         lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
+      ELSE
+         lFound := .F.
+      ENDIF
+      IF ! lFound
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "not_found"
+         hResult["message"] := "Article not found"
+         RETURN hResult
+      ENDIF
+      hResult["article"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+      hResult["partno"] := art->Artikelnr
+      hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+
+      aku->(DbSetOrder(1))  // Kunde + Str(Artikelnr,6)
+      IF aku->(DbSeek(cKundma + Str(art->Artikelnr, 6)))
+         DO WHILE ! aku->(Eof()) .AND. aku->Kunde == cKundma .AND. aku->Artikelnr == art->Artikelnr
+            IF ! Empty(aku->Artlief)
+               cArtlief := AllTrim(aku->Artlief)
+               EXIT
+            ENDIF
+            aku->(DbSkip())
+         ENDDO
+      ENDIF
+      IF ! Empty(cArtlief)
+         hResult["customer_part_no"] := HB_StrToUTF8(cArtlief)
+         hResult["status"] := "found"
+      ELSE
+         hResult["status"] := "not_found"
+         hResult["message"] := "No customer part number recorded for this article"
+      ENDIF
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+RETURN hResult
+
 FUNCTION MCP_Tool_Get_Article_Suppliers(hArgs)
    LOCAL hResult := {=>}
    LOCAL lFound := .F.
@@ -3514,7 +3814,7 @@ FUNCTION MCP_Tool_Get_Article_Suppliers(hArgs)
 
    IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
       art->(DbSetOrder(1))
-      lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+      lFound := art->(DbSeek(AllTrim(hArgs["matchcode"])))  // matchcode is case-sensitive - do NOT upper
    ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
       art->(DbSetOrder(2))
       lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
@@ -3597,7 +3897,7 @@ FUNCTION MCP_Tool_Get_Bom(hArgs)
 
    IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
       art->(DbSetOrder(1))
-      lFound := art->(DbSeek(Upper(AllTrim(hArgs["matchcode"]))))
+      lFound := art->(DbSeek(AllTrim(hArgs["matchcode"])))  // matchcode is case-sensitive - do NOT upper
    ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
       art->(DbSetOrder(2))
       lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
@@ -3670,6 +3970,133 @@ FUNCTION MCP_Tool_Get_Bom(hArgs)
    ENDIF
 RETURN hResult
 
+FUNCTION MCP_Tool_Get_Article_Where_Used(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL lFound := .F.
+   LOCAL nArtnr
+   LOCAL aParents := {}, hParent, aRows := {}, hRow
+   LOCAL nLimit := 200, nCount := 0
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "matchcode"=>{"type"=>"string","description"=>"Artikel Matchcode"},;
+            "partno"=>{"type"=>"string","description"=>"Artikelnummer"},;
+            "limit"=>{"type"=>"number","description"=>"Maximum number of parent articles to return (default 200, max 2000)"};
+         },;
+         "anyOf"=>{{"matchcode", "partno"}};
+      }
+      hResult["description"] := "Where-used (Teileverwendungsnachweis): list the articles whose parts list " + ;
+                                "(Stueckliste) consumes this article as a direct component, each with the position " + ;
+                                "and quantity per parent. Parents flagged used_elsewhere are themselves a component " + ;
+                                "in a higher-level list - call this tool again with their matchcode to ascend"
+      RETURN hResult
+   ENDIF
+
+   NetUse("artikel", "art")
+   NetUse("parts", "part")
+
+   IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+      art->(DbSetOrder(1))
+      lFound := art->(DbSeek(AllTrim(hArgs["matchcode"])))  // matchcode is case-sensitive - do NOT upper
+   ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
+      art->(DbSetOrder(2))
+      lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
+   ENDIF
+
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   nArtnr := art->Artikelnr
+   hResult["matchcode"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+   hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+   hResult["unit"] := HB_StrToUTF8(AllTrim(art->Me))
+
+   IF HHasKey(hArgs, "limit") .AND. HB_IsNumeric(hArgs["limit"]) .AND. hArgs["limit"] > 0
+      nLimit := Min(Int(hArgs["limit"]), 2000)
+   ENDIF
+
+   // Pass 1: collect the parts rows that consume this article. parts index 2 is
+   // keyed on Partart (component), so seeking the article number and iterating
+   // while Partart matches yields every parent. Only the parts cursor is
+   // touched here so its position survives the loop.
+   part->(DbSetOrder(2))  // Str(Partart,6) + ...
+   IF part->(DbSeek(Str(nArtnr, 6), .T.))
+      DO WHILE ! part->(Eof()) .AND. part->Partart == nArtnr .AND. nCount < nLimit
+         IF part->Pos != 0  // skip the list header row (not a real consumption)
+            hRow := {=>}
+            hRow["listart"]  := part->Listart
+            hRow["item"]     := part->Pos
+            hRow["quantity"] := part->Qty
+            hRow["factor"]   := part->Factor
+            hRow["unit"]     := HB_StrToUTF8(AllTrim(part->Me))
+            IF part->AddQty != 0
+               hRow["additional_quantity"] := part->AddQty
+            ENDIF
+            IF part->AddPercent != 0
+               hRow["additional_percent"] := part->AddPercent
+            ENDIF
+            IF ! Empty(part->Notes)
+               hRow["notes"] := HB_StrToUTF8(AllTrim(part->Notes))
+            ENDIF
+            AAdd(aRows, hRow)
+            nCount++
+         ENDIF
+         part->(DbSkip())
+      ENDDO
+      hResult["truncated"] := nCount >= nLimit .AND. ! part->(Eof()) .AND. part->Partart == nArtnr
+   ENDIF
+
+   // Pass 2: resolve each parent article and flag whether it is itself consumed
+   // higher up (its Artikelnr appears as a Partart somewhere). Safe to seek the
+   // parts cursor now that pass 1 has finished iterating it.
+   art->(DbSetOrder(2))  // by Artikelnr
+   FOR EACH hRow IN aRows
+      hParent := {=>}
+      IF art->(DbSeek(Str(hRow["listart"], 6)))
+         hParent["article"]      := HB_StrToUTF8(AllTrim(art->Matchcode))
+         hParent["description"]  := HB_StrToUTF8(AllTrim(art->Artikel))
+         hParent["stock"]        := art->Bestand
+         hParent["manufactured"] := art->Bezug >= 5
+      ELSE
+         hParent["article_number"] := hRow["listart"]
+         hParent["description"]    := "(article record not found)"
+      ENDIF
+      hParent["used_at_item"] := hRow["item"]
+      hParent["quantity_per"] := hRow["quantity"]
+      hParent["factor"]       := hRow["factor"]
+      hParent["unit"]         := hRow["unit"]
+      IF HHasKey(hRow, "additional_quantity")
+         hParent["additional_quantity"] := hRow["additional_quantity"]
+      ENDIF
+      IF HHasKey(hRow, "additional_percent")
+         hParent["additional_percent"] := hRow["additional_percent"]
+      ENDIF
+      IF HHasKey(hRow, "notes")
+         hParent["notes"] := hRow["notes"]
+      ENDIF
+      // Does this parent itself flow into a higher-level list?
+      hParent["used_elsewhere"] := part->(DbSeek(Str(hRow["listart"], 6)))
+      AAdd(aParents, hParent)
+   NEXT
+
+   DbSelectArea(nOldSelect)
+
+   hResult["used_in_count"] := Len(aParents)
+   hResult["used_in"] := aParents
+   hResult["status"] := IIF(Len(aParents) > 0, "found", "not_found")
+   IF Len(aParents) == 0
+      hResult["message"] := "This article is not used as a component in any parts list (Stueckliste)"
+   ENDIF
+RETURN hResult
+
 // Resolve a supplier from the 'supplier' (matchcode) / 'supplier_number'
 // arguments - suppliers are group "L" addresses. Returns NIL if not found.
 STATIC FUNCTION ResolveSupplier(hArgs)
@@ -3684,12 +4111,107 @@ STATIC FUNCTION ResolveSupplier(hArgs)
    ENDIF
 RETURN IIF(lFound, oLief, NIL)
 
+FUNCTION MCP_Tool_Set_Supplier_Holiday(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oLief
+   LOCAL lClear := .F.
+   LOCAL dFrom, dUntil, xSaved
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "supplier"=>{"type"=>"string","description"=>"Supplier matchcode"},;
+            "supplier_number"=>{"type"=>"number","description"=>"Supplier number"},;
+            "from"=>{"type"=>"string","description"=>"First day of the holiday / company closure (YYYY-MM-DD)"},;
+            "until"=>{"type"=>"string","description"=>"Last day of the holiday (YYYY-MM-DD); the supplier counts as away while this date is today or later"},;
+            "clear"=>{"type"=>"boolean","description"=>"Set true to remove a recorded holiday instead of setting one"};
+         },;
+         "anyOf"=>{{"supplier", "supplier_number"}};
+      }
+      hResult["description"] := "Record or clear a supplier's holiday / company closure (Betriebsurlaub) on the " + ;
+                               "supplier master (St_Holiday/En_Holiday). Purchasing treats a supplier whose end " + ;
+                               "date is today or later as currently away"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "clear") .AND. HB_IsLogical(hArgs["clear"])
+      lClear := hArgs["clear"]
+   ENDIF
+
+   IF ! lClear
+      IF ! HHasKey(hArgs, "from") .OR. Empty(hArgs["from"]) .OR. ! HHasKey(hArgs, "until") .OR. Empty(hArgs["until"])
+         RETURN "Provide both 'from' and 'until' (YYYY-MM-DD), or set 'clear' to remove the holiday"
+      ENDIF
+      dFrom  := SToD(StrTran(AllTrim(hArgs["from"]), "-", ""))
+      dUntil := SToD(StrTran(AllTrim(hArgs["until"]), "-", ""))
+      IF Empty(dFrom)
+         RETURN "Invalid 'from' date - expected YYYY-MM-DD"
+      ENDIF
+      IF Empty(dUntil)
+         RETURN "Invalid 'until' date - expected YYYY-MM-DD"
+      ENDIF
+      IF dUntil < dFrom
+         RETURN "'until' (" + DToC(dUntil) + ") is before 'from' (" + DToC(dFrom) + ")"
+      ENDIF
+   ENDIF
+
+   NetUse("engkund", "ku")
+   oLief := ResolveSupplier(hArgs)   // group "L" address, by supplier / supplier_number
+   IF oLief == NIL
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Supplier not found"
+      RETURN hResult
+   ENDIF
+
+   // Write through the Adresse model (ResolveSupplier already loaded it) rather
+   // than straight into the work area, so the model's own locking/logic runs.
+   // All DBF fields are reachable as object members.
+   IF lClear
+      oLief:St_Holiday := SToD("")   // empty date - no longer on holiday
+      oLief:En_Holiday := SToD("")
+   ELSE
+      oLief:St_Holiday := dFrom
+      oLief:En_Holiday := dUntil
+   ENDIF
+   BEGIN SEQUENCE
+      xSaved := oLief:Save()
+   RECOVER
+      xSaved := .F.
+   END SEQUENCE
+   IF HB_IsLogical(xSaved) .AND. ! xSaved
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "error"
+      hResult["message"] := "Saving the supplier failed (record locked by another user or model error) - try again later"
+      RETURN hResult
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["supplier"] := HB_StrToUTF8(AllTrim(oLief:Kunde))
+   hResult["supplier_number"] := oLief:Nummer
+   IF lClear
+      hResult["cleared"] := .T.
+      hResult["message"] := "Supplier holiday removed"
+   ELSE
+      hResult["holiday_from"] := dFrom
+      hResult["holiday_until"] := dUntil
+      hResult["currently_on_holiday"] := dFrom <= Date() .AND. dUntil >= Date()
+      hResult["message"] := "Supplier holiday recorded from " + DToC(dFrom) + " until " + DToC(dUntil)
+   ENDIF
+   hResult["status"] := "success"
+RETURN hResult
+
 FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
    LOCAL hResult := {=>}
    LOCAL oLief, hOrders := {=>}, hOrder, cKey
    LOCAL aOrders := {}
    LOCAL cStatus := "open", lOpen
    LOCAL nMaxResults := 50
+   LOCAL nScanned := 0, nScanCap := 20000, lScanLimited := .F.
    LOCAL dTemp
    LOCAL nOldSelect := Select()
 
@@ -3729,6 +4251,17 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
 
    IF bes->(DbSeek(oLief:Kunde))
       DO WHILE ! bes->(Eof()) .AND. bes->Liefma == oLief:Kunde
+         // Index 2 groups a supplier's lines by Bestat ascending, so for the
+         // open view we can stop at the first completed line instead of reading
+         // the supplier's whole (potentially years-long) history.
+         IF cStatus == "open" .AND. bes->Bestat >= 3
+            EXIT
+         ENDIF
+         // Hard safety bound so a very large history can never hit a timeout.
+         IF ++nScanned > nScanCap
+            lScanLimited := .T.
+            EXIT
+         ENDIF
          lOpen := bes->Bestat < 3
          IF cStatus == "all" .OR. (cStatus == "open" .AND. lOpen) .OR. (cStatus == "completed" .AND. ! lOpen)
             cKey := Str(bes->Besnr, 6)
@@ -3785,12 +4318,17 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
    ELSEIF Len(aOrders) == nMaxResults
       hResult["message"] := "Result limited to " + AllTrim(Str(nMaxResults)) + " purchase orders"
    ENDIF
+   IF lScanLimited
+      hResult["scan_limited"] := .T.
+      hResult["message"] := "Scan stopped after " + AllTrim(Str(nScanCap)) + " lines - the result may be " + ;
+         "incomplete. Use status_filter=open (much faster) or query specific orders with get_purchase_order"
+   ENDIF
 RETURN hResult
 
 FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
    LOCAL hResult := {=>}
    LOCAL nPo, nPos, nWeek := 0, nWeekRec := 0
-   LOCAL cTracking := "", dShipped := NIL
+   LOCAL cTracking := "", dShipped := NIL, cCarrier := ""
    LOCAL aWeeks := {}
    LOCAL lHasPlan := .F.
    LOCAL nOldSelect := Select()
@@ -3804,15 +4342,16 @@ FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
             "item"=>{"type"=>"number","description"=>"Position number within the purchase order"},;
             "tracking"=>{"type"=>"string","description"=>"Carrier tracking number reported by the supplier"},;
             "shipped_date"=>{"type"=>"string","description"=>"Date the supplier shipped, YYYY-MM-DD"},;
+            "carrier"=>{"type"=>"string","description"=>"Shipping company / carrier reported by the supplier (e.g. UPS, DHL, Schenker)"},;
             "week"=>{"type"=>"string","description"=>"JJWW calendar week of the delivery-schedule entry to book on. Required when the position has a Liefereinteilung; must be omitted otherwise"};
          },;
          "required"=>{"po_number","item"};
       }
-      hResult["description"] := "Book a supplier shipping confirmation (tracking number and/or shipped date) on a " + ;
-                                "purchase order position - or, when the position has a delivery schedule " + ;
+      hResult["description"] := "Book a supplier shipping confirmation (tracking number, shipped date and/or carrier) " + ;
+                                "on a purchase order position - or, when the position has a delivery schedule " + ;
                                 "(Liefereinteilung), on the schedule entry of the given week. At least one of " + ;
-                                "'tracking' or 'shipped_date' is required. Existing values are only overwritten " + ;
-                                "by non-empty inputs, never cleared"
+                                "'tracking', 'shipped_date' or 'carrier' is required. Existing values are only " + ;
+                                "overwritten by non-empty inputs, never cleared"
       RETURN hResult
    ENDIF
 
@@ -3831,8 +4370,11 @@ FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
          RETURN "Invalid shipped_date: " + hArgs["shipped_date"] + " (expected YYYY-MM-DD)"
       ENDIF
    ENDIF
-   IF Empty(cTracking) .AND. Empty(dShipped)
-      RETURN "Provide at least one of 'tracking' or 'shipped_date'"
+   IF HHasKey(hArgs, "carrier") .AND. ValType(hArgs["carrier"]) == "C"
+      cCarrier := HB_UTF8ToStr(AllTrim(hArgs["carrier"]))
+   ENDIF
+   IF Empty(cTracking) .AND. Empty(dShipped) .AND. Empty(cCarrier)
+      RETURN "Provide at least one of 'tracking', 'shipped_date' or 'carrier'"
    ENDIF
    IF HHasKey(hArgs, "week") .AND. ! Empty(hArgs["week"])
       nWeek := IIF(HB_IsNumeric(hArgs["week"]), hArgs["week"], Val(AllTrim(hArgs["week"])))
@@ -3897,6 +4439,13 @@ FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
       IF ! Empty(dShipped)
          bdel->Shipped := dShipped
       ENDIF
+      IF ! Empty(cCarrier)
+         IF bdel->(FieldPos("CARRIER")) > 0
+            bdel->Carrier := cCarrier
+         ELSE
+            hResult["carrier_message"] := "CARRIER field not present on besdel yet - carrier not stored"
+         ENDIF
+      ENDIF
       bdel->(dbUnlock())
 
       hResult["level"] := "schedule"
@@ -3904,6 +4453,9 @@ FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
       hResult["tracking"] := HB_StrToUTF8(AllTrim(bdel->Tracking))
       IF ! Empty(bdel->Shipped)
          hResult["shipped_date"] := bdel->Shipped
+      ENDIF
+      IF bdel->(FieldPos("CARRIER")) > 0 .AND. ! Empty(bdel->Carrier)
+         hResult["carrier"] := HB_StrToUTF8(AllTrim(bdel->Carrier))
       ENDIF
    ELSE
       IF nWeek > 0
@@ -3922,12 +4474,22 @@ FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
       IF ! Empty(dShipped)
          bes->Shipped := dShipped
       ENDIF
+      IF ! Empty(cCarrier)
+         IF bes->(FieldPos("CARRIER")) > 0
+            bes->Carrier := cCarrier
+         ELSE
+            hResult["carrier_message"] := "CARRIER field not present on engbes yet - carrier not stored"
+         ENDIF
+      ENDIF
       bes->(dbUnlock())
 
       hResult["level"] := "position"
       hResult["tracking"] := HB_StrToUTF8(AllTrim(bes->Tracking))
       IF ! Empty(bes->Shipped)
          hResult["shipped_date"] := bes->Shipped
+      ENDIF
+      IF bes->(FieldPos("CARRIER")) > 0 .AND. ! Empty(bes->Carrier)
+         hResult["carrier"] := HB_StrToUTF8(AllTrim(bes->Carrier))
       ENDIF
    ENDIF
 
@@ -4083,7 +4645,7 @@ FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)
    hResult["article"] := HB_StrToUTF8(AllTrim(bes->Matchcode))
    hResult["confirmed"] := Upper(AllTrim(bes->Confirmed)) == "Y"
    IF ! Empty(bes->AbNr)
-      hResult["ab_number"] := HB_StrToUTF8(AllTrim(bes->AbNr))
+      hResult["supplier_ab_number"] := HB_StrToUTF8(AllTrim(bes->AbNr))
    ENDIF
    IF HB_IsNumeric(bes->Lterm) .AND. bes->Lterm > 0
       hResult["delivery_week"] := StrZero(bes->Lterm, 4)
@@ -4100,6 +4662,184 @@ FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)
    hResult["message"] := "Order confirmation booked on position " + AllTrim(Str(nPos)) + ;
       " of purchase order " + AllTrim(Str(nPo)) + ;
       IIF(nUpdated > 1, " (including " + AllTrim(Str(nUpdated - 1)) + " follow-up position(s))", "")
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Stock_Withdrawal(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nNummer
+   LOCAL aRows := {}, hRow, aLines := {}, hLine
+   LOCAL nFremdDel, nFremdTaken
+   LOCAL nTotMenge := 0, nTotFremd := 0, nTotDeliv := 0, nTotTaken := 0
+   LOCAL aLoc, hLoc
+   LOCAL lHeader := .F.
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "number"=>{"type"=>"number","description"=>"Entnahme-Nummer (the Lagerentnahme / goods-issue document number)"};
+         },;
+         "required"=>{"number"};
+      }
+      hResult["description"] := "Get a stock withdrawal (Lagerentnahme) by its number: header (date, customer, " + ;
+                                "group) plus each position with article, quantity issued from own stock (menge), the " + ;
+                                "quantity assigned to the external warehouse (fremd_quantity), the quantity actually " + ;
+                                "delivered to the external warehouse / Fremdlager (fremd_delivered), and the quantity " + ;
+                                "taken FROM the external warehouse (fremd_taken) with the per-location split"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   nNummer := Int(hArgs["number"])
+
+   NetUse("lagerne", "lne")
+   NetUse("artikel", "art")
+   NetUse("lagent", "lage")     // per-position storage-location breakdown of the withdrawal
+   NetUse("lagerort", "lago")   // location master - carries the Fremd (external) flag
+
+   lne->(DbSetOrder(1))  // numeric Nummer
+   IF ! lne->(DbSeek(nNummer))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Stock withdrawal (Lagerentnahme) not found: " + AllTrim(Str(nNummer))
+      RETURN hResult
+   ENDIF
+
+   hResult["number"] := nNummer
+
+   // Pass 1: collect the positions with a clean lne iteration - no external
+   // calls here that could move a cursor. The header fields are shared across
+   // the positions, so take them from the first row.
+   DO WHILE ! lne->(Eof()) .AND. lne->Nummer == nNummer
+      IF ! lHeader
+         hResult["date"] := lne->Datum
+         IF ValType(lne->Kunde) == "C"
+            IF ! Empty(lne->Kunde)
+               hResult["customer"] := HB_StrToUTF8(AllTrim(lne->Kunde))
+            ENDIF
+         ELSEIF HB_IsNumeric(lne->Kunde) .AND. lne->Kunde > 0
+            hResult["customer_no"] := lne->Kunde
+         ENDIF
+         IF ! Empty(lne->Gruppe)
+            hResult["group"] := HB_StrToUTF8(AllTrim(lne->Gruppe))
+         ENDIF
+         IF HB_IsNumeric(lne->Buyer) .AND. lne->Buyer > 0
+            hResult["buyer"] := lne->Buyer
+         ENDIF
+         IF HB_IsNumeric(lne->Person)
+            IF lne->Person != 0
+               hResult["person"] := lne->Person  // buyer/contact id
+            ENDIF
+         ELSEIF ValType(lne->Person) == "C" .AND. ! Empty(lne->Person)
+            hResult["person"] := HB_StrToUTF8(AllTrim(lne->Person))
+         ENDIF
+         lHeader := .T.
+      ENDIF
+      hRow := {=>}
+      hRow["pos"]       := lne->Pos
+      hRow["artikelnr"] := lne->Artikelnr
+      hRow["matchcode"] := HB_StrToUTF8(AllTrim(lne->Matchcode))
+      hRow["menge"]     := lne->Menge
+      hRow["fremd"]     := lne->Fremd
+      hRow["me"]        := HB_StrToUTF8(AllTrim(lne->Me))
+      hRow["reftyp"]    := HB_StrToUTF8(AllTrim(lne->RefTyp))
+      hRow["refbeleg"]  := lne->RefBeleg
+      hRow["refpos"]    := lne->RefPos
+      IF ! Empty(lne->Zweck)
+         hRow["zweck"]  := HB_StrToUTF8(AllTrim(lne->Zweck))
+      ENDIF
+      hRow["packed"]    := lne->Packed
+      AAdd(aRows, hRow)
+      lne->(DbSkip())
+   ENDDO
+
+   // Pass 2: the quantity actually delivered to the external warehouse per
+   // position via GetEntFremdLagerQty(Nummer, Pos), plus the article
+   // description. The helper lives in the app runtime and may touch other
+   // work areas, so it runs guarded and after pass 1 finished iterating lne;
+   // the art order is re-asserted each iteration for the same reason.
+   FOR EACH hRow IN aRows
+      hLine := {=>}
+      hLine["item"] := hRow["pos"]
+      hLine["article"] := hRow["matchcode"]
+      art->(DbSetOrder(2))  // by Artikelnr
+      IF art->(DbSeek(Str(hRow["artikelnr"], 6)))
+         hLine["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+      ENDIF
+      hLine["unit"] := hRow["me"]
+      hLine["quantity"] := hRow["menge"]         // issued from own stock
+      hLine["fremd_quantity"] := hRow["fremd"]   // assigned to the external warehouse
+
+      nFremdDel := NIL
+      BEGIN SEQUENCE
+         nFremdDel := GetEntFremdLagerQty(nNummer, hRow["pos"])
+      RECOVER
+         nFremdDel := NIL
+      END SEQUENCE
+      IF HB_IsNumeric(nFremdDel)
+         hLine["fremd_delivered"] := nFremdDel                  // delivered to Fremdlager
+         hLine["fremd_open"] := hRow["fremd"] - nFremdDel       // still to deliver
+         nTotDeliv += nFremdDel
+      ELSE
+         hLine["fremd_delivered_error"] := "GetEntFremdLagerQty could not be evaluated"
+      ENDIF
+
+      // How much was taken FROM the external warehouse: walk this position's
+      // storage-location breakdown (lagent) and sum the quantity at locations
+      // flagged Fremd in the location master (lagerort), plus the per-location
+      // split. Done last with self-contained seeks, so the external
+      // GetEntFremdLagerQty call above cannot disturb the lage/lago cursors;
+      // the orders are re-asserted here for the same reason.
+      nFremdTaken := 0
+      aLoc := {}
+      lage->(DbSetOrder(1))  // Str(Nummer,6) + Str(Pos,3)
+      lago->(DbSetOrder(1))  // Lagerort
+      IF lage->(DbSeek(Str(nNummer, 6) + Str(hRow["pos"], 3)))
+         DO WHILE ! lage->(Eof()) .AND. lage->Nummer == nNummer .AND. lage->Pos == hRow["pos"]
+            hLoc := {=>}
+            hLoc["location"] := HB_StrToUTF8(AllTrim(lage->Lagerort))
+            hLoc["quantity"] := lage->Lagermenge
+            hLoc["external"] := .F.
+            IF lago->(DbSeek(lage->Lagerort)) .AND. lago->Fremd
+               hLoc["external"] := .T.
+               nFremdTaken += lage->Lagermenge
+            ENDIF
+            AAdd(aLoc, hLoc)
+            lage->(DbSkip())
+         ENDDO
+      ENDIF
+      IF Len(aLoc) > 0
+         hLine["locations"] := aLoc
+      ENDIF
+      hLine["fremd_taken"] := nFremdTaken    // withdrawn FROM the external warehouse
+      nTotTaken += nFremdTaken
+
+      IF ! Empty(hRow["reftyp"]) .OR. hRow["refbeleg"] != 0
+         hLine["reference"] := {"type"=>hRow["reftyp"], "document"=>hRow["refbeleg"], "position"=>hRow["refpos"]}
+      ENDIF
+      IF HHasKey(hRow, "zweck")
+         hLine["purpose"] := hRow["zweck"]
+      ENDIF
+      hLine["packed"] := hRow["packed"]
+
+      nTotMenge += hRow["menge"]
+      nTotFremd += hRow["fremd"]
+      AAdd(aLines, hLine)
+   NEXT
+
+   DbSelectArea(nOldSelect)
+
+   hResult["positions"] := aLines
+   hResult["position_count"] := Len(aLines)
+   hResult["total_quantity"] := nTotMenge
+   hResult["total_fremd_quantity"] := nTotFremd
+   hResult["total_fremd_delivered"] := nTotDeliv
+   hResult["total_fremd_taken"] := nTotTaken
+   hResult["status"] := "found"
 RETURN hResult
 
 FUNCTION MCP_Tool_Send_SMS(hArgs)
@@ -4188,6 +4928,684 @@ FUNCTION MCP_Tool_Send_SMS(hArgs)
    hResult["recipients"] := aPhones
    hResult["message"] := "SMS handed to David for sending"
 RETURN hResult
+
+FUNCTION MCP_Tool_Get_Article_Options(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cBase := "", cMatch := "", cLang := "DE"
+   LOCAL oBase, aEnv
+   LOCAL aTables := {}
+   LOCAL aKeys   // function-level: nested codeblocks cannot reach outer-block locals (E0005)
+   LOCAL nPos := 0
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "base"=>{"type"=>"string","description"=>"Option base/model code - the fixed matchcode prefix of the variant family"},;
+            "matchcode"=>{"type"=>"string","description"=>"Full matchcode of a variant article - resolves the base and additionally decodes which option is selected per table"},;
+            "language"=>{"type"=>"string","description"=>"Language for table names and option descriptions (e.g. DE, EN; default DE)"};
+         },;
+         "anyOf"=>{{"base", "matchcode"}};
+      }
+      hResult["description"] := "Read the article variant option tables (Optionen/Varianten): per option table its " + ;
+                                "function name, character position and length within the matchcode, and all keys with " + ;
+                                "their descriptions. Given a full variant matchcode, the selected key per table is " + ;
+                                "decoded as well - useful to configure or explain a variant article"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "language") .AND. ! Empty(hArgs["language"])
+      cLang := Upper(AllTrim(hArgs["language"]))
+   ENDIF
+
+   NetUse("artikel", "art")
+   NetUse("optbas", "opb")
+   NetUse("option", "op")
+
+   IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+      art->(DbSetOrder(1))
+      IF ! art->(DbSeek(AllTrim(HB_UTF8ToStr(hArgs["matchcode"]))))  // matchcode is case-sensitive - do NOT upper
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "not_found"
+         hResult["message"] := "Article not found"
+         RETURN hResult
+      ENDIF
+      IF ! (art->Variant == "V" .AND. art->Length > 0)
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "error"
+         hResult["message"] := "Article is not a variant article - pass 'base' if you meant an option family code"
+         RETURN hResult
+      ENDIF
+      cMatch := art->Matchcode
+      cBase := SubStr(art->Matchcode, 1, art->Length)
+      hResult["matchcode"] := HB_StrToUTF8(AllTrim(cMatch))
+   ELSE
+      cBase := Upper(AllTrim(HB_UTF8ToStr(hArgs["base"])))
+   ENDIF
+
+   aEnv := SaveEnv()
+   oBase := OptionBase():New()
+   IF ! oBase:Load(cBase)
+      RestEnv(aEnv)
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Option base not found: " + AllTrim(cBase)
+      RETURN hResult
+   ENDIF
+
+   hResult["base"] := HB_StrToUTF8(AllTrim(cBase))
+   hResult["language"] := cLang
+
+   // Tables in matchcode order; nPos walks the character position within the
+   // matchcode (base prefix first), same decoding as GetEnhancedDescription
+   nPos := oBase:GetLength(0) + 1  // model length only (no tables yet)
+   oBase:oTables:Each({|oTable|
+      LOCAL hTable := {=>}
+      LOCAL oSel, cCode
+      aKeys := {}
+      hTable["table"] := oTable:Table
+      hTable["function"] := HB_StrToUTF8(AllTrim(oTable:Funktion(cLang)))
+      hTable["position"] := nPos
+      hTable["length"] := oTable:Length
+      oTable:oKeys:Each({|oKey|
+         AAdd(aKeys, {;
+            "code"=>HB_StrToUTF8(oKey:TabKey),;
+            "description"=>HB_StrToUTF8(AllTrim(oKey:Descript(cLang)));
+         })
+         RETURN .T.
+      })
+      hTable["keys"] := aKeys
+      IF ! Empty(cMatch)
+         cCode := SubStr(cMatch, nPos, oTable:Length)
+         hTable["selected_code"] := HB_StrToUTF8(cCode)
+         oSel := oTable:oKeys:GetRecord(cCode)
+         IF oSel != NIL
+            hTable["selected"] := HB_StrToUTF8(AllTrim(oSel:Descript(cLang)))
+         ENDIF
+      ENDIF
+      nPos += oTable:Length
+      AAdd(aTables, hTable)
+      RETURN .T.
+   })
+
+   RestEnv(aEnv)
+   DbSelectArea(nOldSelect)
+
+   hResult["table_count"] := Len(aTables)
+   hResult["tables"] := aTables
+   hResult["status"] := "found"
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Article_Orders(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL lFound := .F.
+   LOCAL nArtnr, cMatch
+   LOCAL cStatus := "open"
+   LOCAL aFA := {}, hFA, aPO := {}, hPO
+   LOCAL nLimit := 200, nFa := 0, nPo := 0
+   LOCAL lFaTrunc := .F., lPoTrunc := .F.
+   LOCAL dTemp
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "matchcode"=>{"type"=>"string","description"=>"Artikel Matchcode"},;
+            "partno"=>{"type"=>"string","description"=>"Artikelnummer"},;
+            "status_filter"=>{"type"=>"string","enum"=>{"open","all"},"description"=>"open = only active production orders (Status<4) and open purchase orders (Bestat<3); all = everything (default open)"},;
+            "limit"=>{"type"=>"number","description"=>"Maximum entries per list (default 200, max 1000)"};
+         },;
+         "anyOf"=>{{"matchcode", "partno"}};
+      }
+      hResult["description"] := "List the production orders (Fertigungsauftraege, from werkauf) and purchase orders " + ;
+                               "(Bestellungen, from engbes) for an article - each with quantities, open quantity, " + ;
+                               "status and the end/delivery week; external production orders show their supplier and " + ;
+                               "linked purchase order. Defaults to only active/open orders"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "status_filter") .AND. hArgs["status_filter"] == "all"
+      cStatus := "all"
+   ENDIF
+   IF HHasKey(hArgs, "limit") .AND. HB_IsNumeric(hArgs["limit"]) .AND. hArgs["limit"] > 0
+      nLimit := Min(Int(hArgs["limit"]), 1000)
+   ENDIF
+
+   NetUse("artikel", "art")
+   NetUse("werkauf", "wer")
+   NetUse("engbes", "bes")
+
+   IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+      art->(DbSetOrder(1))
+      lFound := art->(DbSeek(AllTrim(hArgs["matchcode"])))   // matchcode is case-sensitive
+   ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
+      art->(DbSetOrder(2))
+      lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
+   ENDIF
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   nArtnr := art->Artikelnr
+   cMatch := AllTrim(art->Matchcode)
+   hResult["matchcode"] := HB_StrToUTF8(cMatch)
+   hResult["partno"] := nArtnr
+   hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+   hResult["stock"] := art->Bestand
+
+   // Production orders: werkauf index 2 is keyed on Artno (see ChangeDrawingRevision).
+   wer->(DbSetOrder(2))
+   IF wer->(DbSeek(Str(nArtnr, 6)))
+      DO WHILE ! wer->(Eof()) .AND. wer->Artno == nArtnr .AND. nFa < nLimit
+         IF cStatus == "all" .OR. wer->Status < 4
+            hFA := {=>}
+            hFA["fa_number"] := wer->Aufno
+            hFA["quantity"] := wer->Qty
+            hFA["produced_quantity"] := wer->GelQty
+            hFA["open_quantity"] := Max(wer->Qty - wer->GelQty, 0)
+            hFA["status"] := wer->Status
+            hFA["active"] := wer->Status < 4
+            IF HB_IsNumeric(wer->End) .AND. wer->End > 0
+               hFA["end_week"] := StrZero(wer->End, 4)
+               IF (dTemp := BesWeekDate(wer->End)) != NIL
+                  hFA["end_date"] := dTemp
+               ENDIF
+            ENDIF
+            IF ! Empty(wer->Liefma)   // Fremdfertigung
+               hFA["external"] := .T.
+               hFA["supplier"] := HB_StrToUTF8(AllTrim(wer->Liefma))
+               IF HB_IsNumeric(wer->Besnr) .AND. wer->Besnr > 0
+                  hFA["purchase_order"] := wer->Besnr
+                  hFA["purchase_order_item"] := wer->BesPos
+               ENDIF
+            ENDIF
+            AAdd(aFA, hFA)
+            nFa++
+         ENDIF
+         wer->(DbSkip())
+      ENDDO
+      lFaTrunc := nFa >= nLimit .AND. ! wer->(Eof()) .AND. wer->Artno == nArtnr
+   ENDIF
+
+   // Purchase orders: engbes index 3 is keyed on Matchcode.
+   bes->(DbSetOrder(3))
+   IF bes->(DbSeek(cMatch))
+      DO WHILE ! bes->(Eof()) .AND. AllTrim(bes->Matchcode) == cMatch .AND. nPo < nLimit
+         IF cStatus == "all" .OR. bes->Bestat < 3
+            hPO := {=>}
+            hPO["po_number"] := bes->Besnr
+            hPO["item"] := bes->Posnr
+            IF ! Empty(bes->Liefma)
+               hPO["supplier"] := HB_StrToUTF8(AllTrim(bes->Liefma))
+            ENDIF
+            hPO["quantity"] := bes->BeQty
+            hPO["delivered_quantity"] := bes->GelQty
+            hPO["open_quantity"] := Max(bes->BeQty - bes->GelQty, 0)
+            hPO["status"] := IIF(bes->Bestat < 3, "open", "completed")
+            hPO["confirmed"] := Upper(AllTrim(bes->Confirmed)) == "Y"
+            IF HB_IsNumeric(bes->Lterm) .AND. bes->Lterm > 0
+               hPO["delivery_week"] := StrZero(bes->Lterm, 4)
+               IF (dTemp := BesWeekDate(bes->Lterm)) != NIL
+                  hPO["delivery_date"] := dTemp
+               ENDIF
+            ENDIF
+            IF ! Empty(bes->AbNr)
+               hPO["supplier_ab_number"] := HB_StrToUTF8(AllTrim(bes->AbNr))
+            ENDIF
+            AAdd(aPO, hPO)
+            nPo++
+         ENDIF
+         bes->(DbSkip())
+      ENDDO
+      lPoTrunc := nPo >= nLimit .AND. ! bes->(Eof()) .AND. AllTrim(bes->Matchcode) == cMatch
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["production_orders"] := aFA
+   hResult["production_order_count"] := Len(aFA)
+   hResult["purchase_orders"] := aPO
+   hResult["purchase_order_count"] := Len(aPO)
+   IF lFaTrunc .OR. lPoTrunc
+      hResult["truncated"] := .T.
+   ENDIF
+   hResult["status"] := "found"
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Article_Schedule(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL lFound := .F.
+   LOCAL nArtnr
+   LOCAL aAvail, aRow, hRow, aOut := {}
+   LOCAL lConfirmOnly := .F., lUseMelde := .F., lTBAasLT := .F., lBlanketReq := .T.
+   LOCAL dTemp
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "matchcode"=>{"type"=>"string","description"=>"Artikel Matchcode"},;
+            "partno"=>{"type"=>"string","description"=>"Artikelnummer"},;
+            "confirmed_only"=>{"type"=>"boolean","description"=>"Only count confirmed purchase orders as incoming (default false)"},;
+            "use_reorder_point"=>{"type"=>"boolean","description"=>"Include the reorder point (Meldebestand) in the demand (default false)"},;
+            "tba_as_leadtime"=>{"type"=>"boolean","description"=>"Schedule TBA orders (week xx97) at the standard lead time instead of listing them as 'unknown' (default false)"},;
+            "blanket_use_requested_week"=>{"type"=>"boolean","description"=>"For blanket call-offs (week 99) use the customer's requested week; false lists them as 'unknown' (default true)"};
+         },;
+         "anyOf"=>{{"matchcode", "partno"}};
+      }
+      hResult["description"] := "The article's date/availability overview (Terminuebersicht, the F3 view in the " + ;
+                               "article master), computed with GetKwQty (the same engine, same default flags, as the " + ;
+                               "F3 screen). One row per calendar week with the running available stock and the " + ;
+                               "movements that week: customer_orders (demand), purchase_orders (incoming), " + ;
+                               "production_requirement/production_receipt (Fertigung), plus available (verfuegbar). " + ;
+                               "kind is 'week', 'backlog' (Rueckstand, overdue) or 'unknown' (TBA); zero movement " + ;
+                               "columns are omitted. Optional flags mirror GetKwQty's parameters"
+      RETURN hResult
+   ENDIF
+
+   NetUse("artikel", "art")
+
+   IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+      art->(DbSetOrder(1))
+      lFound := art->(DbSeek(AllTrim(hArgs["matchcode"])))   // matchcode is case-sensitive
+   ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
+      art->(DbSetOrder(2))
+      lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
+   ENDIF
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "confirmed_only") .AND. HB_IsLogical(hArgs["confirmed_only"])
+      lConfirmOnly := hArgs["confirmed_only"]
+   ENDIF
+   IF HHasKey(hArgs, "use_reorder_point") .AND. HB_IsLogical(hArgs["use_reorder_point"])
+      lUseMelde := hArgs["use_reorder_point"]
+   ENDIF
+   IF HHasKey(hArgs, "tba_as_leadtime") .AND. HB_IsLogical(hArgs["tba_as_leadtime"])
+      lTBAasLT := hArgs["tba_as_leadtime"]
+   ENDIF
+   IF HHasKey(hArgs, "blanket_use_requested_week") .AND. HB_IsLogical(hArgs["blanket_use_requested_week"])
+      lBlanketReq := hArgs["blanket_use_requested_week"]
+   ENDIF
+
+   nArtnr := art->Artikelnr
+   hResult["matchcode"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+   hResult["partno"] := nArtnr
+   hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+   hResult["current_stock"] := art->Bestand
+
+   // GetKwQty is the engine behind the F3 schedule. The default flags below
+   // match how the F3 screen (ShowKw in artikel_browse.prg) calls it.
+   BEGIN SEQUENCE
+      aAvail := GetKwQty(nArtnr, lConfirmOnly, lUseMelde, lTBAasLT, lBlanketReq)
+   RECOVER
+      aAvail := NIL
+   END SEQUENCE
+   IF ! HB_IsArray(aAvail)
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "error"
+      hResult["message"] := "Schedule (GetKwQty) could not be evaluated"
+      RETURN hResult
+   ENDIF
+
+   // GetKwQty row layout (model/artikel.prg): 1=week, 2=customer orders (demand),
+   // 3=purchase orders (incoming), 4=production material requirement, 5=production
+   // receipt, 6=available (verfuegbar), 7=uncovered production receipt,
+   // 8=production start. Week 0 is the backlog (Rueckstand, overdue) and 9999 the
+   // unknown/TBA bucket - the F3 screen (ShowKw) shows both.
+   FOR EACH aRow IN aAvail
+      IF HB_IsArray(aRow) .AND. Len(aRow) >= 6 .AND. HB_IsNumeric(aRow[1])
+         hRow := {=>}
+         DO CASE
+         CASE aRow[1] == 0
+            hRow["kind"] := "backlog"    // Rueckstand - overdue orders/receipts
+         CASE aRow[1] == 9999
+            hRow["kind"] := "unknown"    // unbekannt - TBA orders without a firm week
+         OTHERWISE
+            hRow["kind"] := "week"
+            hRow["week"] := StrZero(aRow[1], 4)
+            IF (dTemp := BesWeekDate(aRow[1])) != NIL
+               hRow["date"] := dTemp
+            ENDIF
+         ENDCASE
+         hRow["available"] := aRow[6]                     // running available stock (verfuegbar)
+         IF aRow[2] != 0
+            hRow["customer_orders"] := aRow[2]            // demand from sales orders
+         ENDIF
+         IF aRow[3] != 0
+            hRow["purchase_orders"] := aRow[3]            // incoming from purchase orders
+         ENDIF
+         IF aRow[4] != 0
+            hRow["production_requirement"] := aRow[4]     // component demand for production (WA Bedarf)
+         ENDIF
+         IF aRow[5] != 0
+            hRow["production_receipt"] := aRow[5]         // incoming from production orders (WA Eingang)
+         ENDIF
+         IF Len(aRow) >= 8
+            IF aRow[7] != 0
+               hRow["uncovered_production_receipt"] := aRow[7]
+            ENDIF
+            IF aRow[8] != 0
+               hRow["production_start"] := aRow[8]
+            ENDIF
+         ENDIF
+         AAdd(aOut, hRow)
+      ENDIF
+   NEXT
+
+   DbSelectArea(nOldSelect)
+
+   hResult["schedule"] := aOut
+   hResult["count"] := Len(aOut)
+   hResult["status"] := "found"
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Production_Order(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nFa, hComp, dTemp
+   LOCAL aComponents := {}
+   LOCAL nRequired
+   LOCAL nForecast := 0, lProducible
+   LOCAL cMissing, cForecastMissing, aMissing, aForecastMissing
+   LOCAL hMiss, hMissOut, aMissOut
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "fa_number"=>{"type"=>"number","description"=>"Production order (Fertigungsauftrag) number"};
+         },;
+         "required"=>{"fa_number"};
+      }
+      hResult["description"] := "Retrieve a production order (Fertigungsauftrag) by number: article, quantities, " + ;
+                                "status, end week/date, and for external manufacturing (Fremdfertigung) the supplier " + ;
+                                "and linked purchase order. Includes the material list (required/booked/missing per " + ;
+                                "component) and a producibility check: 'producible' (with current stock, incl. " + ;
+                                "blocks and approvals), 'due' (start date reached), and for future starts " + ;
+                                "'producible_by_start' considering expected receipts"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["fa_number"])
+      RETURN "Parameter 'fa_number' must be a number"
+   ENDIF
+   nFa := hArgs["fa_number"]
+
+   NetUse("werkauf", "wer")
+   NetUse("werks", "we")
+   NetUse("artikel", "art")
+
+   wer->(DbSetOrder(1))  // Aufno
+   IF ! wer->(DbSeek(Str(nFa, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Production order not found: " + AllTrim(Str(nFa))
+      RETURN hResult
+   ENDIF
+
+   art->(DbSetOrder(2))  // Artikelnr
+
+   hResult["fa_number"] := nFa
+   hResult["article"] := HB_StrToUTF8(AllTrim(wer->Matchcode))
+   IF art->(DbSeek(Str(wer->Artno, 6)))
+      hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+   ENDIF
+   hResult["quantity"] := wer->Qty
+   hResult["produced_quantity"] := wer->GelQty
+   hResult["open_quantity"] := Max(wer->Qty - wer->GelQty, 0)
+   hResult["fa_status"] := wer->Status
+   hResult["active"] := wer->Status < 4  // < 4 = not yet completed (see werkauf browses)
+   hResult["frame"] := Right(Str(wer->End, 4), 2) == "99"  // Rahmen-FA (see model/wa.prg)
+
+   IF HB_IsNumeric(wer->End) .AND. wer->End > 0
+      hResult["end_week"] := StrZero(wer->End, 4)
+      IF (dTemp := BesWeekDate(wer->End)) != NIL
+         hResult["end_date"] := dTemp
+      ENDIF
+   ENDIF
+   IF ! Empty(wer->StartDate)
+      hResult["start_date"] := wer->StartDate
+   ENDIF
+
+   // External manufacturing (Fremdfertigung): supplier and linked PO
+   IF ! Empty(wer->Liefma)
+      hResult["external"] := .T.
+      hResult["supplier"] := HB_StrToUTF8(AllTrim(wer->Liefma))
+      IF wer->Besnr > 0
+         hResult["purchase_order"] := wer->Besnr
+         hResult["purchase_order_item"] := wer->BesPos
+      ENDIF
+   ELSE
+      hResult["external"] := .F.
+   ENDIF
+
+   // Material list from werks: required = Qty * Factor, booked = BookQty
+   // (same arithmetic as the shortage checks in model/artikel.prg)
+   we->(DbSetOrder(1))  // Aufno (+ Pos)
+   IF we->(DbSeek(Str(nFa, 6)))
+      DO WHILE ! we->(Eof()) .AND. we->Aufno == nFa
+         hComp := {=>}
+         hComp["item"] := we->Pos
+         IF art->(DbSeek(Str(we->PartArt, 6)))
+            hComp["article"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+            hComp["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+            hComp["stock"] := art->Bestand
+         ELSE
+            hComp["article_number"] := we->PartArt
+         ENDIF
+         nRequired := we->Qty * we->Factor
+         hComp["required_quantity"] := nRequired
+         hComp["booked_quantity"] := we->BookQty
+         hComp["missing_quantity"] := Max(nRequired - we->BookQty, 0)
+         AAdd(aComponents, hComp)
+         we->(DbSkip())
+      ENDDO
+   ENDIF
+
+   // Producibility via WAStatus() (fertigung_edit.prg) - the same routine the
+   // Fertigung screens and RUN_FIND_FA_PRODUCABLE use. The return value
+   // reflects the CURRENT stock; with a future start date the forecast lists
+   // additionally consider expected receipts up to the start (working days).
+   IF wer->Status < 4 .AND. ! hResult["frame"]
+      wer->(DbSetOrder(1))
+      wer->(DbSeek(Str(nFa, 6)))  // WAStatus works on the current wer record
+      hResult["due"] := Empty(wer->StartDate) .OR. wer->StartDate <= Date()
+      nForecast := 0
+      IF ! Empty(wer->StartDate) .AND. wer->StartDate > Date()
+         BEGIN SEQUENCE
+            nForecast := CountWorkingDays(Date(), wer->StartDate, GetConfigValue("STATE"), .T.)
+         RECOVER
+            nForecast := 0
+         END SEQUENCE
+      ENDIF
+      BEGIN SEQUENCE
+         lProducible := WAStatus(NIL, @cMissing, nForecast, @cForecastMissing, @aMissing, @aForecastMissing)
+         hResult["producible"] := lProducible
+         aMissOut := {}
+         FOR EACH hMiss IN aMissing
+            IF HB_IsHash(hMiss)
+               hMissOut := {=>}
+               hMissOut["type"] := hMiss["TYPE"]
+               hMissOut["message"] := HB_StrToUTF8(hMiss["MESSAGE"])
+               IF HHasKey(hMiss, "DATA")
+                  hMissOut["data"] := _HashToUtf8(hMiss["DATA"])
+               ENDIF
+               AAdd(aMissOut, hMissOut)
+            ENDIF
+         NEXT
+         hResult["missing"] := aMissOut
+         IF nForecast > 0
+            hResult["forecast_working_days"] := nForecast
+            hResult["producible_by_start"] := Len(aForecastMissing) == 0
+            aMissOut := {}
+            FOR EACH hMiss IN aForecastMissing
+               IF HB_IsHash(hMiss)
+                  hMissOut := {=>}
+                  hMissOut["type"] := hMiss["TYPE"]
+                  hMissOut["message"] := HB_StrToUTF8(hMiss["MESSAGE"])
+                  IF HHasKey(hMiss, "DATA")
+                     hMissOut["data"] := _HashToUtf8(hMiss["DATA"])
+                  ENDIF
+                  AAdd(aMissOut, hMissOut)
+               ENDIF
+            NEXT
+            hResult["missing_by_start"] := aMissOut
+         ENDIF
+      RECOVER
+         hResult["producible_message"] := "Producibility check failed"
+      END SEQUENCE
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["component_count"] := Len(aComponents)
+   hResult["components"] := aComponents
+   hResult["status"] := "found"
+RETURN hResult
+
+FUNCTION MCP_Tool_List_Users(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL aUsers := {}, hUser
+   LOCAL lInactive := .F., lAbsence := .F.
+   LOCAL nOne := 0
+   LOCAL oUsr, dFrom, dUntil, nSubst, lAbsErr := .F.
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "number"=>{"type"=>"number","description"=>"Optional: return only this user (by user number)"},;
+            "include_inactive"=>{"type"=>"boolean","description"=>"Also list deactivated users (default false)"},;
+            "include_absence"=>{"type"=>"boolean","description"=>"Attach the away/absence status and substitute (Vertretung) from the user settings (default false)"};
+         };
+      }
+      hResult["description"] := "List the Trader users with their number, name, initials, email and phone. With " + ;
+                                "include_absence also the absence period (away_from/away_until), whether the user " + ;
+                                "is currently absent, and the substitute (Vertretung) - read from the user settings " + ;
+                                "(AwayFrom/AwayUntil/AwaySubst)"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "number") .AND. HB_IsNumeric(hArgs["number"]) .AND. hArgs["number"] > 0
+      nOne := Int(hArgs["number"])
+   ENDIF
+   IF HHasKey(hArgs, "include_inactive") .AND. HB_IsLogical(hArgs["include_inactive"])
+      lInactive := hArgs["include_inactive"]
+   ENDIF
+   IF HHasKey(hArgs, "include_absence") .AND. HB_IsLogical(hArgs["include_absence"])
+      lAbsence := hArgs["include_absence"]
+   ENDIF
+
+   NetUse("buyer", "buy")
+
+   // Pass 1: collect the users from the buyer file (user number = record
+   // number). Pure iteration - no David calls that would move the cursor.
+   IF nOne > 0
+      buy->(DbGoTo(nOne))
+      IF ! buy->(Eof()) .AND. ! Empty(buy->Buyer)
+         AAdd(aUsers, _MCP_UserRow(nOne))
+      ENDIF
+   ELSE
+      buy->(DbGoTop())
+      DO WHILE ! buy->(Eof())
+         IF ! Empty(buy->Buyer) .AND. ( lInactive .OR. buy->Aktive )
+            AAdd(aUsers, _MCP_UserRow(buy->(RecNo())))
+         ENDIF
+         buy->(DbSkip())
+      ENDDO
+   ENDIF
+
+   // Pass 2 (opt-in): away/absence status and substitute from each user's
+   // settings (AwayFrom/AwayUntil/AwaySubst, as maintained by timebutler_sync).
+   // Runs after pass 1 because User():Load moves the buyer cursor; guarded per
+   // user so an unreadable settings record only marks that user "unavailable".
+   IF lAbsence
+      FOR EACH hUser IN aUsers
+         BEGIN SEQUENCE
+            oUsr := User():New()
+            IF oUsr:Load( hUser["number"] )
+               dFrom  := oUsr:oSettings:AwayFrom
+               dUntil := oUsr:oSettings:AwayUntil
+               nSubst := oUsr:oSettings:AwaySubst
+
+               // Currently absent: an end date that has not passed, and either
+               // no start date or a start date that has already been reached.
+               hUser["absent"] := ! Empty(dUntil) .AND. dUntil >= Date() .AND. ( Empty(dFrom) .OR. dFrom <= Date() )
+               IF ! Empty(dFrom)
+                  hUser["away_from"] := dFrom
+               ENDIF
+               IF ! Empty(dUntil)
+                  hUser["away_until"] := dUntil
+               ENDIF
+               IF HB_IsNumeric(nSubst) .AND. nSubst > 0
+                  hUser["substitute_number"] := nSubst
+                  buy->(DbGoTo(nSubst))   // record number - order independent
+                  IF ! buy->(Eof()) .AND. ! Empty(buy->Buyer)
+                     hUser["substitute_name"] := HB_StrToUTF8(AllTrim(buy->Buyer))
+                  ENDIF
+               ENDIF
+            ELSE
+               hUser["absence_status"] := "unavailable"
+               lAbsErr := .T.
+            ENDIF
+         RECOVER
+            hUser["absence_status"] := "unavailable"
+            lAbsErr := .T.
+         END SEQUENCE
+      NEXT
+      IF lAbsErr
+         hResult["absence_note"] := "Absence is read from the user settings (AwayFrom/AwayUntil/AwaySubst); " + ;
+                                    "'unavailable' means that user's settings could not be read"
+      ENDIF
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["users"] := aUsers
+   hResult["count"] := Len(aUsers)
+   hResult["status"] := IIF(Len(aUsers) > 0, "found", "not_found")
+   IF Len(aUsers) == 0
+      hResult["message"] := IIF(nOne > 0, "User " + AllTrim(Str(nOne)) + " not found", "No users found")
+   ENDIF
+RETURN hResult
+
+// Build the base user row from the buyer record currently positioned at nNum.
+STATIC FUNCTION _MCP_UserRow(nNum)
+   LOCAL hUser := {=>}
+   buy->(DbGoTo(nNum))
+   hUser["number"] := nNum
+   hUser["name"] := HB_StrToUTF8(AllTrim(buy->Buyer))
+   IF ! Empty(buy->Initials)
+      hUser["initials"] := HB_StrToUTF8(AllTrim(buy->Initials))
+   ENDIF
+   IF ! Empty(buy->Short)
+      hUser["short"] := HB_StrToUTF8(AllTrim(buy->Short))
+   ENDIF
+   IF ! Empty(buy->Email)
+      hUser["email"] := HB_StrToUTF8(AllTrim(buy->Email))
+   ENDIF
+   IF ! Empty(buy->Telefon)
+      hUser["phone"] := HB_StrToUTF8(AllTrim(buy->Telefon))
+   ENDIF
+   hUser["active"] := buy->Aktive
+RETURN hUser
 
 FUNCTION MCP_Tool_Get_Current_User(hArgs)
    LOCAL hResult := {=>}
@@ -4450,6 +5868,523 @@ FUNCTION MCP_Tool_Archive_Document(hArgs)
    hResult["status"] := "success"
 RETURN hResult
 
+// Local copy of reb.prg's RebTypeText - that GUI helper is not registered in
+// the server runtime (calling it raised BASE/6101 "Unknown symbol REBTYPETEXT").
+STATIC FUNCTION _MCP_RebEventText(cType)
+   LOCAL c := AllTrim(cType)
+   LOCAL cText := ""
+   DO CASE
+   CASE c == "RECV"
+      cText := "eingegangen"
+   CASE c == "SCAN"
+      cText := "gescant"
+   CASE c == "ARCHIV"
+      cText := "archiviert"
+   CASE c == "APR"
+      cText := "genehmigt"
+   CASE c == "STORN"
+      cText := "storniert"
+   CASE c == "NEW"
+      cText := "ersetzt"
+   ENDCASE
+RETURN cText
+
+FUNCTION MCP_Tool_List_Unposted_Incoming_Invoices(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL aInv := {}, hInv, aHist, hEv
+   LOCAL nLief := 0, nLimit := 200, nCount := 0
+   LOCAL lHistory := .F.
+   LOCAL nTotal := 0
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "supplier_number"=>{"type"=>"number","description"=>"Optional: restrict to one creditor by supplier number (Liefnr)"},;
+            "include_history"=>{"type"=>"boolean","description"=>"Also attach the full event log (received/scanned/approved/... with reasons) per invoice (default false)"},;
+            "limit"=>{"type"=>"number","description"=>"Maximum number of invoices to return (default 200, max 2000)"};
+         };
+      }
+      hResult["description"] := "List the not-yet-booked invoices in the incoming-invoice journal (Rechnungseingangs" + ;
+                                "buch, reb where Status <> 9), each with supplier, document number, amount, received " + ;
+                                "date, approval state and its free-text comment (rebnotes). Set include_history for " + ;
+                                "the full event log"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "supplier_number") .AND. HB_IsNumeric(hArgs["supplier_number"]) .AND. hArgs["supplier_number"] > 0
+      nLief := Int(hArgs["supplier_number"])
+   ENDIF
+   IF HHasKey(hArgs, "include_history") .AND. HB_IsLogical(hArgs["include_history"])
+      lHistory := hArgs["include_history"]
+   ENDIF
+   IF HHasKey(hArgs, "limit") .AND. HB_IsNumeric(hArgs["limit"]) .AND. hArgs["limit"] > 0
+      nLimit := Min(Int(hArgs["limit"]), 2000)
+   ENDIF
+
+   NetUse("reb", "reb")
+   NetUse("rebprot", "rebp")
+   NetUse("rebnotes", "rebn")
+
+   IF nLief > 0
+      reb->(DbSetOrder(6))  // Str(Liefnr,6) + Beleg
+      reb->(DbSeek(Str(nLief, 6)))
+   ELSE
+      // Index 4 = Str(Status,1) + Str(ID,9): the unposted rows (Status 0-8)
+      // sort before the booked block (Status 9), so the scan stops at the
+      // first booked row instead of reading the whole journal.
+      reb->(DbSetOrder(4))
+      reb->(DbGoTop())
+   ENDIF
+
+   DO WHILE ! reb->(Eof()) .AND. nCount < nLimit
+      IF nLief > 0
+         IF reb->Liefnr != nLief
+            EXIT
+         ENDIF
+      ELSEIF reb->Status == 9  // reached the booked block - nothing unposted beyond it
+         EXIT
+      ENDIF
+      IF reb->Status != 9  // 9 = verbucht (booked); everything else is unposted
+         hInv := {=>}
+         hInv["id"] := reb->ID
+         hInv["document_no"] := HB_StrToUTF8(AllTrim(reb->Beleg))
+         IF HB_IsNumeric(reb->Liefnr) .AND. reb->Liefnr != 0
+            hInv["supplier_number"] := reb->Liefnr
+         ENDIF
+         IF ! Empty(reb->Name)
+            hInv["supplier_name"] := HB_StrToUTF8(AllTrim(reb->Name))
+         ENDIF
+         IF HB_IsNumeric(reb->Konto) .AND. reb->Konto != 0
+            hInv["account"] := reb->Konto  // creditor account when booked by account, not Liefnr
+         ENDIF
+         IF HB_IsNumeric(reb->KS)
+            IF reb->KS != 0
+               hInv["cost_center"] := reb->KS
+            ENDIF
+         ELSEIF ValType(reb->KS) == "C" .AND. ! Empty(reb->KS)
+            hInv["cost_center"] := HB_StrToUTF8(AllTrim(reb->KS))
+         ENDIF
+         hInv["amount"] := reb->Betrag
+         hInv["revision"] := reb->Rev
+         hInv["status"] := reb->Status
+         hInv["status_text"] := IIF(reb->Status == 8, "approved", "open")  // 8 = genehmigt
+         IF ValType(reb->Stapel) == "L"
+            hInv["in_batch"] := reb->Stapel  // queued in the booking batch
+         ENDIF
+         IF HB_IsNumeric(reb->Person)
+            IF reb->Person != 0
+               hInv["person"] := reb->Person  // buyer id (-1 = automatic)
+            ENDIF
+         ELSEIF ValType(reb->Person) == "C" .AND. ! Empty(reb->Person)
+            hInv["person"] := HB_StrToUTF8(AllTrim(reb->Person))
+         ENDIF
+
+         // Received date from the RECV protocol entry (rebp index 2 = ID+Type)
+         rebp->(DbSetOrder(2))
+         IF rebp->(DbSeek(Str(reb->ID, 9) + "RECV")) .AND. ! Empty(rebp->DateTime)
+            hInv["received_date"] := SToD(Left(rebp->DateTime, 8))
+         ENDIF
+
+         // Free-text comment (rebnotes, keyed by ID)
+         IF rebn->(DbSeek(Str(reb->ID, 9))) .AND. ! Empty(rebn->Notes)
+            hInv["comment"] := HB_StrToUTF8(AllTrim(rebn->Notes))
+         ENDIF
+
+         // Optional full event log
+         IF lHistory
+            aHist := {}
+            rebp->(DbSetOrder(1))  // by ID (chronological)
+            IF rebp->(DbSeek(Str(reb->ID, 9), .T.))
+               DO WHILE ! rebp->(Eof()) .AND. rebp->ID == reb->ID
+                  hEv := {=>}
+                  hEv["type"] := HB_StrToUTF8(AllTrim(rebp->Type))
+                  hEv["event"] := HB_StrToUTF8(_MCP_RebEventText(rebp->Type))
+                  IF ! Empty(rebp->DateTime)
+                     hEv["date"] := SToD(Left(rebp->DateTime, 8))
+                  ENDIF
+                  IF HB_IsNumeric(rebp->Person)
+                     IF rebp->Person != 0
+                        hEv["person"] := rebp->Person  // buyer id (-1 = automatic)
+                     ENDIF
+                  ELSEIF ValType(rebp->Person) == "C" .AND. ! Empty(rebp->Person)
+                     hEv["person"] := HB_StrToUTF8(AllTrim(rebp->Person))
+                  ENDIF
+                  IF ! Empty(rebp->Grund)
+                     hEv["reason"] := HB_StrToUTF8(AllTrim(rebp->Grund))
+                  ENDIF
+                  AAdd(aHist, hEv)
+                  rebp->(DbSkip())
+               ENDDO
+            ENDIF
+            hInv["history"] := aHist
+         ENDIF
+
+         IF HB_IsNumeric(reb->Betrag)
+            nTotal += reb->Betrag
+         ENDIF
+         AAdd(aInv, hInv)
+         nCount++
+      ENDIF
+      reb->(DbSkip())
+   ENDDO
+
+   hResult["truncated"] := nCount >= nLimit .AND. ! reb->(Eof()) .AND. ;
+      IIF(nLief > 0, reb->Liefnr == nLief, reb->Status != 9)
+
+   DbSelectArea(nOldSelect)
+
+   hResult["invoices"] := aInv
+   hResult["count"] := Len(aInv)
+   hResult["total_amount"] := Round(nTotal, 2)
+   hResult["status"] := IIF(Len(aInv) > 0, "found", "not_found")
+   IF Len(aInv) == 0
+      hResult["message"] := "No unposted invoices in the incoming-invoice journal" + ;
+         IIF(nLief > 0, " for supplier " + AllTrim(Str(nLief)), "")
+   ENDIF
+RETURN hResult
+
+FUNCTION MCP_Tool_Archive_Incoming_Invoice(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cFile := "", cId, cMailbox := "inbox", cAttFilter := ""
+   LOCAL cLiefma := "", nLiefnr := 0, nKonto := 0
+   LOCAL cBeleg, cBelegKurz := "", cKS := ""
+   LOCAL nBetrag, dEingang := Date()
+   LOCAL nApprover := 0
+   LOCAL lFound := .F., lBooked := .F.
+   LOCAL nID := 0, nRev := 0, nYear := Year(Date())
+   LOCAL oArchive, oItem, oAtt, nAtt := 0, nX, cName
+   LOCAL aNames := {}, cTarget := "", lTempFile := .F.
+   LOCAL cArchived
+   LOCAL oKu
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "file"=>{"type"=>"string","description"=>"Full path (on the Trader server) of the invoice document"},;
+            "message_id"=>{"type"=>"string","description"=>"David message id (from list_inbox) - archives the invoice attachment of that mail"},;
+            "mailbox"=>{"type"=>"string","enum"=>{"inbox","common"},"description"=>"Mailbox of message_id (default inbox)"},;
+            "attachment"=>{"type"=>"string","description"=>"File name of the attachment to use; required when the message has more than one attachment"},;
+            "supplier"=>{"type"=>"string","description"=>"Supplier matchcode (Kreditor with address record)"},;
+            "konto"=>{"type"=>"number","description"=>"Kreditor account number - for creditors without a supplier address (e.g. utilities)"},;
+            "beleg"=>{"type"=>"string","description"=>"The supplier's invoice number as printed on the document"},;
+            "beleg_short"=>{"type"=>"string","description"=>"Short form of the invoice number when the bookkeeping uses a truncated one"},;
+            "amount"=>{"type"=>"number","description"=>"Gross invoice amount (negative for credit notes)"},;
+            "date"=>{"type"=>"string","description"=>"Receipt date YYYY-MM-DD (default today)"},;
+            "cost_center"=>{"type"=>"string","description"=>"Cost center (Kostenstelle), e.g. 000, 100, ... 800"},;
+            "approver_user"=>{"type"=>"number","description"=>"Trader user number who must approve the invoice. Required for NEW invoices that are not booked yet - ask the user if unknown"};
+         },;
+         "required"=>{"beleg","amount"},;
+         "anyOf"=>{{"file","message_id"},{"supplier","konto"}};
+      }
+      hResult["description"] := "Archive an incoming supplier invoice (Eingangsrechnung): registers it in the invoice " + ;
+                                "register (reb) with a new ER number - or books a new revision when the same supplier " + ;
+                                "invoice number already exists - writes the receipt/archive protocol and files the " + ;
+                                "document under ER in the archive. Unbooked new invoices go to the approval workflow " + ;
+                                "and need 'approver_user'. Lexware booking-text tagging and the auto-approval rules " + ;
+                                "of the interactive mask are NOT applied here"
+      RETURN hResult
+   ENDIF
+
+   // ---- validate arguments ----
+   IF ValType(hArgs["beleg"]) != "C" .OR. Empty(AllTrim(hArgs["beleg"]))
+      RETURN "Parameter 'beleg' must be a non-empty string"
+   ENDIF
+   IF ! HB_IsNumeric(hArgs["amount"])
+      RETURN "Parameter 'amount' must be a number"
+   ENDIF
+   cBeleg := Pad(HB_UTF8ToStr(AllTrim(hArgs["beleg"])), 30)
+   nBetrag := hArgs["amount"]
+   IF HHasKey(hArgs, "beleg_short") .AND. ValType(hArgs["beleg_short"]) == "C"
+      cBelegKurz := HB_UTF8ToStr(AllTrim(hArgs["beleg_short"]))
+   ENDIF
+   IF HHasKey(hArgs, "cost_center") .AND. ValType(hArgs["cost_center"]) == "C"
+      cKS := AllTrim(hArgs["cost_center"])
+   ENDIF
+   IF HHasKey(hArgs, "date") .AND. ValType(hArgs["date"]) == "C" .AND. ! Empty(hArgs["date"])
+      dEingang := SToD(StrTran(AllTrim(hArgs["date"]), "-", ""))
+      IF Empty(dEingang)
+         RETURN "Invalid date: " + hArgs["date"] + " (expected YYYY-MM-DD)"
+      ENDIF
+   ENDIF
+   nYear := Year(dEingang)
+   IF HHasKey(hArgs, "approver_user") .AND. HB_IsNumeric(hArgs["approver_user"])
+      nApprover := hArgs["approver_user"]
+   ENDIF
+
+   NetUse("reb", "reb")
+   NetUse("rebprot", "rebp")
+   NetUse("idx", "idx")
+   NetUse("engkund", "ku")
+   NetUse("engrech", "rech")
+   NetUse("buyer", "buy")
+
+   // ---- resolve creditor ----
+   IF HHasKey(hArgs, "supplier") .AND. ! Empty(hArgs["supplier"])
+      oKu := Adresse():New()
+      IF ! oKu:LoadMatchcode(Pad(Upper(AllTrim(hArgs["supplier"])), 8), "L")
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "not_found"
+         hResult["message"] := "Supplier not found: " + hArgs["supplier"]
+         RETURN hResult
+      ENDIF
+      cLiefma := oKu:Kunde
+      nLiefnr := oKu:Nummer
+   ELSE
+      IF ! HB_IsNumeric(hArgs["konto"]) .OR. hArgs["konto"] <= 0
+         DbSelectArea(nOldSelect)
+         RETURN "Parameter 'konto' must be a positive number"
+      ENDIF
+      nKonto := hArgs["konto"]
+   ENDIF
+
+   // ---- resolve the document file ----
+   IF HHasKey(hArgs, "file") .AND. ! Empty(hArgs["file"])
+      cFile := HB_UTF8ToStr(AllTrim(hArgs["file"]))
+      IF ! File(cFile)
+         DbSelectArea(nOldSelect)
+         RETURN "File not found: " + cFile
+      ENDIF
+   ELSE
+      cId := hArgs["message_id"]
+      IF HHasKey(hArgs, "mailbox") .AND. ! Empty(hArgs["mailbox"])
+         cMailbox := Lower(AllTrim(hArgs["mailbox"]))
+      ENDIF
+      IF HHasKey(hArgs, "attachment") .AND. ValType(hArgs["attachment"]) == "C"
+         cAttFilter := Upper(AllTrim(hArgs["attachment"]))
+      ENDIF
+      oArchive := Inbox_Archive(cMailbox)
+      IF oArchive == NIL
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "error"
+         hResult["message"] := "David not connected"
+         RETURN hResult
+      ENDIF
+      BEGIN SEQUENCE
+         oItem := oArchive:GetArchiveEntryByID(cId)
+      RECOVER
+         oItem := NIL
+      END SEQUENCE
+      IF oItem == NIL
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "not_found"
+         hResult["message"] := "Message not found: " + cId
+         RETURN hResult
+      ENDIF
+      BEGIN SEQUENCE ; nAtt := oItem:Attachments:Count ; RECOVER ; nAtt := 0 ; END SEQUENCE
+      FOR nX := 0 TO nAtt - 1
+         cName := ""
+         BEGIN SEQUENCE
+            oAtt := oItem:Attachments:Item(nX)
+            cName := oAtt:FileName
+         RECOVER
+            oAtt := NIL
+         END SEQUENCE
+         IF oAtt == NIL .OR. Empty(cName)
+            LOOP
+         ENDIF
+         AAdd(aNames, DV_Utf8(cName))
+         IF Empty(cTarget) .AND. ( Empty(cAttFilter) .OR. Upper(AllTrim(cName)) == cAttFilter )
+            cTarget := hb_DirTemp() + SafeFileName(cName)
+            BEGIN SEQUENCE
+               oAtt:SaveAs(cTarget)
+               IF File(cTarget)
+                  cFile := cTarget
+                  lTempFile := .T.
+               ELSE
+                  cTarget := ""
+               ENDIF
+            RECOVER
+               cTarget := ""
+            END SEQUENCE
+         ENDIF
+      NEXT
+      IF Empty(cFile)
+         DbSelectArea(nOldSelect)
+         RETURN IIF(Len(aNames) == 0, "The message has no attachments", ;
+            "Attachment could not be resolved. Available: " + DV_Join(aNames, ", "))
+      ENDIF
+      IF Empty(cAttFilter) .AND. Len(aNames) > 1
+         FErase(cFile)
+         DbSelectArea(nOldSelect)
+         RETURN "The message has " + AllTrim(Str(Len(aNames))) + " attachments - specify 'attachment'. Available: " + DV_Join(aNames, ", ")
+      ENDIF
+   ENDIF
+
+   // ---- duplicate / revision detection (same as the mask, skipping STORNs) ----
+   rebp->(DbSetOrder(2))  // Str(ID,9) + Type
+   IF nLiefnr > 0
+      reb->(DbSetOrder(6))  // Str(Liefnr,6) + Beleg
+      IF reb->(DbSeek(Str(nLiefnr, 6) + cBeleg))
+         DO WHILE reb->Liefnr == nLiefnr .AND. reb->Beleg == cBeleg .AND. rebp->(DbSeek(Str(reb->ID, 9) + "STORN"))
+            reb->(DbSkip())
+         ENDDO
+         IF reb->Liefnr == nLiefnr .AND. reb->Beleg == cBeleg
+            lFound := .T.
+            nID := reb->ID
+         ENDIF
+      ENDIF
+      // booked already? (goods-receipt invoice register)
+      rech->(DbSetOrder(2))
+      IF rech->(DbSeek(cLiefma + IIF(Empty(cBelegKurz), cBeleg, cBelegKurz)))
+         lBooked := rech->Booked
+      ENDIF
+   ELSE
+      reb->(DbSetOrder(7))  // Str(Konto,6) + Beleg
+      IF reb->(DbSeek(Str(nKonto, 6) + cBeleg))
+         DO WHILE reb->Konto == nKonto .AND. reb->Beleg == cBeleg .AND. rebp->(DbSeek(Str(reb->ID, 9) + "STORN"))
+            reb->(DbSkip())
+         ENDDO
+         IF reb->Konto == nKonto .AND. reb->Beleg == cBeleg
+            lFound := .T.
+            nID := reb->ID
+         ENDIF
+      ENDIF
+   ENDIF
+
+   // New, unbooked invoices enter the approval workflow and need an approver
+   IF ! lFound .AND. ! lBooked
+      IF nApprover <= 0
+         IF lTempFile
+            FErase(cFile)
+         ENDIF
+         DbSelectArea(nOldSelect)
+         RETURN "This is a new, not yet booked invoice - 'approver_user' is required so it enters the approval workflow"
+      ENDIF
+      buy->(DbGoTo(nApprover))
+      IF buy->(Eof()) .OR. ! buy->Aktive
+         IF lTempFile
+            FErase(cFile)
+         ENDIF
+         DbSelectArea(nOldSelect)
+         RETURN "approver_user " + AllTrim(Str(nApprover)) + " is unknown or inactive"
+      ENDIF
+   ENDIF
+
+   // ---- register in reb/rebp inside a transaction (same as the mask) ----
+   LETO_BEGINTRANSACTION()
+   BEGIN SEQUENCE
+      IF ! lFound
+         // New ER number: YY + type(0 = no barcode) + idx counter
+         IF ! idx->(DbSeek(Pad("REB", 5) + Right(Str(nYear, 4), 2) + Str(0, 1)))
+            idx->(Add_Rec(0))
+            idx->Alias := "REB"
+            idx->Type := 0
+            idx->Year := nYear
+         ELSE
+            idx->(Rec_Lock())
+         ENDIF
+         idx->ID++
+         nID := Val(Right(Str(nYear, 4), 2) + Str(0, 1) + StrZero(idx->ID, 6))
+
+         reb->(Add_Rec(0))
+         reb->ID := nID
+         IF nLiefnr > 0
+            reb->Liefnr := nLiefnr
+            reb->Name := Trim(ku->Name1) + " " + Trim(ku->Name2)
+         ELSE
+            reb->Konto := nKonto
+         ENDIF
+         reb->Beleg := cBeleg
+         IF ! Empty(cBelegKurz)
+            reb->Beleg_Kurz := cBelegKurz
+         ENDIF
+         reb->Status := IIF(lBooked, 9, 0)
+         IF ! lBooked
+            reb->Person := nApprover
+         ENDIF
+         nRev := 0
+      ELSE
+         reb->(Rec_Lock(0))
+         reb->Rev++
+         nRev := reb->Rev
+         rebp->(Add_Rec(0))
+         rebp->ID := nID
+         rebp->Type := "NEW"
+         rebp->DateTime := TtoS(DateTime())
+         rebp->Person := Tr_Getini(28)
+         rebp->Rev := nRev
+      ENDIF
+
+      reb->Betrag := nBetrag
+      IF ! Empty(cKS)
+         reb->KS := cKS
+      ENDIF
+
+      rebp->(Add_Rec(0))
+      rebp->ID := nID
+      rebp->DateTime := DtoS(dEingang)
+      rebp->Type := "RECV"
+      rebp->Person := Tr_Getini(28)
+      rebp->Rev := nRev
+
+      rebp->(Add_Rec(0))
+      rebp->ID := nID
+      rebp->DateTime := TtoS(DateTime())
+      rebp->Type := "ARCHIV"
+      rebp->Person := Tr_Getini(28)
+      rebp->Rev := nRev
+
+      IF ! LETO_COMMITTRANSACTION()
+         LETO_ROLLBACK()
+         BREAK
+      ENDIF
+   RECOVER
+      BEGIN SEQUENCE ; LETO_ROLLBACK() ; RECOVER ; END SEQUENCE
+      IF lTempFile
+         FErase(cFile)
+      ENDIF
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "error"
+      hResult["message"] := "Registering the invoice failed - nothing was saved"
+      RETURN hResult
+   END SEQUENCE
+
+   // ---- file the document (after the commit, like the mask) ----
+   BEGIN SEQUENCE
+      cArchived := AddFileToArchive("ER", nID, cFile)
+   RECOVER
+      cArchived := ""
+   END SEQUENCE
+   IF lTempFile
+      FErase(cFile)
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["er_number"] := nID
+   hResult["revision"] := nRev
+   IF nLiefnr > 0
+      hResult["supplier"] := HB_StrToUTF8(AllTrim(cLiefma))
+   ELSE
+      hResult["konto"] := nKonto
+   ENDIF
+   hResult["beleg"] := HB_StrToUTF8(AllTrim(cBeleg))
+   hResult["amount"] := nBetrag
+   hResult["receipt_date"] := dEingang
+   hResult["booked"] := lBooked
+   IF ! lFound .AND. ! lBooked
+      hResult["approver_user"] := nApprover
+      hResult["approval"] := "pending"
+   ENDIF
+   IF Empty(cArchived)
+      hResult["status"] := "warning"
+      hResult["message"] := "Invoice registered as ER" + AllTrim(Str(nID)) + ;
+         " but filing the document in the archive FAILED - archive the file manually"
+   ELSE
+      hResult["archived_as"] := HB_StrToUTF8(cArchived)
+      hResult["status"] := "success"
+      hResult["message"] := IIF(lFound, ;
+         "New revision " + AllTrim(Str(nRev)) + " archived on existing ER" + AllTrim(Str(nID)), ;
+         "Invoice registered and archived as ER" + AllTrim(Str(nID)))
+   ENDIF
+RETURN hResult
+
 FUNCTION MCP_Tool_List_Archive_Documents(hArgs)
    LOCAL hResult := {=>}
    LOCAL cTyp, nNo
@@ -4523,6 +6458,181 @@ FUNCTION MCP_Tool_List_Archive_Documents(hArgs)
       hResult["message"] := "No documents archived on this transaction"
    ENDIF
 RETURN hResult
+
+FUNCTION MCP_Tool_Get_Archive_Document(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cTyp, nNo, cWant := "", nIndex := 0
+   LOCAL aFiles, aFile, aValid := {}, aNames := {}
+   LOCAL nMax := 650000    // stay well under the MCP client's ~1 MB message buffer (base64 is ~33% larger)
+   LOCAL nSel := 0, nX, nSize, cPath, cName, cData
+   LOCAL hDocType
+   #include '..\hooks\archive.ch'
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "doc_type"=>{"type"=>"string","enum"=>{},"description"=>"Transaction type (e.g. ER for an incoming invoice)"},;
+            "number"=>{"type"=>"number","description"=>"Number of the transaction (e.g. the ER number)"},;
+            "filename"=>{"type"=>"string","description"=>"Name of the document to fetch (from list_archive_documents); optional when the transaction has exactly one document"},;
+            "index"=>{"type"=>"number","description"=>"1-based position in the archived-documents list, as an alternative to filename"},;
+            "max_bytes"=>{"type"=>"number","description"=>"Refuse files larger than this many raw bytes (default and hard cap ~650 KB). The content is returned base64-encoded (~33% larger) and must fit the MCP client's ~1 MB message buffer; larger documents must be fetched via the path from list_archive_documents"};
+         },;
+         "required"=>{"doc_type","number"};
+      }
+      FOR EACH hDocType IN hTypes
+         Aadd(hResult["schema"]["properties"]["doc_type"]["enum"], hDocType:__enumKey)
+      NEXT
+      hResult["description"] := "Fetch one archived document of a business transaction (Vorgang) and return its " + ;
+                               "content base64-encoded - e.g. the PDF of an incoming invoice via doc_type ER and " + ;
+                               "the ER number. Use list_archive_documents first to see the available file names"
+      RETURN hResult
+   ENDIF
+
+   IF ValType(hArgs["doc_type"]) != "C" .OR. ! Upper(AllTrim(hArgs["doc_type"])) $ hTypes
+      RETURN "Invalid doc_type. Valid types: " + DV_Join(HGetKeys(hTypes), ", ")
+   ENDIF
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   cTyp := Upper(AllTrim(hArgs["doc_type"]))
+   nNo := hArgs["number"]
+   IF HHasKey(hArgs, "filename") .AND. ValType(hArgs["filename"]) == "C" .AND. ! Empty(hArgs["filename"])
+      cWant := Upper(AllTrim(hArgs["filename"]))
+   ENDIF
+   IF HHasKey(hArgs, "index") .AND. HB_IsNumeric(hArgs["index"]) .AND. hArgs["index"] > 0
+      nIndex := Int(hArgs["index"])
+   ENDIF
+   IF HHasKey(hArgs, "max_bytes") .AND. HB_IsNumeric(hArgs["max_bytes"]) .AND. hArgs["max_bytes"] > 0
+      nMax := Min(Int(hArgs["max_bytes"]), 650000)   // never above the buffer-safe ceiling
+   ENDIF
+
+   BEGIN SEQUENCE
+      aFiles := GetArchiveFiles({cTyp => nNo})
+   RECOVER
+      aFiles := NIL
+   END SEQUENCE
+   IF ! HB_IsArray(aFiles)
+      hResult["status"] := "error"
+      hResult["message"] := "Archive lookup failed"
+      RETURN hResult
+   ENDIF
+
+   // Directory()-style entries: [1] name, [2] size, [3] date, [4] time, [6] path
+   FOR EACH aFile IN aFiles
+      IF HB_IsArray(aFile) .AND. Len(aFile) >= 6
+         AAdd(aValid, aFile)
+         AAdd(aNames, HB_StrToUTF8(AllTrim(aFile[1])))
+      ENDIF
+   NEXT
+
+   IF Len(aValid) == 0
+      hResult["doc_type"] := cTyp
+      hResult["number"] := nNo
+      hResult["status"] := "not_found"
+      hResult["message"] := "No documents archived on this transaction"
+      RETURN hResult
+   ENDIF
+
+   // Pick the requested document (by name, by index, or the only one).
+   IF ! Empty(cWant)
+      FOR nX := 1 TO Len(aValid)
+         IF Upper(AllTrim(HB_StrToUTF8(aValid[nX][1]))) == cWant
+            nSel := nX
+            EXIT
+         ENDIF
+      NEXT
+      IF nSel == 0
+         RETURN "Document not found: " + hArgs["filename"] + ". Available: " + DV_Join(aNames, ", ")
+      ENDIF
+   ELSEIF nIndex > 0
+      IF nIndex > Len(aValid)
+         RETURN "index " + AllTrim(Str(nIndex)) + " out of range (1.." + AllTrim(Str(Len(aValid))) + ")"
+      ENDIF
+      nSel := nIndex
+   ELSEIF Len(aValid) == 1
+      nSel := 1
+   ELSE
+      hResult["doc_type"] := cTyp
+      hResult["number"] := nNo
+      hResult["status"] := "ambiguous"
+      hResult["count"] := Len(aValid)
+      hResult["available"] := aNames
+      hResult["message"] := "Several documents archived - specify 'filename' or 'index'"
+      RETURN hResult
+   ENDIF
+
+   aFile := aValid[nSel]
+   cName := HB_StrToUTF8(AllTrim(aFile[1]))
+   cPath := aFile[6]   // app-codepage path, used as-is for File()/read
+   nSize := IIF(HB_IsNumeric(aFile[2]), aFile[2], 0)
+
+   hResult["doc_type"] := cTyp
+   hResult["number"] := nNo
+   hResult["name"] := cName
+   hResult["path"] := HB_StrToUTF8(AllTrim(cPath))
+   hResult["mime_type"] := _MCP_MimeFromName(aFile[1])
+
+   IF nSize > nMax
+      hResult["size"] := nSize
+      hResult["status"] := "too_large"
+      hResult["message"] := "Document is " + AllTrim(Str(nSize)) + " bytes, larger than the buffer-safe limit (" + ;
+         AllTrim(Str(nMax)) + "). Fetch it via the path from list_archive_documents instead"
+      RETURN hResult
+   ENDIF
+
+   IF ! File(cPath)
+      hResult["status"] := "error"
+      hResult["message"] := "Archived file not found on disk: " + HB_StrToUTF8(AllTrim(cPath))
+      RETURN hResult
+   ENDIF
+
+   cData := hb_MemoRead(cPath)   // binary-safe whole-file read
+   IF Empty(cData)
+      hResult["status"] := "error"
+      hResult["message"] := "Archived file is empty or could not be read"
+      RETURN hResult
+   ENDIF
+   IF Len(cData) > nMax
+      hResult["size"] := Len(cData)
+      hResult["status"] := "too_large"
+      hResult["message"] := "Document exceeds max_bytes after reading"
+      RETURN hResult
+   ENDIF
+
+   hResult["size"] := Len(cData)
+   hResult["encoding"] := "base64"
+   hResult["content"] := hb_base64Encode(cData)
+   hResult["status"] := "found"
+RETURN hResult
+
+// Guess a MIME type from a file name's extension for get_archive_document.
+STATIC FUNCTION _MCP_MimeFromName(cName)
+   LOCAL cExt := Lower(AllTrim(cName))
+   LOCAL nDot := RAt(".", cExt)
+   IF nDot > 0
+      cExt := SubStr(cExt, nDot + 1)
+   ELSE
+      cExt := ""
+   ENDIF
+   DO CASE
+   CASE cExt == "pdf"                     ; RETURN "application/pdf"
+   CASE cExt == "png"                     ; RETURN "image/png"
+   CASE cExt == "jpg" .OR. cExt == "jpeg" ; RETURN "image/jpeg"
+   CASE cExt == "tif" .OR. cExt == "tiff" ; RETURN "image/tiff"
+   CASE cExt == "gif"                     ; RETURN "image/gif"
+   CASE cExt == "txt"                     ; RETURN "text/plain"
+   CASE cExt == "xml"                     ; RETURN "application/xml"
+   CASE cExt == "html" .OR. cExt == "htm" ; RETURN "text/html"
+   CASE cExt == "csv"                     ; RETURN "text/csv"
+   CASE cExt == "zip"                     ; RETURN "application/zip"
+   CASE cExt == "doc"                     ; RETURN "application/msword"
+   CASE cExt == "docx"                    ; RETURN "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+   CASE cExt == "xls"                     ; RETURN "application/vnd.ms-excel"
+   CASE cExt == "xlsx"                    ; RETURN "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+   ENDCASE
+RETURN "application/octet-stream"
 
 // Convert all string values in a hash from OEM to ANSI
 STATIC FUNCTION _HashToUtf8(hHash)

@@ -84,6 +84,34 @@ curl -s http://127.0.0.1:8765/ \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
 ```
 
+## Auto-reload on source changes
+
+The listener watches `run\mcp_http.prg` and `run\mcp_stdio.prg` (checked
+roughly every 10 idle seconds, never during a request). When either file
+changes, the server frees the port, launches a **new instance with the same
+command line** (`WAPI_ShellExecute` + `Exename()`/`DosParam()`, the same
+relaunch idiom as `tr_001.prg`) and quits — deploying a new server version is
+just copying the file. If the relaunch fails, the old instance re-binds the
+port and keeps running on the old code (logged). Disable with the fourth
+parameter: `MCP_Http( , , , .F. )`.
+
+Note that the source check only advances on **idle** ticks (between requests).
+The relaunch itself never waits for clients — it frees the port and spawns the
+new instance regardless — but under constant request load the idle ticks needed
+to notice the change come rarely, so a reload can lag until traffic quiets. Use
+the client overview below to see whether clients are still hammering the server.
+
+## Connected-client overview (GUI)
+
+In GUI mode press **`C`** in the server window to log an overview of the
+currently connected clients. Because the server is single-threaded
+(accept → serve → close), a "client" is tracked by its MCP session id across
+requests (clients that send none are collapsed onto one peer+user entry). Each
+line shows the user (from the API key), the peer address, the request count and
+the time / age of the last request; "aktiv" means a request within the last
+120 seconds. A `Neuer Client verbunden` line is logged the first time a session
+is seen. The table is pruned after an hour of inactivity per client.
+
 ## Authentication: per-user API keys (no OAuth)
 
 Without further setup the server is **open** — anyone who can reach the port
@@ -127,8 +155,33 @@ server can read it:
   server process regardless of the key — see the deployment notes if
   per-user mail identity matters.
 
-Claude Desktop / MCP clients: configure the server URL plus a custom header
-`Authorization: Bearer <key>` for the respective user.
+Claude Desktop / MCP clients: pass the key either as a header
+`Authorization: Bearer <key>` **or in the URL as `?key=<key>`**. The URL form
+is the recommended one for `mcp-remote`: its `--header` argument is mangled by
+npx/cmd on Windows (spaces get split), which ends in a `401` and a doomed
+OAuth probe. With the key in the URL no header is needed and the OAuth path
+is never entered:
+
+```json
+{
+  "mcpServers": {
+    "trader": {
+      "command": "npx",
+      "args": ["mcp-remote", "https://mcp.example.com/?key=<key>"]
+    }
+  }
+}
+```
+
+(Keys in URLs can end up in proxy logs — with the recommended local
+proxy-only exposure that is the same trust domain as the server log.)
+
+Note: a `401` answers in the OAuth Bearer error format of RFC 6750
+(`{"error":"invalid_token","error_description":"…"}`) plus a matching
+`WWW-Authenticate` header — that is the shape MCP clients parse on auth
+failures. There is no OAuth flow behind it: unknown endpoints such as
+`/register` return `404`, so OAuth-probing clients fail fast with a clear
+message instead of looping. Fix a 401 by correcting the static key.
 
 ## HTTPS with Caddy (simplest — automatic certificates)
 
@@ -249,7 +302,13 @@ tool can run longer than the default 120 s.
   (`application/json`). A JSON-RPC *notification* (no `id`) returns `202
   Accepted` with an empty body. A JSON-RPC *batch* (array) returns an array of
   the responses that carry an `id`.
-- **`GET /healthz`**, `GET /health`, `GET /` — health check, returns `ok`.
+- **`GET /healthz`**, `GET /health` — health check, always returns `ok`.
+- **`GET /`** — returns `ok` for a plain health probe, but `405` when the
+  client asks for the server→client SSE stream (`Accept: text/event-stream`).
+  Single-response mode offers no stream, and per the MCP spec `405` tells the
+  client to stop; answering such a stream GET with `200 ok` made some clients
+  retry the GET in a loop (a source of request storms on `/`). The count of
+  `GET /` health/stream pings is logged once a minute in GUI mode.
 - **`GET`** on any other path — `405` (single-response mode offers no SSE
   stream).
 - **`OPTIONS`** — CORS preflight, returns `204`.

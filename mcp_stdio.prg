@@ -5362,6 +5362,7 @@ FUNCTION MCP_Tool_Get_Production_Order(hArgs)
    LOCAL nFa, hComp, dTemp
    LOCAL aComponents := {}
    LOCAL nRequired
+   LOCAL nMissComp := 0, nMissQty := 0
    LOCAL nForecast := 0, lProducible
    LOCAL cMissing, cForecastMissing, aMissing, aForecastMissing
    LOCAL hMiss, hMissOut, aMissOut
@@ -5379,7 +5380,9 @@ FUNCTION MCP_Tool_Get_Production_Order(hArgs)
       hResult["description"] := "Retrieve a production order (Fertigungsauftrag) by number: article, quantities, " + ;
                                 "status, end week/date, and for external manufacturing (Fremdfertigung) the supplier " + ;
                                 "and linked purchase order. Includes the material list (required/booked/missing per " + ;
-                                "component) and a producibility check: 'producible' (with current stock, incl. " + ;
+                                "component), material_delivered - whether all material has been issued (for a " + ;
+                                "Fremdfertigung: whether we delivered the material/Beistellung to the supplier) - " + ;
+                                "and a producibility check: 'producible' (with current stock, incl. " + ;
                                 "blocks and approvals), 'due' (start date reached), and for future starts " + ;
                                 "'producible_by_start' considering expected receipts"
       RETURN hResult
@@ -5456,6 +5459,14 @@ FUNCTION MCP_Tool_Get_Production_Order(hArgs)
          hComp["required_quantity"] := nRequired
          hComp["booked_quantity"] := we->BookQty
          hComp["missing_quantity"] := Max(nRequired - we->BookQty, 0)
+         // Track outstanding material (real component lines only) for the
+         // "have we issued the material" summary - for a Fremdfertigung this is
+         // the Beistellung delivered to the supplier. Supply complete when
+         // BookQty >= required (cf. checkstock.prg: BookQty < Qty -> not done).
+         IF we->Pos > 0 .AND. nRequired > 0 .AND. we->BookQty < nRequired
+            nMissComp++
+            nMissQty += (nRequired - we->BookQty)
+         ENDIF
          AAdd(aComponents, hComp)
          we->(DbSkip())
       ENDDO
@@ -5519,6 +5530,13 @@ FUNCTION MCP_Tool_Get_Production_Order(hArgs)
 
    hResult["component_count"] := Len(aComponents)
    hResult["components"] := aComponents
+   // Summary: has all the material been issued? For external production this
+   // tells whether we have delivered the material (Beistellung) to the supplier.
+   hResult["material_delivered"] := nMissComp == 0
+   IF nMissComp > 0
+      hResult["material_open_components"] := nMissComp
+      hResult["material_open_quantity"] := nMissQty
+   ENDIF
    hResult["status"] := "found"
 RETURN hResult
 

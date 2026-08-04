@@ -480,6 +480,7 @@ ELSEIF nTab == 75 .OR. nTab == 10
          aTab[2] *= 1.05 //general price increase of 5% from April 1st, 2026 due to increased costs for raw materials and logistics         
       }) 
    ENDIF
+   //Alert(ali->Kunde+Str(ali->Min))
    IF art->Bezug == 5 //Engelking China if it is repacked
    
       NetUse("parts","part")
@@ -512,6 +513,22 @@ ELSEIF nTab == 75 .OR. nTab == 10
             EXIT            
          ENDIF
          part->(dbSkip())
+      ENDDO
+   ENDIF
+   IF ! ali->(EOF()) .AND. ali->Min != 0  //if the supplier has a minimum order quantity, we have to adjust the price tiers accordingly
+      //delete all price tiers which are below the minimum order quantity, but keep the last one which is below the minimum order quantity, as this is the price for the minimum order quantity
+      nX := 1
+      DO WHILE nX <= Len(aPriceTabs)
+         IF aPriceTabs[nX,1] < ali->Min
+            IF nX < Len(aPriceTabs) .AND. aPriceTabs[nX+1,1] > ali->Min
+               aPriceTabs[nX,1] := ali->Min
+               nX++
+            ELSE
+               HB_ADel(aPriceTabs,nX,.T.)
+            ENDIF
+         ELSE
+            nX++
+         ENDIF
       ENDDO
    ENDIF
 ELSEIF nTab == 26   

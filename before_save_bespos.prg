@@ -3,6 +3,7 @@ FUNCTION HOOK_BEFORE_SAVE_BESPOS( oBesPos )
 LOCAL nPrice,nPe,lCheap,lStock,nEk,nPerc
 LOCAL cTextFile,cText,nQty
 LOCAL oAddress
+LOCAL aFrei, nLief, nArtRec, nArtOrd
 
 MEMVAR mcNoBesPos 
 PUBLIC mcNoBesPos := ""
@@ -32,6 +33,36 @@ ENDIF
 NetUse("buyprice","bpr")
 NetUse("artikel","art")
 NetUse("liefstock","lsto")
+
+// --- Hinweis: Muster-/Sonderfreigabe -----------------------------------
+// Solange fuer einen Zeichnungsartikel noch keine vollstaendige
+// Musterfreigabe vorliegt - oder nur eine Sonderfreigabe - erinnert dieser
+// Hinweis daran, mind. 1 Stueck mehr als den Bedarf zu bestellen
+// (Rueckstellmuster). Die Menge wird bewusst NICHT geprueft/erzwungen.
+IF oBesPos:BeQty > 0 .AND. ! Empty(oBesPos:oArtikel:Zeichnung) .AND. ! GetConfigValue("BATCHMODE")
+   NetUse("ppf","ppf",.F.,0)
+   NetUse("ppfdat","ppfd",.F.,0)
+   NetUse("engkund","ku")
+
+   nLief := 0
+   ku->(dbSetOrder(1))
+   IF ku->(dbSeek( Pad(oBesPos:oBestellung:Liefma,8) + "L" ))
+      nLief := ku->Nummer
+   ENDIF
+
+   nArtOrd := art->(IndexOrd())
+   nArtRec := art->(Recno())
+   art->(dbSetOrder(2))
+   IF art->(dbSeek( Str(oBesPos:Artikelnr,6) ))
+      aFrei := GetArtikelFreigabeStatus(nLief):aState   // {cState,lFrei,lSonder,...}
+      IF ! (aFrei[1] == "DONE" .AND. aFrei[2] .AND. ! aFrei[3])
+         Tr_MsgBox("Fr diesen Artikel liegt noch keine vollst„ndige Musterfreigabe bzw. nur eine Sonderfreigabe vor - bitte mind. 1 Stck mehr als den Bedarf bestellen (Rckstellmuster).")
+      ENDIF
+   ENDIF
+   art->(dbSetOrder(nArtOrd))
+   art->(dbGoto(nArtRec))
+ENDIF
+// -----------------------------------------------------------------------
 
 
 /*IF Trim(art->Matchcode) == "PX0686" .AND. Trim(oBesPos:oBestellung:Liefma) != "RS"

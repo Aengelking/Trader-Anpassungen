@@ -56,7 +56,12 @@ IF oBesPos:BeQty > 0 .AND. ! Empty(oBesPos:oArtikel:Zeichnung) .AND. ! GetConfig
    IF art->(dbSeek( Str(oBesPos:Artikelnr,6) ))
       aFrei := GetArtikelFreigabeStatus(nLief):aState   // {cState,lFrei,lSonder,...}
       IF ! (aFrei[1] == "DONE" .AND. aFrei[2] .AND. ! aFrei[3])
-         Tr_MsgBox("FÅr diesen Artikel liegt noch keine vollstÑndige Musterfreigabe bzw. nur eine Sonderfreigabe vor - bitte mind. 1 StÅck mehr als den Bedarf bestellen (RÅckstellmuster).")
+         IF ! GetConfigValue("BATCHMODE") 
+            IF Tr_MsgBox({"FÅr diesen Artikel liegt noch keine vollstÑndige Musterfreigabe bzw. nur eine Sonderfreigabe vor.","Bitte mind. 1 StÅck mehr als den Bedarf bestellen (RÅckstellmuster)."},,{"ZurÅck","RÅckstellmuster bestellt"}) != 2
+               RETURN .F.
+            ENDIF
+            SendMessage("QM | Erstmuster bestellt","Erstmuster fÅr Artikel "+Trim(art->Matchcode)+" wurden bestellt") 
+         ENDIF
       ENDIF
    ENDIF
    art->(dbSetOrder(nArtOrd))
@@ -190,13 +195,13 @@ IF oBesPos:oArtikel:Manufactur == 11 //Techno
    ENDIF
 ENDIF
 
-IF Trim(oBesPos:oBestellung:Liefma) $ {"WHTECH","SELT"} .AND. oBesPos:BeQty == 1 .AND. oBesPos:oArtikel:Lagerart
+/*IF Trim(oBesPos:oBestellung:Liefma) $ {"WHTECH","SELT"} .AND. oBesPos:BeQty == 1 .AND. oBesPos:oArtikel:Lagerart
    IF GetConfigValue("BATCHMODE") 
       SendMail({{"amos.engelking@engelking.de","Amos"}},"Erstmuster fÅr Artikel "+Trim(art->Matchcode)+" bestellen?")   
    ELSEIF Tr_MsgBox("Wirklich nur 1 StÅck? Kein Erstmuster notwendig?",,{"Nein","Ja"}) != 2
       RETURN .F.
    ENDIF
-ENDIF
+ENDIF*/
    
 
 /*IF AScan({9,37},TR_Getini(28)) == 0

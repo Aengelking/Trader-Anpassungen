@@ -56,7 +56,7 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
                hPrices := {=>}
                //gtSetClipboard(cData)
                hData := HB_JsonDecode(cData)            
-               IF HHasKey(hData,"status") .AND. hData["status"] == "success"
+               IF ValType(hData) == "H" .AND. HHasKey(hData,"status") .AND. hData["status"] == "success"
                   IF Len(hData["parsing"]["entities"]) == 0
                      //parsing error?
                      IF hData["status_code"] == 400 .OR. AT("gesuchte Seite nicht gefunden",hData["html_content"]) > 0                        
@@ -103,11 +103,11 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
                      
                   
 
-                  IF ! HHasKey(hData,"result") .OR. ! HHasKey(hData["result"],"status")
+                  IF ValType(hData) != "H" .OR. ! HHasKey(hData,"result") .OR. ValType(hData["result"]) != "H" .OR. ! HHasKey(hData["result"],"status")
                      IF lDbg
                         Alert("No result or status")
                      ENDIF
-                     IF HHasKey(hData,"statusCode") .AND. hData["statusCode"] == 403
+                     IF ValType(hData) == "H" .AND. HHasKey(hData,"statusCode") .AND. hData["statusCode"] == 403
                         SendMail({{"amos.engelking@engelking.de","Amos"}},"BrowseAI Abfrage Limit erreicht",cData)
                      ENDIF
                      RETURN {=>}
@@ -127,11 +127,14 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
                         ELSE
                            //? cData
                            hData := HB_JsonDecode(cData)
+                           IF ValType(hData) != "H"
+                              RETURN {=>}
+                           ENDIF
                         ENDIF
                         IF ! HHasKey(hData,"result") 
                            SendMail({{"amos.engelking@engelking.de","Amos"}},"BrowseAI Abfrage",cData)
                         ELSE
-                           IF HHasKey(hData["result"],"status") .AND. hData["result"]["status"] == "failed"
+                           IF ValType(hData["result"]) == "H" .AND. HHasKey(hData["result"],"status") .AND. hData["result"]["status"] == "failed"
                               IF hData["result"]["retriedByTaskId"] != NIL
                                  cId := hData["result"]["retriedByTaskId"]
                               ELSE
@@ -158,8 +161,11 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
 
                   hPrices := {=>}
                   IF Trim(cLief) != "CONRAD" .OR. hData["results"]["capturesTexts"]["Seller"] != "Engelking"                     
-                     IF HHasKey(hData["result"]["capturedLists"],"Preise")           
+                     IF HHasKey(hData,"result") .AND. ValType(hData["result"]) == "H" .AND. HHasKey(hData["result"],"capturedLists") .AND. ValType(hData["result"]["capturedLists"]) == "H" .AND. HHasKey(hData["result"]["capturedLists"],"Preise")
                         FOR EACH hPrice IN hData["result"]["capturedLists"]["Preise"]
+                           IF ValType(hPrice) != "H"
+                              LOOP
+                           ENDIF
                            IF HHasKey(hPrice,"Menge") .AND. ValType(hPrice["Menge"]) == "C"
                               nQty := hPrice["Menge"]
                            ELSEIF HHasKey(hPrice,"Menge") .AND. ValType(hPrice["Menge"]) == "N"

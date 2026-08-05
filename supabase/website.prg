@@ -15,6 +15,62 @@ PROC SYNC_Supabase_Website()
    ENDIF
 RETURN
 
+*  ---------------------------------------------------------------------------
+*  Testlauf: schickt die ersten <nArticles> Artikel (Default 20) MIT Preisen an
+*  die CMS-Function - ohne die 7-Tage-Drossel, ohne LastPrUpd zu schreiben und
+*  mit is_last_batch = .F. (loest KEINEN Channel-Export aus). Danach in Supabase
+*  product_tier_prices gegen die ERP-Werte pruefen, bevor der Volllauf startet.
+*  ---------------------------------------------------------------------------
+PROC SYNC_Supabase_Website_Test(nArticles)
+   LOCAL oRest := RestApi():New()
+   LOCAL cUrl := "functions/v1/erp-product-sync"
+   LOCAL aHeader := {}
+   LOCAL hData
+   LOCAL aProducts
+   LOCAL hBatch
+   LOCAL cResponse
+
+   IF nArticles == NIL
+      nArticles := 20
+   ENDIF
+
+   Head("TEST Sync Supabase Website (" + LTrim(Str(nArticles)) + " Artikel)")
+
+   oRest:cBaseUrl := "https://kooxwelqbqplbryoxbya.supabase.co/"
+   oRest:cApiKeyName := "WEBSITE"
+   AAdd(aHeader, "Authorization: Bearer $APIKEY$")
+
+   // nLimit=nArticles, lForcePrices=.T., lNoStamp=.T. -> nicht-destruktiver Test
+   hData := _BuildProductsJson(nArticles, .T., .T.)
+   aProducts := IF(HHasKey(hData, "products"), hData["products"], {})
+
+   ? "Gebaute Produkte: " + LTrim(Str(Len(aProducts)))
+   IF Empty(aProducts)
+      ? "Keine Produkte gebaut - Test abgebrochen."
+      IF ! GetConfigValue("BATCHMODE")
+         SInkey(0)
+      ENDIF
+      RETURN
+   ENDIF
+
+   hBatch := {=>}
+   hBatch["products"]      := aProducts
+   hBatch["batch_id"]      := "test"
+   hBatch["is_last_batch"] := .F.     // wichtig: keinen Channel-Export ausloesen
+
+   //gtSetClipboard(HB_JsonEncode(hBatch))  // optional: JSON in die Zwischenablage
+
+   cResponse := oRest:Execute(cUrl, "POST", hBatch, aHeader, .T.)
+
+   ? "Antwort: " + cResponse
+   _PrintProductSyncResponse(cResponse)
+
+   IF ! GetConfigValue("BATCHMODE")
+      ? "Test abgeschlossen. Taste druecken..."
+      SInkey(0)
+   ENDIF
+RETURN
+
 STATIC PROCEDURE _SyncOptionsToSupabase(oRest)
    LOCAL cUrl := "functions/v1/erp-options-sync"
    LOCAL cResponse
@@ -188,7 +244,7 @@ STATIC FUNCTION _BuildOptionsJson()
    //RestEnv(aEnv,.F.)
 RETURN hResult
 
-STATIC FUNCTION _BuildProductsJson()
+STATIC FUNCTION _BuildProductsJson(nLimit, lForcePrices, lNoStamp)
    LOCAL aEnv := SaveEnv()
    LOCAL hResult := {=>}
    LOCAL aProducts := {}
@@ -207,6 +263,15 @@ STATIC FUNCTION _BuildProductsJson()
    LOCAL cWaldom := Pad("WALDOM",8)
    LOCAL nTotal,nCount := 0
 
+   IF nLimit == NIL          // 0 = alle Produkte (Produktion)
+      nLimit := 0
+   ENDIF
+   IF lForcePrices == NIL    // .T. = 7-Tage-Drossel umgehen (Test)
+      lForcePrices := .F.
+   ENDIF
+   IF lNoStamp == NIL        // .T. = LastPrUpd nicht schreiben (Test, nicht-destruktiv)
+      lNoStamp := .F.
+   ENDIF
 
    @ 01,00 SAY "Lese Produktdaten aus ERP..."
 
@@ -234,7 +299,7 @@ STATIC FUNCTION _BuildProductsJson()
    ENDIF
    
    //shop->(dbSeek("PX0587"))
-   DO WHILE ! shop->(EOF()) //.AND. Len(aProducts) < 10
+   DO WHILE ! shop->(EOF()) .AND. (nLimit == 0 .OR. Len(aProducts) < nLimit)
       nCount++
       @ 03,00 SAY Str(nCount)+"/"+LTrim(Str(nTotal))
       IF shop->Artikelnr != 0
@@ -253,7 +318,7 @@ STATIC FUNCTION _BuildProductsJson()
                AAdd(aProducts, hProduct)
             ELSE
                hProduct := hProducts[cProductNumber]
-               aTierPrices := hProduct["tier_prices"]
+               aTierPrices := IF(HHasKey(hProduct, "tier_prices"), hProduct["tier_prices"], {})
             ENDIF
 
             oArtikel := Artikel():New()
@@ -261,9 +326,7 @@ STATIC FUNCTION _BuildProductsJson()
 
             _ApplyProductStockData(hProduct, oArtikel, nCurWeek, cWaldom)
             
-            IF StoT(shop->LastPrUpd) < DateTime()-7*24*3600 //only update every 7 days 
-               hProduct["tier_prices"] := aTierPrices
-               
+            IF lForcePrices .OR. StoT(shop->LastPrUpd) < DateTime()-7*24*3600 //only update every 7 days
                aPrices := oArtikel:GetSellPrices(Date())
 
                IF Len(aPrices) > 0
@@ -282,7 +345,19 @@ STATIC FUNCTION _BuildProductsJson()
                      AAdd(aTierPrices, hTier)
                   ENDIF
                NEXT
-               IF ValType(hTier) == "H" .AND. Len(hTier) > 0
+
+               // Only include tier_prices when we have a complete staffel list.
+               // The CMS treats a present tier_prices array as delete-and-replace,
+               // so an empty array would wipe the article's prices; omitting the
+               // field leaves the existing CMS prices untouched.
+               IF Len(aTierPrices) > 0
+                  hProduct["tier_prices"] := aTierPrices
+               ENDIF
+
+               // Advance the throttle stamp whenever prices were recomputed,
+               // even if none were found, so the 7-day cadence holds for
+               // price-less articles too. Skipped in test mode (lNoStamp).
+               IF ! lNoStamp
                   shop->(Rec_Lock())
                   shop->LastPrUpd := TtoS(DateTime())
                   shop->(dbUnLock())
@@ -304,11 +379,10 @@ STATIC FUNCTION _BuildProductsJson()
                AAdd(aProducts, hProduct)
             ELSE
                hProduct := hProducts[cProductNumber]
-               aTierPrices := hProduct["tier_prices"]
+               aTierPrices := IF(HHasKey(hProduct, "tier_prices"), hProduct["tier_prices"], {})
             ENDIF
 
-            IF StoT(shop->LastPrUpd) < DateTime()-7*24*3600 //only update every 7 days
-               hProduct["tier_prices"] := aTierPrices
+            IF lForcePrices .OR. StoT(shop->LastPrUpd) < DateTime()-7*24*3600 //only update every 7 days
                aOnpowPrices := ONPOW_PRICING(Trim(shop->Matchcode))
                FOR nX := 1 TO Len(aOnpowPrices)
                   nQty := aOnpowPrices[nX,1]
@@ -320,7 +394,14 @@ STATIC FUNCTION _BuildProductsJson()
                      AAdd(aTierPrices, hTier)
                   ENDIF
                NEXT
-               IF ValType(hTier) == "H" .AND. Len(hTier) > 0
+
+               // See the Artikelnr branch: never send an empty array (it deletes
+               // the article's prices), and always advance the throttle stamp.
+               IF Len(aTierPrices) > 0
+                  hProduct["tier_prices"] := aTierPrices
+               ENDIF
+
+               IF ! lNoStamp
                   shop->(Rec_Lock())
                   shop->LastPrUpd := Ttos(DateTime())
                   shop->(dbUnLock())

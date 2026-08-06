@@ -207,76 +207,83 @@ FUNCTION RUN_FREPPLE_EXPORT()
          ENDIF
       
          DO WHILE ali->Artikelnr == art->Artikelnr
-            IF Trim(ali->Kunde) $ aOnlineSupplier 
-               IF ! lBuyOnline               
-                  Aadd(aItemSuppliers,{art->Artikelnr,cMatch,cOnlineSupplier,cDefaultLocation,(0+nAddWeeks)*7*24*60*60,0,0,0,200})         
-                  Eval(bAddSupplier,cOnlineSupplier)       
-               ENDIF
-               lHasSupplier := .T.     
-               lBuyOnline := .T.
-            ELSEIF ! Trim(ali->Kunde) $ aNotSupplier
-               IF Trim(ali->Kunde) == "WALDOM"  //hard coded priority for Waldom
-                  nPrio := 2
-               ELSEIF manu->(dbSeek( Str(art->Manufactur,5) )) .AND. manu->Address != 0 .AND. ku->(dbSeek( Str(manu->Address,6) )) .AND. ali->Kunde == ku->Kunde  //the manufacturer has a higher priority
-                  nPrio := 1
-               ELSE
-                  nPrio := 9
-               ENDIF
-
-               //delivery time
-               IF ali->LZ != 0 //if set on the item supplier
-                  nLZ := ali->LZ
-               ELSEIF art->LZ != 0 //if set on the item we use this instead
-                  nLZ := art->LZ
-               ELSE  //none found use the default
-                  nLZ := nDefaultLZ
-               ENDIF
-               nLZ += nAddWeeks //add the extra time
-
-               cResource := ""
-               IF lsto->(dbSeek( ali->Kunde+Str(art->Artikelnr,6) )) .AND. lsto->Stock+lsto->DelQty != 0 //Stocking supplier                  
-                  
-                  cResource := Trim(ali->Kunde)+":"+Trim(art->Matchcode)                 
-
-                  //increase Prio so stocking suppliers are used first
-                  IF nPrio > 3
-                     nPrio := 3
+            IF ali->Priority < 9               
+               ku->(dbSetOrder( 1 ))
+               ku->(dbSeek( ali->Kunde+"L" ))
+               oExtra := ku->(ExtraData():New(ku->Nummer))
+               
+               IF Trim(ali->Kunde) $ aOnlineSupplier 
+                  IF ! lBuyOnline               
+                     Aadd(aItemSuppliers,{art->Artikelnr,cMatch,cOnlineSupplier,cDefaultLocation,(0+oExtra:RecvTime/5)*7*24*60*60,0,0,0,200})         
+                     Eval(bAddSupplier,cOnlineSupplier)       
                   ENDIF
-                  
-
-                  //add maximumm calendar, in this case the value is the stock, we give it the same name as the resource
-                  //we set the degault value to a high number
-                  Aadd(aCalendars,{cResource,99999})
-                  //add a resource to model the stock capacity using the maximum calendar we just set up
-                  Aadd(aResource,{cResource,"",cDefaultLocation,"buckets",cResource}) //Name,Owner,Location,Type,Maximum Calendar
-
-                  aCalBucket := {cResource,Date(),,lsto->Stock,10}                  
-                  IF lsto->DelQty != 0
-                     aCalBucket[3] := Date()+lsto->DelTime
+                  lHasSupplier := .T.     
+                  lBuyOnline := .T.
+               ELSEIF ! Trim(ali->Kunde) $ aNotSupplier
+                  /*IF Trim(ali->Kunde) == "WALDOM"  //hard coded priority for Waldom
+                     nPrio := 2
+                  ELSEIF manu->(dbSeek( Str(art->Manufactur,5) )) .AND. manu->Address != 0 .AND. ku->(dbSeek( Str(manu->Address,6) )) .AND. ali->Kunde == ku->Kunde  //the manufacturer has a higher priority
+                     nPrio := 1
                   ELSE
-                     aCalBucket[3] := CalWD(AddWeeks(CWeek(Date()),nLZ))
+                     nPrio := 9
+                  ENDIF*/
+                  nPrio := ali->Priority
+
+                  //delivery time
+                  IF ali->LZ != 0 //if set on the item supplier
+                     nLZ := ali->LZ
+                  ELSEIF art->LZ != 0 //if set on the item we use this instead
+                     nLZ := art->LZ
+                  ELSE  //none found use the default
+                     nLZ := nDefaultLZ
                   ENDIF
+                  nLZ += oExtra:RecvTime/5 //nAddWeeks //add the extra time
 
-                  FOR nX := 1 TO 5
-                     Aadd(aCalBucket,"True")
-                  NEXT
-                  Aadd(aCalBuckets,aCalBucket)
+                  cResource := ""
+                  IF lsto->(dbSeek( ali->Kunde+Str(art->Artikelnr,6) )) .AND. lsto->Stock+lsto->DelQty != 0 //Stocking supplier                  
+                     
+                     cResource := Trim(ali->Kunde)+":"+Trim(art->Matchcode)                 
 
-                  IF lsto->DelQty != 0
-                     aCalBucket := {cResource,Date()+lsto->DelTime,CalWD(AddWeeks(CWeek(Date()),nLZ)),lsto->DelQty,20}
+                     //increase Prio so stocking suppliers are used first
+                     IF nPrio > 2
+                        nPrio := 2
+                     ENDIF
+                     
+
+                     //add maximumm calendar, in this case the value is the stock, we give it the same name as the resource
+                     //we set the degault value to a high number
+                     Aadd(aCalendars,{cResource,99999})
+                     //add a resource to model the stock capacity using the maximum calendar we just set up
+                     Aadd(aResource,{cResource,"",cDefaultLocation,"buckets",cResource}) //Name,Owner,Location,Type,Maximum Calendar
+
+                     aCalBucket := {cResource,Date(),,lsto->Stock,10}                  
+                     IF lsto->DelQty != 0
+                        aCalBucket[3] := Date()+lsto->DelTime
+                     ELSE
+                        aCalBucket[3] := CalWD(AddWeeks(CWeek(Date()),nLZ))
+                     ENDIF
 
                      FOR nX := 1 TO 5
                         Aadd(aCalBucket,"True")
                      NEXT
                      Aadd(aCalBuckets,aCalBucket)
-                  ENDIF
 
-                  nLZ := nAddWeeks //lead time is always immediate, the rest is regulated by the calendar
+                     IF lsto->DelQty != 0
+                        aCalBucket := {cResource,Date()+lsto->DelTime,CalWD(AddWeeks(CWeek(Date()),nLZ)),lsto->DelQty,20}
+
+                        FOR nX := 1 TO 5
+                           Aadd(aCalBucket,"True")
+                        NEXT
+                        Aadd(aCalBuckets,aCalBucket)
+                     ENDIF
+
+                     nLZ := nAddWeeks //lead time is always immediate, the rest is regulated by the calendar
+                  ENDIF
+                  
+                  Aadd(aItemSuppliers,{art->Artikelnr,cMatch,Trim(ali->Kunde),cDefaultLocation,nLZ*7*24*60*60,ali->VPE,IF(ali->VPE==0,10^(GetMeDecimals(art->Me)*-1),ali->VPE),0,nPrio,cResource})         
+                  Eval(bAddSupplier,ali->Kunde)
+                  lHasSupplier := .T.
                ENDIF
-               
-               Aadd(aItemSuppliers,{art->Artikelnr,cMatch,Trim(ali->Kunde),cDefaultLocation,nLZ*7*24*60*60,ali->VPE,IF(ali->VPE==0,10^(GetMeDecimals(art->Me)*-1),ali->VPE),0,nPrio,cResource})         
-               Eval(bAddSupplier,ali->Kunde)
-               lHasSupplier := .T.
             ENDIF
             ali->(dbSkip())
    

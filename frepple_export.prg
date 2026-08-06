@@ -13,7 +13,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
    LOCAL nDefaultQSTime := GetValue("FREPPLE_QSTIME",30,"Default time used by QS if no job (minutes)")
    LOCAL cDefaultLocation := GetValue("FREPPLE_DEFAULT-LOCATION","Engelking","Location used when not a supplier")
    LOCAL aNotSupplier := {"SELF"}
-   LOCAL aOnlineSupplier := {} //"FARNELL","RS","MOUSER","DIGIKEY","ARROW","AVNET","ARROWUS","SCHUKAT","DISTRELE","TME","CONRAD","REICHELT","FUTURE","BšRKLIN","TTI","TTIUSA","SCHURICH"}
+   LOCAL aOnlineSupplier := {} //"FARNELL","RS","MOUSER","DIGIKEY","ARROW","AVNET","ARROWUS","SCHUKAT","DISTRELE","TME","CONRAD","REICHELT","FUTURE","Bï¿½RKLIN","TTI","TTIUSA","SCHURICH"}
    LOCAL cUnkownSupplier := "UNKNOWNSUPPLIER"
    LOCAL cOnlineSupplier := "ANYWHEREONLINE"
    LOCAL lIncludeSales := .T.
@@ -234,9 +234,15 @@ FUNCTION RUN_FREPPLE_EXPORT()
                nLZ += nAddWeeks //add the extra time
 
                cResource := ""
-               IF lsto->(dbSeek( ali->Kunde+Str(art->Artikelnr,6) )) //Stocking supplier                  
+               IF lsto->(dbSeek( ali->Kunde+Str(art->Artikelnr,6) )) .AND. lsto->Stock+lsto->DelQty != 0 //Stocking supplier                  
                   
                   cResource := Trim(ali->Kunde)+":"+Trim(art->Matchcode)                 
+
+                  //increase Prio so stocking suppliers are used first
+                  IF nPrio > 3
+                     nPrio := 3
+                  ENDIF
+                  
 
                   //add maximumm calendar, in this case the value is the stock, we give it the same name as the resource
                   //we set the degault value to a high number
@@ -434,7 +440,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
    ali->(dbSetOrder( 4 ))
    Select("part")
 
-   IF .F. //! GetConfigValue("BATCHMODE") .AND. Tr_MsgBox("Stcklisten und Arbeitspl„ne neu exportieren?",,{"Ja","Nein"}) == 2
+   IF .F. //! GetConfigValue("BATCHMODE") .AND. Tr_MsgBox("Stï¿½cklisten und Arbeitsplï¿½ne neu exportieren?",,{"Ja","Nein"}) == 2
       //this does not work properly 10.03.25
       aOperations := FParseEx(cPath+"operation.csv",",")
       aOperationResources := FParseEx(cPath+"operation resource.csv",",")
@@ -880,7 +886,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
       @ MaxRow()/2+2,MaxCol()/2-4 SAY "["+Str(bes->Besnr,6)+"]" COLOR c_five
       IF lIncludeSales .OR. bes->Artikelnr $ aRoutingItems .OR. bes->Artikelnr $ aMaterials 
          art->(dbSeek( Str(bes->Artikelnr,6) ))   
-         Eval(bAddItem) //artikel bereits vor der Prfung der Lagerf„hig hinzufgen, wegen Folgeartikel
+         Eval(bAddItem) //artikel bereits vor der Prï¿½fung der Lagerfï¿½hig hinzufï¿½gen, wegen Folgeartikel
          IF art->Lagerart      
             cMatch := Trim(bes->Matchcode)
             
@@ -1200,7 +1206,7 @@ FUNCTION RUN_FREPPLE_EXPORT()
          IF GetConfigValue("BATCHMODE")
             UnLockEntity("PPLEX",0)
             RETURN .F.
-         ELSEIF Tr_MsgBox(LTrim(Str(nErrorCount))+" Fehler. Fehlerprotokoll ”ffnen?",,{"Ja","Nein"}) == 1
+         ELSEIF Tr_MsgBox(LTrim(Str(nErrorCount))+" Fehler. Fehlerprotokoll ï¿½ffnen?",,{"Ja","Nein"}) == 1
             WAPI_ShellExecute(,"open",cErrorFile)
          ENDIF
       ENDIF

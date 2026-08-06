@@ -94,7 +94,7 @@ RETURN
 // window.crmPickerSelect(String(ref), type), captured by crmPickerSelect().
 // Returns a hash {"ref"=>nRef,"type"=>cType} or NIL if cancelled.
 //---------------------------------------------------------------------------
-STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyName, cValue, cQuote)
+STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyName, cValue, cQuote, cName)
 	LOCAL nW, cUrl
 
 	gcCrmNewRef  := ""
@@ -103,6 +103,11 @@ STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyNam
 	cUrl := "https://engelking-crm.lovable.app/picker?"
 	IF ! Empty(cEmail)
 		cUrl += "email=" + CrmUrlEncode(cEmail) + "&"
+	ENDIF
+	// Ansprechpartner-Name (APP-288): der Picker matcht bevorzugt ueber die
+	// email und faellt sonst auf den Namen zurueck bzw. legt neu an.
+	IF ! Empty(cName)
+		cUrl += "name=" + CrmUrlEncode(cName) + "&"
 	ENDIF
 	IF ! Empty(cSubject)
 		cUrl += "subject=" + CrmUrlEncode(cSubject) + "&"
@@ -342,6 +347,7 @@ FUNCTION CRM_QuoteAssign(nAngnr, cErpNumber, cKundenName,nRef)
 	LOCAL cType
 	LOCAL aValues, nValue := 0
 	LOCAL cSubject
+	LOCAL cContactName := "", cContactEmail := ""
 
 	Default(@cErpNumber,"")
 	Default(@cKundenName,"")
@@ -368,8 +374,11 @@ FUNCTION CRM_QuoteAssign(nAngnr, cErpNumber, cKundenName,nRef)
 	//    Die Angebotsnummer wird mitgegeben: der Picker speichert die Zuordnung
 	//    Angebot->Opportunity direkt beim Ausw�hlen/Anlegen (kein Assign-Call).
 	cSubject := "Angebot " + cQuoteNo
-	hSel := ShowCrmPicker("", cSubject, "opportunity", AllTrim(cErpNumber), AllTrim(cKundenName), ;
-		IF(nValue > 0, LTrim(Str(nValue,18,2)), ""), cQuoteNo)
+	// Ansprechpartner des Angebots aufloesen und an den Picker mitgeben, damit
+	// das CRM den Kontakt vorbefuellen kann (APP-288).
+	CrmAngebotContact(nAngnr, @cContactName, @cContactEmail)
+	hSel := ShowCrmPicker(cContactEmail, cSubject, "opportunity", AllTrim(cErpNumber), AllTrim(cKundenName), ;
+		IF(nValue > 0, LTrim(Str(nValue,18,2)), ""), cQuoteNo, cContactName)
 	IF hSel == NIL
 		RETURN .F.        // abgebrochen
 	ENDIF
@@ -507,3 +516,43 @@ METHOD Execute(cMethod, cUrl, hData) CLASS CrmQuoteApi
 	ENDIF
 
 RETURN xReturn
+
+//---------------------------------------------------------------------------
+// Loest den auf dem Angebot hinterlegten Ansprechpartner (ang->person) ueber
+// die Kundennummer zu Name/Email auf (fuer die CRM-Vorbefuellung, APP-288).
+// Best-effort: liefert bei fehlendem Kontakt leere Strings zurueck.
+//---------------------------------------------------------------------------
+STATIC PROCEDURE CrmAngebotContact(nAngnr, cName, cEmail)
+	LOCAL aEnv := SaveEnv()
+	LOCAL nPerson := 0, cKundma := ""
+	LOCAL hContact
+
+	cName  := ""
+	cEmail := ""
+
+	BEGIN SEQUENCE
+		NetUse("angebot", "ang", .F., 0)
+		ang->(dbSetOrder(1))
+		IF ang->(dbSeek(Str(nAngnr, 6)))
+			nPerson := ang->person
+			cKundma := ang->Kundma
+		ENDIF
+
+		IF nPerson > 0 .AND. ! Empty(cKundma)
+			NetUse("engkund", "ku", .F., 0)
+			ku->(dbSetOrder(1))
+			IF ku->(dbSeek(cKundma + "K"))
+				hContact := GetContact(nPerson)
+				IF ValType(hContact) == "H"
+					cName  := AllTrim(hContact["name"])
+					cEmail := AllTrim(hContact["email"])
+				ENDIF
+			ENDIF
+		ENDIF
+	RECOVER
+		cName  := ""
+		cEmail := ""
+	END SEQUENCE
+
+	RestEnv(aEnv, .F.)
+RETURN

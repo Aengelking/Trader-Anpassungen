@@ -104,6 +104,9 @@ FUNCTION RUN_WALDOM_ASN()
    ? "Waldom ASN sync finished."+IF(lApply,""," (nothing written - DRY RUN)")
    ? "Updated:",nUpdated,"Shipment lines:",nRows,"Errors:",nErrors
 
+   IF ! GetConfigVlaue("BATCHMODE")
+      Sinkey(0)
+   ENDIF
 RETURN nErrors == 0
 
 

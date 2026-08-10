@@ -3,7 +3,7 @@
 *:
 *: Schreibt die Tabelle liefstock (Lieferantenbestand, den ein Lieferant
 *: fuer uns haelt) aus den OFFENEN RAHMENBESTELLUNGEN - aber nur fuer
-*: Lieferanten, die per ExtraData-Flag STOCKSFRAMES als "lagert Ware fuer
+*: Lieferanten, die per ExtraData-Flag STOCKSFRAM als "lagert Ware fuer
 *: Rahmen" markiert sind.
 *:
 *: Damit fliesst die Rahmen-Deckung ueber EINE Quelle (liefstock) sowohl
@@ -15,7 +15,8 @@
 *: Ein Rahmen zaehlt erst, sobald der ERSTE Abruf (geplant oder geliefert)
 *: existiert - dann produziert/haelt der Lieferant die Menge. Ohne Abruf
 *: wird nichts geschrieben. Die Menge steht ab DelTime zur Verfuegung:
-*: (Wochen bis erster Abruf, min 0) + ShipTime.
+*: (Wochen bis erster Abruf, min 0) + ShipTime, in Tagen, plus RecvTime
+*: (Wareneingangs-/Ruecklaufzeit des Lieferanten, ExtraData).
 *:
 *: WICHTIG: Fuer geflaggte Lieferanten "besitzt" dieser Job deren
 *: liefstock-Saetze (schreibt/nullt sie). Lieferanten mit externem Feed
@@ -23,9 +24,9 @@
 *:*********************************************************************
 
 FUNCTION RUN_FRAME_STOCK()
-   LOCAL hSup := {=>}          //Key: 8-stelliger Lieferant-Code -> .T.
+   LOCAL hSup := {=>}          //Key: 8-stelliger Lieferant-Code -> RecvTime (Tage)
    LOCAL hFrame := {=>}        //Key: "<Liefma8>|<Artikelnr>" -> { Menge, ShipTime, ersteAbrufKW }
-   LOCAL nId, cLief, cKey, oVal, nArtnr, nFirst
+   LOCAL nId, cLief, cKey, oVal, nArtnr, nFirst, oExtra
    LOCAL nCurWeek := CWeek(Date())
    LOCAL nWrote := 0, nCleared := 0, nSup := 0
 
@@ -37,11 +38,14 @@ FUNCTION RUN_FRAME_STOCK()
    //ExtraData-Editor sichtbar und pro Lieferant setzbar.
    ku->(ExtraData():New(0)):Create("STOCKSFRAM","Lagert Ware fuer Rahmen","L",.F.)
 
-   //Geflaggte Lieferanten sammeln: Nummer -> Kunde-Code (8-stellig gepaddet)
+   //Geflaggte Lieferanten sammeln: Kunde-Code (8-stellig) -> RecvTime (Tage).
+   //RecvTime = Wareneingangs-/Ruecklaufzeit des Lieferanten (ExtraData); wird
+   //unten zur Verfuegbarkeit (DelTime) addiert.
    ku->(dbSetOrder(8))   //nach Nummer
    FOR EACH nId IN GetIdsWithExtraField("KU","STOCKSFRAM")
       IF ku->(dbSeek(Str(nId,6))) .AND. ku->Group == "L"
-         hSup[Pad(Trim(ku->Kunde),8)] := .T.
+         oExtra := ku->(ExtraData():New(ku->Nummer))
+         hSup[Pad(Trim(ku->Kunde),8)] := IF(oExtra:HasField("RECVTIME"),oExtra:RecvTime,0)
          nSup++
       ENDIF
    NEXT
@@ -100,8 +104,10 @@ FUNCTION RUN_FRAME_STOCK()
       //rechnet mit Stock+DelQty als deckbarer Menge und DelTime als Lieferzeit.
       lsto->Stock   := 0
       //verfuegbar ab: Wochen bis zum ersten Abruf (min 0, falls schon vorbei)
-      //plus ShipTime, in Tagen. So wie es checkstock frueher gerechnet hat.
-      lsto->DelTime := (Max(0, WeeksBetween(nCurWeek, oVal[3])) + oVal[2]) * 7
+      //plus ShipTime (Transport), in Tagen, plus RecvTime (Wareneingang/Ruecklauf
+      //des Lieferanten, hSup[cLief]). RecvTime hier eingerechnet, damit checkstock
+      //UND frepple - die beide nur DelTime lesen - sie beruecksichtigen.
+      lsto->DelTime := (Max(0, WeeksBetween(nCurWeek, oVal[3])) + oVal[2]) * 7 + hSup[cLief]
       lsto->DelQty  := oVal[1]
       lsto->(dbUnLock())
       nWrote++

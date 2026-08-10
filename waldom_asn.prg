@@ -4,41 +4,48 @@
 // RUN_WALDOM_ASN - Download and process the Waldom "Advance Ship Notice" (ASN).
 //
 // Extends the existing Waldom API integration (waldom_order_status.prg). For
-// every open Waldom purchase order it pulls the shipment/ASN data from the
-// Waldom REST API and writes the actual shipping information back onto the
-// matching engbes (bes) purchase-order line (position level):
+// every open Waldom purchase order it pulls the ASN from the Waldom REST API
 //
-//      bes->Tracking   tracking number
+//      GET /api/v1/<ApiKey>/AsnAPI/<PONumber>
+//
+// and writes the actual shipping information back onto the matching engbes (bes)
+// purchase-order line (position level):
+//
+//      bes->Tracking   carrier tracking id
 //      bes->Shipped    ship date
-//      bes->Carrier    carrier / forwarder      (only if the field exists)
+//      bes->Carrier    carrier type            (only if the field exists)
+//      bes->AbNr       Waldom order number
+//      bes->LTerm      delivery week (from the ASN delivery date)
+//      bes->Confirmed  "Y"
+//
+// Optionally (lApplyReceipt) it also advances the delivered quantity (GelQty)
+// from the shipped quantity - OFF by default, because booking a goods receipt is
+// a bigger intervention into stock.
 //
 // Schedule-level writes (besdel/bdel, when a Liefereinteilung exists) mirror the
 // mcp_stdio confirm_shipment flow and are a documented extension point, not yet
 // wired up here.
 //
-// Optionally (lApplyReceipt) it also advances the delivered quantity (GelQty)
-// from the shipped quantity - OFF by default, because booking a goods receipt
-// is a bigger intervention into stock.
+// ASN RESPONSE SCHEMA (Waldom Swagger, text/plain JSON body)
+//   { "orders": [ {                       one entry per packing list / shipment
+//        "packingListNumber","orderNumber","partnerOrderNumber",
+//        "deliveryDate","shipDate","customerRequestedDate","orderDate",
+//        "carrier": { "carrierType","carrierTrackingId","carrierRouting" },
+//        "weight":  { "grossWeight","weightUom" },
+//        "lineItems": [ {
+//           "shipmentLineNumber","orderLineNumber","buyerPartNumber",
+//           "supplierPartNumber","manufacturerName","countryOrigin","uom",
+//           "shipmentQuantity","customerOrderQty" } ] } ],
+//     "addresses": { "shipTo": {...}, "shipFrom": {...} } }
 //
 // SAFETY / STATUS
 //   Like RUN_WALDOM_ORDER_STATUS, this script defaults to a DRY RUN
-//   (lApply := .F.): it prints every match and what it WOULD write, but does
-//   not touch the database. Set lApply := .T. once the field mapping has been
-//   verified against real ASN responses.
+//   (lApply := .F.): it prints every match and what it WOULD write, but does not
+//   touch the database. Set lApply := .T. once the mapping has been verified
+//   against real ASN responses.
 //
-// ENDPOINT / FIELD NAMES
-//   The Waldom API docs are not reachable from the build box, so the exact ASN
-//   endpoint path and the shipment field names could not be confirmed here.
-//   Everything that depends on the Waldom response contract is isolated at the
-//   top of RUN_WALDOM_ASN (cEndpoint) and in _AsnMapShipment (the candidate
-//   key lists passed to _AsnGetAny). The default endpoint reuses the known-good
-//   "OrderAPI/<PoNumber>" call, whose OrderItems[].Shipments[] nodes already
-//   carry the shipment data. On the first run the script logs the raw keys of
-//   the first shipment node it sees ("ASN shipment keys:") so the real field
-//   names can be read off a live response and pinned down without guessing.
-//
-// All database writes and the LetoDBF/curl calls are only really exercised by
-// the Windows build - they are not verifiable on the Linux syntax-check box.
+//   All database writes and the LetoDBF/curl calls are only really exercised by
+//   the Windows build - they are not verifiable on the Linux syntax-check box.
 //----------------------------------------------------------------------------//
 
 #define WALD_DATE_FORMAT "yyyy-mm-dd"
@@ -47,17 +54,16 @@ FUNCTION RUN_WALDOM_ASN()
    LOCAL cSupplier := Pad("WALDOM",8)
 
    LOCAL cMethod   := "GET"
-   LOCAL cEndpoint := "OrderAPI/"                 // ASN endpoint prefix, + PoNumber
+   LOCAL cEndpoint := "AsnAPI/"                   // ASN endpoint prefix, + PONumber
    LOCAL aHeaders  := {"Accept: text/plain"}
    LOCAL lVerifySsl := .T.
    LOCAL cApiKey   := "f6699e54-8f8d-4989-a039-5b6d663bea06"  // sent in the URL, not a secret
 
    LOCAL lApply        := .F.   // .F. = dry run (report only), .T. = write to DB
    LOCAL lApplyReceipt := .F.   // .T. = also advance GelQty from shipped quantity
-   LOCAL lKeysLogged   := .F.   // log the shipment keys once, on the first node
 
    LOCAL oApi := RestAPI():New()
-   LOCAL aPOs,nPO,hReq
+   LOCAL aPOs,nPO
    LOCAL cData,nResponse := 0,cResponse := ""
    LOCAL xParsed,aRows
    LOCAL nUpdated := 0,nRows := 0,nErrors := 0
@@ -73,10 +79,12 @@ FUNCTION RUN_WALDOM_ASN()
 
    FOR EACH nPO IN aPOs
 
-      hReq := {=>}
-      hReq["PoNumber"] := LTrim(Str(nPO))
+      cData := oApi:Execute(cEndpoint+LTrim(Str(nPO)),cMethod,{=>},aHeaders,.F.,@nResponse,@cResponse)
 
-      cData := oApi:Execute(cEndpoint+LTrim(Str(nPO)),cMethod,hReq,aHeaders,.F.,@nResponse,@cResponse)
+      // 404 just means "no ASN for this PO yet" - not an error worth counting
+      IF nResponse == 404
+         LOOP
+      ENDIF
       IF nResponse < 200 .OR. nResponse >= 300
          ? "PO",LTrim(Str(nPO)),"HTTP",nResponse,cResponse
          nErrors++
@@ -91,15 +99,14 @@ FUNCTION RUN_WALDOM_ASN()
          LOOP
       ENDIF
 
-      aRows := _AsnExtractRows(xParsed,@lKeysLogged)
+      aRows := _AsnExtractRows(xParsed)
       nRows += Len(aRows)
-      nUpdated += _AsnApplyRows(nPO,cSupplier,aRows,_AsnGetAny(xParsed,{"OrderId","OrderID"}),;
-                                lApply,lApplyReceipt)
+      nUpdated += _AsnApplyRows(nPO,cSupplier,aRows,lApply,lApplyReceipt)
 
    NEXT
 
    ? "Waldom ASN sync finished."+IF(lApply,""," (nothing written - DRY RUN)")
-   ? "Updated:",nUpdated,"Shipment rows:",nRows,"Errors:",nErrors
+   ? "Updated:",nUpdated,"Shipment lines:",nRows,"Errors:",nErrors
 
 RETURN nErrors == 0
 
@@ -126,28 +133,28 @@ RETURN aPOs
 
 
 //----------------------------------------------------------------------------//
-// Flatten the response into one row per shipped line.
+// Flatten the ASN into one row per shipped line item, carrying the shipment
+// header (tracking, dates, carrier, AB number) down onto every line.
 //----------------------------------------------------------------------------//
-STATIC FUNCTION _AsnExtractRows(xData,lKeysLogged)
+STATIC FUNCTION _AsnExtractRows(xData)
    LOCAL aRows := {}
-   LOCAL xItems := _AsnGetAny(xData,{"OrderItems","Items","Lines"})
-   LOCAL xItem,xShipments,xShip,hRow
+   LOCAL xOrders := _AsnGetAny(xData,{"orders","Orders"})
+   LOCAL xOrder,xLines,xLine,hRow
 
-   IF ValType(xItems) != "A"
+   IF ValType(xOrders) != "A"
       RETURN aRows
    ENDIF
 
-   FOR EACH xItem IN xItems
-      xShipments := _AsnGetAny(xItem,{"Shipments","Shipment","ShipNotices","ASN"})
-      IF ValType(xShipments) != "A"
+   FOR EACH xOrder IN xOrders
+      IF ValType(xOrder) != "H"
          LOOP
       ENDIF
-      FOR EACH xShip IN xShipments
-         IF ! lKeysLogged .AND. ValType(xShip) == "H"
-            ? "ASN shipment keys:",_AsnKeyList(xShip)
-            lKeysLogged := .T.
-         ENDIF
-         hRow := _AsnMapShipment(xItem,xShip)
+      xLines := _AsnGetAny(xOrder,{"lineItems","LineItems"})
+      IF ValType(xLines) != "A"
+         LOOP
+      ENDIF
+      FOR EACH xLine IN xLines
+         hRow := _AsnMapLine(xOrder,xLine)
          IF ! Empty(hRow)
             Aadd(aRows,hRow)
          ENDIF
@@ -158,21 +165,23 @@ RETURN aRows
 
 
 //----------------------------------------------------------------------------//
-// Map one shipment node to the fields we care about. All key names are
-// candidate lists so the mapping tolerates naming variants (see header note).
-// Only rows that actually carry shipment info (tracking or ship date) are kept.
+// Map one (shipment header + line item) pair to the fields we care about.
+// Only lines that actually carry shipment info (tracking or ship date) are kept.
 //----------------------------------------------------------------------------//
-STATIC FUNCTION _AsnMapShipment(xItem,xShip)
-   LOCAL cPart := _AsnNorm(_AsnToStr(_AsnGetAny(xItem,{"PartNumber","Part","ItemNumber"})))
-   LOCAL cTracking := AllTrim(_AsnToStr(_AsnGetAny(xShip,{"TrackingNumber","Tracking","TrackingNo","Waybill","AWB"})))
-   LOCAL dShipped  := _AsnToDate(_AsnGetAny(xShip,{"ShipDate","ShippedDate","ShipmentDate","ActualShipDate"}))
-   LOCAL cCarrier  := AllTrim(_AsnToStr(_AsnGetAny(xShip,{"Carrier","CarrierName","ShipVia","Forwarder"})))
-   LOCAL nQty      := _AsnToNum(_AsnGetAny(xShip,{"ShippedQuantity","ShippedQty","Quantity","Qty"}))
-   LOCAL cPromise  := AllTrim(_AsnToStr(_AsnGetAny(xShip,{"PromiseDate","EstimatedDeliveryDate","DeliveryDate"})))
-   LOCAL cAsnNo    := AllTrim(_AsnToStr(_AsnGetAny(xShip,{"AsnNumber","ASNNumber","ShipNoticeNumber","PackingSlip"})))
+STATIC FUNCTION _AsnMapLine(xOrder,xLine)
+   LOCAL xCarrier := _AsnGetAny(xOrder,{"carrier","Carrier"})
+   LOCAL cTracking := AllTrim(_AsnToStr(_AsnGetAny(xCarrier,{"carrierTrackingId"})))
+   LOCAL cCarrier  := AllTrim(_AsnToStr(_AsnGetAny(xCarrier,{"carrierType"})))
+   LOCAL dShipped  := _AsnToDate(_AsnGetAny(xOrder,{"shipDate"}))
+   LOCAL cDelivery := AllTrim(_AsnToStr(_AsnGetAny(xOrder,{"deliveryDate"})))
+   LOCAL cAB       := AllTrim(_AsnToStr(_AsnGetAny(xOrder,{"orderNumber"})))
+   LOCAL cPacking  := AllTrim(_AsnToStr(_AsnGetAny(xOrder,{"packingListNumber"})))
+   LOCAL cBuyer    := _AsnNorm(_AsnGetAny(xLine,{"buyerPartNumber"}))
+   LOCAL cSupplier := _AsnNorm(_AsnGetAny(xLine,{"supplierPartNumber"}))
+   LOCAL nQty      := _AsnToNum(_AsnGetAny(xLine,{"shipmentQuantity"}))
    LOCAL hRow := {=>}
 
-   IF Empty(cPart)
+   IF Empty(cBuyer) .AND. Empty(cSupplier)
       RETURN {=>}
    ENDIF
    // nothing shipped yet -> not an ASN line, skip
@@ -180,13 +189,15 @@ STATIC FUNCTION _AsnMapShipment(xItem,xShip)
       RETURN {=>}
    ENDIF
 
-   hRow["PART"]     := cPart
-   hRow["TRACKING"] := cTracking
-   hRow["SHIPPED"]  := dShipped
-   hRow["CARRIER"]  := cCarrier
-   hRow["QTY"]      := nQty
-   hRow["PROMISE"]  := cPromise
-   hRow["ASNNO"]    := cAsnNo
+   hRow["BUYERPART"]  := cBuyer
+   hRow["SUPPART"]    := cSupplier
+   hRow["TRACKING"]   := cTracking
+   hRow["CARRIER"]    := cCarrier
+   hRow["SHIPPED"]    := dShipped
+   hRow["DELIVERY"]   := cDelivery
+   hRow["AB"]         := cAB
+   hRow["PACKING"]    := cPacking
+   hRow["QTY"]        := nQty
 
 RETURN hRow
 
@@ -194,7 +205,7 @@ RETURN hRow
 //----------------------------------------------------------------------------//
 // Match the shipment rows to bes lines and (optionally) write them.
 //----------------------------------------------------------------------------//
-STATIC FUNCTION _AsnApplyRows(nPO,cSupplier,aRows,cOrderId,lApply,lApplyReceipt)
+STATIC FUNCTION _AsnApplyRows(nPO,cSupplier,aRows,lApply,lApplyReceipt)
    LOCAL hUsed := {=>}
    LOCAL hRow,nRec,nUpdated := 0
 
@@ -202,12 +213,12 @@ STATIC FUNCTION _AsnApplyRows(nPO,cSupplier,aRows,cOrderId,lApply,lApplyReceipt)
       RETURN 0
    ENDIF
 
-   ? "PO",nPO,"AB",_AsnToStr(cOrderId)
+   ? "PO",nPO
    FOR EACH hRow IN aRows
       nRec := _AsnFindBesRec(nPO,cSupplier,hRow,hUsed)
       IF nRec != 0
          ? "  Match:",ValToPrg(hRow)
-         IF _AsnUpdateRec(nRec,hRow,cOrderId,lApply,lApplyReceipt)
+         IF _AsnUpdateRec(nRec,hRow,lApply,lApplyReceipt)
             hUsed[Str(nRec,10)] := .T.
             nUpdated++
          ENDIF
@@ -220,13 +231,15 @@ RETURN nUpdated
 
 
 //----------------------------------------------------------------------------//
-// Find the open bes line for this PO whose part matches the shipment. Matches
-// on the supplier part (artlief) or the internal matchcode. Unlike the order-
-// status matcher we do NOT require an exact ordered-quantity match, because a
-// shipment may deliver a partial quantity.
+// Find the open bes line for this PO whose part matches the shipment. The ASN
+// carries both the buyer part and the supplier part; match either against the
+// internal matchcode or the supplier part (artlief). Unlike the order-status
+// matcher we do NOT require an exact ordered-quantity match, because a shipment
+// may deliver a partial quantity.
 //----------------------------------------------------------------------------//
 STATIC FUNCTION _AsnFindBesRec(nPO,cSupplier,hRow,hUsed)
-   LOCAL cPart := _AsnNorm(hRow["PART"])
+   LOCAL cBuyer := _AsnNorm(hRow["BUYERPART"])
+   LOCAL cSupPart := _AsnNorm(hRow["SUPPART"])
    LOCAL cAliPart,cMatch
 
    bes->(dbSetOrder(1))   // Str(Besnr,6)+Str(Posnr,3)
@@ -242,7 +255,7 @@ STATIC FUNCTION _AsnFindBesRec(nPO,cSupplier,hRow,hUsed)
                ENDIF
                cMatch := _AsnNorm(bes->Matchcode)
 
-               IF cPart == cAliPart .OR. cPart == cMatch
+               IF _AsnPartMatch(cBuyer,cMatch,cAliPart) .OR. _AsnPartMatch(cSupPart,cMatch,cAliPart)
                   RETURN bes->(RecNo())
                ENDIF
             ENDIF
@@ -254,15 +267,23 @@ STATIC FUNCTION _AsnFindBesRec(nPO,cSupplier,hRow,hUsed)
 RETURN 0
 
 
+STATIC FUNCTION _AsnPartMatch(cPart,cMatch,cAliPart)
+   IF Empty(cPart)
+      RETURN .F.
+   ENDIF
+RETURN cPart == cMatch .OR. cPart == cAliPart
+
+
 //----------------------------------------------------------------------------//
 // Write the shipment data onto the bes line (and its Folge lines). In dry-run
 // mode nothing is written; the caller has already printed the match.
 //----------------------------------------------------------------------------//
-STATIC FUNCTION _AsnUpdateRec(nRec,hRow,cAB,lApply,lApplyReceipt)
+STATIC FUNCTION _AsnUpdateRec(nRec,hRow,lApply,lApplyReceipt)
    LOCAL cTracking := hRow["TRACKING"]
    LOCAL dShipped  := hRow["SHIPPED"]
    LOCAL cCarrier  := hRow["CARRIER"]
-   LOCAL nKW       := _AsnDateToKW(hRow["PROMISE"])
+   LOCAL cAB       := hRow["AB"]
+   LOCAL nKW       := _AsnDateToKW(hRow["DELIVERY"])
    LOCAL nPO,nPos
 
    bes->(dbGoto(nRec))
@@ -322,7 +343,7 @@ STATIC FUNCTION _AsnWriteFields(cTracking,dShipped,cCarrier,cAB,nKW,lApplyReceip
       bes->Carrier := cCarrier
    ENDIF
    IF ! Empty(cAB)
-      bes->AbNr := Pad(_AsnToStr(cAB),10)
+      bes->AbNr := Pad(cAB,10)
    ENDIF
    bes->Confirmed := "Y"
    IF nKW > 0
@@ -379,19 +400,6 @@ STATIC FUNCTION _AsnGetAny(hData,aKeys)
    NEXT
 
 RETURN NIL
-
-
-STATIC FUNCTION _AsnKeyList(hData)
-   LOCAL cList := "",cKey
-
-   IF ValType(hData) != "H"
-      RETURN ""
-   ENDIF
-   FOR EACH cKey IN hb_HKeys(hData)
-      cList += IF(Empty(cList),"",", ")+cKey
-   NEXT
-
-RETURN cList
 
 
 STATIC FUNCTION _AsnNorm(cVal)

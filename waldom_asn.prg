@@ -9,19 +9,28 @@
 //      GET /api/v1/<ApiKey>/AsnAPI/<PONumber>
 //
 // and writes ONLY the actual shipping information back onto the matching engbes
-// (bes) purchase-order line (position level):
+// (bes) purchase-order line:
 //
-//      bes->Tracking   carrier tracking id
-//      bes->Shipped    ship date
-//      bes->Carrier    carrier type            (only if the field exists)
+//      Tracking   carrier tracking id
+//      Shipped    ship date
+//      Carrier    carrier type            (only if the field exists)
 //
-// It deliberately does NOT touch AbNr, Confirmed, LTerm or GelQty - the delivery
-// week / order confirmation is the job of RUN_WALDOM_ORDER_STATUS, and the goods
+// PARTIAL DELIVERIES (Liefereinteilung / besdel)
+//   Mirrors the mcp_stdio confirm_shipment flow: when the position has a
+//   delivery schedule (besdel/bdel entries), the shipment is booked on the
+//   matching schedule entry, NOT on the position - the same rule the
+//   Bestellbestaetigung mask enforces (WHEN ! lHasPlan). The schedule entry for
+//   a shipment is located by its delivery week (deliveryDate -> JJWW == bdel
+//   Lterm), with the shipped quantity (bdel Qty == shipmentQuantity) as a
+//   fallback. Each partial shipment consumes a distinct schedule entry, so two
+//   ASN shipments of one position land on two different besdel weeks. Positions
+//   without a schedule are booked at position level as before.
+//
+//   NB: deliveryDate is only READ to locate the right schedule entry - LTerm is
+//   never written (the delivery week stays the job of RUN_WALDOM_ORDER_STATUS).
+//
+// It deliberately does NOT touch AbNr, Confirmed, LTerm or GelQty - the goods
 // receipt (GelQty) stays a manual booking.
-//
-// Schedule-level writes (besdel/bdel, when a Liefereinteilung exists) mirror the
-// mcp_stdio confirm_shipment flow and are a documented extension point, not yet
-// wired up here.
 //
 // ASN RESPONSE SCHEMA (Waldom Swagger, text/plain JSON body)
 //   { "orders": [ {                       one entry per packing list / shipment
@@ -66,6 +75,7 @@ FUNCTION RUN_WALDOM_ASN()
 
    NetUse("engbes","bes")
    NetUse("artlief","ali")
+   NetUse("besdel","bdel")
 
    oApi:cBaseUrl  := "https://api.waldomemea.com/api/v1/"+cApiKey+"/"
    oApi:lVerifySSL := lVerifySsl
@@ -133,7 +143,7 @@ RETURN aPOs
 
 //----------------------------------------------------------------------------//
 // Flatten the ASN into one row per shipped line item, carrying the shipment
-// header (tracking, ship date, carrier) down onto every line.
+// header (tracking, ship date, delivery date, carrier) down onto every line.
 //----------------------------------------------------------------------------//
 STATIC FUNCTION _AsnExtractRows(xData)
    LOCAL aRows := {}
@@ -165,13 +175,16 @@ RETURN aRows
 
 //----------------------------------------------------------------------------//
 // Map one (shipment header + line item) pair to the fields we care about.
-// Only lines that actually carry shipment info (tracking or ship date) are kept.
+// Only genuine shipment lines are kept: a positive shipped quantity AND a ship
+// date. The tracking id lives on the packing list and may legitimately be empty
+// (freight, carrier types without a trackable id), so it is NOT required.
 //----------------------------------------------------------------------------//
 STATIC FUNCTION _AsnMapLine(xOrder,xLine)
    LOCAL xCarrier := _AsnGetAny(xOrder,{"carrier","Carrier"})
    LOCAL cTracking := AllTrim(_AsnToStr(_AsnGetAny(xCarrier,{"carrierTrackingId"})))
    LOCAL cCarrier  := AllTrim(_AsnToStr(_AsnGetAny(xCarrier,{"carrierType"})))
    LOCAL dShipped  := _AsnToDate(_AsnGetAny(xOrder,{"shipDate"}))
+   LOCAL cDelivery := AllTrim(_AsnToStr(_AsnGetAny(xOrder,{"deliveryDate"})))
    LOCAL cPacking  := AllTrim(_AsnToStr(_AsnGetAny(xOrder,{"packingListNumber"})))
    LOCAL cBuyer    := _AsnNorm(_AsnGetAny(xLine,{"buyerPartNumber"}))
    LOCAL cSupplier := _AsnNorm(_AsnGetAny(xLine,{"supplierPartNumber"}))
@@ -181,10 +194,6 @@ STATIC FUNCTION _AsnMapLine(xOrder,xLine)
    IF Empty(cBuyer) .AND. Empty(cSupplier)
       RETURN {=>}
    ENDIF
-   // only genuine shipment lines: a positive shipped quantity AND a ship date.
-   // The tracking id lives on the packing list and may legitimately be empty
-   // (freight, carrier types without a trackable id), so it is NOT required -
-   // shipDate is the authoritative "shipped" flag.
    IF nQty <= 0 .OR. Empty(dShipped)
       RETURN {=>}
    ENDIF
@@ -194,6 +203,7 @@ STATIC FUNCTION _AsnMapLine(xOrder,xLine)
    hRow["TRACKING"]  := cTracking
    hRow["CARRIER"]   := cCarrier
    hRow["SHIPPED"]   := dShipped
+   hRow["DELIVERY"]  := cDelivery
    hRow["PACKING"]   := cPacking
    hRow["QTY"]       := nQty
 
@@ -201,10 +211,14 @@ RETURN hRow
 
 
 //----------------------------------------------------------------------------//
-// Match the shipment rows to bes lines and (optionally) write them.
+// Match the shipment rows to bes lines / besdel schedule entries and write them.
+// hUsedDel dedups schedule entries, hUsedBes dedups position-level bookings -
+// so several partial shipments of one position each consume their own besdel
+// week instead of overwriting each other.
 //----------------------------------------------------------------------------//
 STATIC FUNCTION _AsnApplyRows(nPO,cSupplier,aRows,lApply)
-   LOCAL hUsed := {=>}
+   LOCAL hUsedBes := {=>}
+   LOCAL hUsedDel := {=>}
    LOCAL hRow,nRec,nUpdated := 0
 
    IF Len(aRows) == 0
@@ -213,15 +227,14 @@ STATIC FUNCTION _AsnApplyRows(nPO,cSupplier,aRows,lApply)
 
    ? "PO",nPO
    FOR EACH hRow IN aRows
-      nRec := _AsnFindBesRec(nPO,cSupplier,hRow,hUsed)
-      IF nRec != 0
-         ? "  Match:",ValToPrg(hRow)
-         IF _AsnUpdateRec(nRec,hRow,lApply)
-            hUsed[Str(nRec,10)] := .T.
-            nUpdated++
-         ENDIF
-      ELSE
-         ? "  No match for:",ValToPrg(hRow)
+      nRec := _AsnFindBesRec(nPO,cSupplier,hRow)
+      IF nRec == 0
+         ? "  No matching position for:",ValToPrg(hRow)
+         LOOP
+      ENDIF
+      ? "  Match:",ValToPrg(hRow)
+      IF _AsnUpdateRec(nRec,hRow,lApply,hUsedBes,hUsedDel)
+         nUpdated++
       ENDIF
    NEXT
 
@@ -229,13 +242,13 @@ RETURN nUpdated
 
 
 //----------------------------------------------------------------------------//
-// Find the open bes line for this PO whose part matches the shipment. The ASN
-// carries both the buyer part and the supplier part; match either against the
-// internal matchcode or the supplier part (artlief). Unlike the order-status
-// matcher we do NOT require an exact ordered-quantity match, because a shipment
-// may deliver a partial quantity.
+// Find the open bes position for this PO whose part matches the shipment. The
+// ASN carries both the buyer part and the supplier part; match either against
+// the internal matchcode or the supplier part (artlief). No quantity match -
+// a shipment may be partial. No dedup here: dedup happens at the booking target
+// (position or schedule entry), so one position can serve several shipments.
 //----------------------------------------------------------------------------//
-STATIC FUNCTION _AsnFindBesRec(nPO,cSupplier,hRow,hUsed)
+STATIC FUNCTION _AsnFindBesRec(nPO,cSupplier,hRow)
    LOCAL cBuyer := _AsnNorm(hRow["BUYERPART"])
    LOCAL cSupPart := _AsnNorm(hRow["SUPPART"])
    LOCAL cAliPart,cMatch
@@ -243,19 +256,17 @@ STATIC FUNCTION _AsnFindBesRec(nPO,cSupplier,hRow,hUsed)
    bes->(dbSetOrder(1))   // Str(Besnr,6)+Str(Posnr,3)
    IF bes->(dbSeek(Str(nPO,6)))
       DO WHILE bes->Besnr == nPO .AND. ! bes->(EOF())
-         IF bes->Liefma == cSupplier .AND. ! HB_HHasKey(hUsed,Str(bes->(RecNo()),10))
-            IF bes->Bestat < 3 .AND. bes->BeQty-bes->GelQty > 0
-               ali->(dbSetOrder(1))
-               IF ali->(dbSeek(cSupplier+Str(bes->Artikelnr,6)))
-                  cAliPart := _AsnNorm(ali->Artlief)
-               ELSE
-                  cAliPart := ""
-               ENDIF
-               cMatch := _AsnNorm(bes->Matchcode)
+         IF bes->Liefma == cSupplier .AND. bes->Bestat < 3 .AND. bes->BeQty-bes->GelQty > 0
+            ali->(dbSetOrder(1))
+            IF ali->(dbSeek(cSupplier+Str(bes->Artikelnr,6)))
+               cAliPart := _AsnNorm(ali->Artlief)
+            ELSE
+               cAliPart := ""
+            ENDIF
+            cMatch := _AsnNorm(bes->Matchcode)
 
-               IF _AsnPartMatch(cBuyer,cMatch,cAliPart) .OR. _AsnPartMatch(cSupPart,cMatch,cAliPart)
-                  RETURN bes->(RecNo())
-               ENDIF
+            IF _AsnPartMatch(cBuyer,cMatch,cAliPart) .OR. _AsnPartMatch(cSupPart,cMatch,cAliPart)
+               RETURN bes->(RecNo())
             ENDIF
          ENDIF
          bes->(dbSkip())
@@ -273,38 +284,74 @@ RETURN cPart == cMatch .OR. cPart == cAliPart
 
 
 //----------------------------------------------------------------------------//
-// Write the shipment data onto the bes line (and its Folge lines). In dry-run
-// mode nothing is written; the caller has already printed the match.
+// Book the shipment. If the position has a delivery schedule (Liefereinteilung)
+// the write goes on the matching besdel entry; otherwise on the position (and
+// its Folge lines). In dry-run mode nothing is written.
 //
-// Writes ONLY Tracking / Shipped / Carrier - by design nothing else (no AbNr,
-// no Confirmed, no LTerm, no GelQty).
+// Writes ONLY Tracking / Shipped / Carrier - by design nothing else.
 //----------------------------------------------------------------------------//
-STATIC FUNCTION _AsnUpdateRec(nRec,hRow,lApply)
+STATIC FUNCTION _AsnUpdateRec(nBesRec,hRow,lApply,hUsedBes,hUsedDel)
    LOCAL cTracking := hRow["TRACKING"]
    LOCAL dShipped  := hRow["SHIPPED"]
    LOCAL cCarrier  := hRow["CARRIER"]
-   LOCAL nPO,nPos
+   LOCAL nKW       := _AsnDateToKW(hRow["DELIVERY"])
+   LOCAL nQty      := hRow["QTY"]
+   LOCAL nPO,nPos,nDelRec
 
-   bes->(dbGoto(nRec))
+   bes->(dbGoto(nBesRec))
+   nPO  := bes->Besnr
+   nPos := bes->Posnr
 
    IF bes->Bestat >= 3 .OR. bes->GelQty >= bes->BeQty
-      ? "    already completed, skip PO",Str(bes->Besnr,6),"Pos",Str(bes->Posnr,3)
+      ? "    already completed, skip PO",Str(nPO,6),"Pos",Str(nPos,3)
+      RETURN .F.
+   ENDIF
+
+   // Position with a delivery schedule -> book on the matching schedule entry.
+   IF _AsnHasPlan(nPO,nPos)
+      nDelRec := _AsnFindDelRec(nPO,nPos,nKW,nQty,hUsedDel)
+      IF nDelRec == 0
+         ? "    Liefereinteilung, but no free schedule entry for KW",LTrim(Str(nKW)), ;
+           "/ qty",LTrim(Str(nQty))+". Weeks:",_AsnDelWeeks(nPO,nPos)
+         RETURN .F.
+      ENDIF
+      bdel->(dbGoto(nDelRec))
+
+      IF ! lApply
+         ? "    DRY RUN - would set schedule KW",LTrim(Str(bdel->Lterm))+ ;
+           ": Tracking/Shipped"+IF(!Empty(cCarrier),"/Carrier","")
+         hUsedDel[Str(nDelRec,10)] := .T.
+         RETURN .T.
+      ENDIF
+
+      IF ! bdel->(Rec_Lock(0))
+         ? "    could not lock schedule entry, PO",Str(nPO,6),"Pos",Str(nPos,3)
+         RETURN .F.
+      ENDIF
+      _AsnWriteFieldsDel(cTracking,dShipped,cCarrier)
+      bdel->(dbUnlock())
+      hUsedDel[Str(nDelRec,10)] := .T.
+      RETURN .T.
+   ENDIF
+
+   // No schedule -> position level (dedup so we don't overwrite an earlier one).
+   IF HB_HHasKey(hUsedBes,Str(nBesRec,10))
+      ? "    position already booked from another shipment (no schedule) - skip"
       RETURN .F.
    ENDIF
 
    IF ! lApply
       ? "    DRY RUN - would set Tracking/Shipped"+IF(!Empty(cCarrier),"/Carrier","")
+      hUsedBes[Str(nBesRec,10)] := .T.
       RETURN .T.
    ENDIF
 
-   IF ! LockEntity("BES",bes->Besnr)
-      ? "    could not lock PO",Str(bes->Besnr,6)
+   IF ! LockEntity("BES",nPO)
+      ? "    could not lock PO",Str(nPO,6)
       RETURN .F.
    ENDIF
 
-   nPO  := bes->Besnr
-   nPos := bes->Posnr
-
+   bes->(dbGoto(nBesRec))
    IF ! bes->(Rec_Lock(0))
       RETURN .F.
    ENDIF
@@ -321,12 +368,66 @@ STATIC FUNCTION _AsnUpdateRec(nRec,hRow,lApply)
       bes->(dbSkip())
    ENDDO
 
+   hUsedBes[Str(nBesRec,10)] := .T.
+
 RETURN .T.
 
 
 //----------------------------------------------------------------------------//
-// Write the shipment fields onto the current bes record. Carrier is guarded so
-// the script also runs against an older schema without the CARRIER column.
+// Does the position have a delivery schedule (Liefereinteilung)?
+//----------------------------------------------------------------------------//
+STATIC FUNCTION _AsnHasPlan(nPO,nPos)
+   bdel->(dbSetOrder(1))   // Str(Besnr,6)+Str(Posnr,3)
+RETURN bdel->(dbSeek(Str(nPO,6)+Str(nPos,3)))
+
+
+//----------------------------------------------------------------------------//
+// Find the schedule entry (besdel) for a shipment: prefer the entry whose week
+// matches the ASN delivery week (Lterm == nKW), else the entry whose planned
+// quantity matches the shipped quantity (Qty == nQty). Skips entries already
+// consumed by an earlier shipment in this run.
+//----------------------------------------------------------------------------//
+STATIC FUNCTION _AsnFindDelRec(nPO,nPos,nKW,nQty,hUsedDel)
+   LOCAL nQtyRec := 0
+
+   bdel->(dbSetOrder(1))
+   IF bdel->(dbSeek(Str(nPO,6)+Str(nPos,3)))
+      DO WHILE bdel->Besnr == nPO .AND. bdel->Posnr == nPos .AND. ! bdel->(EOF())
+         IF ! HB_HHasKey(hUsedDel,Str(bdel->(RecNo()),10))
+            IF nKW > 0 .AND. bdel->Lterm == nKW
+               RETURN bdel->(RecNo())
+            ENDIF
+            IF nQtyRec == 0 .AND. nQty > 0 .AND. bdel->Qty == nQty
+               nQtyRec := bdel->(RecNo())
+            ENDIF
+         ENDIF
+         bdel->(dbSkip())
+      ENDDO
+   ENDIF
+
+RETURN nQtyRec
+
+
+//----------------------------------------------------------------------------//
+// Comma-list of the schedule weeks of a position - for the no-match log.
+//----------------------------------------------------------------------------//
+STATIC FUNCTION _AsnDelWeeks(nPO,nPos)
+   LOCAL cList := ""
+
+   bdel->(dbSetOrder(1))
+   IF bdel->(dbSeek(Str(nPO,6)+Str(nPos,3)))
+      DO WHILE bdel->Besnr == nPO .AND. bdel->Posnr == nPos .AND. ! bdel->(EOF())
+         cList += IF(Empty(cList),"",",")+StrZero(bdel->Lterm,4)
+         bdel->(dbSkip())
+      ENDDO
+   ENDIF
+
+RETURN cList
+
+
+//----------------------------------------------------------------------------//
+// Field writers. Carrier is guarded so the script also runs against an older
+// schema without the CARRIER column.
 //----------------------------------------------------------------------------//
 STATIC FUNCTION _AsnWriteFields(cTracking,dShipped,cCarrier)
 
@@ -343,9 +444,47 @@ STATIC FUNCTION _AsnWriteFields(cTracking,dShipped,cCarrier)
 RETURN NIL
 
 
+STATIC FUNCTION _AsnWriteFieldsDel(cTracking,dShipped,cCarrier)
+
+   IF ! Empty(cTracking)
+      bdel->Tracking := cTracking
+   ENDIF
+   IF ! Empty(dShipped)
+      bdel->Shipped := dShipped
+   ENDIF
+   IF ! Empty(cCarrier) .AND. bdel->(FieldPos("CARRIER")) > 0
+      bdel->Carrier := cCarrier
+   ENDIF
+
+RETURN NIL
+
+
 //----------------------------------------------------------------------------//
 // Helpers (self-contained: each run-script is its own .hrb).
 //----------------------------------------------------------------------------//
+STATIC FUNCTION _AsnDateToKW(cDate)
+   LOCAL cOldFmt := Set(4)
+   LOCAL dDate,nKW := 0
+
+   cDate := AllTrim(_AsnToStr(cDate))
+   IF Empty(cDate)
+      RETURN 0
+   ENDIF
+   IF "T" $ cDate
+      cDate := SubStr(cDate,1,AT("T",cDate)-1)
+   ENDIF
+
+   Set(4,WALD_DATE_FORMAT)
+   dDate := CToD(cDate)
+   Set(4,cOldFmt)
+
+   IF ! Empty(dDate)
+      nKW := Val(Right(Str(KWYear(dDate),4),2)+StrZero(DToKW(dDate),2))
+   ENDIF
+
+RETURN nKW
+
+
 STATIC FUNCTION _AsnGetAny(hData,aKeys)
    LOCAL cKey
 

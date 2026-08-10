@@ -8,19 +8,16 @@
 //
 //      GET /api/v1/<ApiKey>/AsnAPI/<PONumber>
 //
-// and writes the actual shipping information back onto the matching engbes (bes)
-// purchase-order line (position level):
+// and writes ONLY the actual shipping information back onto the matching engbes
+// (bes) purchase-order line (position level):
 //
 //      bes->Tracking   carrier tracking id
 //      bes->Shipped    ship date
 //      bes->Carrier    carrier type            (only if the field exists)
-//      bes->AbNr       Waldom order number
-//      bes->LTerm      delivery week (from the ASN delivery date)
-//      bes->Confirmed  "Y"
 //
-// Optionally (lApplyReceipt) it also advances the delivered quantity (GelQty)
-// from the shipped quantity - OFF by default, because booking a goods receipt is
-// a bigger intervention into stock.
+// It deliberately does NOT touch AbNr, Confirmed, LTerm or GelQty - the delivery
+// week / order confirmation is the job of RUN_WALDOM_ORDER_STATUS, and the goods
+// receipt (GelQty) stays a manual booking.
 //
 // Schedule-level writes (besdel/bdel, when a Liefereinteilung exists) mirror the
 // mcp_stdio confirm_shipment flow and are a documented extension point, not yet
@@ -59,8 +56,7 @@ FUNCTION RUN_WALDOM_ASN()
    LOCAL lVerifySsl := .T.
    LOCAL cApiKey   := "f6699e54-8f8d-4989-a039-5b6d663bea06"  // sent in the URL, not a secret
 
-   LOCAL lApply        := .F.   // .F. = dry run (report only), .T. = write to DB
-   LOCAL lApplyReceipt := .F.   // .T. = also advance GelQty from shipped quantity
+   LOCAL lApply := .F.   // .F. = dry run (report only), .T. = write to DB
 
    LOCAL oApi := RestAPI():New()
    LOCAL aPOs,nPO
@@ -101,7 +97,7 @@ FUNCTION RUN_WALDOM_ASN()
 
       aRows := _AsnExtractRows(xParsed)
       nRows += Len(aRows)
-      nUpdated += _AsnApplyRows(nPO,cSupplier,aRows,lApply,lApplyReceipt)
+      nUpdated += _AsnApplyRows(nPO,cSupplier,aRows,lApply)
 
    NEXT
 
@@ -134,7 +130,7 @@ RETURN aPOs
 
 //----------------------------------------------------------------------------//
 // Flatten the ASN into one row per shipped line item, carrying the shipment
-// header (tracking, dates, carrier, AB number) down onto every line.
+// header (tracking, ship date, carrier) down onto every line.
 //----------------------------------------------------------------------------//
 STATIC FUNCTION _AsnExtractRows(xData)
    LOCAL aRows := {}
@@ -173,8 +169,6 @@ STATIC FUNCTION _AsnMapLine(xOrder,xLine)
    LOCAL cTracking := AllTrim(_AsnToStr(_AsnGetAny(xCarrier,{"carrierTrackingId"})))
    LOCAL cCarrier  := AllTrim(_AsnToStr(_AsnGetAny(xCarrier,{"carrierType"})))
    LOCAL dShipped  := _AsnToDate(_AsnGetAny(xOrder,{"shipDate"}))
-   LOCAL cDelivery := AllTrim(_AsnToStr(_AsnGetAny(xOrder,{"deliveryDate"})))
-   LOCAL cAB       := AllTrim(_AsnToStr(_AsnGetAny(xOrder,{"orderNumber"})))
    LOCAL cPacking  := AllTrim(_AsnToStr(_AsnGetAny(xOrder,{"packingListNumber"})))
    LOCAL cBuyer    := _AsnNorm(_AsnGetAny(xLine,{"buyerPartNumber"}))
    LOCAL cSupplier := _AsnNorm(_AsnGetAny(xLine,{"supplierPartNumber"}))
@@ -189,15 +183,13 @@ STATIC FUNCTION _AsnMapLine(xOrder,xLine)
       RETURN {=>}
    ENDIF
 
-   hRow["BUYERPART"]  := cBuyer
-   hRow["SUPPART"]    := cSupplier
-   hRow["TRACKING"]   := cTracking
-   hRow["CARRIER"]    := cCarrier
-   hRow["SHIPPED"]    := dShipped
-   hRow["DELIVERY"]   := cDelivery
-   hRow["AB"]         := cAB
-   hRow["PACKING"]    := cPacking
-   hRow["QTY"]        := nQty
+   hRow["BUYERPART"] := cBuyer
+   hRow["SUPPART"]   := cSupplier
+   hRow["TRACKING"]  := cTracking
+   hRow["CARRIER"]   := cCarrier
+   hRow["SHIPPED"]   := dShipped
+   hRow["PACKING"]   := cPacking
+   hRow["QTY"]       := nQty
 
 RETURN hRow
 
@@ -205,7 +197,7 @@ RETURN hRow
 //----------------------------------------------------------------------------//
 // Match the shipment rows to bes lines and (optionally) write them.
 //----------------------------------------------------------------------------//
-STATIC FUNCTION _AsnApplyRows(nPO,cSupplier,aRows,lApply,lApplyReceipt)
+STATIC FUNCTION _AsnApplyRows(nPO,cSupplier,aRows,lApply)
    LOCAL hUsed := {=>}
    LOCAL hRow,nRec,nUpdated := 0
 
@@ -218,7 +210,7 @@ STATIC FUNCTION _AsnApplyRows(nPO,cSupplier,aRows,lApply,lApplyReceipt)
       nRec := _AsnFindBesRec(nPO,cSupplier,hRow,hUsed)
       IF nRec != 0
          ? "  Match:",ValToPrg(hRow)
-         IF _AsnUpdateRec(nRec,hRow,lApply,lApplyReceipt)
+         IF _AsnUpdateRec(nRec,hRow,lApply)
             hUsed[Str(nRec,10)] := .T.
             nUpdated++
          ENDIF
@@ -277,13 +269,14 @@ RETURN cPart == cMatch .OR. cPart == cAliPart
 //----------------------------------------------------------------------------//
 // Write the shipment data onto the bes line (and its Folge lines). In dry-run
 // mode nothing is written; the caller has already printed the match.
+//
+// Writes ONLY Tracking / Shipped / Carrier - by design nothing else (no AbNr,
+// no Confirmed, no LTerm, no GelQty).
 //----------------------------------------------------------------------------//
-STATIC FUNCTION _AsnUpdateRec(nRec,hRow,lApply,lApplyReceipt)
+STATIC FUNCTION _AsnUpdateRec(nRec,hRow,lApply)
    LOCAL cTracking := hRow["TRACKING"]
    LOCAL dShipped  := hRow["SHIPPED"]
    LOCAL cCarrier  := hRow["CARRIER"]
-   LOCAL cAB       := hRow["AB"]
-   LOCAL nKW       := _AsnDateToKW(hRow["DELIVERY"])
    LOCAL nPO,nPos
 
    bes->(dbGoto(nRec))
@@ -294,8 +287,7 @@ STATIC FUNCTION _AsnUpdateRec(nRec,hRow,lApply,lApplyReceipt)
    ENDIF
 
    IF ! lApply
-      ? "    DRY RUN - would set Tracking/Shipped"+IF(!Empty(cCarrier),"/Carrier","")+ ;
-        IF(nKW>0," and LTerm "+LTrim(Str(nKW)),"")
+      ? "    DRY RUN - would set Tracking/Shipped"+IF(!Empty(cCarrier),"/Carrier","")
       RETURN .T.
    ENDIF
 
@@ -310,14 +302,14 @@ STATIC FUNCTION _AsnUpdateRec(nRec,hRow,lApply,lApplyReceipt)
    IF ! bes->(Rec_Lock(0))
       RETURN .F.
    ENDIF
-   _AsnWriteFields(cTracking,dShipped,cCarrier,cAB,nKW,lApplyReceipt,hRow["QTY"])
+   _AsnWriteFields(cTracking,dShipped,cCarrier)
    bes->(dbUnlock())
 
    // apply to the Folge lines of this position, like the confirmation mask
    bes->(dbSkip())
    DO WHILE bes->Besnr == nPO .AND. (bes->Posnr == nPos .OR. bes->FolgeTo == nPos) .AND. ! bes->(EOF())
       IF bes->(Rec_Lock(0))
-         _AsnWriteFields(cTracking,dShipped,cCarrier,cAB,nKW,.F.,0)
+         _AsnWriteFields(cTracking,dShipped,cCarrier)
          bes->(dbUnlock())
       ENDIF
       bes->(dbSkip())
@@ -327,11 +319,10 @@ RETURN .T.
 
 
 //----------------------------------------------------------------------------//
-// Write the shipment fields onto the current bes record. Carrier and any
-// goods-receipt advance are guarded so the script also runs against an older
-// schema.
+// Write the shipment fields onto the current bes record. Carrier is guarded so
+// the script also runs against an older schema without the CARRIER column.
 //----------------------------------------------------------------------------//
-STATIC FUNCTION _AsnWriteFields(cTracking,dShipped,cCarrier,cAB,nKW,lApplyReceipt,nQty)
+STATIC FUNCTION _AsnWriteFields(cTracking,dShipped,cCarrier)
 
    IF ! Empty(cTracking)
       bes->Tracking := cTracking
@@ -342,17 +333,6 @@ STATIC FUNCTION _AsnWriteFields(cTracking,dShipped,cCarrier,cAB,nKW,lApplyReceip
    IF ! Empty(cCarrier) .AND. bes->(FieldPos("CARRIER")) > 0
       bes->Carrier := cCarrier
    ENDIF
-   IF ! Empty(cAB)
-      bes->AbNr := Pad(cAB,10)
-   ENDIF
-   bes->Confirmed := "Y"
-   IF nKW > 0
-      bes->LTerm := nKW
-   ENDIF
-
-   IF lApplyReceipt .AND. nQty > 0 .AND. bes->GelQty+nQty <= bes->BeQty
-      bes->GelQty := bes->GelQty+nQty
-   ENDIF
 
 RETURN NIL
 
@@ -360,29 +340,6 @@ RETURN NIL
 //----------------------------------------------------------------------------//
 // Helpers (self-contained: each run-script is its own .hrb).
 //----------------------------------------------------------------------------//
-STATIC FUNCTION _AsnDateToKW(cDate)
-   LOCAL cOldFmt := Set(4)
-   LOCAL dDate,nKW := 0
-
-   cDate := AllTrim(_AsnToStr(cDate))
-   IF Empty(cDate)
-      RETURN 0
-   ENDIF
-   IF "T" $ cDate
-      cDate := SubStr(cDate,1,AT("T",cDate)-1)
-   ENDIF
-
-   Set(4,WALD_DATE_FORMAT)
-   dDate := CToD(cDate)
-   Set(4,cOldFmt)
-
-   IF ! Empty(dDate)
-      nKW := Val(Right(Str(KWYear(dDate),4),2)+StrZero(DToKW(dDate),2))
-   ENDIF
-
-RETURN nKW
-
-
 STATIC FUNCTION _AsnGetAny(hData,aKeys)
    LOCAL cKey
 

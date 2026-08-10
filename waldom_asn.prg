@@ -181,8 +181,11 @@ STATIC FUNCTION _AsnMapLine(xOrder,xLine)
    IF Empty(cBuyer) .AND. Empty(cSupplier)
       RETURN {=>}
    ENDIF
-   // nothing shipped yet -> not an ASN line, skip
-   IF Empty(cTracking) .AND. Empty(dShipped)
+   // only genuine shipment lines: a positive shipped quantity AND a ship date.
+   // The tracking id lives on the packing list and may legitimately be empty
+   // (freight, carrier types without a trackable id), so it is NOT required -
+   // shipDate is the authoritative "shipped" flag.
+   IF nQty <= 0 .OR. Empty(dShipped)
       RETURN {=>}
    ENDIF
 

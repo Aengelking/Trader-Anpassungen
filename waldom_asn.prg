@@ -65,7 +65,7 @@ FUNCTION RUN_WALDOM_ASN()
    LOCAL lVerifySsl := .T.
    LOCAL cApiKey   := "f6699e54-8f8d-4989-a039-5b6d663bea06"  // sent in the URL, not a secret
 
-   LOCAL lApply := .F.   // .F. = dry run (report only), .T. = write to DB
+   LOCAL lApply := .T.   // .F. = dry run (report only), .T. = write to DB
 
    LOCAL oApi := RestAPI():New()
    LOCAL aPOs,nPO
@@ -346,10 +346,10 @@ STATIC FUNCTION _AsnUpdateRec(nBesRec,hRow,lApply,hUsedBes,hUsedDel)
       RETURN .T.
    ENDIF
 
-   IF ! LockEntity("BES",nPO)
-      ? "    could not lock PO",Str(nPO,6)
+   /*IF ! LockEntity("BES",bes->Besnr)
+      ? "    could not lock PO",Str(bes->Besnr,6)
       RETURN .F.
-   ENDIF
+   ENDIF*/ //not necessary, we lock the record directly
 
    bes->(dbGoto(nBesRec))
    IF ! bes->(Rec_Lock(0))

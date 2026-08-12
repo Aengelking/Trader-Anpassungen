@@ -4544,7 +4544,7 @@ RETURN hResult
 FUNCTION MCP_Tool_Add_Delivery_Schedule(hArgs)
    LOCAL hResult := {=>}
    LOCAL nPo, nPos, aEntries, xE, hE
-   LOCAL nBeQty, nExisting := 0, nNewSum := 0, nLastWeek := 0, nWk, nQty
+   LOCAL nBeQty, nExisting := 0, nNewSum := 0, nLastWeek := 0, nWk, nQty, nCurLterm := 0
    LOCAL aParsed := {}, aOut := {}
    LOCAL lHasFolge := .F., dTemp, lOk := .F., cErr := ""
    LOCAL nOldSelect := Select()
@@ -4597,6 +4597,7 @@ FUNCTION MCP_Tool_Add_Delivery_Schedule(hArgs)
       ENDIF
       AAdd(aParsed, {nWk, nQty})
       nNewSum += nQty
+      nLastWeek := Max(nLastWeek, nWk)
    NEXT
 
    NetUse("engbes", "bes")
@@ -4614,6 +4615,7 @@ FUNCTION MCP_Tool_Add_Delivery_Schedule(hArgs)
       RETURN "Position is completed or cancelled (Bestat " + AllTrim(Str(bes->Bestat)) + ") - no schedule can be added"
    ENDIF
    nBeQty := bes->BeQty
+   nCurLterm := bes->Lterm   // the position's current delivery week (before any change)
 
    // Follow-up (Folge) positions keep their schedules in sync via the mask
    // (__SyncSubPlans in BestellungConfirm.prg); this tool does not, so refuse.
@@ -4646,6 +4648,14 @@ FUNCTION MCP_Tool_Add_Delivery_Schedule(hArgs)
              AllTrim(Str(nBeQty)) + "); already scheduled: " + AllTrim(Str(nExisting))
    ENDIF
 
+   // Delivery week = the latest scheduled week. But when a remainder is left
+   // (scheduled < ordered) that remainder is delivered on the position's
+   // existing Lterm, so keep it if it is a real week later than the schedule.
+   IF nExisting + nNewSum < nBeQty .AND. HB_IsNumeric(nCurLterm) .AND. ;
+      Val(Right(StrZero(nCurLterm, 4), 2)) >= 1 .AND. Val(Right(StrZero(nCurLterm, 4), 2)) <= 53
+      nLastWeek := Max(nLastWeek, nCurLterm)
+   ENDIF
+
    // Write the entries and set the position's delivery week to the latest one
    // (same as BestellungConfirm.prg). Wrapped in a transaction for atomicity.
    LETO_BEGINTRANSACTION()
@@ -4657,7 +4667,6 @@ FUNCTION MCP_Tool_Add_Delivery_Schedule(hArgs)
          bdel->Lterm := hE[1]
          bdel->Qty   := hE[2]
          bdel->(dbUnLock())
-         nLastWeek := Max(nLastWeek, hE[1])
          AAdd(aOut, {"week"=>StrZero(hE[1], 4), "quantity"=>hE[2]})
       NEXT
       bes->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))

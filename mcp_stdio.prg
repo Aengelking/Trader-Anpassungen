@@ -4541,6 +4541,163 @@ FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
       " of purchase order " + AllTrim(Str(nPo))
 RETURN hResult
 
+FUNCTION MCP_Tool_Add_Delivery_Schedule(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nPo, nPos, aEntries, xE, hE
+   LOCAL nBeQty, nExisting := 0, nNewSum := 0, nLastWeek := 0, nWk, nQty
+   LOCAL aParsed := {}, aOut := {}
+   LOCAL lHasFolge := .F., dTemp, lOk := .F., cErr := ""
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "po_number"=>{"type"=>"number","description"=>"Purchase order number (Bestellnummer)"},;
+            "item"=>{"type"=>"number","description"=>"Position number within the purchase order"},;
+            "entries"=>{"type"=>"array","description"=>"Delivery-schedule entries to ADD, each an object {week, quantity}",;
+               "items"=>{"type"=>"object","properties"=>{;
+                  "week"=>{"type"=>"string","description"=>"Calendar week JJWW (e.g. 2634)"},;
+                  "quantity"=>{"type"=>"number","description"=>"Quantity to deliver in that week"}},;
+                  "required"=>{"week","quantity"}}};
+         },;
+         "required"=>{"po_number","item","entries"};
+      }
+      hResult["description"] := "Add delivery-schedule entries (Liefereinteilungen) to a purchase-order position. " + ;
+                              "Entries are appended to any existing schedule; the total scheduled quantity may not " + ;
+                              "exceed the ordered quantity (Bestellmenge); the position's delivery week (Lterm) is set " + ;
+                              "to the latest scheduled week, so any remaining quantity is delivered then. Positions " + ;
+                              "with follow-up (Folge) positions must be edited in Trader instead"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["po_number"]) .OR. ! HB_IsNumeric(hArgs["item"])
+      RETURN "Parameters 'po_number' and 'item' must be numbers"
+   ENDIF
+   IF ! HB_IsArray(hArgs["entries"]) .OR. Len(hArgs["entries"]) == 0
+      RETURN "Parameter 'entries' must be a non-empty array of {week, quantity}"
+   ENDIF
+   nPo := Int(hArgs["po_number"])
+   nPos := Int(hArgs["item"])
+   aEntries := hArgs["entries"]
+
+   // Validate and normalise the entries up front.
+   FOR EACH xE IN aEntries
+      IF ! HB_IsHash(xE) .OR. ! HHasKey(xE, "week") .OR. ! HHasKey(xE, "quantity")
+         RETURN "Each entry needs 'week' (JJWW) and 'quantity'"
+      ENDIF
+      nWk := IIF(HB_IsNumeric(xE["week"]), Int(xE["week"]), Val(AllTrim(xE["week"])))
+      IF ! HB_IsNumeric(xE["quantity"]) .OR. xE["quantity"] <= 0
+         RETURN "Entry 'quantity' must be a positive number"
+      ENDIF
+      nQty := xE["quantity"]
+      IF nWk <= 0 .OR. Val(Right(StrZero(nWk, 4), 2)) < 1 .OR. Val(Right(StrZero(nWk, 4), 2)) > 53
+         RETURN "Invalid week '" + AllTrim(Str(nWk)) + "' - expected a calendar week JJWW (WW 01-53)"
+      ENDIF
+      AAdd(aParsed, {nWk, nQty})
+      nNewSum += nQty
+   NEXT
+
+   NetUse("engbes", "bes")
+   NetUse("besdel", "bdel")
+
+   bes->(DbSetOrder(1))  // Str(Besnr,6) + Str(Posnr,3)
+   IF ! bes->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Purchase order position not found: " + AllTrim(Str(nPo)) + "/" + AllTrim(Str(nPos))
+      RETURN hResult
+   ENDIF
+   IF bes->Bestat >= 3
+      DbSelectArea(nOldSelect)
+      RETURN "Position is completed or cancelled (Bestat " + AllTrim(Str(bes->Bestat)) + ") - no schedule can be added"
+   ENDIF
+   nBeQty := bes->BeQty
+
+   // Follow-up (Folge) positions keep their schedules in sync via the mask
+   // (__SyncSubPlans in BestellungConfirm.prg); this tool does not, so refuse.
+   bes->(DbSeek(Str(nPo, 6)))
+   DO WHILE ! bes->(Eof()) .AND. bes->Besnr == nPo
+      IF bes->FolgeTo == nPos
+         lHasFolge := .T.
+         EXIT
+      ENDIF
+      bes->(DbSkip())
+   ENDDO
+   IF lHasFolge
+      DbSelectArea(nOldSelect)
+      RETURN "Position has follow-up (Folge) positions - edit its delivery schedule in Trader so they stay in sync"
+   ENDIF
+
+   // Existing schedule: total already scheduled + latest week so far.
+   bdel->(DbSetOrder(1))  // Besnr + Posnr
+   IF bdel->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))
+      DO WHILE ! bdel->(Eof()) .AND. bdel->Besnr == nPo .AND. bdel->Posnr == nPos
+         nExisting += bdel->Qty
+         nLastWeek := Max(nLastWeek, bdel->Lterm)
+         bdel->(DbSkip())
+      ENDDO
+   ENDIF
+
+   IF nExisting + nNewSum > nBeQty
+      DbSelectArea(nOldSelect)
+      RETURN "Total scheduled quantity (" + AllTrim(Str(nExisting + nNewSum)) + ") would exceed the ordered quantity (" + ;
+             AllTrim(Str(nBeQty)) + "); already scheduled: " + AllTrim(Str(nExisting))
+   ENDIF
+
+   // Write the entries and set the position's delivery week to the latest one
+   // (same as BestellungConfirm.prg). Wrapped in a transaction for atomicity.
+   LETO_BEGINTRANSACTION()
+   BEGIN SEQUENCE
+      FOR EACH hE IN aParsed
+         bdel->(Add_Rec(0))
+         bdel->Besnr := nPo
+         bdel->Posnr := nPos
+         bdel->Lterm := hE[1]
+         bdel->Qty   := hE[2]
+         bdel->(dbUnLock())
+         nLastWeek := Max(nLastWeek, hE[1])
+         AAdd(aOut, {"week"=>StrZero(hE[1], 4), "quantity"=>hE[2]})
+      NEXT
+      bes->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))
+      bes->(Rec_Lock(0))
+      bes->Lterm := nLastWeek
+      bes->(dbUnLock())
+      IF LETO_COMMITTRANSACTION()
+         lOk := .T.
+      ELSE
+         LETO_ROLLBACK()
+         cErr := "Saving the delivery schedule failed (commit) - nothing was saved"
+      ENDIF
+   RECOVER
+      BEGIN SEQUENCE ; LETO_ROLLBACK() ; RECOVER ; END SEQUENCE
+      cErr := "Saving the delivery schedule failed (record locked or model error) - nothing was saved"
+   END SEQUENCE
+
+   IF ! lOk
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "error"
+      hResult["message"] := cErr
+      RETURN hResult
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["po_number"] := nPo
+   hResult["item"] := nPos
+   hResult["added"] := aOut
+   hResult["added_count"] := Len(aOut)
+   hResult["total_scheduled"] := nExisting + nNewSum
+   hResult["ordered_quantity"] := nBeQty
+   hResult["delivery_week"] := StrZero(nLastWeek, 4)
+   IF (dTemp := BesWeekDate(nLastWeek)) != NIL
+      hResult["delivery_date"] := dTemp
+   ENDIF
+   hResult["status"] := "success"
+   hResult["message"] := AllTrim(Str(Len(aOut))) + " delivery-schedule entry(ies) added; delivery week set to " + StrZero(nLastWeek, 4)
+RETURN hResult
+
 FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)
    LOCAL hResult := {=>}
    LOCAL nPo, nPos, nWeek := 0, nWk

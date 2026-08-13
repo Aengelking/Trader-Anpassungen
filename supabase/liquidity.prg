@@ -554,11 +554,14 @@ STATIC FUNCTION _CollectCustomerInvoiceItems()
 RETURN aItems
 
 STATIC FUNCTION _CollectPurchaseInvoiceItems()
-   LOCAL aItems
+   LOCAL aItems, aEngRech
 
-   ? "[PI] Sammle offene Eingangsrechnungen (Lexware + Fallback ENGRECH)..."
+   ? "[PI] Sammle offene Eingangsrechnungen (Lexware + ENGRECH)..."
    aItems := _CollectPurchaseInvoiceItemsFromLexware()
    ? "[PI] Lexware Items:", Len(aItems)
+   aEngRech := _CollectPurchaseInvoiceItemsFromEngRech()
+   ? "[PI] ENGRECH (noch nicht uebertragen) Items:", Len(aEngRech)
+   AEval(aEngRech, {|hItem| AAdd(aItems, hItem)})
    ? "[PI] Gesamt Items:", Len(aItems)
 
 RETURN aItems
@@ -682,45 +685,89 @@ STATIC FUNCTION _CollectPurchaseInvoiceItemsFromLexware()
 RETURN aItems
 
 STATIC FUNCTION _CollectPurchaseInvoiceItemsFromEngRech()
+   //Eingangsrechnungen, die noch NICHT nach Lexware uebertragen wurden
+   //(! Transfer) - diese fehlen in den Lexware-OPs. Sobald eine Position
+   //erfasst wird, ist sie zudem aus bes->ZoQty heraus (siehe PO-Sync), taucht
+   //also sonst nirgends auf.
+   //  - gebucht (Booked):       Bruttobetrag der Rechnung (Kopf massgeblich)
+   //  - nur teilweise erfasst:  nur die erfassten Positionen, da nur diese
+   //                            schon aus ZoQty entfernt wurden.
+   //Transfer wurde erst ab 2016 gepflegt -> Datumsuntergrenze.
    LOCAL aItems := {}
    LOCAL hSupplierNames := {=>}
    LOCAL hItem
-   LOCAL nScanned := 0
-   LOCAL nAmount
+   LOCAL nScanned := 0, nRelevant := 0
+   LOCAL nNet, nGross, nMwst, nVatRate, nVatAmount
+   LOCAL lImport
    LOCAL dDueDate
-   LOCAL cCurrency
+   LOCAL cCurrency, cRef
 
    NetUse("engrech", "rech")
+   NetUse("rechpos", "rpos")
    NetUse("engkund", "ku")
 
-   rech->(dbSetOrder(2))
    ku->(dbSetOrder(1))
+   rech->(dbSetOrder(0))
    rech->(dbGoTop())
 
-   ? "[PI][ENGRECH] Prfe Fallback-Daten..."
+   ? "[PI][ENGRECH] Sammle noch nicht uebertragene Eingangsrechnungen..."
 
    DO WHILE ! rech->(EOF())
       nScanned++
-      IF rech->Status < 3 .AND. ! Empty(rech->Liefma) .AND. ! Empty(rech->Rechnr)
-         nAmount := IF(rech->Pay != 0, rech->Pay, rech->GrAmt)
-         IF nAmount != 0
-            dDueDate := rech->Rechdat + IF(rech->Skonto == 0 .AND. rech->WAITSkonto > 0, rech->WAITSkonto, rech->Wait)
+      IF ! rech->Transfer .AND. rech->Status == 0 .AND. rech->Payme == 0 .AND. rech->Rechdat >= SToD("20160101") .AND. ! Empty(rech->Liefma) .AND. ! Empty(rech->Rechnr)
+
+         IF rech->Booked
+            nNet   := rech->Netamt
+            nGross := rech->GrAmt
+         ELSE
+            nNet   := _ErfassteRePosNet(rech->Liefma, rech->Rechnr)
+            nGross := nNet  //MwSt wird unten wie beim Bestell-Sync ergaenzt
+         ENDIF
+
+         IF nNet != 0 .OR. nGross != 0
+            nRelevant++
+
+            ku->(dbSetOrder(1))
+            ku->(dbSeek(rech->Liefma + "L"))  //fuer TaxCode; wenn nicht gefunden -> Standard
+            taxit(ku->TaxCode, @nMwst, rech->Rechdat, .F.)
+            lImport  := ku->TaxCode == 0
+            nVatRate := IF(lImport, 19, nMwst)
+
+            IF rech->Booked
+               //echte Kopfwerte (inkl. Porto, tatsaechliche MwSt)
+               nVatAmount := Round(nGross - nNet, 2)
+            ELSE
+               //erfasste Positionen wie ZoQty-Items bewerten (Import: 19% Annahme)
+               nGross     := Round(nNet * (1 + nVatRate/100), 2)
+               nVatAmount := Round(nNet * nVatRate/100, 2)
+            ENDIF
+
+            dDueDate := rech->Rechdat + Max(rech->Wait, rech->WAITSkonto)
             IF Empty(dDueDate)
                dDueDate := rech->Rechdat
             ENDIF
+            IF Empty(dDueDate)
+               dDueDate := Date()
+            ENDIF
 
             cCurrency := _CurrencyISO(IF(Empty(rech->Money), "E", rech->Money))
+            cRef := "ER-NT-" + Trim(rech->Liefma) + "-" + Trim(rech->Rechnr)
 
             hItem := {=>}
-            hItem["erp_reference"] := "PI-" + Trim(rech->Liefma) + "-" + Trim(rech->Rechnr)
-            hItem["type"] := "purchase_invoice"
-            hItem["counterparty_name"] := _GetSupplierName(rech->Liefma, hSupplierNames)
-            hItem["amount"] := Round(nAmount, 2)
-            hItem["currency"] := cCurrency
-            hItem["due_date"] := _IsoDate(dDueDate)
+            hItem["erp_reference"]       := cRef
+            hItem["type"]                := "supplier_invoice"
+            hItem["counterparty_name"]   := _GetSupplierName(rech->Liefma, hSupplierNames)
+            hItem["amount"]              := Round(nGross, 2)
+            hItem["net_amount"]          := Round(nNet, 2)
+            hItem["vat_key"]             := nVatRate
+            hItem["vat_amount"]          := nVatAmount
+            hItem["vat_handling"]        := IF(lImport, "import", "standard")
+            hItem["currency"]            := cCurrency
+            hItem["due_date"]            := _IsoDate(dDueDate)
             hItem["payment_probability"] := 1.0
-            hItem["status"] := "open"
-            hItem["paid_amount"] := 0
+            hItem["status"]              := "open"
+            hItem["paid_amount"]         := 0
+            hItem["company_id"]          := GetConfigValue("FIRMNO")
             AAdd(aItems, hItem)
          ENDIF
       ENDIF
@@ -728,9 +775,25 @@ STATIC FUNCTION _CollectPurchaseInvoiceItemsFromEngRech()
       rech->(dbSkip())
    ENDDO
 
-   ? "[PI][ENGRECH] Gelesen:", nScanned, "Items:", Len(aItems)
+   ? "[PI][ENGRECH] Gelesen:", nScanned, "Relevant:", nRelevant, "Items:", Len(aItems)
 
 RETURN aItems
+
+STATIC FUNCTION _ErfassteRePosNet(cLiefma, cReNr)
+   //Summe der bereits erfassten Rechnungspositionen (Nettowert) einer
+   //Eingangsrechnung - analog zur Bewertung "WE ohne Rechnung" (ZoQty).
+   LOCAL nSum := 0
+   LOCAL nOrder := rpos->(IndexOrd())
+   rpos->(dbSetOrder(1)) //liefma+beleg+belegpos
+   IF rpos->(dbSeek(cLiefma + cReNr))
+      DO WHILE ! rpos->(EOF()) .AND. rpos->Liefma == cLiefma .AND. rpos->Beleg == cReNr
+         nSum += rpos->Menge * rpos->EkPr / Max(rpos->Pe, 1) * (1 - rpos->Rabatt/100)
+         rpos->(dbSkip())
+      ENDDO
+   ENDIF
+   rpos->(dbSetOrder(nOrder))
+RETURN nSum
+
 
 STATIC FUNCTION _GetSupplierName(cLiefma, hSupplierNames)
    LOCAL cName

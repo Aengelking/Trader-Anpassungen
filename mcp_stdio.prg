@@ -3105,7 +3105,7 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
    LOCAL hResult := {=>}
    LOCAL nPo, hLine, aLines := {}
    LOCAL nTotal := 0, nPriceEur
-   LOCAL aSched, hSched, dTemp
+   LOCAL aSched, hSched, dTemp, nArr
    LOCAL nOldSelect := Select()
 
    // Return schema and description when called without arguments
@@ -3119,7 +3119,9 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       }
       hResult["description"] := "Retrieve a purchase order (Bestellung) by number, including all line items with " + ;
                                 "ordered/delivered quantities, prices, and delivery dates given as calendar week " + ;
-                                "(JJWW) plus resolved date. When 'confirmed' is true the delivery date is the " + ;
+                                "(JJWW) plus resolved date. delivery_week is the supplier's ship/ready week; " + ;
+                                "ship_time is the transit (weeks) and expected_arrival_week/date = delivery + transit " + ;
+                                "(when the goods arrive at us). When 'confirmed' is true the delivery date is the " + ;
                                 "supplier-confirmed date, otherwise the expected date. Lines with a delivery " + ;
                                 "schedule (Liefereinteilungen) list their partial deliveries under 'delivery_schedule'. " + ;
                                 "Shipping confirmations appear as 'tracking'/'shipped_date' per line and per schedule " + ;
@@ -3178,10 +3180,22 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       // Lterm/Wterm are calendar weeks (JJWW). Lterm is the supplier-confirmed
       // date when Confirmed == "Y", otherwise the expected date (see the GET
       // label logic in bestellung_edit.prg)
+      IF HB_IsNumeric(bes->ShipTime) .AND. bes->ShipTime > 0
+         hLine["ship_time"] := bes->ShipTime   // transit time (weeks) supplier -> us
+      ENDIF
       IF HB_IsNumeric(bes->Lterm) .AND. bes->Lterm > 0
          hLine["delivery_week"] := StrZero(bes->Lterm, 4)
          IF (dTemp := BesWeekDate(bes->Lterm)) != NIL
             hLine["delivery_date"] := dTemp
+         ENDIF
+         // Expected arrival at us = delivery week + transit time (ShipTime).
+         // Only real calendar weeks (WW<=52) get the transit added; special
+         // weeks (99 frame, 97/98 unknown) are taken verbatim - same rule as
+         // BestellungConfirm.prg.
+         nArr := IIF(Val(Right(Str(bes->Lterm, 4), 2)) <= 52, AddWeeks(bes->Lterm, bes->ShipTime), bes->Lterm)
+         hLine["expected_arrival_week"] := StrZero(nArr, 4)
+         IF (dTemp := BesWeekDate(nArr)) != NIL
+            hLine["expected_arrival_date"] := dTemp
          ENDIF
       ENDIF
       IF HB_IsNumeric(bes->Wterm) .AND. bes->Wterm > 0
@@ -3220,6 +3234,11 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
             hSched["week"] := StrZero(bdel->Lterm, 4)
             IF (dTemp := BesWeekDate(bdel->Lterm)) != NIL
                hSched["date"] := dTemp
+            ENDIF
+            nArr := IIF(Val(Right(Str(bdel->Lterm, 4), 2)) <= 52, AddWeeks(bdel->Lterm, bes->ShipTime), bdel->Lterm)
+            hSched["expected_arrival_week"] := StrZero(nArr, 4)
+            IF (dTemp := BesWeekDate(nArr)) != NIL
+               hSched["expected_arrival_date"] := dTemp
             ENDIF
             hSched["quantity"] := bdel->Qty
             IF bdel->(FieldPos("TRACKING")) > 0 .AND. ! Empty(bdel->Tracking)
@@ -4212,7 +4231,7 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
    LOCAL cStatus := "open", lOpen
    LOCAL nMaxResults := 50
    LOCAL nScanned := 0, nScanCap := 20000, lScanLimited := .F.
-   LOCAL dTemp
+   LOCAL dTemp, nArr
    LOCAL nOldSelect := Select()
 
    // Return schema and description when called without arguments
@@ -4228,7 +4247,8 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
          "anyOf"=>{{"supplier", "supplier_number"}};
       }
       hResult["description"] := "List purchase orders (Bestellungen) for a supplier, newest first, with value, open " + ;
-                                "quantities and the next expected delivery date. Use get_purchase_order for line details"
+                                "quantities, the next delivery week and next_arrival_week/date (delivery + transit " + ;
+                                "time). Use get_purchase_order for line details"
       RETURN hResult
    ENDIF
 
@@ -4275,6 +4295,7 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
                hOrder["open_quantity"] := 0
                hOrder["value"] := 0
                hOrder["next_delivery_week"] := NIL
+               hOrder["next_ship_time"] := 0
                hOrders[cKey] := hOrder
             ENDIF
             hOrders[cKey]["line_count"] := hOrders[cKey]["line_count"] + 1
@@ -4287,6 +4308,7 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
                IF HB_IsNumeric(bes->Lterm) .AND. bes->Lterm > 0 .AND. ;
                   (hOrders[cKey]["next_delivery_week"] == NIL .OR. bes->Lterm < hOrders[cKey]["next_delivery_week"])
                   hOrders[cKey]["next_delivery_week"] := bes->Lterm
+                  hOrders[cKey]["next_ship_time"] := bes->ShipTime   // transit of the earliest line
                ENDIF
             ENDIF
          ENDIF
@@ -4301,8 +4323,20 @@ FUNCTION MCP_Tool_Get_Supplier_Orders(hArgs)
          IF (dTemp := BesWeekDate(hOrder["next_delivery_week"])) != NIL
             hOrder["next_delivery_date"] := dTemp
          ENDIF
+         // Expected arrival of the earliest delivery = its week + transit time;
+         // real weeks (WW<=52) only, special weeks verbatim.
+         nArr := IIF(Val(Right(Str(hOrder["next_delivery_week"], 4), 2)) <= 52, ;
+            AddWeeks(hOrder["next_delivery_week"], hOrder["next_ship_time"]), hOrder["next_delivery_week"])
+         hOrder["next_arrival_week"] := StrZero(nArr, 4)
+         IF (dTemp := BesWeekDate(nArr)) != NIL
+            hOrder["next_arrival_date"] := dTemp
+         ENDIF
          hOrder["next_delivery_week"] := StrZero(hOrder["next_delivery_week"], 4)
       ENDIF
+      IF hOrder["next_ship_time"] > 0
+         hOrder["ship_time"] := hOrder["next_ship_time"]
+      ENDIF
+      HDel(hOrder, "next_ship_time")   // internal accumulator - not part of the output
       AAdd(aOrders, hOrder)
    NEXT
    ASort(aOrders,,, {|x, y| x["po_number"] > y["po_number"]})
@@ -4505,6 +4539,172 @@ FUNCTION MCP_Tool_Book_Shipping_Confirmation(hArgs)
    hResult["message"] := "Shipping confirmation booked on " + ;
       IIF(lHasPlan, "delivery-schedule entry week " + StrZero(nWeek, 4), "position " + AllTrim(Str(nPos))) + ;
       " of purchase order " + AllTrim(Str(nPo))
+RETURN hResult
+
+FUNCTION MCP_Tool_Add_Delivery_Schedule(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nPo, nPos, aEntries, xE, hE
+   LOCAL nBeQty, nExisting := 0, nNewSum := 0, nLastWeek := 0, nWk, nQty, nCurLterm := 0
+   LOCAL aParsed := {}, aOut := {}
+   LOCAL lHasFolge := .F., dTemp, lOk := .F., cErr := ""
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "po_number"=>{"type"=>"number","description"=>"Purchase order number (Bestellnummer)"},;
+            "item"=>{"type"=>"number","description"=>"Position number within the purchase order"},;
+            "entries"=>{"type"=>"array","description"=>"Delivery-schedule entries to ADD, each an object {week, quantity}",;
+               "items"=>{"type"=>"object","properties"=>{;
+                  "week"=>{"type"=>"string","description"=>"Calendar week JJWW (e.g. 2634)"},;
+                  "quantity"=>{"type"=>"number","description"=>"Quantity to deliver in that week"}},;
+                  "required"=>{"week","quantity"}}};
+         },;
+         "required"=>{"po_number","item","entries"};
+      }
+      hResult["description"] := "Add delivery-schedule entries (Liefereinteilungen) to a purchase-order position. " + ;
+                              "Entries are appended to any existing schedule; the total scheduled quantity may not " + ;
+                              "exceed the ordered quantity (Bestellmenge); the position's delivery week (Lterm) is set " + ;
+                              "to the latest scheduled week, so any remaining quantity is delivered then. Positions " + ;
+                              "with follow-up (Folge) positions must be edited in Trader instead"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["po_number"]) .OR. ! HB_IsNumeric(hArgs["item"])
+      RETURN "Parameters 'po_number' and 'item' must be numbers"
+   ENDIF
+   IF ! HB_IsArray(hArgs["entries"]) .OR. Len(hArgs["entries"]) == 0
+      RETURN "Parameter 'entries' must be a non-empty array of {week, quantity}"
+   ENDIF
+   nPo := Int(hArgs["po_number"])
+   nPos := Int(hArgs["item"])
+   aEntries := hArgs["entries"]
+
+   // Validate and normalise the entries up front.
+   FOR EACH xE IN aEntries
+      IF ! HB_IsHash(xE) .OR. ! HHasKey(xE, "week") .OR. ! HHasKey(xE, "quantity")
+         RETURN "Each entry needs 'week' (JJWW) and 'quantity'"
+      ENDIF
+      nWk := IIF(HB_IsNumeric(xE["week"]), Int(xE["week"]), Val(AllTrim(xE["week"])))
+      IF ! HB_IsNumeric(xE["quantity"]) .OR. xE["quantity"] <= 0
+         RETURN "Entry 'quantity' must be a positive number"
+      ENDIF
+      nQty := xE["quantity"]
+      IF nWk <= 0 .OR. Val(Right(StrZero(nWk, 4), 2)) < 1 .OR. Val(Right(StrZero(nWk, 4), 2)) > 53
+         RETURN "Invalid week '" + AllTrim(Str(nWk)) + "' - expected a calendar week JJWW (WW 01-53)"
+      ENDIF
+      AAdd(aParsed, {nWk, nQty})
+      nNewSum += nQty
+      nLastWeek := Max(nLastWeek, nWk)
+   NEXT
+
+   NetUse("engbes", "bes")
+   NetUse("besdel", "bdel")
+
+   bes->(DbSetOrder(1))  // Str(Besnr,6) + Str(Posnr,3)
+   IF ! bes->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Purchase order position not found: " + AllTrim(Str(nPo)) + "/" + AllTrim(Str(nPos))
+      RETURN hResult
+   ENDIF
+   IF bes->Bestat >= 3
+      DbSelectArea(nOldSelect)
+      RETURN "Position is completed or cancelled (Bestat " + AllTrim(Str(bes->Bestat)) + ") - no schedule can be added"
+   ENDIF
+   nBeQty := bes->BeQty
+   nCurLterm := bes->Lterm   // the position's current delivery week (before any change)
+
+   // Follow-up (Folge) positions keep their schedules in sync via the mask
+   // (__SyncSubPlans in BestellungConfirm.prg); this tool does not, so refuse.
+   bes->(DbSeek(Str(nPo, 6)))
+   DO WHILE ! bes->(Eof()) .AND. bes->Besnr == nPo
+      IF bes->FolgeTo == nPos
+         lHasFolge := .T.
+         EXIT
+      ENDIF
+      bes->(DbSkip())
+   ENDDO
+   IF lHasFolge
+      DbSelectArea(nOldSelect)
+      RETURN "Position has follow-up (Folge) positions - edit its delivery schedule in Trader so they stay in sync"
+   ENDIF
+
+   // Existing schedule: total already scheduled + latest week so far.
+   bdel->(DbSetOrder(1))  // Besnr + Posnr
+   IF bdel->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))
+      DO WHILE ! bdel->(Eof()) .AND. bdel->Besnr == nPo .AND. bdel->Posnr == nPos
+         nExisting += bdel->Qty
+         nLastWeek := Max(nLastWeek, bdel->Lterm)
+         bdel->(DbSkip())
+      ENDDO
+   ENDIF
+
+   IF nExisting + nNewSum > nBeQty
+      DbSelectArea(nOldSelect)
+      RETURN "Total scheduled quantity (" + AllTrim(Str(nExisting + nNewSum)) + ") would exceed the ordered quantity (" + ;
+             AllTrim(Str(nBeQty)) + "); already scheduled: " + AllTrim(Str(nExisting))
+   ENDIF
+
+   // Delivery week = the latest scheduled week. But when a remainder is left
+   // (scheduled < ordered) that remainder is delivered on the position's
+   // existing Lterm, so keep it if it is a real week later than the schedule.
+   IF nExisting + nNewSum < nBeQty .AND. HB_IsNumeric(nCurLterm) .AND. ;
+      Val(Right(StrZero(nCurLterm, 4), 2)) >= 1 .AND. Val(Right(StrZero(nCurLterm, 4), 2)) <= 53
+      nLastWeek := Max(nLastWeek, nCurLterm)
+   ENDIF
+
+   // Write the entries and set the position's delivery week to the latest one
+   // (same as BestellungConfirm.prg). Wrapped in a transaction for atomicity.
+   LETO_BEGINTRANSACTION()
+   BEGIN SEQUENCE
+      FOR EACH hE IN aParsed
+         bdel->(Add_Rec(0))
+         bdel->Besnr := nPo
+         bdel->Posnr := nPos
+         bdel->Lterm := hE[1]
+         bdel->Qty   := hE[2]
+         bdel->(dbUnLock())
+         AAdd(aOut, {"week"=>StrZero(hE[1], 4), "quantity"=>hE[2]})
+      NEXT
+      bes->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))
+      bes->(Rec_Lock(0))
+      bes->Lterm := nLastWeek
+      bes->(dbUnLock())
+      IF LETO_COMMITTRANSACTION()
+         lOk := .T.
+      ELSE
+         LETO_ROLLBACK()
+         cErr := "Saving the delivery schedule failed (commit) - nothing was saved"
+      ENDIF
+   RECOVER
+      BEGIN SEQUENCE ; LETO_ROLLBACK() ; RECOVER ; END SEQUENCE
+      cErr := "Saving the delivery schedule failed (record locked or model error) - nothing was saved"
+   END SEQUENCE
+
+   IF ! lOk
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "error"
+      hResult["message"] := cErr
+      RETURN hResult
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["po_number"] := nPo
+   hResult["item"] := nPos
+   hResult["added"] := aOut
+   hResult["added_count"] := Len(aOut)
+   hResult["total_scheduled"] := nExisting + nNewSum
+   hResult["ordered_quantity"] := nBeQty
+   hResult["delivery_week"] := StrZero(nLastWeek, 4)
+   IF (dTemp := BesWeekDate(nLastWeek)) != NIL
+      hResult["delivery_date"] := dTemp
+   ENDIF
+   hResult["status"] := "success"
+   hResult["message"] := AllTrim(Str(Len(aOut))) + " delivery-schedule entry(ies) added; delivery week set to " + StrZero(nLastWeek, 4)
 RETURN hResult
 
 FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)
@@ -5046,7 +5246,7 @@ FUNCTION MCP_Tool_Get_Article_Orders(hArgs)
    LOCAL aFA := {}, hFA, aPO := {}, hPO
    LOCAL nLimit := 200, nFa := 0, nPo := 0
    LOCAL lFaTrunc := .F., lPoTrunc := .F.
-   LOCAL dTemp
+   LOCAL dTemp, nArr
    LOCAL nOldSelect := Select()
 
    // Return schema and description when called without arguments
@@ -5063,8 +5263,9 @@ FUNCTION MCP_Tool_Get_Article_Orders(hArgs)
       }
       hResult["description"] := "List the production orders (Fertigungsauftraege, from werkauf) and purchase orders " + ;
                                "(Bestellungen, from engbes) for an article - each with quantities, open quantity, " + ;
-                               "status and the end/delivery week; external production orders show their supplier and " + ;
-                               "linked purchase order. Defaults to only active/open orders"
+                               "status and the end/delivery week (purchase orders also carry ship_time and " + ;
+                               "expected_arrival_week/date = delivery + transit); external production orders show " + ;
+                               "their supplier and linked purchase order. Defaults to only active/open orders"
       RETURN hResult
    ENDIF
 
@@ -5150,10 +5351,19 @@ FUNCTION MCP_Tool_Get_Article_Orders(hArgs)
             hPO["open_quantity"] := Max(bes->BeQty - bes->GelQty, 0)
             hPO["status"] := IIF(bes->Bestat < 3, "open", "completed")
             hPO["confirmed"] := Upper(AllTrim(bes->Confirmed)) == "Y"
+            IF HB_IsNumeric(bes->ShipTime) .AND. bes->ShipTime > 0
+               hPO["ship_time"] := bes->ShipTime   // transit time (weeks) supplier -> us
+            ENDIF
             IF HB_IsNumeric(bes->Lterm) .AND. bes->Lterm > 0
                hPO["delivery_week"] := StrZero(bes->Lterm, 4)
                IF (dTemp := BesWeekDate(bes->Lterm)) != NIL
                   hPO["delivery_date"] := dTemp
+               ENDIF
+               // Expected arrival = delivery week + transit (only real weeks WW<=52)
+               nArr := IIF(Val(Right(Str(bes->Lterm, 4), 2)) <= 52, AddWeeks(bes->Lterm, bes->ShipTime), bes->Lterm)
+               hPO["expected_arrival_week"] := StrZero(nArr, 4)
+               IF (dTemp := BesWeekDate(nArr)) != NIL
+                  hPO["expected_arrival_date"] := dTemp
                ENDIF
             ENDIF
             IF ! Empty(bes->AbNr)
@@ -5318,6 +5528,7 @@ FUNCTION MCP_Tool_Get_Production_Order(hArgs)
    LOCAL nFa, hComp, dTemp
    LOCAL aComponents := {}
    LOCAL nRequired
+   LOCAL nMissComp := 0, nMissQty := 0
    LOCAL nForecast := 0, lProducible
    LOCAL cMissing, cForecastMissing, aMissing, aForecastMissing
    LOCAL hMiss, hMissOut, aMissOut
@@ -5335,7 +5546,9 @@ FUNCTION MCP_Tool_Get_Production_Order(hArgs)
       hResult["description"] := "Retrieve a production order (Fertigungsauftrag) by number: article, quantities, " + ;
                                 "status, end week/date, and for external manufacturing (Fremdfertigung) the supplier " + ;
                                 "and linked purchase order. Includes the material list (required/booked/missing per " + ;
-                                "component) and a producibility check: 'producible' (with current stock, incl. " + ;
+                                "component), material_delivered - whether all material has been issued (for a " + ;
+                                "Fremdfertigung: whether we delivered the material/Beistellung to the supplier) - " + ;
+                                "and a producibility check: 'producible' (with current stock, incl. " + ;
                                 "blocks and approvals), 'due' (start date reached), and for future starts " + ;
                                 "'producible_by_start' considering expected receipts"
       RETURN hResult
@@ -5412,6 +5625,14 @@ FUNCTION MCP_Tool_Get_Production_Order(hArgs)
          hComp["required_quantity"] := nRequired
          hComp["booked_quantity"] := we->BookQty
          hComp["missing_quantity"] := Max(nRequired - we->BookQty, 0)
+         // Track outstanding material (real component lines only) for the
+         // "have we issued the material" summary - for a Fremdfertigung this is
+         // the Beistellung delivered to the supplier. Supply complete when
+         // BookQty >= required (cf. checkstock.prg: BookQty < Qty -> not done).
+         IF we->Pos > 0 .AND. nRequired > 0 .AND. we->BookQty < nRequired
+            nMissComp++
+            nMissQty += (nRequired - we->BookQty)
+         ENDIF
          AAdd(aComponents, hComp)
          we->(DbSkip())
       ENDDO
@@ -5475,6 +5696,13 @@ FUNCTION MCP_Tool_Get_Production_Order(hArgs)
 
    hResult["component_count"] := Len(aComponents)
    hResult["components"] := aComponents
+   // Summary: has all the material been issued? For external production this
+   // tells whether we have delivered the material (Beistellung) to the supplier.
+   hResult["material_delivered"] := nMissComp == 0
+   IF nMissComp > 0
+      hResult["material_open_components"] := nMissComp
+      hResult["material_open_quantity"] := nMissQty
+   ENDIF
    hResult["status"] := "found"
 RETURN hResult
 

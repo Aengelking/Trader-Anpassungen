@@ -14,6 +14,7 @@ LOCAL cList
 LOCAL bNewHashKey
 LOCAL aOPs,nX,nPreis
 LOCAL lBes := .T.
+LOCAL dDate
 
 LOCAL hCurrencies := {"E","P","U"}
 LOCAL getlist := {},nTop,lDummy
@@ -25,7 +26,7 @@ Default(@lReturn,.F.)
 
 
 IF ! lReturn
-   Head(t("Fremdwährungsbedarf berechnen"))
+   Head(t("Fremdwï¿½hrungsbedarf berechnen"))
    IF Tr_Getini(28) == 9
       lBes := Tr_Msgbox("Mit offenen Bestellungen?",,{"Ja","Nein"}) != 2
       SetPos(0,0)
@@ -36,6 +37,8 @@ NetUse("fibu","fibu")
 NetUse("engkund","ku")
 NetUse("engbes","bes")
 NetUse("skontob","skb")
+NetUse("engrech","rech")
+NetUse("rechpos","rpos")
 
 LX_Start()
 hOpSummen := LX_GetOffenePostenSummen(.F.)
@@ -114,15 +117,25 @@ DO WHILE ! fibu->(EOF())
          DO WHILE bes->Liefma == ku->Kunde .AND. bes->BeStat < 3 .AND. ! bes->(EOF())
             nPreis := bes->EkPr/bes->Pe*(1-bes->Rabatt/100)
 
+            dDate := CalWD(bes->LTerm)
+            IF dDate > Date()
+               dDate := Date()
+            ENDIF
+
+                        //for debug only
+            IF Trim(bes->Liefma) == "BULGIN"
+               //? bes->Besnr,bes->Liefma,bes->Bestat,bes->BeQty,bes->GelQty,bes->EkPr,bes->Pe,bes->Rabatt,nPreis,dDate
+            ENDIF
+
             IF ! skb->(IsPrePay(ku->Skonto))
-               nWait := skb->(GetSkontoWait(ku->Skonto,Date(),Date()))
+               nWait := skb->(GetSkontoWait(ku->Skonto,dDate,dDate))
                IF nWait >= 30 .AND.  Month(Date()) == 1
                   nWait -= 2
                ENDIF
             ELSE
                nWait := 0
             ENDIF
-            nPayDate := Date()+nWait
+            nPayDate := dDate+nWait
 
             //WE ohne Rechnung
             xMonth := IF(nPayDate <= EOM(Date()),0,1)
@@ -146,7 +159,7 @@ DO WHILE ! fibu->(EOF())
             ENDIF
             nPayDate := dDelDate+nWait
 
-            //Zukünftige Lieferungen
+            //Zukï¿½nftige Lieferungen
             IF lBes
                nValue := (bes->BeQty-bes->GelQty)*nPreis
                //nBesOpen += nValue
@@ -162,6 +175,51 @@ DO WHILE ! fibu->(EOF())
    ENDIF
    fibu->(dbSkip())
 ENDDO
+
+//Eingangsrechnungen, die noch nicht nach Lexware uebertragen wurden, sind
+//noch nicht in den Lexware-OPs enthalten. Sobald eine Rechnungsposition
+//erfasst wird, verringert sie ausserdem bereits "WE ohne Rechnung"
+//(bes->ZoQty). Ohne diesen Block wuerden solche Betraege daher komplett
+//fehlen - egal ob die Rechnung schon gebucht (Booked) oder erst teilweise
+//erfasst ist.
+rech->(dbSetOrder( 0 ))
+rech->(dbGoTop())
+DO WHILE ! rech->(EOF())
+   //Transfer wurde erst ab 2016 gepflegt - aeltere Rechnungen wuerden sonst
+   //faelschlich als "noch nicht uebertragen" gelten.
+   IF ! rech->Transfer .AND. rech->Status == 0 .AND. rech->Payme == 0 .AND. rech->Rechdat >= SToD("20160101")
+      fibu->(dbSetOrder( 2 ))
+      IF fibu->(dbSeek( Str(rech->Konto,6) ))
+         cCurrency := IF(Empty(fibu->Currency),"E",fibu->Currency)
+         Eval(bNewHashKey,.T.,rech->Konto)
+      ELSE
+         fibu->(dbSetOrder( 3 ))
+         IF fibu->(dbSeek( Str(rech->Konto,6) )) //WD Konto ignorieren
+            rech->(dbSkip())
+            LOOP
+         ENDIF
+         cCurrency := IF(Empty(rech->Money),"E",rech->Money)
+         Eval(bNewHashKey,.F.,rech->Konto)
+      ENDIF
+
+      dDelDate := rech->Rechdat+Max(rech->Wait,rech->WaitSkonto)
+      xMonth   := _GetMonth(dDelDate)
+
+      IF rech->Booked
+         //Gebucht, aber noch nicht uebertragen -> Bruttobetrag der Rechnung.
+         nValue := rech->GrAmt
+      ELSE
+         //Noch nicht gebucht -> nur die bereits erfassten Positionen zaehlen,
+         //denn nur diese wurden schon aus bes->ZoQty herausgerechnet.
+         nValue := _FW_ErfassteRePos(rech->Liefma,rech->Rechnr)
+      ENDIF
+
+      hCurs[cCurrency][xMonth]    += nValue
+      hSuppliers[cSupKey][xMonth] += nValue
+   ENDIF
+   rech->(dbSkip())
+ENDDO
+
 //Sinkey(0)
 
 IF lReturn 
@@ -254,11 +312,27 @@ RETURN IF(nMonths>MONTHS,"AFTER",Max(nMonths,0))
 
 STATIC FUNCTION _MonthName(nMonth)
    LOCAL nMon := Month(Date())+nMonth
-   LOCAL aMonths := {"Januar","Februar",t("März"),"April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"}
+   LOCAL aMonths := {"Januar","Februar",t("Mï¿½rz"),"April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"}
    IF nMon > 12
       nMon := nMon-12
    ENDIF
 RETURN aMonths[nMon]
+
+STATIC FUNCTION _FW_ErfassteRePos(cLiefma,cReNr)
+   //Summe der bereits erfassten Rechnungspositionen (Nettowert) einer
+   //Eingangsrechnung - analog zur Bewertung "WE ohne Rechnung".
+   LOCAL nSum := 0
+   LOCAL nOrder := rpos->(IndexOrd())
+   rpos->(dbSetOrder( 1 )) //liefma+beleg+belegpos
+   IF rpos->(dbSeek( cLiefma+cReNr ))
+      DO WHILE ! rpos->(EOF()) .AND. rpos->Liefma == cLiefma .AND. rpos->Beleg == cReNr
+         nSum += rpos->Menge * rpos->EkPr / IF(rpos->Pe > 0,rpos->Pe,1) * (1-rpos->Rabatt/100)
+         rpos->(dbSkip())
+      ENDDO
+   ENDIF
+   rpos->(dbSetOrder( nOrder ))
+RETURN nSum
+
 
 FUNCTION _FW_UF //(nMode,nRow,nCol)
    IF LastKey() == K_LBUTTONDOWN          

@@ -79,6 +79,7 @@ PROCEDURE PortalDrawing(cArtNr, cFirm)
    aHeader := { "Content-Type: application/json", "x-import-secret: $APIKEY$" }
 
    oRest := RestApi():New()
+   oRest:cBaseUrl := ""                        // cUrl is already the full URL (else NIL + cUrl -> BASE/1081)
    oRest:cApiKeyName := "PORTALDRW"            // -> $APIKEY$ in the header (keychain, max 10 chars)
    oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus, @cResponse)
 

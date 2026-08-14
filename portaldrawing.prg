@@ -18,8 +18,8 @@
  * function, which stores them in saved_article_attachments.
  *
  * Config (once):
- *   - keychain entry "PORTALDRAWING": the shared upload secret as its password
- *     (matched by the edge function's IMPORT_DRAWING_SECRET).
+ *   - keychain entry "PORTALDRW" (max 10 chars): the shared upload secret as its
+ *     password (matched by the edge function's IMPORT_DRAWING_SECRET).
  *
  * NOTE (v1): uses the CURRENTLY open firm. If the article number is not found
  * in it, switch Trader to the matching firm and retry.
@@ -79,7 +79,7 @@ PROCEDURE PortalDrawing(cArtNr, cFirm)
    aHeader := { "Content-Type: application/json", "x-import-secret: $APIKEY$" }
 
    oRest := RestApi():New()
-   oRest:cApiKeyName := "PORTALDRAWING"        // -> $APIKEY$ in the header
+   oRest:cApiKeyName := "PORTALDRW"            // -> $APIKEY$ in the header (keychain, max 10 chars)
    oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus, @cResponse)
 
    IF nStatus >= 200 .AND. nStatus < 300

@@ -64,6 +64,13 @@ STATIC FUNCTION PS_CollectSuppliers(nArt)
 
    ali->(dbSeek(Str(nArt, 6), .T.))            // soft seek to first row of the article
    DO WHILE ! ali->(EOF()) .AND. ali->Artikelnr == nArt
+      // Priority 9 = deaktivierter Lieferant (Stufe 9) -> nicht uebergeben.
+      // (Zeile ueberspringen, ohne den Matchcode zu "sehen", damit eine evtl.
+      //  aktive Zeile desselben Lieferanten weiter beruecksichtigt wird.)
+      IF _psFld("ali", "Priority", 0) >= 9
+         ali->(dbSkip())
+         LOOP
+      ENDIF
       cMatch := Upper(Trim(ali->Kunde))
       IF ! Empty(cMatch) .AND. AScan(aSeen, {|c| c == cMatch}) == 0
          AAdd(aSeen, cMatch)
@@ -92,3 +99,11 @@ STATIC FUNCTION _psStr(x)
    CASE ValType(x) == "N" ; RETURN hb_ntos(x)
    ENDCASE
 RETURN ""
+
+// defensive field read (field may be absent in some firm's artlief schema)
+STATIC FUNCTION _psFld(cAlias, cField, xDef)
+   LOCAL nPos := (cAlias)->(FieldPos(cField))
+   IF nPos > 0
+      RETURN (cAlias)->(FieldGet(nPos))
+   ENDIF
+RETURN xDef

@@ -22,14 +22,26 @@
 PROCEDURE PortalArticle(cArtNr, cFirm)
    LOCAL nArt  := Val(_paStr(cArtNr))
    LOCAL nFirm := Val(_paStr(cFirm))
-   LOCAL hBody, aHeader, nStatus := 0, cResponse := "", oRest
-   LOCAL cMatch, cName, cUnit, cDrw, cIdx, lKu, lObs, lManu, aBom, cDrawMsg := ""
-   LOCAL cUrl := "https://jjxieivxbnkjoboiysaj.supabase.co/functions/v1/import-article"
+   LOCAL cMsg := ""
 
    IF nArt <= 0
       Tr_MsgBox("Keine Artikelnummer uebergeben.")
       RETURN
    ENDIF
+
+   PA_PushArticle(nArt, nFirm, @cMsg)
+   Tr_MsgBox(cMsg)
+RETURN
+
+
+// Gather the article master data (+ BOM as consigned parts) and POST it to
+// import-article, then upload the drawing file. Sets cMsg (by ref) and returns
+// the import-article HTTP status (or -1 when the article was not found).
+// Shared so portalanfrage.prg can ensure an article before enquiring.
+STATIC FUNCTION PA_PushArticle(nArt, nFirm, cMsg)
+   LOCAL hBody, aHeader, nStatus := 0, cResponse := "", oRest
+   LOCAL cMatch, cName, cUnit, cDrw, cIdx, lKu, lObs, lManu, aBom, cDrawMsg := ""
+   LOCAL cUrl := "https://jjxieivxbnkjoboiysaj.supabase.co/functions/v1/import-article"
 
    lManu := ArtIsManufactured(nArt)          // eigene NetUse/SaveEnv/RestEnv -> zuerst
 
@@ -37,9 +49,8 @@ PROCEDURE PortalArticle(cArtNr, cFirm)
    art->(dbSetOrder(2))                       // index 2 = artikelnr
    IF ! art->(dbSeek(Str(nArt, 6)))
       art->(dbCloseArea())
-      Tr_MsgBox("Artikel " + LTrim(Str(nArt)) + " nicht in der aktuellen Firma gefunden." + Chr(13) + ;
-                "Bitte Trader in die passende Firma umschalten und erneut aufrufen.")
-      RETURN
+      cMsg := "Artikel " + LTrim(Str(nArt)) + " nicht in der aktuellen Firma gefunden."
+      RETURN -1
    ENDIF
 
    cMatch := Trim(art->Matchcode)
@@ -77,13 +88,12 @@ PROCEDURE PortalArticle(cArtNr, cFirm)
       // Artikel ist jetzt im Portal -> Zeichnungsdatei gleich mit hochladen
       // (import-article-drawing findet den Artikel ueber erp_article_id+firm).
       PD_PushDrawing(nArt, nFirm, @cDrawMsg)
-      Tr_MsgBox("Artikel " + cMatch + " an das Portal uebergeben (" + ;
-                LTrim(Str(Len(aBom))) + " Beistellteile)." + Chr(13) + _paStr(cResponse) + ;
-                Chr(13) + Chr(13) + "Zeichnung: " + cDrawMsg)
+      cMsg := "Artikel " + cMatch + " uebergeben (" + LTrim(Str(Len(aBom))) + ;
+              " Beistellteile). " + _paStr(cResponse) + " | Zeichnung: " + cDrawMsg
    ELSE
-      Tr_MsgBox("Artikel-Upload fehlgeschlagen (HTTP " + LTrim(Str(nStatus)) + ")." + Chr(13) + _paStr(cResponse))
+      cMsg := "Artikel-Upload fehlgeschlagen (HTTP " + LTrim(Str(nStatus)) + "). " + _paStr(cResponse)
    ENDIF
-RETURN
+RETURN nStatus
 
 
 // BOM of a manufactured article as consigned parts. Position -1 is skipped.

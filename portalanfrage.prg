@@ -29,6 +29,7 @@ PROCEDURE PortalAnfrage(cAngnr, cFirm)
    LOCAL nFirm  := Val(_pfStr(cFirm))
    LOCAL aParts, aGroups := {}, aNoSup := {}, hPart, aSup, hS, aIds, cKey, nG, nId
    LOCAL cCustomer := "", hBody, aHeader, nStatus := 0, cResponse := "", oRest, g
+   LOCAL nArt, cM := ""
    LOCAL cUrl := "https://jjxieivxbnkjoboiysaj.supabase.co/functions/v1/import-enquiry"
 
    IF nAngnr <= 0
@@ -44,11 +45,18 @@ PROCEDURE PortalAnfrage(cAngnr, cFirm)
 
    // group the 0-price positions by their set of active suppliers
    FOR EACH hPart IN aParts
-      aSup := PS_CollectSuppliers(hPart["artikelnr"])   // read-only (Prio 9 = deaktiviert ausgeschlossen)
+      nArt := hPart["artikelnr"]
+      // Phase 4: Artikel (inkl. Zeichnung/Beistellteile) sicherstellen
+      IF nArt > 0
+         PA_PushArticle(nArt, nFirm, @cM)
+      ENDIF
+      aSup := PS_CollectSuppliers(nArt)                 // read-only (Prio 9 = deaktiviert ausgeschlossen)
       IF Len(aSup) == 0
          AAdd(aNoSup, hPart["article_number"])
          LOOP
       ENDIF
+      // Phase 4: Lieferanten dieses Artikels anlegen (import-suppliers)
+      PS_PushSuppliers(nFirm, nArt, aSup, @cM)
       aIds := {}
       FOR EACH hS IN aSup
          AAdd(aIds, hS["erp_supplier_id"])
@@ -173,6 +181,9 @@ STATIC FUNCTION _pfJoin(a)
 RETURN c
 
 
-// PS_CollectSuppliers() for the supplier grouping (bottom #include does not
-// hijack the entry point; first public proc PortalAnfrage wins).
+// Reusable push helpers (bottom #include does not hijack the entry point;
+// first public proc PortalAnfrage wins):
+//   portalsuppliers.prg -> PS_CollectSuppliers / PS_PushSuppliers
+//   portalarticle.prg   -> PA_PushArticle (+ portaldrawing.prg / PD_PushDrawing)
 #include 'x:\run\portalsuppliers.prg'
+#include 'x:\run\portalarticle.prg'

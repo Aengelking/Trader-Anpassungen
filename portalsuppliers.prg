@@ -21,8 +21,7 @@
 PROCEDURE PortalSuppliers(cArtNr, cFirm)
    LOCAL nArt  := Val(_psStr(cArtNr))
    LOCAL nFirm := Val(_psStr(cFirm))
-   LOCAL aSup, hBody, aHeader, nStatus := 0, cResponse := "", oRest
-   LOCAL cUrl := "https://jjxieivxbnkjoboiysaj.supabase.co/functions/v1/import-suppliers"
+   LOCAL aSup, cMsg := ""
 
    IF nArt <= 0
       Tr_MsgBox("Keine Artikelnummer uebergeben.")
@@ -35,6 +34,23 @@ PROCEDURE PortalSuppliers(cArtNr, cFirm)
       RETURN
    ENDIF
 
+   PS_PushSuppliers(nFirm, nArt, aSup, @cMsg)
+   Tr_MsgBox(cMsg)
+RETURN
+
+
+// POST the collected suppliers to import-suppliers. Sets cMsg (by ref) and
+// returns the HTTP status (0 when there is nothing to send). Shared so
+// portalanfrage.prg can ensure an article's suppliers before enquiring.
+STATIC FUNCTION PS_PushSuppliers(nFirm, nArt, aSup, cMsg)
+   LOCAL hBody, aHeader, nStatus := 0, cResponse := "", oRest
+   LOCAL cUrl := "https://jjxieivxbnkjoboiysaj.supabase.co/functions/v1/import-suppliers"
+
+   IF Len(aSup) == 0
+      cMsg := "Keine Lieferanten."
+      RETURN 0
+   ENDIF
+
    hBody := { "erp_firm_id" => nFirm, "article" => nArt, "suppliers" => aSup }
    aHeader := { "Content-Type: application/json", "x-import-secret: $APIKEY$" }
 
@@ -44,11 +60,11 @@ PROCEDURE PortalSuppliers(cArtNr, cFirm)
    oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus, @cResponse)
 
    IF nStatus >= 200 .AND. nStatus < 300
-      Tr_MsgBox(LTrim(Str(Len(aSup))) + " Lieferant(en) an das Portal uebergeben." + Chr(13) + _psStr(cResponse))
+      cMsg := LTrim(Str(Len(aSup))) + " Lieferant(en) uebergeben. " + _psStr(cResponse)
    ELSE
-      Tr_MsgBox("Lieferanten-Upload fehlgeschlagen (HTTP " + LTrim(Str(nStatus)) + ")." + Chr(13) + _psStr(cResponse))
+      cMsg := "Lieferanten-Upload fehlgeschlagen (HTTP " + LTrim(Str(nStatus)) + "). " + _psStr(cResponse)
    ENDIF
-RETURN
+RETURN nStatus
 
 
 // Collect the distinct suppliers of an article from artlief (order 5 =

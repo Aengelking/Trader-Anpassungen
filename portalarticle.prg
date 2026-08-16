@@ -23,7 +23,7 @@ PROCEDURE PortalArticle(cArtNr, cFirm)
    LOCAL nArt  := Val(_paStr(cArtNr))
    LOCAL nFirm := Val(_paStr(cFirm))
    LOCAL hBody, aHeader, nStatus := 0, cResponse := "", oRest
-   LOCAL cMatch, cName, cUnit, cDrw, cIdx, lKu, lObs, lManu, aBom
+   LOCAL cMatch, cName, cUnit, cDrw, cIdx, lKu, lObs, lManu, aBom, cDrawMsg := ""
    LOCAL cUrl := "https://jjxieivxbnkjoboiysaj.supabase.co/functions/v1/import-article"
 
    IF nArt <= 0
@@ -74,8 +74,12 @@ PROCEDURE PortalArticle(cArtNr, cFirm)
    oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus, @cResponse)
 
    IF nStatus >= 200 .AND. nStatus < 300
+      // Artikel ist jetzt im Portal -> Zeichnungsdatei gleich mit hochladen
+      // (import-article-drawing findet den Artikel ueber erp_article_id+firm).
+      PD_PushDrawing(nArt, nFirm, @cDrawMsg)
       Tr_MsgBox("Artikel " + cMatch + " an das Portal uebergeben (" + ;
-                LTrim(Str(Len(aBom))) + " Beistellteile)." + Chr(13) + _paStr(cResponse))
+                LTrim(Str(Len(aBom))) + " Beistellteile)." + Chr(13) + _paStr(cResponse) + ;
+                Chr(13) + Chr(13) + "Zeichnung: " + cDrawMsg)
    ELSE
       Tr_MsgBox("Artikel-Upload fehlgeschlagen (HTTP " + LTrim(Str(nStatus)) + ")." + Chr(13) + _paStr(cResponse))
    ENDIF
@@ -127,3 +131,8 @@ STATIC FUNCTION _paFld(cAlias, cField, xDef)
       RETURN (cAlias)->(FieldGet(nPos))
    ENDIF
 RETURN xDef
+
+
+// Reuse the drawing upload core (PD_PushDrawing) - a bottom #include with public
+// procs does NOT hijack the entry point (first public proc PortalArticle wins).
+#include 'x:\run\portaldrawing.prg'

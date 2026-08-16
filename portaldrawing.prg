@@ -5,17 +5,18 @@
  * the drawing share \\EK-SERVER4\Data\Technik\Prozessdoku - unlike the IIS
  * api-intern app pool, which has no access. This is the workaround for that.
  *
- * Invoked from the portal via a protocol link (checkstock.prg uses the same
- * trader:// mechanism, '&' as the parameter separator):
+ * Invoked from the portal via a protocol link (opaque trader: URI, '&' as the
+ * parameter separator):
  *
- *   trader://-R&portaldrawing&{"<artikelnr>","<erp_firm_id>"}
- *
- * -R runs  MBaseRun(Path('run\portaldrawing'), {"<artikelnr>","<firm>"}),
- * so the two array elements arrive here as parameters.
+ *   trader:-R&portaldrawing&{"<artikelnr>","<erp_firm_id>"}
  *
  * It resolves the drawing exactly like the desktop (get_drawingfile hook),
  * reads the bytes and POSTs them base64-encoded as JSON to the portal edge
- * function, which stores them in saved_article_attachments.
+ * function import-article-drawing, which stores them in saved_article_attachments.
+ *
+ * The upload core is the STATIC PD_PushDrawing() so other run-scripts can reuse
+ * it via bottom #include (e.g. portalarticle.prg uploads the drawing together
+ * with the article master data).
  *
  * Config (once):
  *   - keychain entry "PORTALDRW" (max 10 chars): the shared upload secret as its
@@ -26,47 +27,58 @@
  */
 
 PROCEDURE PortalDrawing(cArtNr, cFirm)
-   LOCAL nArtNr := Val(_pdStr(cArtNr))
-   LOCAL cFile, cData, cName, cMime
-   LOCAL hBody, aHeader, nStatus := 0, cResponse := "", oRest
-   LOCAL cUrl := "https://jjxieivxbnkjoboiysaj.supabase.co/functions/v1/import-article-drawing"
+   LOCAL cMsg := ""
 
-   IF nArtNr <= 0
+   IF Val(_pdStr(cArtNr)) <= 0
       Tr_MsgBox("Keine Artikelnummer uebergeben.")
       RETURN
    ENDIF
 
+   PD_PushDrawing(Val(_pdStr(cArtNr)), Val(_pdStr(cFirm)), @cMsg)
+   Tr_MsgBox(cMsg)
+RETURN
+
+
+// Resolve the article's drawing (get_drawingfile hook) and upload it to the
+// portal (import-article-drawing). Sets cMsg (by ref) to a human message and
+// returns the HTTP status of the upload, or a marker when nothing was sent:
+//   -1 article not found, 0 no drawing number, 1 no file, 2 file unreadable.
+// Shared by portaldrawing (standalone) and portalarticle (bottom #include).
+STATIC FUNCTION PD_PushDrawing(nArtNr, nFirm, cMsg)
+   LOCAL cFile, cData, cName, cMime
+   LOCAL hBody, aHeader, nStatus := 0, cResponse := "", oRest
+   LOCAL cUrl := "https://jjxieivxbnkjoboiysaj.supabase.co/functions/v1/import-article-drawing"
+
    NetUse("artikel", "art")
    art->(dbSetOrder(2))                       // index 2 = artikelnr
    IF ! art->(dbSeek(Str(nArtNr, 6)))
-      Tr_MsgBox("Artikel " + LTrim(Str(nArtNr)) + " nicht in der aktuellen Firma gefunden." + Chr(13) + ;
-                "Bitte Trader in die passende Firma umschalten und erneut aufrufen.")
-      RETURN
+      cMsg := "Artikel " + LTrim(Str(nArtNr)) + " nicht in der aktuellen Firma gefunden."
+      RETURN -1
    ENDIF
    IF Empty(art->Zeichnung)
-      Tr_MsgBox("Artikel " + AllTrim(art->Matchcode) + " hat keine Zeichnungsnummer.")
-      RETURN
+      cMsg := "Artikel " + AllTrim(art->Matchcode) + " hat keine Zeichnungsnummer."
+      RETURN 0
    ENDIF
 
    // resolve like the desktop path (shared get_drawingfile hook)
    cFile := _pdGuard({|| Hook("get_drawingfile", {.F.}) }, "")
    IF ValType(cFile) != "C" .OR. Empty(cFile) .OR. ! File(cFile)
-      Tr_MsgBox("Keine Zeichnungsdatei gefunden fuer " + AllTrim(art->Zeichnung) + ;
-                IF(Empty(art->ZeichIndex), "", " / Index " + AllTrim(art->ZeichIndex)) + ".")
-      RETURN
+      cMsg := "Keine Zeichnungsdatei gefunden fuer " + AllTrim(art->Zeichnung) + ;
+              IF(Empty(art->ZeichIndex), "", " / Index " + AllTrim(art->ZeichIndex)) + "."
+      RETURN 1
    ENDIF
 
    cData := hb_MemoRead(cFile)                // binary-safe whole-file read
    IF Empty(cData)
-      Tr_MsgBox("Zeichnungsdatei konnte nicht gelesen werden:" + Chr(13) + cFile)
-      RETURN
+      cMsg := "Zeichnungsdatei konnte nicht gelesen werden:" + Chr(13) + cFile
+      RETURN 2
    ENDIF
 
    cName := SubStr(cFile, RAt("\", cFile) + 1)
    cMime := _pdMime(cName)
 
    hBody := {;
-      "erp_firm_id"         => Val(_pdStr(cFirm)), ;
+      "erp_firm_id"         => nFirm, ;
       "erp_article_id"      => nArtNr, ;
       "matchcode"           => AllTrim(art->Matchcode), ;
       "drawing_number"      => AllTrim(art->Zeichnung), ;
@@ -84,11 +96,11 @@ PROCEDURE PortalDrawing(cArtNr, cFirm)
    oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus, @cResponse)
 
    IF nStatus >= 200 .AND. nStatus < 300
-      Tr_MsgBox("Zeichnung " + AllTrim(art->Zeichnung) + " wurde ins Lieferantenportal geladen.")
+      cMsg := "Zeichnung " + AllTrim(art->Zeichnung) + " wurde ins Lieferantenportal geladen."
    ELSE
-      Tr_MsgBox("Upload fehlgeschlagen (HTTP " + LTrim(Str(nStatus)) + ")." + Chr(13) + _pdStr(cResponse))
+      cMsg := "Zeichnungs-Upload fehlgeschlagen (HTTP " + LTrim(Str(nStatus)) + ")." + Chr(13) + _pdStr(cResponse)
    ENDIF
-RETURN
+RETURN nStatus
 
 
 // "" for non-character / empty

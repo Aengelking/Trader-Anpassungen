@@ -166,6 +166,7 @@ FUNCTION ProcessMCPRequest(hRequest)
    LOCAL cJsonrpc := hRequest["jsonrpc"]
    LOCAL xId := IIF(HHasKey(hRequest, "id"), hRequest["id"], "")
    LOCAL cMessage
+   LOCAL oError
    
    IF cJsonrpc != "2.0"
       RETURN CreateErrorResponse("Invalid JSON-RPC version", xId)
@@ -182,10 +183,18 @@ FUNCTION ProcessMCPRequest(hRequest)
    
    // Check if function exists and call it dynamically
    IF Type(cFunctionName + "()") != "U"
-      BEGIN SEQUENCE
+      BEGIN SEQUENCE WITH {|oErr| Break(oErr)}
          cResponse := HB_ExecFromArray(cFunctionName, {hRequest, xId})
-      RECOVER
-         cResponse := CreateErrorResponse("Error executing method: " + cFunctionName,xID)
+      RECOVER USING oError
+         cMessage := "Error executing method: " + cFunctionName
+         IF HB_IsObject(oError)
+            cMessage += " [" + ;
+               IIF(Empty(oError:SubSystem), "?", oError:SubSystem) + "/" + ;
+               LTrim(Str(IIF(HB_IsNumeric(oError:GenCode), oError:GenCode, 0))) + ;
+               IIF(Empty(oError:Description), "", " " + oError:Description) + ;
+               IIF(Empty(oError:Operation), "", " (" + oError:Operation + ")") + "]"
+         ENDIF
+         cResponse := CreateErrorResponse(cMessage, xID)
       END SEQUENCE
    ELSE
       cResponse := CreateErrorResponse("Unknown method: " + cMethod + " (function: " + cFunctionName + ")", xId)
@@ -553,13 +562,13 @@ FUNCTION MCP_Tool_Get_Article(hArgs)
    NetUse("artikel","art")  // Ensure article database is available
 
    IF HHasKey(hArgs,"matchcode") .AND. !Empty(hArgs["matchcode"])
-      // Load by matchcode
+      // Load by matchcode (tolerate a client sending it as a JSON number)
       art->(DbSetOrder(1))  // Assume order 1 is by matchcode
-      lFound := art->(DbSeek(Pad(hArgs["matchcode"],25)))
+      lFound := art->(DbSeek(Pad(HB_CStr(hArgs["matchcode"]),25)))
    ELSEIF HHasKey(hArgs,"partno") .AND. !Empty(hArgs["partno"])
-      // Search by part number
-      art->(DbSetOrder(2))  
-      lFound := art->(DbSeek(Str(Val(hArgs["partno"]),6)))
+      // Search by part number (tolerate string or numeric input)
+      art->(DbSetOrder(2))
+      lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(HB_CStr(hArgs["partno"]))),6)))
    ENDIF
 
    IF lFound
@@ -575,8 +584,8 @@ FUNCTION MCP_Tool_Get_Article(hArgs)
       hResult["status"] := "not_found"
       hResult["message"] := "Article not found"
    ENDIF
-   
-RETURN hResult
+
+RETURN _HashToUtf8(hResult)
 
 FUNCTION MCP_Tool_Get_Order_Details(hArgs)
    LOCAL oAuftrag
@@ -604,7 +613,7 @@ FUNCTION MCP_Tool_Get_Order_Details(hArgs)
    IF  oAuftrag:Load(hArgs["order_number"])
       lFound := .T.
       hResult["order_number"] := oAuftrag:abnr
-      hResult["customer"] := oAuftrag:Kundma
+      hResult["customer"] := HB_StrToUTF8(AllTrim(oAuftrag:Kundma))
       hResult["customer_order_number"] := HB_StrToUTF8(AllTrim(oAuftrag:Aufnr))  // header = first line's; per-line values are on each line
       hResult["date"] := oAuftrag:Besda
       hResult["completed"] := oAuftrag:Erledigt //auf->Status == 3 .OR. auf->Status == 7
@@ -614,7 +623,7 @@ FUNCTION MCP_Tool_Get_Order_Details(hArgs)
          LOCAL hPosition := {=>}
          LOCAL dTemp
          hPosition["item"] := oPos:Itmnr
-         hPosition["article"] := AllTrim(oPos:Matchcode)
+         hPosition["article"] := HB_StrToUTF8(AllTrim(oPos:Matchcode))
          hPosition["customer_order_number"] := HB_StrToUTF8(AllTrim(oPos:Aufnr))  // the customer PO no is per position
          //hPosition["description"] := AllTrim(oPos:Artikel:Artikel)
          hPosition["blanket_order"] := oPos:IsRahmen
@@ -691,8 +700,8 @@ FUNCTION MCP_Tool_Check_Stock(hArgs)
    IF !Empty(cMatchcode)
       art->(DbSetOrder(1))  // Assume order 1 is by matchcode
       IF art->(DbSeek(cMatchcode))
-         hResult["matchcode"] := AllTrim(cMatchcode)
-         hResult["description"] := AllTrim(art->artikel)
+         hResult["matchcode"] := HB_StrToUTF8(AllTrim(cMatchcode))
+         hResult["description"] := HB_StrToUTF8(AllTrim(art->artikel))
          hResult["current_stock"] := art->bestand
          //hResult["reserved"] := art->reserviert
          hResult["available"] := LagGetStock(art->Artikelnr,2) //art->bestand - art->reserviert
@@ -776,11 +785,11 @@ FUNCTION MCP_Tool_Search_Articles(hArgs)
       ENDIF
       
       hArticle := {=>}
-      hArticle["matchcode"] := AllTrim(art->matchcode)
+      hArticle["matchcode"] := HB_StrToUTF8(AllTrim(art->matchcode))
       hArticle["description"] := GetEnhancedDescription(art->artikelnr)
-      hArticle["unit"] := AllTrim(art->Me)
-      hArticle["group"] := AllTrim(art->gruppe)
-      hArticle["group_name"] := GetArtGroupName(AllTrim(art->gruppe))
+      hArticle["unit"] := HB_StrToUTF8(AllTrim(art->Me))
+      hArticle["group"] := HB_StrToUTF8(AllTrim(art->gruppe))
+      hArticle["group_name"] := HB_StrToUTF8(GetArtGroupName(AllTrim(art->gruppe)))
       hArticle["stock"] := art->bestand
       
       // Check if article has Shopware entry

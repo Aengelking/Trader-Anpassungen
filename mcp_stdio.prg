@@ -166,6 +166,7 @@ FUNCTION ProcessMCPRequest(hRequest)
    LOCAL cJsonrpc := hRequest["jsonrpc"]
    LOCAL xId := IIF(HHasKey(hRequest, "id"), hRequest["id"], "")
    LOCAL cMessage
+   LOCAL oError
    
    IF cJsonrpc != "2.0"
       RETURN CreateErrorResponse("Invalid JSON-RPC version", xId)
@@ -182,10 +183,18 @@ FUNCTION ProcessMCPRequest(hRequest)
    
    // Check if function exists and call it dynamically
    IF Type(cFunctionName + "()") != "U"
-      BEGIN SEQUENCE
+      BEGIN SEQUENCE WITH {|oErr| Break(oErr)}
          cResponse := HB_ExecFromArray(cFunctionName, {hRequest, xId})
-      RECOVER
-         cResponse := CreateErrorResponse("Error executing method: " + cFunctionName,xID)
+      RECOVER USING oError
+         cMessage := "Error executing method: " + cFunctionName
+         IF HB_IsObject(oError)
+            cMessage += " [" + ;
+               IIF(Empty(oError:SubSystem), "?", oError:SubSystem) + "/" + ;
+               LTrim(Str(IIF(HB_IsNumeric(oError:GenCode), oError:GenCode, 0))) + ;
+               IIF(Empty(oError:Description), "", " " + oError:Description) + ;
+               IIF(Empty(oError:Operation), "", " (" + oError:Operation + ")") + "]"
+         ENDIF
+         cResponse := CreateErrorResponse(cMessage, xID)
       END SEQUENCE
    ELSE
       cResponse := CreateErrorResponse("Unknown method: " + cMethod + " (function: " + cFunctionName + ")", xId)
@@ -553,13 +562,13 @@ FUNCTION MCP_Tool_Get_Article(hArgs)
    NetUse("artikel","art")  // Ensure article database is available
 
    IF HHasKey(hArgs,"matchcode") .AND. !Empty(hArgs["matchcode"])
-      // Load by matchcode
+      // Load by matchcode (tolerate a client sending it as a JSON number)
       art->(DbSetOrder(1))  // Assume order 1 is by matchcode
-      lFound := art->(DbSeek(Pad(hArgs["matchcode"],25)))
+      lFound := art->(DbSeek(Pad(HB_CStr(hArgs["matchcode"]),25)))
    ELSEIF HHasKey(hArgs,"partno") .AND. !Empty(hArgs["partno"])
-      // Search by part number
-      art->(DbSetOrder(2))  
-      lFound := art->(DbSeek(Str(Val(hArgs["partno"]),6)))
+      // Search by part number (tolerate string or numeric input)
+      art->(DbSetOrder(2))
+      lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(HB_CStr(hArgs["partno"]))),6)))
    ENDIF
 
    IF lFound

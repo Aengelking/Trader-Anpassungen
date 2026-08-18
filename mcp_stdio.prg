@@ -575,8 +575,8 @@ FUNCTION MCP_Tool_Get_Article(hArgs)
       hResult["status"] := "not_found"
       hResult["message"] := "Article not found"
    ENDIF
-   
-RETURN hResult
+
+RETURN _HashToUtf8(hResult)
 
 FUNCTION MCP_Tool_Get_Order_Details(hArgs)
    LOCAL oAuftrag
@@ -604,7 +604,7 @@ FUNCTION MCP_Tool_Get_Order_Details(hArgs)
    IF  oAuftrag:Load(hArgs["order_number"])
       lFound := .T.
       hResult["order_number"] := oAuftrag:abnr
-      hResult["customer"] := oAuftrag:Kundma
+      hResult["customer"] := HB_StrToUTF8(AllTrim(oAuftrag:Kundma))
       hResult["customer_order_number"] := HB_StrToUTF8(AllTrim(oAuftrag:Aufnr))  // header = first line's; per-line values are on each line
       hResult["date"] := oAuftrag:Besda
       hResult["completed"] := oAuftrag:Erledigt //auf->Status == 3 .OR. auf->Status == 7
@@ -614,7 +614,7 @@ FUNCTION MCP_Tool_Get_Order_Details(hArgs)
          LOCAL hPosition := {=>}
          LOCAL dTemp
          hPosition["item"] := oPos:Itmnr
-         hPosition["article"] := AllTrim(oPos:Matchcode)
+         hPosition["article"] := HB_StrToUTF8(AllTrim(oPos:Matchcode))
          hPosition["customer_order_number"] := HB_StrToUTF8(AllTrim(oPos:Aufnr))  // the customer PO no is per position
          //hPosition["description"] := AllTrim(oPos:Artikel:Artikel)
          hPosition["blanket_order"] := oPos:IsRahmen
@@ -691,8 +691,8 @@ FUNCTION MCP_Tool_Check_Stock(hArgs)
    IF !Empty(cMatchcode)
       art->(DbSetOrder(1))  // Assume order 1 is by matchcode
       IF art->(DbSeek(cMatchcode))
-         hResult["matchcode"] := AllTrim(cMatchcode)
-         hResult["description"] := AllTrim(art->artikel)
+         hResult["matchcode"] := HB_StrToUTF8(AllTrim(cMatchcode))
+         hResult["description"] := HB_StrToUTF8(AllTrim(art->artikel))
          hResult["current_stock"] := art->bestand
          //hResult["reserved"] := art->reserviert
          hResult["available"] := LagGetStock(art->Artikelnr,2) //art->bestand - art->reserviert
@@ -776,11 +776,11 @@ FUNCTION MCP_Tool_Search_Articles(hArgs)
       ENDIF
       
       hArticle := {=>}
-      hArticle["matchcode"] := AllTrim(art->matchcode)
+      hArticle["matchcode"] := HB_StrToUTF8(AllTrim(art->matchcode))
       hArticle["description"] := GetEnhancedDescription(art->artikelnr)
-      hArticle["unit"] := AllTrim(art->Me)
-      hArticle["group"] := AllTrim(art->gruppe)
-      hArticle["group_name"] := GetArtGroupName(AllTrim(art->gruppe))
+      hArticle["unit"] := HB_StrToUTF8(AllTrim(art->Me))
+      hArticle["group"] := HB_StrToUTF8(AllTrim(art->gruppe))
+      hArticle["group_name"] := HB_StrToUTF8(GetArtGroupName(AllTrim(art->gruppe)))
       hArticle["stock"] := art->bestand
       
       // Check if article has Shopware entry

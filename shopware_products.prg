@@ -1,193 +1,209 @@
-PROC RUN_SHOPWARE_PRODUCTS  //donwload product ID's from website (this will run at night)
-   LOCAL hSendData
-   LOCAL nLimit := 500  //limit per page
-   LOCAL nDown  := 0
-   LOCAL nFound := 0   
-   LOCAL nWald  := 0
-   LOCAL nPage  := 1
-   LOCAL hProdData   
-   LOCAL lSave
-   LOCAL aUUID := {},aNotFound,cFile
+PROC RUN_SHOPWARE_PRODUCTS  //download product ID's from the website (Supabase) - runs at night
+   //  Frueher wurden die IDs ueber die Shopware-Such-API geholt. Jetzt liefert die
+   //  neue Website (Supabase/PostgREST) die Produkte. Gelesen wird mit dem Anon-Key
+   //  ueber rest/v1/cms_products (nur is_active=true ist fuer anon sichtbar).
+   //
+   //  Variante B: es werden nur "Blaetter" gespeichert - also Varianten UND
+   //  Einzelartikel ohne Kinder. Serien/Parents (deren id bei anderen als
+   //  parent_id vorkommt) werden uebersprungen. Das entspricht dem alten
+   //  childCount==0/NIL-Filter.
+   LOCAL oSW := Supabase():New("https://kooxwelqbqplbryoxbya.supabase.co/",, "WEBSITE-AN")
+   LOCAL nLimit  := 1000   //page size (Supabase max-rows)
+   LOCAL nOffset := 0
+   LOCAL nDown   := 0
+   LOCAL nFound  := 0
+   LOCAL nWald   := 0
+   LOCAL nStored := 0
+   LOCAL cResp
+   LOCAL aData
+   LOCAL hRow
+   LOCAL aAll     := {}      //alle geladenen aktiven Zeilen (gepuffert)
+   LOCAL hParents := {=>}    //Set aller vorkommenden parent_id (normalisiert, ohne Bindestriche)
+   LOCAL hSeenId  := {=>}    //Set aller aktiven BLATT-ids (fuer den "nicht mehr vorhanden"-Abgleich)
+   LOCAL lDownloadOk := .F.
+   LOCAL cId, cNum, nArtnr, lFound, nRec
+   LOCAL aNotFound, cFile
 
-   LOCAL oSW := ShopWareAPI():New() 
+   Head("Downloading product ID's from Website (Supabase)")
 
    NetUse("shopware","shop")
    NetUse("artikel","art")
    NetUse("waldom","wald")
-   
-   //"filter"=>{{"type"=>"not","queries"=>{{"type"=>"equals","field"=>"parentId","value"=>NIL}}}},;
-   //this filter was going to exlude all parents ofvariant products, but also exludes all single products too
-
-   hSendData := {;       
-      "includes"=>{;
-         "product"=>{; //only the fields we really need
-            "id",;
-            "productNumber",;
-            "media",;
-            "childCount";
-         };
-      },;
-      "limit"=>nLimit,;
-      "page"=>1; 
-   }
-   
-   Head("Downloading product ID's from Shopware")
-
-   
 
    @ 01,00 SAY "Downloaded:"
    @ 02,00 SAY "Found:"
    @ 03,00 SAY "Waldom:"
 
-   shop->(dbSetOrder( 2 ))  //UUID
+   //  --- Pass 1: alle aktiven Produkte laden, parent-Set aufbauen, Zeilen puffern ---
+   DO WHILE .T.
+      cResp := oSW:Execute("rest/v1/cms_products","GET",{;
+         "select"    => "id,product_number,parent_id,image_url",;
+         "is_active" => "eq.true",;
+         "order"     => "product_number",;
+         "limit"     => LTrim(Str(nLimit)),;
+         "offset"    => LTrim(Str(nOffset))},;
+         {"Authorization: Bearer $APIKEY$"})
 
-   DO WHILE .T.    
+      aData := NIL
+      HB_JsonDecode(cResp, @aData)
 
-      hSendData["page"] := nPage
+      IF ValType(aData) != "A"
+         ?? "Fehler beim Abruf der Produktdaten (PostgREST)."
+         ? cResp
+         EXIT   //Abbruch OHNE Aufraeumen -> keine Massenloeschung bei API-Fehler
+      ENDIF
 
-      hProdData := oSw:Execute("search/product","POST",hSendData)      
-      IF ! HHasKey(hProdData,"data")
-         ?? "Fehler beim Herunterladen der Daten."
-         IF HHasKey(hProdData,"errors")
-            ? hProdData["errors"][1]["detail"]
-         ELSE
-            ? ValToPrg(hProdData)
-         ENDIF
+      IF Len(aData) == 0
+         lDownloadOk := .T.
          EXIT
-      ENDIF      
-      nDown += Len(hProdData["data"])
-      
+      ENDIF
+
+      FOR EACH hRow IN aData
+         nDown++
+         cId := StrTran(hRow["id"], "-", "")          //Website-uuid ohne Bindestriche -> passt in UUID C(32)
+         AAdd(aAll, hRow)
+         IF HHasKey(hRow, "parent_id") .AND. ! Empty(hRow["parent_id"])
+            hParents[ StrTran(hRow["parent_id"], "-", "") ] := .T.
+         ENDIF
+      NEXT
+
       @ 01,13 SAY Str(nDown,10)
 
-      AEval(hProdData["data"],{|aData| 
-         LOCAL nArtnr := 0
-         LOCAL lFound,nRec
-      
-         IF aData["attributes"]["childCount"] == NIL .OR. aData["attributes"]["childCount"] == 0  //only parts which are not a parent like "CMI30/"
-            Aadd(aUUID,aData["id"]) //remember UUID's
-            
-            IF art->(dbSeek( Pad(aData["attributes"]["productNumber"],25) ))  //pad to 25 chars otherwise it can get assigned to the wrong product           
-               nArtnr := art->Artikelnr
-               nFound++
-            ENDIF         
-
-            //save in DB, if no part is found then for future use, e.g. when the product is created
-            //lSave := .F.
-            IF nArtnr != 0
-               shop->(dbSetOrder( 1 ))
-               lFound := shop->(dbSeek( Str(nArtnr,6) ))
-               IF lFound
-                  nRec := shop->(Recno())
-
-                  //check for duplicates and delete them
-                  shop->(dbSkip(1))
-                  DO WHILE ! shop->(Eof()) .AND. shop->Artikelnr == nArtnr
-                     shop->(Rec_Lock(0))
-                     shop->(dbDelete())
-                     shop->(dbDelete())
-                     shop->(dbSkip(1))
-                  ENDDO
-                  shop->(dbGoto(nRec))
-               ENDIF
-            ELSE
-               shop->(dbSetOrder( 2 ))
-               lFound := shop->(dbSeek( aData["id"] ))
-            ENDIF
-
-            nRec := shop->(Recno())
-            shop->(dbSetOrder( 3 ))
-            IF shop->(dbSeek( aData["attributes"]["productNumber"] )) //search for the matchcode
-
-               IF ! lFound // If no record was found, we use this one
-                  nRec := shop->(Recno())
-                  lFound := .T.
-                  shop->(dbSkip())
-               ENDIF           
-
-               //check for duplicates with the same matchcode and delete them, this can happen if the product is recreated
-               DO WHILE ! shop->(Eof()) .AND. Trim(shop->Matchcode) == aData["attributes"]["productNumber"]
-                  
-                  //? shop->(Recno()),nRec
-                  
-                  IF shop->(Recno()) != nRec //only delete if the record number is different
-                     ? "Duplicate found:",Pad(aData["attributes"]["productNumber"],25),shop->UUID,aData["id"]
-                     shop->(Rec_Lock(0))
-                     shop->(dbDelete())
-                     shop->(dbUnLock())
-                     //Sinkey(0)
-                  ENDIF
-                  shop->(dbSkip(1))
-               ENDDO
-            ENDIF
-            
-            shop->(dbGoto(nRec))
-
-            IF lFound
-               shop->(Rec_Lock(0))
-               //lSave := .T.            
-            ELSE
-               shop->(Add_Rec(0))
-               
-               //lSave := .T.
-            ENDIF
-            //IF lSave    
-            shop->UUID := aData["id"]         
-            IF nArtnr != shop->Artikelnr
-               shop->Bestand   := 0
-            ENDIF
-            shop->Artikelnr := nArtnr
-            shop->Matchcode := aData["attributes"]["productNumber"]
-            IF nArtnr == 0 .AND. wald->(dbSeek(aData["attributes"]["productNumber"]))
-               shop->Waldom := .T.
-               nWald++
-            ELSE
-               shop->Waldom := .F.
-            ENDIF
-            shop->HasImage := Len(aData["relationships"]["media"]) > 0
-            shop->(dbUnLock())
-            //ENDIF
-
-            @ 02,13 SAY Str(nFound,10)
-            @ 03,13 SAY Str(nWald,10)
-         ELSE
-            //? aData["attributes"]["productNumber"],aData["attributes"]["childCount"] 
-         ENDIF
-
-         RETURN .T.
-      })
-      //@ 01,13 SAY Str(nDown,10)
-      @ 02,13 SAY Str(nFound,10)
-      @ 03,13 SAY Str(nWald,10)
-      IF Len(hProdData["data"]) < nLimit //we received less than one page, all data has been downloaded         
+      IF Len(aData) < nLimit   //letzte (Teil-)Seite -> fertig
+         lDownloadOk := .T.
          EXIT
-      ENDIF   
-      nPage++   
+      ENDIF
+      nOffset += nLimit
    ENDDO
 
-   //check for old UUID's
+   IF ! lDownloadOk
+      IF ! GetConfigValue("BATCHMODE")
+         ? "Abgebrochen - Datenbank nicht veraendert."
+         SInkey(0)
+      ENDIF
+      RETURN
+   ENDIF
+
+   //  Blatt-ids bestimmen (id NICHT im parent-Set) und Set fuer den Abgleich fuellen
+   FOR EACH hRow IN aAll
+      cId := StrTran(hRow["id"], "-", "")
+      IF ! HHasKey(hParents, cId)
+         hSeenId[cId] := .T.
+      ENDIF
+   NEXT
+
+   //  --- Pass 2: nur Blaetter speichern ---
+   art->(dbSetOrder( 1 ))   //1 = Matchcode
+   FOR EACH hRow IN aAll
+      cId  := StrTran(hRow["id"], "-", "")
+      cNum := hRow["product_number"]
+
+      IF HHasKey(hParents, cId)   //Serie/Parent -> ueberspringen (Variante B)
+         LOOP
+      ENDIF
+
+      nArtnr := 0
+      IF art->(dbSeek( Pad(cNum, 25) ))   //pad to 25 chars otherwise it can get assigned to the wrong product
+         nArtnr := art->Artikelnr
+         nFound++
+      ENDIF
+
+      //  Datensatz in der shopware-DBF finden bzw. anlegen (Logik wie bisher)
+      IF nArtnr != 0
+         shop->(dbSetOrder( 1 ))
+         lFound := shop->(dbSeek( Str(nArtnr,6) ))
+         IF lFound
+            nRec := shop->(Recno())
+
+            //check for duplicates and delete them
+            shop->(dbSkip(1))
+            DO WHILE ! shop->(Eof()) .AND. shop->Artikelnr == nArtnr
+               shop->(Rec_Lock(0))
+               shop->(dbDelete())
+               shop->(dbSkip(1))
+            ENDDO
+            shop->(dbGoto(nRec))
+         ENDIF
+      ELSE
+         shop->(dbSetOrder( 2 ))   //2 = UUID
+         lFound := shop->(dbSeek( cId ))
+      ENDIF
+
+      nRec := shop->(Recno())
+      shop->(dbSetOrder( 3 ))      //3 = Matchcode
+      IF shop->(dbSeek( cNum ))    //search for the matchcode
+
+         IF ! lFound               //If no record was found, we use this one
+            nRec := shop->(Recno())
+            lFound := .T.
+            shop->(dbSkip())
+         ENDIF
+
+         //check for duplicates with the same matchcode and delete them, this can happen if the product is recreated
+         DO WHILE ! shop->(Eof()) .AND. Trim(shop->Matchcode) == cNum
+            IF shop->(Recno()) != nRec   //only delete if the record number is different
+               ? "Duplicate found:", Pad(cNum,25), shop->UUID, cId
+               shop->(Rec_Lock(0))
+               shop->(dbDelete())
+               shop->(dbUnLock())
+            ENDIF
+            shop->(dbSkip(1))
+         ENDDO
+      ENDIF
+
+      shop->(dbGoto(nRec))
+
+      IF lFound
+         shop->(Rec_Lock(0))
+      ELSE
+         shop->(Add_Rec(0))
+      ENDIF
+      shop->UUID := cId
+      IF nArtnr != shop->Artikelnr
+         shop->Bestand := 0
+      ENDIF
+      shop->Artikelnr := nArtnr
+      shop->Matchcode := cNum
+      IF nArtnr == 0 .AND. wald->(dbSeek( cNum ))
+         shop->Waldom := .T.
+         nWald++
+      ELSE
+         shop->Waldom := .F.
+      ENDIF
+      shop->HasImage := HHasKey(hRow, "image_url") .AND. ! Empty(hRow["image_url"])
+      shop->(dbUnLock())
+
+      nStored++
+      @ 02,13 SAY Str(nFound,10)
+      @ 03,13 SAY Str(nWald,10)
+   NEXT
+
+   //  --- Pass 3: lokale Saetze loeschen, deren UUID kein aktives Blatt mehr ist ---
    shop->(dbSetOrder( 2 ))
    shop->(dbGoTop())
    aNotFound := {{"UUID","Matchcode"}}
    DO WHILE ! shop->(EOF())
-      IF ! Trim(shop->UUID) $ aUUID
-         Aadd(aNotFound,{shop->UUID,shop->Matchcode})
-         ? shop->UUID,shop->Matchcode," not found anymore"
+      IF ! HHasKey(hSeenId, Trim(shop->UUID))
+         Aadd(aNotFound, {shop->UUID, shop->Matchcode})
+         ? shop->UUID, shop->Matchcode, " not found anymore"
          shop->(Rec_Lock(0))
          shop->(dbDelete())
          shop->(dbUnLock())
       ENDIF
       shop->(dbSkip())
    ENDDO
+
    IF Len(aNotFound) > 1
       cFile := GetEnv("temp")+"\shopware_notfound_"+TtoS(DateTime())+".csv"
-      SaveAsCSV(cFile,aNotFound,.T.)
+      SaveAsCSV(cFile, aNotFound, .T.)
       ? "List of not found products saved to "+cFile
-      SendMessage("PRODUKTMANAGEMENT | Produkte nicht mehr in Shopware","Produkte nicht mehr in Shopware","Im Anhang eine Liste an Produkten die frÅher in Shopware waren aber nicht mehr vorhanden sind.",{cFile})
+      SendMessage("PRODUKTMANAGEMENT | Produkte nicht mehr auf der Website","Produkte nicht mehr auf der Website","Im Anhang eine Liste an Produkten die frueher vorhanden waren aber nicht mehr auf der Website sind.",{cFile})
    ENDIF
-   //? "completed"
+
    IF ! GetConfigValue("BATCHMODE")
-      ? "completed"
+      ? "completed - gespeichert:", LTrim(Str(nStored))
       SInkey(0)
    ENDIF
 
    #include 'x:\run\shopware.prg'
+   #include 'x:\run\supabase_api.prg'

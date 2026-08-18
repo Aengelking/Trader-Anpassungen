@@ -3,7 +3,7 @@ PROC RUN_PSZ_CHECK
 LOCAL nGrad,hContact
 LOCAL oExtra,cText
 LOCAL cCustomer
-LOCAL nFrQty
+LOCAL nFrQty, nRahmenQty
 LOCAL nCheckYears := 4
 LOCAL cFilter,cFilter2,nRec
 LOCAL aTo,oUser,aToTeam
@@ -50,8 +50,9 @@ DO WHILE ! auf->(EOF())
             IF frab->(dbSeek( Str(auf->AbNr,6)+Str(auf->Itmnr,3) ))
                nFrQty := frab->Qty
             ENDIF
-            ?? auf->VkQty,auf->GelQty,nFrQty,auf->VkQty-auf->GelQty-nFrQty , (auf->ContrQty+nFrQty)*(1-nGrad/100)
-            IF  auf->VkQty-auf->GelQty <= (auf->ContrQty+nFrQty)*(1-nGrad/100)
+            nRahmenQty := auf->ContrQty + nFrQty
+            ?? auf->VkQty,auf->GelQty,nFrQty,auf->VkQty-auf->GelQty-nFrQty , (nRahmenQty)*(1-nGrad/100)
+            IF  nRahmenQty > 0 .AND. auf->VkQty-auf->GelQty <= nRahmenQty*(1-nGrad/100)  //ohne Rahmenmenge lÑsst sich kein Erschîpfungsgrad berechnen (Division durch 0)
                //Check to see if there is a newer frame contract for this part
 
                nRec := auf->(Recno())
@@ -77,8 +78,8 @@ DO WHILE ! auf->(EOF())
                      art->(dbSeek( Str(auf->Artikelnr,6) ))
                      
                      cText := hContact["anrede"]+",<br/><br/>"
-                     cText += "Ihr o.g. Auftrag ist zu "+LTrim(Str( (1-(auf->VkQty-auf->GelQty)/(auf->ContrQty+nFrQty))*100,3,0))+"% erschîpft."
-                     cText += " Es wurden "+Transform(auf->ContrQty-auf->VkQty+nFrQty+auf->GelQty,Me(art->Me))+" der "+Transform(auf->ContrQty+nFrQty,Me(art->Me))+" "+Trim(art->Me)+" abgerufen.<br/><br/>"
+                     cText += "Ihr o.g. Auftrag ist zu "+LTrim(Str( (1-(auf->VkQty-auf->GelQty)/(nRahmenQty))*100,3,0))+"% erschîpft."
+                     cText += " Es wurden "+Transform(auf->ContrQty-auf->VkQty+nFrQty+auf->GelQty,Me(art->Me))+" der "+Transform(nRahmenQty,Me(art->Me))+" "+Trim(art->Me)+" abgerufen.<br/><br/>"
 
                      cText += "Bitte prÅfen Sie ob ein neuer Rahmen notwendig ist.<br/><br/>"
 
@@ -103,11 +104,11 @@ DO WHILE ! auf->(EOF())
                      
                   ELSE
                      //Reine interne Mitteilung 
-                     cText := "Der Auftrag "+Trim(auf->Aufnr)+" von Kunde "+Trim(ku->Kunde)+" ist zu "+LTrim(Str( (1-(auf->VkQty-auf->GelQty)/(auf->ContrQty+nFrQty))*100,3,0))+"% erschîpft.<br/><br/>"
+                     cText := "Der Auftrag "+Trim(auf->Aufnr)+" von Kunde "+Trim(ku->Kunde)+" ist zu "+LTrim(Str( (1-(auf->VkQty-auf->GelQty)/(nRahmenQty))*100,3,0))+"% erschîpft.<br/><br/>"
                      cText += "AB: "+LTrim(Str(auf->Abnr))+"/"+LTrim(Str(auf->Itmnr))+"<br/>"
                      cText += "Datum: "+DtoC(auf->Besda)+"<br/>"
                      cText += "Artikel: "+auf->Matchcode+"<br/>"
-                     cText += "Menge: "+Transform(auf->ContrQty-auf->VkQty+nFrQty+auf->GelQty,Me(art->Me))+" von "+Transform(auf->ContrQty+nFrQty,Me(art->Me))+" "+Trim(art->Me)+" abgerufen<br/><br/>"
+                     cText += "Menge: "+Transform(auf->ContrQty-auf->VkQty+nFrQty+auf->GelQty,Me(art->Me))+" von "+Transform(nRahmenQty,Me(art->Me))+" "+Trim(art->Me)+" abgerufen<br/><br/>"
                      cText += "Laufzeit: "+DtoC(auf->SDatum)+" - "+DToC(CalWD(auf->WTerm)+4)+"<br/><br/>"
 
                      IF lNeuerRahmen

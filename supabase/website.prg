@@ -10,7 +10,7 @@ PROC SYNC_Supabase_Website()
    _SyncProductsToSupabase(oRest)
 
    IF ! GetConfigValue("BATCHMODE")
-      ? "Sync abgeschlossen. Drcken Sie eine Taste, um fortzufahren."
+      ? "Sync abgeschlossen. Drï¿½cken Sie eine Taste, um fortzufahren."
       SInkey(0)
    ENDIF
 RETURN
@@ -262,6 +262,8 @@ STATIC FUNCTION _BuildProductsJson(nLimit, lForcePrices, lNoStamp)
    LOCAL nCurWeek := CWeek(Date())
    LOCAL cWaldom := Pad("WALDOM",8)
    LOCAL nTotal,nCount := 0
+   LOCAL nLimitPrices := 100
+   LOCAL nPrices := 0
 
    IF nLimit == NIL          // 0 = alle Produkte (Produktion)
       nLimit := 0
@@ -283,6 +285,7 @@ STATIC FUNCTION _BuildProductsJson(nLimit, lForcePrices, lNoStamp)
    NetUse("buyprice", "bpr")
    NetUse("engkund","ku")  //ONPOW_PRICING uses this
    NetUse("stafprei","stpr")
+   NetUse("artikel","art")  //Zolltarifnummer/Ursprungsland aus dem Artikelstamm
    bpr->(dbSetOrder(2))
    
    shop->(dbSetOrder(0))
@@ -293,12 +296,12 @@ STATIC FUNCTION _BuildProductsJson(nLimit, lForcePrices, lNoStamp)
    
    IF shop->(EOF())
       ? "Keine Produkte in der Datenbank gefunden."
-      ? nTotal," datens„tze insgesamt."
+      ? nTotal," datensï¿½tze insgesamt."
       Sinkey(0)
       RETURN hResult
    ENDIF
    
-   //shop->(dbSeek("PX0587"))
+   //shop->(dbSeek("CM22/V2/R/M/S/20")); nLimit := 1
    DO WHILE ! shop->(EOF()) .AND. (nLimit == 0 .OR. Len(aProducts) < nLimit)
       nCount++
       @ 03,00 SAY Str(nCount)+"/"+LTrim(Str(nTotal))
@@ -363,6 +366,8 @@ STATIC FUNCTION _BuildProductsJson(nLimit, lForcePrices, lNoStamp)
                   shop->(dbUnLock())
                ENDIF
             ENDIF
+
+            _ApplyProductCustomsData(hProduct, shop->Artikelnr)
          ENDIF
       ELSEIF Left(Trim(shop->Matchcode), 2) == "CM"
          cProductNumber := Trim(shop->Matchcode)
@@ -411,6 +416,7 @@ STATIC FUNCTION _BuildProductsJson(nLimit, lForcePrices, lNoStamp)
       ENDIF
       shop->(dbSkip())      
    ENDDO
+
 
    RestEnv(aEnv,.F.)
 RETURN hResult
@@ -489,6 +495,24 @@ STATIC PROCEDURE _ApplyProductStockData(hProduct, oArtikel, nCurWeek, cWaldom)
    hProduct["stock"] := nOwnStock
    hProduct["manufacturer_stock"] := nManufacturerStock
    hProduct["delivery_time"] := nDeliveryTime
+RETURN
+
+*  ---------------------------------------------------------------------------
+*  Zolltarifnummer (art->KnCode) und Ursprungsland (art->Ursprung, ISO-2) aus
+*  dem Artikelstamm nachziehen. Wie bei tier_prices wird der Schluessel nur
+*  gesetzt, wenn ein Wert vorhanden ist - ein fehlender Schluessel laesst den
+*  bestehenden CMS-Wert unangetastet, statt ihn zu leeren.
+*  ---------------------------------------------------------------------------
+STATIC PROCEDURE _ApplyProductCustomsData(hProduct, nArtikelnr)
+   art->(dbSetOrder(2))   // 2 = Artikelnr
+   IF art->(dbSeek(Str(nArtikelnr, 6)))
+      IF ! Empty(art->KnCode)
+         hProduct["customs_tariff_number"] := hb_StrToUTF8(StrTran(AllTrim(art->KnCode), " ", ""))
+      ENDIF
+      IF ! Empty(art->Ursprung)
+         hProduct["country_of_origin"] := hb_StrToUTF8(Upper(AllTrim(art->Ursprung)))
+      ENDIF
+   ENDIF
 RETURN
 
 STATIC PROCEDURE _PrintSyncResponse(cResponse)

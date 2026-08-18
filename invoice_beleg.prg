@@ -55,8 +55,8 @@ LOCAL aPaint := {}
 LOCAL nScale := 1
 LOCAL aList,hEntry,cYearPre,aChoice
 
-LOCAL nPersTrader := IF(Date()<=StoD("20210813"),P_SIGRID,P_DANIELA)  //Person die f¸r Trader Rechnungen verantwortlichist
-LOCAL nPersGenehm := IF(Date()<=StoD("20210813"),P_SIGRID,P_AMOS)   //Person die f¸r Genehmigungen zust‰ndig ist
+LOCAL nPersTrader := IF(Date()<=StoD("20210813"),P_SIGRID,P_DANIELA)  //Person die fÔøΩr Trader Rechnungen verantwortlichist
+LOCAL nPersGenehm := IF(Date()<=StoD("20210813"),P_SIGRID,P_AMOS)   //Person die fÔøΩr Genehmigungen zustÔøΩndig ist
 LOCAL hKS         := {"  "=>"Keine Kosten",;
                      "000"=>"Verwaltung (000)",;
                      "100"=>"Marketing (100)",;
@@ -65,7 +65,7 @@ LOCAL hKS         := {"  "=>"Keine Kosten",;
                      "400"=>"Beschaffung (400)",;
                      "500"=>"Produktmanagement (500)",;
                      "600"=>"Entwicklung (600)",;
-                     "700"=>"QualitÑt (700)",;
+                     "700"=>"QualitÔøΩt (700)",;
                      "800"=>"Lager (800)"}
 
 LOCAL hAutoApprove := {;
@@ -123,6 +123,21 @@ bDrawImage := {||
    ENDIF
    RETURN NIL
 }
+
+bDisplayButtons := {||
+      LOCAL cActive := HB_ColorIndex(SetColor(),4)
+      LOCAL cInActive := "N+/W"
+      IF ! Empty(cImageFile)
+         @ 09,50 SAY "[ + ]" COLOR cActive   
+         @ 09,56 SAY "[ - ]" COLOR IF(nScale > 1,cActive,cInActive)      
+         @ 09,62 SAY "[ hoch ]" COLOR cActive
+         @ 09,71 SAY "[ runter ]" COLOR IF(nImageTopDiff < 0,cActive,cInActive)
+         @ 09,82 SAY "[ zurÔøΩcksetzen ]" COLOR IF(nImageTopDiff<0.OR.nScale>1,cActive,cInActive)
+         @ 09,100 SAY "[ << ]" COLOR IF(nPage>1,cActive,cInActive)
+         @ 09,108 SAY "[ >> ]" COLOR IF(File(StrTran(cImageFile,"%d",LTrim(str(npage+1)))),cActive,cInActive)
+      ENDIF
+      RETURN NIL
+   }
 
 SetKey(1014,{||
    nScale++
@@ -190,9 +205,9 @@ hKontoGenehm[70302] := P_SIGRID
 hKontoGenehm[76236] := P_SIGRID //Wackler
 hKontoGenehm[76056] := P_SIGRID //Dachser
 hKontoGenehm[76254] := P_SIGRID //ITC
-hKontoGenehm[76239] := P_SIGRID //SchÑflein
+hKontoGenehm[76239] := P_SIGRID //SchÔøΩflein
 hKontoGenehm[76269] := P_SIGRID //HBH Maghreb
-hKontoGenehm[70866] := P_SIGRID //KÅhne+Nagel
+hKontoGenehm[70866] := P_SIGRID //KÔøΩhne+Nagel
 hKontoGenehm[71804] := P_SIGRID //Baar Express
 /************************************/
 
@@ -246,10 +261,10 @@ NetUse("rerepeat","rerep")
 LX_Start()
 hAccounts := LX_GetAccountsInCat(LX_CAT_KREDITOR,.T.)
 
-//WÑhrungsdifferenzkonten aus der Liste entfernen
+//WÔøΩhrungsdifferenzkonten aus der Liste entfernen
 FOR EACH cKonto IN hAccounts   
    nKonto := cKonto:__eNumKey()
-   IF HB_RegexMatch(".*w(ae|Ñ|é)hrung.*",hAccounts[nKonto],.F.)
+   IF HB_RegexMatch(".*w(ae|ÔøΩ|ÔøΩ)hrung.*",hAccounts[nKonto],.F.)
       HB_HDel(hAccounts,nKonto,.T.)      
    ENDIF
 NEXT
@@ -287,7 +302,7 @@ IF ! Empty(cMsgPath)  //email
          ENDIF
       ENDIF
    NEXT
-   IF lOneDocOnly .AND. (cType == "SCAN" .OR. Tr_MsgBox(t("Email enth‰lt nur ein Dokument, soll lediglich dieses archiviert werden?"),,{"Nein","Ja"}) == 2)
+   IF lOneDocOnly .AND. (cType == "SCAN" .OR. Tr_MsgBox(t("Email enthÔøΩlt nur ein Dokument, soll lediglich dieses archiviert werden?"),,{"Nein","Ja"}) == 2)
       cTempPath := GetEnv("temp")
       oAtt := oMsg:Attachments:Item(nDocAtt)      
       cFileName := StrTran(StrTran(oAtt:FileName,"?",""),"#","") //remove illegal characters
@@ -403,20 +418,7 @@ DO WHILE .T.
 
    //Eval(bDrawImage)
 
-   bDisplayButtons := {||
-      LOCAL cActive := HB_ColorIndex(SetColor(),4)
-      LOCAL cInActive := "N+/W"
-      IF ! Empty(cImageFile)
-         @ 09,50 SAY "[ + ]" COLOR cActive   
-         @ 09,56 SAY "[ - ]" COLOR IF(nScale > 1,cActive,cInActive)      
-         @ 09,62 SAY "[ hoch ]" COLOR cActive
-         @ 09,71 SAY "[ runter ]" COLOR IF(nImageTopDiff < 0,cActive,cInActive)
-         @ 09,82 SAY "[ zurÅcksetzen ]" COLOR IF(nImageTopDiff<0.OR.nScale>1,cActive,cInActive)
-         @ 09,100 SAY "[ << ]" COLOR IF(nPage>1,cActive,cInActive)
-         @ 09,108 SAY "[ >> ]" COLOR IF(File(StrTran(cImageFile,"%d",LTrim(str(npage+1)))),cActive,cInActive)
-      ENDIF
-      RETURN NIL
-   }
+   
    Eval(bDisplayButtons)
 
    cBelegKurz := ""
@@ -427,7 +429,7 @@ DO WHILE .T.
    @ 01,00 SAY Pad("Belegnr.",19) GET cBeleg VALID ! Empty(cBeleg) PICTURE "@!" WHEN ! lAuto
    @ 02,00 SAY Pad("Lieferant",19) GET cLiefma PICTURE "@!" WHEN Empty(cKonto) .AND. ! lAuto
    ATail(getlist):postBlock := {||          
-      IF ! Empty(cLiefma) //prÅfen ob dieser nur Åber Lexware gebucht wird
+      IF ! Empty(cLiefma) //prÔøΩfen ob dieser nur ÔøΩber Lexware gebucht wird
          IF ! FindAd( cLiefma, "L",01,70 ) 
             RETURN .F.
          ENDIF
@@ -485,7 +487,7 @@ DO WHILE .T.
    }
    Aadd(getlist,oGet)
    @ 04,00 SAY Pad("Rechnungssumme",19) GET nBetrag VALID nBetrag != 0 PICTURE "@E 9,999,999.99"
-   @ 05,00 SAY Pad("Belegjahr",19) GET nYear VALID nYear >= Year(Date())-1 .AND. nYear <= Year(Date()+31) PICTURE "9999" WHEN cType != "SCAN" .AND. ! lAuto //Belegjahr auﬂer bei Scan's da wird es von der ID entnommen
+   @ 05,00 SAY Pad("Belegjahr",19) GET nYear VALID nYear >= Year(Date())-1 .AND. nYear <= Year(Date()+31) PICTURE "9999" WHEN cType != "SCAN" .AND. ! lAuto //Belegjahr auÔøΩer bei Scan's da wird es von der ID entnommen
    @ 06,00 SAY Pad("Kostenstelle",19)
    @ 06,20,15,50 GET cKostenstelle LISTBOX hKS ASSOCIATIVE WHEN Empty(cLiefma) 
 
@@ -501,7 +503,7 @@ DO WHILE .T.
       RETURN
    ENDIF
 
-   IF ! Empty(cLiefma) //prÅfen ob dieser nur Åber Lexware gebucht wird
+   IF ! Empty(cLiefma) //prÔøΩfen ob dieser nur ÔøΩber Lexware gebucht wird
       /*oExtra := ku->(ExtraData():New(ku->Nummer))
       IF oExtra:NoPo //dieser Lieferant bekommt keine Bestellungen und daher muss dieser direkt in Lexware gebucht werden
          fibu->(dbSetOrder( 1 ))
@@ -542,7 +544,7 @@ DO WHILE .T.
 
    IF ! Empty(cLiefma)
       cYearPre := Right(Str(nYear,4),2)+"-"
-      IF Trim(cLiefma) == "TECHNO" .AND. AT(cYearPre,cBeleg) != 1 //bei Techno das Jahr voranstellen, da ansonsten Belegnummern doppelt vorkommen kînnen
+      IF Trim(cLiefma) == "TECHNO" .AND. AT(cYearPre,cBeleg) != 1 //bei Techno das Jahr voranstellen, da ansonsten Belegnummern doppelt vorkommen kÔøΩnnen
          cBeleg := Left(cYearPre+cBeleg,30)       
          @ 01,20 SAY cBeleg COLOR HB_ColorIndex(c_one,4)
          WvtSetPaint({})
@@ -813,7 +815,7 @@ DO WHILE .T.
                   rerep->(dbSkip())
                ENDDO
                IF ! lApprove
-                  Sendmail({{"amos.engelking@engelking.de","Amos"}},"Keine Wiederholungsrechnung gefunden - EintrÑge stimmen nicht Åberein",Str(nid)+Chr(13)+Chr(10)+Str(nKonto)+Chr(13)+Chr(10)+Str(nBetrag,14,2))  
+                  Sendmail({{"amos.engelking@engelking.de","Amos"}},"Keine Wiederholungsrechnung gefunden - EintrÔøΩge stimmen nicht ÔøΩberein",Str(nid)+Chr(13)+Chr(10)+Str(nKonto)+Chr(13)+Chr(10)+Str(nBetrag,14,2))  
                ENDIF
             ENDIF
             

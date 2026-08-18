@@ -40,7 +40,8 @@ RETURN
 // Shared so portalanfrage.prg can ensure an article before enquiring.
 STATIC FUNCTION PA_PushArticle(nArt, nFirm, cMsg)
    LOCAL hBody, aHeader, nStatus := 0, cResponse := "", oRest
-   LOCAL cMatch, cName, cUnit, cDrw, cIdx, lKu, lObs, lManu, aBom, cDrawMsg := ""
+   LOCAL cMatch, cName, cUnit, lObs, lManu, aBom, cDrawMsg := ""
+   LOCAL cDrwNo := "", cDrwIdx := "", lDrwCust := .F., lProd := .F.
    LOCAL cUrl := "https://jjxieivxbnkjoboiysaj.supabase.co/functions/v1/import-article"
 
    lManu := ArtIsManufactured(nArt)          // eigene NetUse/SaveEnv/RestEnv -> zuerst
@@ -56,10 +57,8 @@ STATIC FUNCTION PA_PushArticle(nArt, nFirm, cMsg)
    cMatch := Trim(art->Matchcode)
    cName  := Trim(_paDesc())
    cUnit  := Trim(art->Me)
-   cDrw   := Trim(art->Zeichnung)
-   cIdx   := Trim(art->Zeichindex)
-   lKu    := art->KuZeichnun
    lObs   := art->Obsolete
+   PD_DrawingRef(@cDrwNo, @cDrwIdx, @lDrwCust, @lProd)   // Produktionszeichnung bevorzugt (vor _paCollectBom, art auf Vater)
 
    aBom := _paCollectBom(nArt, lManu)         // uses "art" for component lookups
 
@@ -71,9 +70,9 @@ STATIC FUNCTION PA_PushArticle(nArt, nFirm, cMsg)
       "article_number"      => hb_strtoutf8(cMatch), ;
       "name"                => hb_strtoutf8(cName), ;
       "unit"                => hb_strtoutf8(cUnit), ;
-      "drawing_number"      => hb_strtoutf8(cDrw), ;
-      "drawing_index"       => hb_strtoutf8(cIdx), ;
-      "is_customer_drawing" => lKu, ;
+      "drawing_number"      => hb_strtoutf8(cDrwNo), ;
+      "drawing_index"       => hb_strtoutf8(cDrwIdx), ;
+      "is_customer_drawing" => lDrwCust, ;
       "obsolete"            => lObs, ;
       "consigned_parts"     => aBom }
 

@@ -46,6 +46,7 @@ RETURN
 // Shared by portaldrawing (standalone) and portalarticle (bottom #include).
 STATIC FUNCTION PD_PushDrawing(nArtNr, nFirm, cMsg)
    LOCAL cFile, cData, cName, cMime
+   LOCAL cNo := "", cIdx := "", lCust := .F., lProd := .F.
    LOCAL hBody, aHeader, nStatus := 0, cResponse := "", oRest
    LOCAL cUrl := "https://jjxieivxbnkjoboiysaj.supabase.co/functions/v1/import-article-drawing"
 
@@ -55,16 +56,21 @@ STATIC FUNCTION PD_PushDrawing(nArtNr, nFirm, cMsg)
       cMsg := "Artikel " + LTrim(Str(nArtNr)) + " nicht in der aktuellen Firma gefunden."
       RETURN -1
    ENDIF
-   IF Empty(art->Zeichnung)
+   IF ! PD_DrawingRef(@cNo, @cIdx, @lCust, @lProd)
       cMsg := "Artikel " + AllTrim(art->Matchcode) + " hat keine Zeichnungsnummer."
       RETURN 0
    ENDIF
 
-   // resolve like the desktop path (shared get_drawingfile hook)
-   cFile := _pdGuard({|| Hook("get_drawingfile", {.F.}) }, "")
+   // Produktionszeichnung explizit aufloesen; sonst normale Zeichnung (NIL ->
+   // der Hook normalisiert den Dateinamen + Kunden/.LP).
+   IF lProd
+      cFile := _pdGuard({|| Hook("get_drawingfile", { .F., cNo, cIdx, .F. }) }, "")
+   ELSE
+      cFile := _pdGuard({|| Hook("get_drawingfile", {.F.}) }, "")
+   ENDIF
    IF ValType(cFile) != "C" .OR. Empty(cFile) .OR. ! File(cFile)
-      cMsg := "Keine Zeichnungsdatei gefunden fuer " + AllTrim(art->Zeichnung) + ;
-              IF(Empty(art->ZeichIndex), "", " / Index " + AllTrim(art->ZeichIndex)) + "."
+      cMsg := "Keine Zeichnungsdatei gefunden fuer " + cNo + ;
+              IF(Empty(cIdx), "", " / Index " + cIdx) + "."
       RETURN 1
    ENDIF
 
@@ -81,9 +87,9 @@ STATIC FUNCTION PD_PushDrawing(nArtNr, nFirm, cMsg)
       "erp_firm_id"         => nFirm, ;
       "erp_article_id"      => nArtNr, ;
       "matchcode"           => AllTrim(art->Matchcode), ;
-      "drawing_number"      => AllTrim(art->Zeichnung), ;
-      "drawing_index"       => AllTrim(art->ZeichIndex), ;
-      "is_customer_drawing" => art->KuZeichnun, ;
+      "drawing_number"      => cNo, ;
+      "drawing_index"       => cIdx, ;
+      "is_customer_drawing" => lCust, ;
       "file_name"           => cName, ;
       "mime_type"           => cMime, ;
       "data_base64"         => hb_base64Encode(cData) }
@@ -96,11 +102,24 @@ STATIC FUNCTION PD_PushDrawing(nArtNr, nFirm, cMsg)
    oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus, @cResponse)
 
    IF nStatus >= 200 .AND. nStatus < 300
-      cMsg := "Zeichnung " + AllTrim(art->Zeichnung) + " wurde ins Lieferantenportal geladen."
+      cMsg := "Zeichnung " + cNo + " wurde ins Lieferantenportal geladen."
    ELSE
       cMsg := "Zeichnungs-Upload fehlgeschlagen (HTTP " + LTrim(Str(nStatus)) + ")." + Chr(13) + _pdStr(cResponse)
    ENDIF
 RETURN nStatus
+
+
+// Preferred drawing for portal sync: Produktionszeichnung (art->Anweisung when
+// Bezug != 5) before the normal Zeichnung. By-ref fields; returns .T. if a
+// drawing number exists. lProd -> resolve via the explicit Anweisung path
+// (base folder, never a customer drawing). Reads the current "art" record.
+STATIC FUNCTION PD_DrawingRef(cNo, cIdx, lCust, lProd)
+   IF ! Empty(art->Anweisung) .AND. art->Bezug != 5
+      lProd := .T. ; cNo := Trim(art->Anweisung)  ; cIdx := Trim(art->AwIndex)   ; lCust := .F.
+   ELSE
+      lProd := .F. ; cNo := Trim(art->Zeichnung)  ; cIdx := Trim(art->Zeichindex) ; lCust := art->KuZeichnun
+   ENDIF
+RETURN ! Empty(cNo)
 
 
 // "" for non-character / empty

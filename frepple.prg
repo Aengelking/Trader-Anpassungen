@@ -10,11 +10,13 @@ FUNCTION RUN_FREPPLE
       //oWin:destroy()
       RETURN .T.
    })*/
-   IF ! MBaseRun(Path("run\frepple_export"))
-      SendMessage("FERTIGUNG | Freeple Sync","Fehler beim Export der Daten")
-   ENDIF
-   IF ! MBaseRun(Path("run\frepple_curl"))
-      SendMessage("FERTIGUNG | Freeple Sync","Fehler beim Hochladen der Daten")
+   IF GetValue("FREPPLE_AUTO",.F.,"Automatischer Upload")
+      IF ! MBaseRun(Path("run\frepple_export"))
+         SendMessage("FERTIGUNG | Freeple Sync","Fehler beim Export der Daten")
+      ENDIF
+      IF ! MBaseRun(Path("run\frepple_curl"))
+         SendMessage("FERTIGUNG | Freeple Sync","Fehler beim Hochladen der Daten")
+      ENDIF
    ENDIF
 
 RETURN NIL

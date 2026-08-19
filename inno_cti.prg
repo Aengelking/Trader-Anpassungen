@@ -189,7 +189,7 @@ PROCEDURE _MonitorCalls
                               _ShowInfo(hNumber["ID"])   
                               //hb_threadStart(HB_THREAD_INHERIT_MEMVARS, {|| _ShowInfo(hNumber["ID"])} ) // @ProcessConnection() )
                            ENDIF
-                           @ 02,00 SAY  "im Gespr„ch"
+                           @ 02,00 SAY  "im Gesprï¿½ch"
                         ELSEIF nState == 6 .OR. nState == 7 //hangup
                            @ 00,00 CLEAR TO 3,20
                            /*IF ! lD
@@ -265,7 +265,7 @@ RETURN NIL
 STATIC FUNCTION _HideMonitor
    LOCAL nX,nR
    MEMVAR c_one
-   GetMainWindow():Hide()
+   /*GetMainWindow():Hide()
    IF ! lD
       SetColor(c_one)
       SetMode(30,30)
@@ -284,7 +284,7 @@ STATIC FUNCTION _HideMonitor
       NEXT      
    ENDIF
    HB_GTINFO(HB_GTI_SPEC,HB_GTS_SYSTRAYICON,{0,HB_GTS_NIT_FILE,"y:\harbour\trader\source\engelking_systray.ico","Trader CTI"})
-   hb_gtInfo( HB_GTI_SPEC, HB_GTS_WNDSTATE, HB_GTS_WS_SETASNORMAL )
+   hb_gtInfo( HB_GTI_SPEC, HB_GTS_WNDSTATE, HB_GTS_WS_SETASNORMAL )*/
 RETURN NIL
 
 STATIC FUNCTION FindNumber(cPhone)

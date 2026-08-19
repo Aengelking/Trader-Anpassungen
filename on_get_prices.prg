@@ -13,7 +13,7 @@ LOCAL aQty,oFolArt
 
 NetUse("ptcache","ptc")
 //use cache if it is not older than a week (or a month for tab 60=Engelking)
-//we cannot do this here as this function might be called several times per part e.g. geprfter preis
+//we cannot do this here as this function might be called several times per part e.g. geprï¿½fter preis
 /*IF ptc->(dbSeek( Str(nArtnr,6) )) .AND. ptc->LastDate >= Date()-IF(nTab==60,30,7) .AND. ptc->Prices != "{}" .AND. Empty(cKundMa) .AND. dDate <= Date()
    RETURN HB_JsonDecode(ptc->Prices)
 ENDIF*/
@@ -137,7 +137,7 @@ ELSEIF nTab == 12 .OR. nTab == 29
          NEXT
       ENDIF
    ENDIF
-   IF nTab == 12 .AND. oExtra != NIL .AND. oExtra:IecLockDis //! Empty(cKundma) .AND. Trim(cKundMa)+"|" $ HB_AnsiToOem("PLASTRO|RGR|MÜLLERPL|FELLER|SOMMERCA|LEONI|LEONISLO|KLOTZ|") //Kunden mit Rabatt bei Scolmore
+   IF nTab == 12 .AND. oExtra != NIL .AND. oExtra:IecLockDis //! Empty(cKundma) .AND. Trim(cKundMa)+"|" $ HB_AnsiToOem("PLASTRO|RGR|Mï¿½LLERPL|FELLER|SOMMERCA|LEONI|LEONISLO|KLOTZ|") //Kunden mit Rabatt bei Scolmore
       AEval(aPriceTabs,{|aTab| aTab[2] := aTab[2]*(1-IF(aTab[1]<=500,0.15,0.10)) })
       nX := AScan(aPriceTabs,{|aTab| aTab[1] == 500 })
       IF nX > 0 .AND. nX < Len(aPriceTabs) .AND. aPriceTabs[nX,2] < aPriceTabs[nX+1,2]
@@ -218,7 +218,7 @@ ELSEIF nTab == 13 //Kabelkonfektion
                   
                   Aadd(aPriceTabs,{bpr->Qty,(nPrice+nPausch/bpr->Qty)*stpr->Proz1/100*art->VkPe})
                ELSE
-                  //Tr_MsgBox("Stckliste konnte fr "+LTrim(Transform(bpr->Qty,Me(art->Me)))+" "+art->Me+" nicht bewertet werden")
+                  //Tr_MsgBox("Stï¿½ckliste konnte fï¿½r "+LTrim(Transform(bpr->Qty,Me(art->Me)))+" "+art->Me+" nicht bewertet werden")
                ENDIF
             ELSE
                Aadd(aPriceTabs,{bpr->Qty,(bpr->Price / Max( bpr->Pe, 1 )+nPausch/bpr->Qty)*stpr->Proz1/100*art->VkPe})
@@ -282,7 +282,7 @@ ELSEIF nTab == 15 //Value-Add
             IF part->Qty == 1
                nSubArt := art->Artikelnr
             ELSEIF Tr_Getini(28) == 9
-               Tr_MsgBox("Lohnposition mit mehr als einem Stck;"+art->Matchcode)
+               Tr_MsgBox("Lohnposition mit mehr als einem Stï¿½ck;"+art->Matchcode)
             ENDIF
          ELSEIF Trim(art->Type) == "VERP" //Left(art->Matchcode,6) == "KARTON" //nur Verpackung
             oArt := Artikel():New()
@@ -306,7 +306,7 @@ ELSEIF nTab == 15 //Value-Add
                aPriceTabs := {}
                lFound := .F.
                IF ! GetConfigValue("BATCHMODE")
-                  Tr_MsgBox({"Keine Preisstaffel fr "+trim(art->Matchcode)})
+                  Tr_MsgBox({"Keine Preisstaffel fï¿½r "+trim(art->Matchcode)})
                ENDIF
                EXIT
             ELSEIF Len(aPriceTabs) == 0
@@ -328,9 +328,9 @@ ELSEIF nTab == 15 //Value-Add
          /*ELSE //we have more than one part on the part list
             IF ! GetConfigValue("BATCHMODE")
                IF lFound
-                  Tr_MsgBox({"Zu viele Artikel auf der Stckliste",art->Matchcode})
+                  Tr_MsgBox({"Zu viele Artikel auf der Stï¿½ckliste",art->Matchcode})
                //ELSEIF ! manu->Principal
-               //   Tr_MsgBox({"Preisstaffel funktioniert nur fr Prim„rlieferanten"})
+               //   Tr_MsgBox({"Preisstaffel funktioniert nur fï¿½r Primï¿½rlieferanten"})
                //ELSEIF art->Table != 15                             
                //   Tr_MsgBox({Trim(art->Matchcode)+" hat die falsche Preisstaffel"})
                ELSE
@@ -346,7 +346,7 @@ ELSEIF nTab == 15 //Value-Add
       
       IF lFound 
          hPrice := {=>}
-         IF nSubart == 0 //keine Lohnposition, prfen ob T„tigkeiten hinterlegt sind.
+         IF nSubart == 0 //keine Lohnposition, prï¿½fen ob Tï¿½tigkeiten hinterlegt sind.
             NetUse("partjobs","pjob")
             NetUse("jobs","job")
             NetUse("resource","res")
@@ -430,9 +430,9 @@ ELSEIF nTab == 15 //Value-Add
       ELSE       
          IF ! GetConfigValue("BATCHMODE") 
             IF ! lFound
-               Tr_MsgBox("Kein Artikel auf der Stckliste gefunden")
+               Tr_MsgBox("Kein Artikel auf der Stï¿½ckliste gefunden")
             ELSEIF nSubArt == 0
-               Tr_MsgBox("Kein Konfektionsartikel auf der Stckliste gefunden")
+               Tr_MsgBox("Kein Konfektionsartikel auf der Stï¿½ckliste gefunden")
             ENDIF
          ENDIF
              
@@ -535,12 +535,12 @@ ELSEIF nTab == 26
    NetUse("artlief","ali")
    ali->(dbSetOrder( 5 ))
    IF ali->(dbSeek( Str( nArtnr, 6)+Pad("TECHNO",8) ))
-      nVPE := IF(ali->VPE==0,200,ali->VPE) //wenn keine VPE/MOQ vorhanden, dann von 200 ausgehen (wurde so von Techno best„tigt)
+      nVPE := IF(ali->VPE==0,200,ali->VPE) //wenn keine VPE/MOQ vorhanden, dann von 200 ausgehen (wurde so von Techno bestï¿½tigt)
       FOR nX := 1 TO Len(aPriceTabs)         
          IF aPriceTabs[nX,1] < nVPE .AND. aPriceTabs[nX,2] != 0
             aPriceTabs[nX,2]  += 25/aPriceTabs[nX,1]*art->VKPE //Mindermengenzuschlag hinzurechnen
          ELSEIF ali->VPE != 0
-            aPriceTabs[nX,1] := Int(aPriceTabs[nX,1]/nVPE)*nVPE //auf volle VPE „ndern
+            aPriceTabs[nX,1] := Int(aPriceTabs[nX,1]/nVPE)*nVPE //auf volle VPE ï¿½ndern
          ENDIF
       NEXT      
    ENDIF
@@ -553,68 +553,120 @@ ELSEIF nTab == 60  //Engelking
    aQty := Hook("GET_CALC_QUANTITIES",{oArt},{})
    lDebug := IF(SystemUser():Id${9,37}.AND.Tr_MsgBox("Show debug info for price calculation?",,{"No","Yes"}) == 2,.T.,.F.)
  
-   IF oArt:Bezug == 5      
-      IF oExtra:CalcMargin > 0
-         nMulti := 1/(1-oExtra:CalcMargin/100)
-      ELSE
-         nMulti := 2.5 //default: 60% margin
-      ENDIF
-      
-      //first we try to calculate the price using the parts list, price base 9 = stock based + supplier price for purchasing
+   IF oExtra:CalcMargin > 0
+      nMulti := 1/(1-oExtra:CalcMargin/100)
+   ELSE
+      nMulti := 2.5 //default: 60% margin
+   ENDIF
+
+   //Preis kalkulieren, wenn es sich um einen Fertigungsartikel handelt ODER wenn Folgeartikel hinterlegt sind
+   NetUse("folgeart","fol")
+   IF oArt:Bezug == 5 .OR. fol->(dbSeek(Str(art->Artikelnr,6)))
       cDebugInfo := ""
-      FOR EACH nQ IN aQty                 
+      FOR EACH nQ IN aQty
          @ MaxRow()/2+1,(MaxCol()-Len(LTrim(Str(Atail(aQty)))))/2 SAY Ltrim(Transform(nQ,oArt:cPicture)) //Replicate(".",nQ:__enumIndex())
          cInfoData := ""
-         //IF oArt:Bezug == 5               
-            nP := StCalc(nArtnr,9,,.T.,Date(),,nQ,.T.,@cInfoData)           
+         IF oArt:Bezug == 5
+            //first we try to calculate the price using the parts list, price base 9 = stock based + supplier price for purchasing
+            nP := StCalc(nArtnr,9,,.T.,Date(),,nQ,.T.,@cInfoData)
             IF lDebug
                cDebugInfo += "Price for "+Trim(oArt:Matchcode)+" "+LTrim(Str(nQ,10))+" pieces "+Chr(13)+cInfoData+CHR(13)
             ENDIF
-         /*ELSE
-            cDebugInfo += "Kein Fertigungsartikel"+Chr(10)+Chr(13)
+         ELSEIF ! oArt:Lagerart
+            //nicht lagerfï¿½higer Artikel (reiner Folgeartikel-Trï¿½ger): kein eigener Basis-EK, nur die Folgeartikel-Kosten zï¿½hlen
             nP := 0
-         ENDIF*/
-         
+            IF lDebug
+               cDebugInfo += "No base EK (article not stockable) for "+Trim(oArt:Matchcode)+" "+LTrim(Str(nQ,10))+" pieces"+CHR(13)
+            ENDIF
+         ELSE
+            //kein Fertigungsartikel, aber lagerfï¿½hig: eigener EK als Grundpreis (gleiche Logik wie bei den Folgeartikeln)
+            cSupplier := ""
+            IF oArt:Mindest == 0
+               aAvail := GetKwQty(oArt:Artikelnr)
+               nAvailableStock := ATail(aAvail)[6] //we have stock left at the end
+            ENDIF
+            IF oArt:Mindest > 0 .OR. nAvailableStock >= nQ
+               // Sufficient stock available - use D/S price
+               nEk := oArt:GetAvgBuyPrice()*CURRATE(oArt:money,"E")*oArt:pe
+               IF nEk == 0
+                  nEk := oArt:GetAvgBuyPrice(dDate)*oArt:Pe
+               ENDIF
+            ELSE
+               // Insufficient stock - use supplier price
+               nEk := GetLowestBuyPrice(oArt:Artikelnr,nQ,dDate,@cSupplier)*oArt:Pe
+               IF nEk == 0
+                  nEk := -1 // No supplier price available
+               ENDIF
+            ENDIF
+            IF nEk > 0
+               nP := nEk/oArt:PE
+            ELSE
+               nP := -1
+            ENDIF
+            IF lDebug
+               cDebugInfo += "Base EK for "+Trim(oArt:Matchcode)+" "+LTrim(Str(nQ,10))+" pieces: "+LTrim(Str(nP))+CHR(13)
+            ENDIF
+         ENDIF
+
          IF nP >= 0
 
             //add the cost of all folgeartikel
-            NetUse("folgeart","fol")      
-            IF fol->(dbSeek(Str(art->Artikelnr,6)))         
+            NetUse("folgeart","fol")
+            IF fol->(dbSeek(Str(art->Artikelnr,6)))
 
-               DO WHILE fol->Artikelnr == art->Artikelnr 
-                  oFolArt := Artikel():New() 
+               DO WHILE fol->Artikelnr == art->Artikelnr
+                  oFolArt := Artikel():New()
                   oFolArt:Load(fol->Folgeart)
                   cSupplier := ""
 
-                  IF oFolArt:Mindest == 0
-                     aAvail := GetKwQty(oFolArt:Artikelnr) 
-                     nAvailableStock := ATail(aAvail)[6] //we have stock left at the end
-                  ENDIF
-            
-                  IF oFolArt:Mindest > 0 .OR. nAvailableStock >= nQ*fol->Faktor
-                     // Sufficient stock available - use D/S price
-                     nEk := oFolArt:GetAvgBuyPrice()*CURRATE(oFolArt:money,"E")*oFolArt:pe
-                     IF nEk == 0
-                        nEk := oFolArt:GetAvgBuyPrice(dDate)*oFolArt:Pe
-                     ENDIF                     
+                  IF oFolArt:Bezug == 5
+                     // Folgeartikel ist selbst ein Fertigungsartikel -> Preis ï¿½ber Stï¿½ckliste (price base 9)
+                     cInfoData := ""
+                     nEk := StCalc(oFolArt:Artikelnr,9,,.T.,Date(),,nQ*fol->Faktor,.T.,@cInfoData)
+                     IF lDebug
+                        cDebugInfo += "Price for "+Trim(oFolArt:Matchcode)+" "+LTrim(Str(nQ*fol->Faktor,10))+" pieces "+Chr(13)+cInfoData+CHR(13)
+                     ENDIF
+                     IF nEk >= 0
+                        nP += nEk*fol->Faktor
+                     ELSE
+                        cDebugInfo += "No price for "+Trim(oFolArt:Matchcode)+" "+LTrim(Str(nQ,10))+" pieces "+Chr(13)+cInfoData+CHR(13)
+                        nP := -1
+                        EXIT
+                     ENDIF
                   ELSE
-                     // Insufficient stock - use supplier price
-                     nEk := GetLowestBuyPrice(oFolArt:Artikelnr,nQ*fol->Faktor,dDate,@cSupplier)*oFolArt:Pe
-                     IF nEk == 0
-                        nEk := -1 // No supplier price available
+                     IF oFolArt:Mindest == 0
+                        aAvail := GetKwQty(oFolArt:Artikelnr)
+                        nAvailableStock := ATail(aAvail)[6] //we have stock left at the end
+                     ENDIF
+
+                     IF oFolArt:Mindest > 0 .OR. nAvailableStock >= nQ*fol->Faktor
+                        // Sufficient stock available - use D/S price
+                        nEk := oFolArt:GetAvgBuyPrice()*CURRATE(oFolArt:money,"E")*oFolArt:pe
+                        IF nEk == 0
+                           nEk := oFolArt:GetAvgBuyPrice(dDate)*oFolArt:Pe
+                        ENDIF
+                     ELSE
+                        // Insufficient stock - use supplier price
+                        nEk := GetLowestBuyPrice(oFolArt:Artikelnr,nQ*fol->Faktor,dDate,@cSupplier)*oFolArt:Pe
+                        IF nEk == 0
+                           nEk := -1 // No supplier price available
+                        ENDIF
+                     ENDIF
+                     IF nEk > 0
+                        nP += nEk*fol->Faktor/oFolArt:PE
+                        IF lDebug
+                           cDebugInfo += "Base EK for "+Trim(oFolArt:Matchcode)+" "+LTrim(Str(nQ*fol->Faktor,10))+" pieces: "+LTrim(Str(nEk/oFolArt:PE))+CHR(13)
+                        ENDIF
+                     ELSE
+                        cDebugInfo += "No price for "+Trim(oFolArt:Matchcode)+" "+LTrim(Str(nQ,10))+" pieces "+Chr(13)+cInfoData+CHR(13)
+                        nP := -1
+                        EXIT
                      ENDIF
                   ENDIF
-                  IF nEk > 0
-                     nP += nEk*fol->Faktor/oFolArt:PE                  
-                  ELSE
-                     cDebugInfo += "No price for "+Trim(oFolArt:Matchcode)+" "+LTrim(Str(nQ,10))+" pieces "+Chr(13)+cInfoData+CHR(13)
-                     nP := -1
-                     EXIT
-                  ENDIF
-                  
+
                   fol->(dbSkip())
-               ENDDO 
-            ENDIF   
+               ENDDO
+            ENDIF
             /*IF Tr_Getini(28) == 9
                ? nP
                Sinkey(0)
@@ -622,16 +674,20 @@ ELSEIF nTab == 60  //Engelking
 
          ENDIF
 
+         IF lDebug
+            cDebugInfo += "Total price for "+LTrim(Str(nQ,10))+" pieces: "+LTrim(Str(nP))+CHR(13)
+         ENDIF
+
          //add margin
          nP *= nMulti
          IF nP > 0
             Aadd(aPriceTabs,{nQ,nP})
          ELSE
-            cDebugInfo += "No price for "+LTrim(Str(nQ,10))+" pieces "+Chr(13)+cInfoData+CHR(13)         
+            cDebugInfo += "No price for "+LTrim(Str(nQ,10))+" pieces "+Chr(13)+cInfoData+CHR(13)
          ENDIF
-      NEXT   
+      NEXT
    ELSE
-      cDebugInfo := "Kein Fertigungsartikel"+Chr(10)+Chr(13)
+      cDebugInfo := "Kein Fertigungsartikel und keine Folgeartikel"+Chr(10)+Chr(13)
    ENDIF
 
    IF ! Empty(cDebugInfo) .AND. Tr_Getini(28) $ {9,37} .AND. Tr_MsgBox("Debug pricetab calculation?",,{"No","Yes"}) == 2
@@ -640,7 +696,7 @@ ELSEIF nTab == 60  //Engelking
 
    
    
-   nQty := GetKwStock(nArtnr,9999)  //briger Lagerbestand
+   nQty := GetKwStock(nArtnr,9999)  //ï¿½briger Lagerbestand
    IF nQty > 0
       oArt := Artikel():New()
       oArt:Load(nArtnr)
@@ -658,7 +714,7 @@ ELSEIF nTab == 60  //Engelking
 ENDIF
 
 //FIXED GBP RATE
-//IF nTab == 29 .OR.  (nTab == 12 .AND. ! Empty(cKundma) .AND. Trim(cKundma)+"|" $ HB_AnsiToOem("DÄTWYLER|BACHMANN|")) .OR. AScan(aSubFixed,Trim(cKundma)) != 0  //fixed exchange rate
+//IF nTab == 29 .OR.  (nTab == 12 .AND. ! Empty(cKundma) .AND. Trim(cKundma)+"|" $ HB_AnsiToOem("Dï¿½TWYLER|BACHMANN|")) .OR. AScan(aSubFixed,Trim(cKundma)) != 0  //fixed exchange rate
 
 //29 = Scolmore Disti
 //12 = Scolmore
@@ -706,7 +762,7 @@ IF ! Empty(cKundma)
    NetUse("skontoa","sk")
    IF sk->(HasSpecialPay(ku->Skonto)) 
       aSkonto := sk->(GetSkonto(ku->Skonto,dDate,dDate))
-      IF Len(aSkonto) == 1 .AND. aSkonto[1,1] == 3 //wahrscheinlich ein Mitglied der GC Gruppe, z.B. EFG Bär
+      IF Len(aSkonto) == 1 .AND. aSkonto[1,1] == 3 //wahrscheinlich ein Mitglied der GC Gruppe, z.B. EFG Bï¿½r
          AEval(aPriceTabs,{|aTab| aTab[2] := aTab[2]*1.03 })
       ENDIF
    ENDIF
@@ -723,7 +779,7 @@ IF nTab == 11
       nWeight := art->Gewicht      
       AEval(aPriceTabs,{|aTab| IF(aTab[2]!=0,aTab[2] := aTab[2]+Hook("get_supplier_ship_cost",{Pad("SIGNAL",8),nWeight*aTab[1]})/aTab[1],.T.) }) 
    ENDIF   
-ELSE //Frachtkosten einrechnen, bei vielen gibt der Hook jedoch 0 zurck //IF art->Manufactur $ {12,16} //Elcom oder Signal, Frachtkosten einrechnen
+ELSE //Frachtkosten einrechnen, bei vielen gibt der Hook jedoch 0 zurï¿½ck //IF art->Manufactur $ {12,16} //Elcom oder Signal, Frachtkosten einrechnen
    IF art->Gewicht == 0 
       IF art->Manufactur $ {12,16} //no weight, no prices only for these manufacturers
          aPriceTabs := {}

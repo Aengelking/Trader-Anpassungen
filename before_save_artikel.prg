@@ -1,8 +1,8 @@
 FUNCTION HOOK_BEFORE_SAVE_ARTIKEL(lNew,oArt)
    LOCAL oExtra := art->(ExtraData():New(oArt:Artikelnr))
 
-   IF lNew .AND. Left(oArt:Matchcode,2) == "KS" .AND. Empty(oArt:Zeichnung) .AND. Left(oArt:Matchcode,10) != "KS14696/59"
-      Tr_MsgBox('Zeichnungsnummer ist bei KS Artikeln Pflicht. "t.b.d." wurde hinterlegt.')
+   IF lNew .AND. Left(oArt:Matchcode,2) $ {"KS","BA"} .AND. Empty(oArt:Zeichnung) .AND. Left(oArt:Matchcode,10) != "KS14696/59"
+      Tr_MsgBox("Zeichnungsnummer ist bei "+Left(oArt:Matchcode,2)+" Artikeln Pflicht. 't.b.d.' wurde hinterlegt.")
       oArt:Zeichnung := "t.b.d."
    ENDIF
    

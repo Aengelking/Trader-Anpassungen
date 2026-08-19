@@ -50,11 +50,27 @@ IF oBesPos:BeQty > 0 .AND. ! Empty(oBesPos:oArtikel:Zeichnung) .AND. ! GetConfig
       nLief := ku->Nummer
    ENDIF
 
+   IF Trim(oBesPos:oArtikel:Zeichnung) == "t.b.d." .OR. Trim(oBesPos:oArtikel:Zeichnung) == "T.B.D."
+      mcNoBesPos := "Artikel hat keine Zeichnung"
+      IF ! GetConfigValue("BATCHMODE")
+         Tr_MsgBox(mcNoBesPos)
+      ENDIF
+      RETURN .F.
+   ENDIF
+
    nArtOrd := art->(IndexOrd())
    nArtRec := art->(Recno())
    art->(dbSetOrder(2))
    IF art->(dbSeek( Str(oBesPos:Artikelnr,6) ))
       aFrei := GetArtikelFreigabeStatus(nLief):aState   // {cState,lFrei,lSonder,...}
+      IF aFrei[1] == ""
+         IF ! GetConfigValue("BATCHMODE") 
+            IF Tr_MsgBox({"FÅr diesen Artikel wurde die Freigabe nicht begonnen.","Sollen wirklich nur Vorserienmuster bestellt werden?"},,{"ZurÅck","Vorserienmuster bestellen"}) != 2
+               RETURN .F.
+            ENDIF
+            SendMessage("Projektmanagement | Vorserienmuster bestellt","Vorserienmuster fÅr Artikel "+Trim(art->Matchcode)+" wurden bestellt") 
+         ENDIF
+      ENDIF
       IF ! (aFrei[1] == "DONE" .AND. aFrei[2] .AND. ! aFrei[3])
          IF ! GetConfigValue("BATCHMODE") 
             IF Tr_MsgBox({"FÅr diesen Artikel liegt noch keine vollstÑndige Musterfreigabe bzw. nur eine Sonderfreigabe vor.","Bitte mind. 1 StÅck mehr als den Bedarf bestellen (RÅckstellmuster)."},,{"ZurÅck","RÅckstellmuster bestellt"}) != 2

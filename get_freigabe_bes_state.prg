@@ -47,7 +47,7 @@ ELSEIF cNextLevel == "MUS" .OR. ;
 	hRet:lBes        := .T.
    hRet:nMaxQty     := 4 //restrict everthing to four pieces, except the expections below 
    IF Tr_Getini(28) == 9
-      //Alert("Musterfreigabe fr "+art->Matchcode+" Gruppe: "+art->Gruppe)
+      //Alert("Musterfreigabe fï¿½r "+art->Matchcode+" Gruppe: "+art->Gruppe)
    ENDIF
    IF art->Gruppe == "KANK" //Netzkabel            
       hRet:nMaxQty     := 1000
@@ -86,10 +86,10 @@ ELSEIF cNextLevel == "MUS" .OR. ;
          hRet:nMaxQty := 10
       ENDIF      
       IF Tr_Getini(28) == 9
-      //   Alert("Freigabe fr "+art->Matchcode+" mit Preis "+Str(nPrice)+" und MaxQty "+Str(hRet:nMaxQty))
+      //   Alert("Freigabe fï¿½r "+art->Matchcode+" mit Preis "+Str(nPrice)+" und MaxQty "+Str(hRet:nMaxQty))
       ENDIF
 	ENDIF
-ELSEIF cState == "" //Freigabe noch nicht begonnen, Vorserien Muster
+ELSEIF cState == "" .AND. cNextLevel == "VMU" //Freigabe noch nicht begonnen, Vorserien Muster
    hRet:lBes        := .T.
    hRet:nMaxQty     := 10 //1 for the customer and one for us
 ELSEIF cNextLevel == "ZNG" .AND. (Left(oArt:Matchcode,2) == "BA" .OR. Trim(oArt:Matchcode) $ {"KS28074/1"})  //Beschaffungsartikel
@@ -105,7 +105,7 @@ ELSEIF cState == "DONE"
       nIncome := 0 //this is done in the bestellprog.
       NetUse("werkauf","wer")
       wer->(dbSetOrder(2))
-      //aIncome := wer->(LETO_SUM("qty,gelqty","status == 3",Str(art->Artikelnr,6),Str(art->Artikelnr,6)))  //wir betrachten nur in Fertigung befindliche Auftr„ge, da diese nicht ausgel”st werden wenn keine ausreichende Freigabe vorhanden ist
+      //aIncome := wer->(LETO_SUM("qty,gelqty","status == 3",Str(art->Artikelnr,6),Str(art->Artikelnr,6)))  //wir betrachten nur in Fertigung befindliche Auftrï¿½ge, da diese nicht ausgelï¿½st werden wenn keine ausreichende Freigabe vorhanden ist
       //nIncome += aIncome[1]-aIncome[2]
       
 		hRet:lBes := .T.

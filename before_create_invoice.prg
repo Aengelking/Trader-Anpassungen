@@ -7,6 +7,26 @@ FUNC HOOK_BEFORE_CREATE_INVOICE(oRechnung,lCredit)
 
    Default(@lCredit,.F.)
 
+   //Bei deutschen Kunden muss eine USt-Id-Nr. hinterlegt sein (nur Rechnungen, keine Gutschriften)
+   IF ! lCredit .AND. ku->CountryIso == "DE" .AND. Empty(ku->Vatnr)
+      IF ! GetConfigValue("BATCHMODE")
+         Tr_MsgBox("Bei diesem deutschen Kunden ist keine USt-Id-Nr. hinterlegt. Bitte die USt-Id-Nr. in der Adresse erfassen, bevor eine Rechnung erstellt wird.","USt-Id-Nr. fehlt")
+      ELSE
+         mcInvoiceError := "USt-Id-Nr. fehlt fuer deutschen Kunden "+Trim(ku->Kunde)
+      ENDIF
+      RETURN .F.
+   ENDIF
+
+   //Bei MwSt-Schl《sel 5 (Schweiz) muss die Ware auch wirklich in die Schweiz geliefert werden
+   IF ! lCredit .AND. oRechnung:TaxCode == 5 .AND. oRechnung:oLieferAdresse:CountryIso != "CH"
+      IF ! GetConfigValue("BATCHMODE")
+         Tr_MsgBox("Der MwSt-Schl《sel 5 (Schweiz) ist gesetzt, aber die Lieferadresse liegt nicht in der Schweiz (Land: "+Trim(oRechnung:oLieferAdresse:CountryIso)+"). Bitte den Steuerschl《sel oder die Lieferadresse pr’en.","Lieferung nicht in die Schweiz")
+      ELSE
+         mcInvoiceError := "MwSt-Schl《sel 5 (Schweiz), aber Lieferadresse in "+Trim(oRechnung:oLieferAdresse:CountryIso)+" statt CH"
+      ENDIF
+      RETURN .F.
+   ENDIF
+
    IF oRechnung:TaxCode == 0 //Export
       aMsg := {}
       //Pr’en ob Kontaktdaten vorhanden sind

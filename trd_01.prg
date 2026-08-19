@@ -83,7 +83,7 @@ IF shop->(dbSeek( Str(art->Artikelnr,6) ))
          //["seoUrls"]
          //Alert( ValToPRg( oSw:Execute("product/"+Trim(shop->UUID)+"/seo-urls","GET")["data"][1]["attributes"]["pathInfo"] ) )         //["self"]      
          oButton := HBPushButton():New(00,nC1+40,"&Website ”ffnen")
-         oButton:sBlock := {|| WAPI_ShellExecute(,"open","https://engelking.de/detail/"+Trim(shop->UUID)) }
+         oButton:sBlock := {|| WAPI_ShellExecute(,"open","https://engelking.com/de-de/produkte/detail/"+Trim(shop->UUID)) }
          Aadd(aButtons,oButton)
       ENDIF
    /*RECOVER
@@ -103,7 +103,7 @@ bold( 00,nRight-Len(cText)-1,cText,0 )
 DevOUt("]")
 
 IF art->Obsolete
-   @ 00,nC1+30 SAY t(" A B G E K Ü N D I G T ") COLOR "N/GR*"
+   @ 00,nC1+30 SAY t(" A B G E K š N D I G T ") COLOR "N/GR*"
 ENDIF
 
 @ 00, nC1+20 SAY IF(art->Sperren .OR. art->Inventur,"GESPERRT","") COLOR "W+*" 
@@ -182,7 +182,7 @@ oButton := HBPushButton():New(23,nC1+20,"&Kunden anzeigen")
 oButton:sBlock := {|| Tr_MsgBox(aCustomers) }
 Aadd(aButtons,oButton)
 @ 24,nC1 SAY HB_AnsiToOem("Auftragspos. : ")+LTrim(Transform(hReqInc["order_count"],cMeTr))
-@ 25,nC1 SAY HB_AnsiToOem("Größte Pos.  : ")+LTrim(Transform(hReqInc["maxorder"],cMeTr))
+@ 25,nC1 SAY HB_AnsiToOem("Gr”áte Pos.  : ")+LTrim(Transform(hReqInc["maxorder"],cMeTr))
 
 @ 27,nC1+15 SAY "Gesamt"
 @ 27,nC1+22 SAY Str(Year(Date()),4)
@@ -339,7 +339,9 @@ ELSE
             job->(dbSeek( Str(nJob,6) ))
             @ 22+nX,nC2 SAY job->Name
             //IF aJob[2] > 0
+            IF nTotGel > 0
                @ 22+nX,nC2+21 SAY __DispTime(nT/nTotGel)
+            ENDIF
             //ENDIF
          NEXT
       ENDIF 
@@ -376,7 +378,7 @@ ENDIF
 IF ! Empty(art->Zeichnung)
 	cDrawingFile := MBaseRun(Trim(Tr_Getini(1))+"\run\getdrawing")
 	IF ! Empty(cDrawingFile)
-		@ Row(),Col()+1 SAY t("(Öffnen mit >Z<)")
+		@ Row(),Col()+1 SAY t("(™ffnen mit >Z<)")
 	ENDIF
 ENDIF
 
@@ -393,12 +395,12 @@ ELSE
       IF art->Bezug == 5   
          cAWFile := Hook("get_drawingfile",{.T.}) // MBaseRun(Trim(Tr_Getini(1))+"\run\getdrawing",{.T.})
          IF ! Empty(cAWFile)
-            @ Row(),Col()+1 SAY t("(Öffnen mit >A<)")
+            @ Row(),Col()+1 SAY t("(™ffnen mit >A<)")
          ENDIF
       ELSE
          cAWFile := Hook("get_drawingfile",{.F.,Trim(art->Anweisung),Trim(art->AWIndex),.F.}) // MBaseRun(Trim(Tr_Getini(1))+"\run\getdrawing",{.T.})
          IF ! Empty(cAWFile)
-            @ Row(),Col()+1 SAY t("(Öffnen mit >P<)")
+            @ Row(),Col()+1 SAY t("(™ffnen mit >P<)")
          ENDIF
       ENDIF 
    ENDIF
@@ -627,7 +629,7 @@ DO WHILE nKey != 27
          WAPI_ShellExecute(,"open",cDrawingFile)
       ELSEIF Upper(Chr(nKey)) == "A" .AND. art->Bezug == 5 .AND. ! Empty(art->Anweisung) .AND. ! Empty(cAWFile)
          NetUse("aw","aw")
-         IF (aw->(dbSeek( Str(Val(art->Anweisung),6) )) .AND. aw->Genehmig) .OR. Tr_MsgBox(t("Diese Anweisung ist NICHT freigegeben. Die Fertigung sollte nur nach Rücksprache erfolgen."),"!!! ACHTUNG !!!",{"abbrechen",t("trotzdem öffnen")}) == 2
+         IF (aw->(dbSeek( Str(Val(art->Anweisung),6) )) .AND. aw->Genehmig) .OR. Tr_MsgBox(t("Diese Anweisung ist NICHT freigegeben. Die Fertigung sollte nur nach Rcksprache erfolgen."),"!!! ACHTUNG !!!",{"abbrechen",t("trotzdem ”ffnen")}) == 2
             IF ".json" $ cAWFILE
                //open new AW File Viewer
                WAPI_ShellExecute(,"open","https://db.engelking.de/trader/AAWEditor/viewer.html?file="+LTrim(Str(aw->Nummer)))
@@ -652,7 +654,7 @@ DO WHILE nKey != 27
             LoadPrg(Path("run\perplexity"))
             oPerplexity := &("Perplexity():New()")
             //cPrompt := "Suche nach Lieferanten von "+Trim(manu->Short)+" "+Trim(art->Matchcode)+". "
-            //cPrompt += "Gib mir das Resultat als ***striktes JSON** mit den folgenden Feldern: Lieferant, Artikelnummer zurck."   
+            //cPrompt += "Gib mir das Resultat als ***striktes JSON** mit den folgenden Feldern: Lieferant, Artikelnummer zurck."
             //cPrompt += "Verwende folgende Lieferanten: RS Components, Farnell, Mouser, Digikey, Conrad, Reichelt, TME, Schukat, Distrelec, Arrow."
             cPrompt := "Suche nach Lieferanten fr den Artikel "+Trim(manu->Short)+" "+Trim(art->Matchcode)+". "
             cPrompt += "Prfe die Verfgbarkeit bei folgenden Distributoren:"
@@ -701,7 +703,7 @@ DO WHILE nKey != 27
       ELSEIF Upper(Chr(nKey)) == "L"
          CalcLZ(oArtikel,.T.)
       ELSEIF (nKey == K_LBUTTONDOWN .AND. (nB := AScan(aButtons,{|oButton|oButton:HitTest(MRow(),MCol()) != 0})) != 0) .OR.;
-         (! Empty(Chr(nKey)) .AND. (nB := AScan(aButtons,{|oButton| aRegex:= HB_Regex("\&([A-Za-zÖÜÄöüä])",oButton:Caption), Len(aRegex) > 0 .AND. Upper(aRegex[2]) == Upper(Chr(nKey))} )) != 0)
+         (! Empty(Chr(nKey)) .AND. (nB := AScan(aButtons,{|oButton| aRegex:= HB_Regex("\&([A-Za-zŽ™š„”])",oButton:Caption), Len(aRegex) > 0 .AND. Upper(aRegex[2]) == Upper(Chr(nKey))} )) != 0)
          oButton := aButtons[nB]
          oButton:setFocus()
          oButton:select()

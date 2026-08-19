@@ -21,7 +21,7 @@ Box( 02, nLeft, 31, nRight,,.T.,2)
 @ 04,01 SAY "Entnahme:   ["+Str(wer->Lagnum,6)+"]"
 IF ! Empty(wer->Liefma)
    @ 05, 01 SAY "Lieferant:  ["+wer->Liefma+"]"
-   @ 06, 01 SAY "Bestellung: ["+Str(wer->Besnr,6)+"]"
+   @ 06, 01 SAY "Bestellung: ["+Str(wer->Besnr,6)+"/"+Ltrim(Str(wer->BesPos))+"]"
 ENDIF
 
 @ 03,30 SAY "Artikel:   ["+wer->Matchcode+"]"

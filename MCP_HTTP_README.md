@@ -104,8 +104,8 @@ the client overview below to see whether clients are still hammering the server.
 ## Connected-client overview (GUI)
 
 In GUI mode press **`C`** in the server window to log an overview of the
-currently connected clients. Because the server is single-threaded
-(accept → serve → close), a "client" is tracked by its MCP session id across
+currently connected clients. Accept runs on the main thread and hands each
+connection to a worker pool; a "client" is tracked by its MCP session id across
 requests (clients that send none are collapsed onto one peer+user entry). Each
 line shows the user (from the API key), the peer address, the request count and
 the time / age of the last request; "aktiv" means a request within the last
@@ -137,11 +137,11 @@ server can read it:
   `Authorization: Bearer <key>` (a bare key without `Bearer` is accepted
   too); anything else gets `401`. `OPTIONS` (CORS preflight) and
   `GET /healthz` stay open.
-* For the duration of each authenticated request the Trader user context
-  (`trader.ini` entry 28 / `DNUM`) is switched to the key's user —
-  `SystemUser()` picks this up automatically, so existing per-user
-  permission checks apply. The context is restored after every request,
-  also on errors. This is race-free because the server is single threaded.
+* The Trader user context (`trader.ini` entry 28 / `DNUM`) is switched to the
+  key's user only for **serial-lane** tools (writes and `get_current_user`),
+  which run one at a time under a shared lock — so the global switch never
+  races. Parallel read tools do not touch that global. The context is restored
+  after every serial call, also on errors.
 * The file is re-read automatically when its timestamp changes; keys can be
   added/revoked without restarting the server.
 * **No file (or an empty `keys` map) = authentication off** — the server
@@ -151,9 +151,9 @@ server can read it:
   server — use one of the proxy setups below for anything beyond localhost.
 * Suggested ACL (as the server's Windows account or an admin):
   `icacls "<DATA>\config\mcp_keys.json" /inheritance:r /grant:r "%USERNAME%:R" "SYSTEM:F"`
-* Note: the David connection (mail sending identity) remains that of the
-  server process regardless of the key — see the deployment notes if
-  per-user mail identity matters.
+* Note: David/OLE tools (inbox, e-mail, reminders, SMS and the document
+  archive) have been **removed** from the MCP server — the Tobit David COM
+  API is apartment-threaded and cannot run on the worker pool.
 
 Claude Desktop / MCP clients: pass the key either as a header
 `Authorization: Bearer <key>` **or in the URL as `?key=<key>`**. The URL form
@@ -350,12 +350,38 @@ Point the client at the proxied HTTPS URL as a Streamable HTTP server, e.g.:
 }
 ```
 
+## Multithreading (worker pool)
+
+The HTTP server uses a fixed pool of worker threads (uhttpd-style): the main
+thread accepts connections and hands each socket to a free worker through a
+`hb_mutex` job queue. This means one slow query (a large scan) no longer blocks
+every other client.
+
+- **Read tools run in parallel.** Harbour work areas and the LetoDB connection
+  are thread-local, so each worker opens its **own** LetoDB connection once at
+  startup (under a unique username `<winuser>-mcpN`, so the main app's
+  ZombieCheck connection is never killed) and its own work areas lazily.
+- **Writes are serialized.** Tools that write (`set_supplier_holiday`,
+  `book_shipping_confirmation`, `add_delivery_schedule`,
+  `confirm_purchase_order`) and the one tool that reads the global user context
+  (`get_current_user`) run one at a time under a shared lock. That lock is also
+  the only place the process-global Trader user context (entry 28) is switched,
+  so a parallel read never observes a half-switched identity. LetoDB record
+  locking handles read-during-write at the server, exactly as for normal
+  multi-user Trader clients.
+- **Pool size:** `-threads N` on the command line (default **4**, clamped
+  1..32). `-threads 1` restores fully serial behaviour — a safe fallback if the
+  linked LetoDB RDD turns out not to support per-thread sessions.
+- **David/OLE removed:** the Tobit David COM API is apartment-threaded and
+  cannot run on a worker pool, so all David-backed tools (inbox, e-mail,
+  reminders, SMS, document archive) were removed.
+
+> Verify once on the target build that the linked LetoDB client RDD supports
+> one connection per thread (start with a small pool and watch for cross-talk
+> between concurrent requests). If in doubt, run with `-threads 1` first.
+
 ## Notes / limitations (single-response mode)
 
-- Single-threaded: one request is served at a time, matching the STDIO loop, so
-  the global work areas / LetoDBF state used by the tools stay serialised and
-  need no extra locking. Going multi-threaded later means giving each worker
-  its own work-area/DB session.
 - No SSE streaming yet: long tools return only their final result, not
   incremental progress. Adding a `text/event-stream` branch to
   `MCP_Http_HandleMessage()` is the natural next step and does not affect any

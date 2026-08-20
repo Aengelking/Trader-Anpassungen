@@ -101,6 +101,16 @@ new instance regardless — but under constant request load the idle ticks neede
 to notice the change come rarely, so a reload can lag until traffic quiets. Use
 the client overview below to see whether clients are still hammering the server.
 
+## GUI dashboard (split view)
+
+Under a GUI GT the server window shows a **status header** on top and a
+**scrolling log** below (the uhttpd layout). The header refreshes ~once a
+second and shows: port and worker-thread count, in-flight requests (with the
+concurrency high-water mark), total requests, slow requests (>=1s), active vs.
+known clients, GET-/ pings, uptime, memory and the clock. New log lines scroll
+in at the bottom of the lower region; the header is never overwritten. Under a
+headless/NUL GT this is skipped and logging stays line-based on stderr.
+
 ## Connected-client overview (GUI)
 
 In GUI mode press **`C`** in the server window to log an overview of the

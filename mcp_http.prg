@@ -33,7 +33,12 @@
  *
  */
 
-#include "hbthread.ch"   // HB_THREAD_INHERIT_MEMVARS for the worker pool
+#include "hbthread.ch"    // HB_THREAD_INHERIT_MEMVARS for the worker pool
+#include "hbmemory.ch"    // HB_MEM_USED for the dashboard memory line
+
+// GUI dashboard layout: a status header on top, a scrolling log region below.
+#define MCP_DASH_SEPROW    8    // separator line row
+#define MCP_LOG_FIRSTROW   9    // first row of the scrolling log region
 
 STATIC s_nMcpSessionSeq  := 0     // monotonic counter for session-id uniqueness
 STATIC s_lMcpHttpStop    := .F.   // set when a "shutdown" request arrives
@@ -60,6 +65,17 @@ STATIC s_hMcpSerialize   := NIL   // held for the whole dispatch of a serial-lan
 STATIC s_hMcpState       := NIL   // guards s_hMcpClients, slash stats and the log device
 STATIC s_aMcpWorkers     := {}    // worker thread handles (for join on shutdown)
 STATIC s_nMcpPoolSize    := 0     // number of worker threads (resolved in MCP_Http)
+
+// --- Dashboard (GUI split view: stats header on top, scrolling log below) --
+// Live counters shown in the header; all mutated under s_hMcpState.
+STATIC s_lMcpDash        := .F.   // split-view active (GUI GT with a real screen)
+STATIC s_nMcpActiveReq   := 0     // requests currently being served (in-flight)
+STATIC s_nMcpMaxActive   := 0     // high-water mark of concurrent requests
+STATIC s_nMcpTotalReq    := 0     // total JSON-RPC requests dispatched
+STATIC s_nMcpSlowReq     := 0     // requests that took >= 1s
+STATIC s_nMcpStartSecs   := -1    // Seconds() at server start (for uptime)
+STATIC s_nMcpDashPort    := 0     // listen port, for the header
+STATIC s_nMcpLogRow      := 0     // next log row within the scroll region (GUI)
 
 THREAD STATIC t_lMcpQuietReq := .F. // current request is routine "/" traffic in GUI mode - suppress 2xx response log
 THREAD STATIC t_nReqUser     := 0   // current request's authenticated user (fed into client tracking)
@@ -110,6 +126,12 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
    // and (under a GUI GT such as GTWVG) pump window messages via Inkey().
    hb_InetTimeout( hListen, 1000 )
 
+   // Resolve the pool size now so it can be shown in the dashboard header, and
+   // set up the GUI split view (stats header on top, scrolling log below).
+   // Under a non-GUI GT this is a no-op and logging stays line-based on stderr.
+   s_nMcpPoolSize := MCP_Http_PoolSize()
+   MCP_Http_DashInit( nPort )
+
    MCP_Http_Log( "Listening on port " + LTrim(Str(nPort)) + " (all interfaces, Streamable HTTP)" )
    IF MCP_Http_LogSink() == "QOUT"
       MCP_Http_Log( "Taste 'C' zeigt eine Uebersicht der aktuell verbundenen Clients" )
@@ -133,7 +155,6 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
    // free worker via s_hMcpQueue. Read tools run concurrently, so one slow
    // scan no longer blocks every other client. Writes and user-context tools
    // are serialized inside the workers (MCP_Http_DispatchSerial).
-   s_nMcpPoolSize  := MCP_Http_PoolSize()
    s_hMcpQueue     := hb_mutexCreate()
    s_hMcpSerialize := hb_mutexCreate()
    s_hMcpState     := hb_mutexCreate()
@@ -143,6 +164,7 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
    NEXT
    MCP_Http_Log( "Worker-Pool: " + LTrim( Str( s_nMcpPoolSize ) ) + ;
       " Thread(s) - parallele Lesezugriffe, serialisierte Schreibzugriffe" )
+   MCP_Http_DashHeader()   // first full paint now that the pool is up
 
    DO WHILE ! s_lMcpHttpStop
       hSocket := hb_InetAccept( hListen )
@@ -180,6 +202,10 @@ FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
    ENDIF
    hb_InetCleanup()
    dbCloseAll()
+
+   IF s_lMcpDash
+      SetCursor( 1 )   // restore the cursor the dashboard hid (SC_NORMAL)
+   ENDIF
 
    IF lRestart
       MCP_Http_Log( "Alte Instanz wird beendet." )
@@ -343,6 +369,126 @@ STATIC FUNCTION MCP_Http_DispatchSerial( hReq )
    Tr_GetIni( 28, nOldUser )
    hb_mutexUnlock( s_hMcpSerialize )
 RETURN cResponse
+
+//---------------------------------------------------------------------------
+// GUI dashboard: a status header (port, worker pool, live request/client
+// counters, uptime) painted on top, and a scrolling log region below - the
+// uhttpd layout. Only active under a GUI GT (QOUT sink); headless runs keep
+// plain line logging on stderr. All screen writes use hb_DispOutAt/hb_Scroll
+// (MT-safe positional output) and are serialized with the other GT writes via
+// s_hMcpState inside MCP_Http_Log / MCP_Http_DashHeader.
+//---------------------------------------------------------------------------
+
+// Enable the split view (GUI only): clear the screen, hide the cursor and set
+// the log region to start empty below the header.
+STATIC FUNCTION MCP_Http_DashInit( nPort )
+   IF MCP_Http_LogSink() != "QOUT"
+      RETURN NIL                 // headless / stderr: keep plain line logging
+   ENDIF
+   s_lMcpDash      := .T.
+   s_nMcpDashPort  := nPort
+   s_nMcpStartSecs := Seconds()
+   SetColor( "W/N" )
+   CLS
+   SetCursor( 0 )                // hide cursor (SC_NONE)
+   MCP_Http_DashHeader()
+RETURN NIL
+
+// Format a duration in seconds as HH:MM:SS.
+STATIC FUNCTION MCP_Http_Hms( nSecs )
+   LOCAL nH, nM, nS
+   nSecs := Int( nSecs )
+   nH := Int( nSecs / 3600 )
+   nM := Int( ( nSecs % 3600 ) / 60 )
+   nS := nSecs % 60
+RETURN StrZero( nH, 2 ) + ":" + StrZero( nM, 2 ) + ":" + StrZero( nS, 2 )
+
+// Repaint the status header. Called from the accept-thread housekeeping
+// (MCP_Http_PumpKeys), so it refreshes about once a second when idle and after
+// every accepted connection under load.
+STATIC FUNCTION MCP_Http_DashHeader()
+   LOCAL nActive := 0, cKey, nAge, nNow := Seconds(), nUp, nKnown
+   LOCAL lLock
+
+   IF ! s_lMcpDash
+      RETURN NIL
+   ENDIF
+
+   // The mutex only exists once the pool is up; the first paint (from
+   // MCP_Http_DashInit) runs single-threaded before that.
+   lLock := ( s_hMcpState != NIL )
+   IF lLock
+      hb_mutexLock( s_hMcpState )
+   ENDIF
+
+   FOR EACH cKey IN HGetKeys( s_hMcpClients )
+      nAge := nNow - s_hMcpClients[ cKey ][ "last" ]
+      IF nAge < 0
+         nAge += 86400
+      ENDIF
+      IF nAge <= 120
+         nActive++
+      ENDIF
+   NEXT
+   nKnown := Len( s_hMcpClients )
+
+   nUp := nNow - s_nMcpStartSecs
+   IF nUp < 0
+      nUp += 86400
+   ENDIF
+
+   hb_DispOutAt( 0, 0, PadR( " Trader MCP-Server   Port " + LTrim( Str( s_nMcpDashPort ) ) + ;
+      "   " + LTrim( Str( s_nMcpPoolSize ) ) + " Worker-Threads   Streamable HTTP", MaxCol() ), "N/W" )
+
+   hb_DispOutAt( 2, 2, PadR( "Aktive Anfragen : " + Str( s_nMcpActiveReq, 4 ) + ;
+      "  (max " + LTrim( Str( s_nMcpMaxActive ) ) + ")", 38 ) )
+   hb_DispOutAt( 3, 2, PadR( "Anfragen gesamt : " + Str( s_nMcpTotalReq, 8 ), 38 ) )
+   hb_DispOutAt( 4, 2, PadR( "Langsam (>=1s)  : " + Str( s_nMcpSlowReq, 8 ), 38 ) )
+
+   hb_DispOutAt( 2, 42, PadR( "Clients aktiv : " + Str( nActive, 4 ) + " / " + ;
+      LTrim( Str( nKnown ) ) + " bekannt", MaxCol() - 42 ) )
+   hb_DispOutAt( 3, 42, PadR( "GET-/ Pings   : " + Str( s_nSlashHits, 8 ), MaxCol() - 42 ) )
+   hb_DispOutAt( 4, 42, PadR( "Laufzeit      : " + MCP_Http_Hms( nUp ), MaxCol() - 42 ) )
+
+   hb_DispOutAt( 6, 2, PadR( "Speicher " + LTrim( Str( Int( Memory( HB_MEM_USED ) ) ) ) + ;
+      "    Zeit " + Time() + "    Taste 'C' = Client-Uebersicht", MaxCol() - 2 ) )
+
+   hb_DispOutAt( MCP_DASH_SEPROW, 0, Replicate( "-", MaxCol() ) )
+
+   IF lLock
+      hb_mutexUnlock( s_hMcpState )
+   ENDIF
+RETURN NIL
+
+// Request accounting for the dashboard counters (called around each dispatch).
+STATIC FUNCTION MCP_Http_ReqBegin()
+   IF s_hMcpState != NIL
+      hb_mutexLock( s_hMcpState )
+   ENDIF
+   s_nMcpActiveReq++
+   s_nMcpTotalReq++
+   IF s_nMcpActiveReq > s_nMcpMaxActive
+      s_nMcpMaxActive := s_nMcpActiveReq
+   ENDIF
+   IF s_hMcpState != NIL
+      hb_mutexUnlock( s_hMcpState )
+   ENDIF
+RETURN NIL
+
+STATIC FUNCTION MCP_Http_ReqEnd( nMs )
+   IF s_hMcpState != NIL
+      hb_mutexLock( s_hMcpState )
+   ENDIF
+   IF s_nMcpActiveReq > 0
+      s_nMcpActiveReq--
+   ENDIF
+   IF HB_IsNumeric( nMs ) .AND. nMs >= 1000
+      s_nMcpSlowReq++
+   ENDIF
+   IF s_hMcpState != NIL
+      hb_mutexUnlock( s_hMcpState )
+   ENDIF
+RETURN NIL
 
 // Combined date/time/size stamp of the MCP source files. mcp_stdio.prg is
 // watched too because it is #included into the HTTP build.
@@ -751,7 +897,9 @@ STATIC FUNCTION MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
       aOut := {}
       FOR nX := 1 TO Len( xMsg )
          IF ValType( xMsg[nX] ) == "H"
+            MCP_Http_ReqBegin()
             cItem := MCP_Http_DispatchOne( xMsg[nX], cSessionId, @lIsInitialize, @cNewSession )
+            MCP_Http_ReqEnd( 0 )
             IF ! Empty(cItem)
                AAdd( aOut, cItem )
             ENDIF
@@ -790,14 +938,16 @@ STATIC FUNCTION MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
    // it) but we accept any/none afterwards - rejecting an unrecognised id with
    // 404 only broke clients (e.g. the MCP Inspector's notifications/initialized).
 
+   MCP_Http_ReqBegin()
    nT0 := Seconds()
    cResponse := MCP_Http_DispatchOne( hReq, cSessionId, @lIsInitialize, @cNewSession )
    nMs := Int( ( Seconds() - nT0 ) * 1000 )
    IF nMs < 0                       // clock passed midnight during the request
       nMs += 86400000
    ENDIF
-   // Surface slow requests - they are what makes a second, queued request time
-   // out on this single-threaded server. Only >=1s is logged, to avoid noise.
+   MCP_Http_ReqEnd( nMs )
+   // Surface slow requests - a slow serial-lane call can still make queued
+   // writes wait. Only >=1s is logged, to avoid noise.
    IF nMs >= 1000
       MCP_Http_Log( "  langsam: " + cMethod + MCP_Http_ToolLabel( hReq ) + " " + LTrim( Str( nMs ) ) + "ms" )
    ENDIF
@@ -1049,7 +1199,12 @@ STATIC FUNCTION MCP_Http_Log( cMsg )
    IF lLock
       hb_mutexLock( s_hMcpState )
    ENDIF
-   IF s_cMcpLogSink == "QOUT"
+   IF s_lMcpDash
+      // Split view: scroll the log region up by one and write the newest line
+      // at the bottom, leaving the status header untouched.
+      hb_Scroll( MCP_LOG_FIRSTROW, 0, MaxRow(), MaxCol(), 1 )
+      hb_DispOutAt( MaxRow(), 0, PadR( cLine, MaxCol() ) )
+   ELSEIF s_cMcpLogSink == "QOUT"
       QOut( cLine )
    ELSE
       FWrite( hb_GetStdErr(), cLine + Chr(10) )
@@ -1197,6 +1352,7 @@ STATIC FUNCTION MCP_Http_PumpKeys()
       MCP_Http_ShowClients()
    ENDCASE
    MCP_Http_FlushSlashStats()   // piggyback the periodic housekeeping
+   MCP_Http_DashHeader()        // refresh the GUI status header (no-op if off)
 RETURN NIL
 
 // Once a minute log a heartbeat: active clients and the number of GET / (health

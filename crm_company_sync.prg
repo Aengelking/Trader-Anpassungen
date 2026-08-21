@@ -14,13 +14,9 @@
  * NEXUSCRM_COMPANY_NEWDAYS Tage. Gesperrte (KSperren) und zusammengefuehrte
  * Adressen ("[SIEHE:...]") bleiben aussen vor.
  *
- * Die zurueckgemeldete company_id wird beim Kunden im Zusatzfeld NEXUSCRMID
- * gemerkt - dieselbe Stelle, an der nexuscrm.prg die Firma des Kunden sucht,
- * wenn aus einem Angebot eine Opportunity wird. Ist das Zusatzfeld fuer
- * Adressen nicht angelegt, wird nichts gemerkt und der Abgleich laeuft
- * trotzdem durch: die Verknuepfung selbst steht im CRM in
- * companies.erp_customer_number, das Zusatzfeld ist nur die Abkuerzung.
- * Die Zusammenfassung weist solche Faelle als "ohne_nexuscrmid" aus.
+ * Der Trader merkt sich zu einem Kunden nichts: die Verknuepfung von Kunde und
+ * Firma haelt das CRM in companies.erp_customer_number. Die zurueckgemeldete
+ * company_id steht nur im Protokoll, damit ein Lauf nachvollziehbar bleibt.
  *
  * Aufruf (Run-Script):
  *   trader:-R&crm_company_sync                  alle aktiven Kunden
@@ -42,10 +38,6 @@
  */
 
 #define CCS_MAXBATCH  500
-// Zusatzfeld der Adresse, in dem die CRM-Firma gemerkt wird. Muss im Trader
-// als Zusatzfeld fuer Adressen ("KU") angelegt sein - sonst bleibt die
-// Rueckmeldung ungespeichert (siehe CCS_LinkCustomer).
-#define CCS_LINKFIELD "NEXUSCRMID"
 #define CCS_LOGDIR    "X:\run\supabase\logs\"
 
 
@@ -322,12 +314,6 @@ STATIC FUNCTION CCS_PushBatch(cUrl, aBatch, lDry, hTotals, aErrors, cLogFile)
 
       CCS_Count(hTotals, cAction, 1)
 
-      IF ! lDry .AND. ! Empty(cCompanyId)
-         IF ! CCS_LinkCustomer(Val(cNumber), cCompanyId)
-            CCS_Count(hTotals, "ohne_" + Lower(CCS_LINKFIELD), 1)
-         ENDIF
-      ENDIF
-
       IF cAction == "created" .OR. cAction == "updated"
          CCS_Log(cLogFile, "DEBUG", cAction + " " + cNumber + " -> " + cCompanyId + ;
                  " " + CCS_List(CCS_HDef(hItem, "changed", NIL)))
@@ -340,40 +326,6 @@ STATIC FUNCTION CCS_PushBatch(cUrl, aBatch, lDry, hTotals, aErrors, cLogFile)
       ENDIF
    NEXT
 RETURN .T.
-
-
-// Die CRM-Firma beim Kunden hinterlegen, damit nexuscrm.prg sie ohne Suche
-// findet. Das setzt voraus, dass das Zusatzfeld CCS_LINKFIELD fuer Adressen
-// angelegt ist; ist es das nicht, wird nichts gespeichert und der Abgleich
-// laeuft trotzdem durch - die Verknuepfung selbst steht im CRM
-// (companies.erp_customer_number), das Feld hier ist nur die Abkuerzung.
-// Der Satzzeiger von ku wird bewegt und die Ordnung danach wiederhergestellt.
-STATIC FUNCTION CCS_LinkCustomer(nNumber, cCompanyId)
-   LOCAL nOrder, oExtra
-   LOCAL lDone := .F.
-
-   IF nNumber <= 0 .OR. Empty(cCompanyId)
-      RETURN .F.
-   ENDIF
-
-   nOrder := ku->(IndexOrd())
-   ku->(dbSetOrder(8))                           // Kundennummer
-   BEGIN SEQUENCE
-      IF ku->(dbSeek(Str(nNumber, 6))) .AND. ku->Nummer == nNumber
-         oExtra := ku->(ExtraData():New(ku->Nummer))
-         IF oExtra:HasField(CCS_LINKFIELD)
-            IF CCS_Str(oExtra:Get(CCS_LINKFIELD)) != cCompanyId
-               oExtra:NexusCRMId := cCompanyId   // Eigenschaft zu CCS_LINKFIELD
-               oExtra:Save()
-            ENDIF
-            lDone := .T.
-         ENDIF
-      ENDIF
-   RECOVER
-      lDone := .F.
-   END SEQUENCE
-   ku->(dbSetOrder(nOrder))
-RETURN lDone
 
 
 // Ergebnis protokollieren und - ausserhalb des Batchbetriebs - anzeigen.

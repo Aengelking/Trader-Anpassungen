@@ -360,6 +360,7 @@ FUNCTION ShowWEDeliveryNotes(cMatchcode, nQSQty, nArtnr, aFirms, nFirmID)
    LOCAL aLagerParts
    LOCAL i, nFirm, cQSLager, nQty
    LOCAL cMe := "STCK"
+   LOCAL cDrawNo := "", cDrawIdx := "", cUrl
 
    
    Default(@nQSQty, 0)
@@ -384,6 +385,8 @@ FUNCTION ShowWEDeliveryNotes(cMatchcode, nQSQty, nArtnr, aFirms, nFirmID)
       art->(dbSetOrder(2))
       IF art->(dbSeek(Str(nArtnr, 6)))
          cMe := art->Me
+         cDrawNo  := Trim(art->Zeichnung)
+         cDrawIdx := Trim(art->ZeichIndex)
          
          
          // Build hash of lagerorte with quantities for this article
@@ -512,7 +515,16 @@ FUNCTION ShowWEDeliveryNotes(cMatchcode, nQSQty, nArtnr, aFirms, nFirmID)
             ENDIF
          ENDIF
          IF nSupplier != NIL
-            wapi_ShellExecute(,"open","https://engelking-qm.lovable.app/wareneingangspruefungen/neu?article="+tip_URLEncode(Trim(cMatchcode))+"&trader_supplier_id="+LTrim(Str(nSupplier))+"&delivery_note="+Trim(aDeliveries[nSelection]["BELEG"]+"&firm_id=1&quantity="+LTrim(Transform(aDeliveries[nSelection]["QTY"],Me(cMe)))),{{" ","%20"}})
+            cUrl := "https://engelking-qm.lovable.app/wareneingangspruefungen/neu?article="+tip_URLEncode(Trim(cMatchcode))+"&trader_supplier_id="+LTrim(Str(nSupplier))+"&delivery_note="+Trim(aDeliveries[nSelection]["BELEG"]+"&firm_id=1&quantity="+LTrim(Transform(aDeliveries[nSelection]["QTY"],Me(cMe))))
+            //hand over the drawing of the article master, the QM app compares it
+            //with the drawing revision stored in its inspection plan
+            IF ! Empty(cDrawNo)
+               cUrl += "&drawing_no="+tip_URLEncode(cDrawNo)
+            ENDIF
+            IF ! Empty(cDrawIdx)
+               cUrl += "&drawing_index="+tip_URLEncode(cDrawIdx)
+            ENDIF
+            wapi_ShellExecute(,"open",cUrl,{{" ","%20"}})
          ENDIF
       ENDIF
    ELSE

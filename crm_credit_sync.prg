@@ -21,6 +21,12 @@
  * _shared/creditReport.ts) - so entscheidet eine Stelle ueber Dezimaltrenner
  * und unlesbare Werte, und nicht zwei.
  *
+ * Die Betraege stehen in der Waehrung des Reports. Mitgeschickt wird deshalb
+ * der Kurs nach Euro aus der ERP-Waehrungstabelle - derselbe, mit dem
+ * fakturiert wird (Currate(code,"E")). Kennt das ERP die Waehrung nicht, geht
+ * kein Kurs mit: das CRM laesst die Euro-Betraege dann leer, statt Franken
+ * gegen Zloty zu vergleichen.
+ *
  * Aufruf (Run-Script):
  *   trader:-R&crm_credit_sync                   alle Kunden mit Auskunft
  *   trader:-R&crm_credit_sync&{"0","J"}         Testlauf, das CRM schreibt nichts
@@ -120,7 +126,9 @@ STATIC FUNCTION CCR_CollectReports(nLimit, lBatch, cLogFile)
 
    NetUse("creditsafe", "cs")
    NetUse("engkund", "ku")
+   NetUse("currency", "cur")
 
+   cur->(dbSetOrder(2))                         // Waehrungssymbol (ISO-Code)
    ku->(dbSetOrder(8))                          // Kundennummer
    cs->(dbSetOrder(1))
    cs->(dbGoTop())
@@ -137,7 +145,7 @@ STATIC FUNCTION CCR_CollectReports(nLimit, lBatch, cLogFile)
          IF oXml == NIL
             nNoReport++
          ELSE
-            hReport := CCR_Payload(oXml)
+            hReport := CCR_Payload(oXml, cLogFile)
             IF Empty(hReport)
                nNoReport++
                CCR_Log(cLogFile, "WARNING", "Report von Kunde " + ;
@@ -168,7 +176,7 @@ RETURN aReports
 
 // Nutzdaten eines Reports. Der Satzzeiger von ku steht auf dem Kunden, cs auf
 // seiner Auskunft. Leeres Ergebnis heisst: der Report ist nicht verwertbar.
-STATIC FUNCTION CCR_Payload(oXml)
+STATIC FUNCTION CCR_Payload(oXml, cLogFile)
    LOCAL hRep := {=>}
    LOCAL oReport, oSummary, oIdent, oBasic, oScore, oRating, oContact
    LOCAL oGroup, oParent, oFinancials, oAdd
@@ -220,6 +228,12 @@ STATIC FUNCTION CCR_Payload(oXml)
 
    // Bonitaet
    hRep["currency"]             := CCR_Attr(oReport, "ReportCurrency")
+   IF ! CCR_AddRate(hRep, hRep["currency"])
+      // Sichtbar machen: ohne Kurs bleiben Kreditlimit und Umsatz dieser Firma
+      // im CRM als "nicht vergleichbar" stehen.
+      CCR_Log(cLogFile, "WARNING", "Kein ERP-Kurs fuer " + hRep["currency"] + ;
+              " (Kunde " + LTrim(Str(ku->Nummer)) + "), Betraege gehen ohne Umrechnung")
+   ENDIF
    hRep["rating_value"]         := CCR_Text(oRating, "CommonValue")
    hRep["rating_description"]   := CCR_Utf8(CCR_Text(oRating, "CommonDescription"))
    hRep["credit_limit"]         := CCR_Text(oRating, "CreditLimit")
@@ -260,6 +274,43 @@ STATIC FUNCTION CCR_Payload(oXml)
       RETURN NIL                                // kein verwertbarer Inhalt
    ENDIF
 RETURN hRep
+
+
+// Umrechnungskurs nach Euro beilegen. Fuer Euro-Reports ist er 1, sonst kommt
+// er aus der ERP-Waehrungstabelle. Kennt das ERP die Waehrung nicht oder ist
+// der Kurs 0, geht kein Kurs mit - das CRM behandelt die Betraege dann als
+// nicht vergleichbar. Lieber eine Luecke als ein falscher Betrag.
+STATIC FUNCTION CCR_AddRate(hRep, cIso)
+   LOCAL nRate := 0
+
+   cIso := Upper(AllTrim(CCR_Str(cIso)))
+   IF Empty(cIso) .OR. cIso == "EUR"
+      hRep["fx_rate_to_eur"] := "1"
+      hRep["fx_rate_date"]   := CCR_IsoDate(Date())
+      hRep["fx_rate_source"] := "trader (EUR)"
+      RETURN .T.
+   ENDIF
+
+   IF Select("cur") == 0
+      RETURN .F.
+   ENDIF
+
+   BEGIN SEQUENCE
+      IF cur->(dbSeek(cIso))
+         nRate := Currate(cur->Code, "E")       // Multiplikator nach Euro
+      ENDIF
+   RECOVER
+      nRate := 0
+   END SEQUENCE
+
+   IF ValType(nRate) != "N" .OR. nRate <= 0
+      RETURN .F.
+   ENDIF
+
+   hRep["fx_rate_to_eur"] := LTrim(Str(nRate, 18, 6))
+   hRep["fx_rate_date"]   := CCR_IsoDate(Date())
+   hRep["fx_rate_source"] := "trader"
+RETURN .T.
 
 
 // Kennzahlen aller Geschaeftsjahre, in der Reihenfolge des Reports (juengstes

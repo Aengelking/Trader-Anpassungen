@@ -14,6 +14,14 @@
  * NEXUSCRM_COMPANY_NEWDAYS Tage. Gesperrte (KSperren) und zusammengefuehrte
  * Adressen ("[SIEHE:...]") bleiben aussen vor.
  *
+ * Die zusammengefuehrten Adressen werden aber gemeldet: changku.prg setzt beim
+ * Verschmelzen KSperren und schreibt "[SIEHE:<Nummer des Siegers>]" vor Name1.
+ * Genau diese Paare gehen als `merged_customers` ans CRM, damit es die beiden
+ * Firmen dort ebenfalls zusammenlegt - sonst bleibt die Firma zur stillgelegten
+ * Nummer mit ihren Kontakten, Leads und Opportunities fuer immer verwaist
+ * stehen. Ketten (A -> B -> C) loest dieser Lauf auf und meldet C; das CRM
+ * folgt keiner Kette. Die Meldungen gehen VOR den Kundenpaketen raus.
+ *
  * Der Trader merkt sich zu einem Kunden nichts: die Verknuepfung von Kunde und
  * Firma haelt das CRM in companies.erp_customer_number. Die zurueckgemeldete
  * company_id steht nur im Protokoll, damit ein Lauf nachvollziehbar bleibt.
@@ -30,6 +38,8 @@
  *   NEXUSCRM_COMPANY_BATCH    Kunden je Uebertragung (Server-Grenze: 500)
  *   NEXUSCRM_COMPANY_NEWDAYS  Neukunden ohne Umsatz: Tage seit "Kunde seit"
  *   NEXUSCRM_COMPANY_SKIP     Matchcodes, die nie uebertragen werden
+ *   NEXUSCRM_COMPANY_MERGE    Zusammenfuehrungen melden (J/N) - Notbremse,
+ *                             falls im CRM etwas schieflaeuft
  *
  * Protokoll: X:\run\supabase\logs\crm_company_sync_<Datum>_<Zeit>.log
  *
@@ -38,6 +48,8 @@
  */
 
 #define CCS_MAXBATCH  500
+#define CCS_MAXMERGE  200                        // Server-Grenze je Aufruf
+#define CCS_SEEALSO   "[SIEHE:"                  // Marker aus changku.prg
 #define CCS_LOGDIR    "X:\run\supabase\logs\"
 
 
@@ -48,6 +60,7 @@ PROCEDURE RUN_CRM_COMPANY_SYNC(cLimit, cDryRun)
    LOCAL cLogFile := CCS_LogFile()
    LOCAL hTotals  := {=>}
    LOCAL aErrors  := {}
+   LOCAL aMerges  := {}
    LOCAL aCustomers, aBatch
    LOCAL cUrl, nBatchSize, nFrom, nTo, nX
 
@@ -74,10 +87,18 @@ PROCEDURE RUN_CRM_COMPANY_SYNC(cLimit, cDryRun)
            ", Paketgroesse " + LTrim(Str(nBatchSize)) + ;
            IF(nLimit > 0, ", begrenzt auf " + LTrim(Str(nLimit)) + " Kunden", ""))
 
-   aCustomers := CCS_CollectCustomers(nLimit, lBatch, cLogFile)
+   aCustomers := CCS_CollectCustomers(nLimit, lBatch, cLogFile, aMerges)
+
+   // Erst die im ERP zusammengefuehrten Kunden melden: das CRM verarbeitet sie
+   // vor den Stammdaten und findet die Firma danach ueber die Zielnummer.
+   CCS_SyncMerges(cUrl, aMerges, lDry, hTotals, aErrors, cLogFile, lBatch)
+
    IF Len(aCustomers) == 0
       CCS_Log(cLogFile, "WARNING", "Keine aktiven Kunden gefunden.")
-      IF ! lBatch
+      IF Len(hTotals) > 0
+         // Zusammenfuehrungen sind trotzdem gelaufen - Ergebnis nicht verschweigen.
+         CCS_Report(hTotals, aErrors, lDry, lBatch, cLogFile)
+      ELSEIF ! lBatch
          Tr_MsgBox("Keine aktiven Kunden gefunden.")
       ENDIF
       RETURN
@@ -112,12 +133,14 @@ FUNCTION CRM_CompanySync_Setup()
             "Neukunden ohne Umsatz: Tage seit 'Kunde seit'")
    GetValue("NEXUSCRM_COMPANY_SKIP", "SELF TEST GEKOA PGPOWER", ;
             "Matchcodes, die nicht ins CRM uebertragen werden")
+   GetValue("NEXUSCRM_COMPANY_MERGE", "J", ;
+            "Im ERP zusammengefuehrte Kunden ans CRM melden (J/N)")
 RETURN NIL
 
 
 // Alle aktiven Kunden einsammeln. Erst lesen, dann senden - danach steht der
 // Satzzeiger frei fuer das Zurueckschreiben der company_id.
-STATIC FUNCTION CCS_CollectCustomers(nLimit, lBatch, cLogFile)
+STATIC FUNCTION CCS_CollectCustomers(nLimit, lBatch, cLogFile, aMerges)
    LOCAL aCustomers := {}
    LOCAL aSkip      := CCS_SkipList()
    LOCAL nNewDays   := Int(Val(CCS_Str(GetValue("NEXUSCRM_COMPANY_NEWDAYS"))))
@@ -151,13 +174,60 @@ STATIC FUNCTION CCS_CollectCustomers(nLimit, lBatch, cLogFile)
          ENDIF
       ELSE
          nSkipped++
+         // Nicht aktiv heisst nicht uninteressant: hier stehen die per
+         // changku.prg verschmolzenen Adressen, die das CRM erfahren muss.
+         CCS_CollectMerge(aMerges)
       ENDIF
       ku->(dbSkip())
    ENDDO
 
    CCS_Log(cLogFile, "INFO", LTrim(Str(nSeen)) + " Kunden geprueft, " + ;
-           LTrim(Str(Len(aCustomers))) + " aktiv, " + LTrim(Str(nSkipped)) + " uebersprungen")
+           LTrim(Str(Len(aCustomers))) + " aktiv, " + LTrim(Str(nSkipped)) + " uebersprungen, " + ;
+           LTrim(Str(Len(aMerges))) + " zusammengefuehrt")
+   IF nLimit > 0
+      CCS_Log(cLogFile, "INFO", "Begrenzter Lauf: Zusammenfuehrungen hinter dem " + ;
+              LTrim(Str(nLimit)) + ". aktiven Kunden bleiben unentdeckt")
+   ENDIF
 RETURN aCustomers
+
+
+// Ist der Kunde am aktuellen Satz per changku.prg auf eine andere Nummer
+// verschmolzen? Dann Paar (stillgelegte Nummer, Zielnummer) merken.
+STATIC FUNCTION CCS_CollectMerge(aMerges)
+   LOCAL nInto := CCS_SeeAlso(ku->Name1)
+
+   IF ValType(aMerges) != "A" .OR. nInto <= 0
+      RETURN NIL
+   ENDIF
+   IF ku->Nummer <= 0 .OR. nInto == ku->Nummer
+      RETURN NIL
+   ENDIF
+   AAdd(aMerges, {ku->Nummer, nInto})
+RETURN NIL
+
+
+// Zielnummer aus dem Marker lesen: changku.prg stellt Name1 ein
+// "[SIEHE:<Nummer>]" voran. Wurde eine Adresse zweimal verschmolzen, stehen
+// mehrere Marker davor; der vorderste ist der zuletzt geschriebene und damit
+// der richtige. 0 = kein Marker.
+STATIC FUNCTION CCS_SeeAlso(cName)
+   LOCAL cText   := Upper(CCS_Str(cName))
+   LOCAL nPos    := At(CCS_SEEALSO, cText)
+   LOCAL cDigits := ""
+   LOCAL cChar, nX
+
+   IF nPos == 0
+      RETURN 0
+   ENDIF
+   FOR nX := nPos + Len(CCS_SEEALSO) TO Len(cText)
+      cChar := SubStr(cText, nX, 1)
+      IF cChar >= "0" .AND. cChar <= "9"
+         cDigits += cChar
+      ELSE
+         EXIT
+      ENDIF
+   NEXT
+RETURN Val(cDigits)
 
 
 // Ist der Kunde am aktuellen Satz ein aktiver Kunde?
@@ -323,6 +393,177 @@ STATIC FUNCTION CCS_PushBatch(cUrl, aBatch, lDry, hTotals, aErrors, cLogFile)
          CCS_Log(cLogFile, "WARNING", cAction + " " + cNumber + ": " + ;
                  hb_utf8ToStr(CCS_Str(CCS_HDef(hItem, "reason", ""))) + ;
                  " " + CCS_List(CCS_HDef(hItem, "candidates", NIL)))
+      ENDIF
+   NEXT
+RETURN .T.
+
+
+// Zusammenfuehrungen melden: aufloesen, senden, protokollieren. Laeuft vor den
+// Kundenpaketen, damit das CRM die zusammengefuehrte Firma anschliessend ueber
+// die Zielnummer findet statt eine zweite anzulegen.
+STATIC FUNCTION CCS_SyncMerges(cUrl, aMerges, lDry, hTotals, aErrors, cLogFile, lBatch)
+   LOCAL aBatch
+   LOCAL nFrom, nTo, nX
+
+   IF Len(aMerges) == 0
+      RETURN .T.
+   ENDIF
+   IF ! CCS_IsYes(GetValue("NEXUSCRM_COMPANY_MERGE"))
+      CCS_Log(cLogFile, "INFO", LTrim(Str(Len(aMerges))) + ;
+              " Zusammenfuehrung(en) gefunden, aber NEXUSCRM_COMPANY_MERGE steht auf Nein")
+      RETURN .F.
+   ENDIF
+
+   aMerges := CCS_ResolveChains(aMerges, cLogFile)
+   IF Len(aMerges) == 0
+      RETURN .T.
+   ENDIF
+
+   CCS_Log(cLogFile, "INFO", LTrim(Str(Len(aMerges))) + " Zusammenfuehrung(en) werden gemeldet")
+   FOR nFrom := 1 TO Len(aMerges) STEP CCS_MAXMERGE
+      nTo    := Min(nFrom + CCS_MAXMERGE - 1, Len(aMerges))
+      aBatch := {}
+      FOR nX := nFrom TO nTo
+         AAdd(aBatch, CCS_MergePayload(aMerges[nX]))
+      NEXT
+
+      IF ! lBatch
+         @ 22,00 SAY "Melde Zusammenfuehrungen " + LTrim(Str(nFrom)) + "-" + ;
+                     LTrim(Str(nTo)) + " von " + LTrim(Str(Len(aMerges))) + "    "
+      ENDIF
+
+      CCS_PushMerges(cUrl, aBatch, lDry, hTotals, aErrors, cLogFile)
+   NEXT
+RETURN .T.
+
+
+// Ketten aufloesen: ist B selbst auf C verschmolzen, wird aus A -> B ein
+// A -> C. Das CRM folgt keiner Kette, es verarbeitet jede Meldung fuer sich.
+// Ein Ringschluss (durch doppeltes Verschmelzen von Hand) wird gemeldet und
+// die Meldung verworfen, statt endlos zu laufen.
+STATIC FUNCTION CCS_ResolveChains(aMerges, cLogFile)
+   LOCAL hInto := {=>}
+   LOCAL aOut  := {}
+   LOCAL hSeen, nFrom, nInto, nHops, nX
+
+   FOR nX := 1 TO Len(aMerges)
+      // Zweimal dieselbe stillgelegte Nummer kann es nicht geben; falls doch,
+      // gewinnt der letzte Satz - beide zeigen ohnehin auf dasselbe Ziel.
+      hInto[aMerges[nX][1]] := aMerges[nX][2]
+   NEXT
+
+   FOR nX := 1 TO Len(aMerges)
+      nFrom := aMerges[nX][1]
+      nInto := aMerges[nX][2]
+      hSeen := {=>}
+      hSeen[nFrom] := .T.
+      nHops := 0
+
+      DO WHILE HHasKey(hInto, nInto) .AND. nHops < 20
+         IF HHasKey(hSeen, nInto)
+            CCS_Log(cLogFile, "WARNING", "Ringschluss bei Kunde " + LTrim(Str(nFrom)) + ;
+                    " (" + LTrim(Str(nInto)) + " zeigt zurueck) - nicht gemeldet")
+            nInto := nFrom
+            EXIT
+         ENDIF
+         hSeen[nInto] := .T.
+         nInto := hInto[nInto]
+         nHops++
+      ENDDO
+
+      IF nInto == nFrom .OR. nInto <= 0
+         LOOP
+      ENDIF
+      IF HHasKey(hInto, nInto)
+         // Nach 20 Spruengen immer noch kein Endpunkt: das ist keine Kette mehr,
+         // sondern ein Datenfehler. Lieber nicht melden als falsch melden.
+         CCS_Log(cLogFile, "WARNING", "Kette zu lang bei Kunde " + LTrim(Str(nFrom)) + ;
+                 " - nicht gemeldet")
+         LOOP
+      ENDIF
+      IF nHops > 0
+         CCS_Log(cLogFile, "DEBUG", "Kette aufgeloest: " + LTrim(Str(nFrom)) + " -> " + ;
+                 LTrim(Str(aMerges[nX][2])) + " -> ... -> " + LTrim(Str(nInto)))
+      ENDIF
+      AAdd(aOut, {nFrom, nInto})
+   NEXT
+RETURN aOut
+
+
+// Nutzdaten einer Zusammenfuehrung: nur die beiden Nummern. Namen oder
+// Matchcode braucht das CRM hier nicht - zugeordnet wird ueber die Nummer,
+// alles andere waere geraten.
+STATIC FUNCTION CCS_MergePayload(aPair)
+   LOCAL hMerge := {=>}
+
+   hMerge["erp_customer_number"]      := LTrim(Str(aPair[1]))
+   hMerge["into_erp_customer_number"] := LTrim(Str(aPair[2]))
+RETURN hMerge
+
+
+// Ein Paket Zusammenfuehrungen uebertragen. `customers` bleibt leer, das Feld
+// verlangt die Function aber.
+STATIC FUNCTION CCS_PushMerges(cUrl, aBatch, lDry, hTotals, aErrors, cLogFile)
+   LOCAL oRest   := RestApi():New()
+   LOCAL hBody   := {=>}
+   LOCAL aHeader := {"Authorization: Bearer $APIKEY$", ;
+                     "Content-Type: application/json", ;
+                     "Accept: application/json"}
+   LOCAL nStatus := 0
+   LOCAL cResponse, xAnswer, aResults, hItem
+   LOCAL cAction, cFrom, cInto, cCompanyId, nX
+
+   hBody["source"]           := "trader"
+   hBody["dry_run"]          := lDry
+   hBody["user_email"]       := Lower(AllTrim(CCS_Str(SystemUser():Email)))
+   hBody["customers"]        := {}
+   hBody["merged_customers"] := aBatch
+
+   oRest:cBaseUrl    := ""
+   oRest:cApiKeyName := "NEXUSCRM"               // Bearer = TRADER_API_KEY
+   cResponse := oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus)
+
+   IF nStatus < 200 .OR. nStatus >= 300 .OR. Empty(cResponse)
+      CCS_Count(hTotals, "merge_failed", Len(aBatch))
+      AAdd(aErrors, "Zusammenfuehrungen HTTP " + LTrim(Str(nStatus)) + ": " + ;
+           Left(CCS_Str(cResponse), 200))
+      CCS_Log(cLogFile, "ERROR", "Zusammenfuehrungen fehlgeschlagen, HTTP " + ;
+              LTrim(Str(nStatus)) + ": " + Left(CCS_Str(cResponse), 500))
+      RETURN .F.
+   ENDIF
+
+   xAnswer := HB_JsonDecode(cResponse)
+   IF ValType(xAnswer) != "H" .OR. ! HHasKey(xAnswer, "merges")
+      CCS_Count(hTotals, "merge_failed", Len(aBatch))
+      AAdd(aErrors, "Unerwartete Antwort auf Zusammenfuehrungen: " + Left(CCS_Str(cResponse), 200))
+      CCS_Log(cLogFile, "ERROR", "Unerwartete Antwort auf Zusammenfuehrungen: " + ;
+              Left(CCS_Str(cResponse), 500))
+      RETURN .F.
+   ENDIF
+
+   aResults := xAnswer["merges"]
+   IF ValType(aResults) != "A"
+      aResults := {}
+   ENDIF
+
+   FOR nX := 1 TO Len(aResults)
+      hItem      := aResults[nX]
+      cAction    := Lower(CCS_Str(CCS_HDef(hItem, "action", "failed")))
+      cFrom      := CCS_Str(CCS_HDef(hItem, "erp_customer_number", ""))
+      cInto      := CCS_Str(CCS_HDef(hItem, "into_erp_customer_number", ""))
+      cCompanyId := CCS_Str(CCS_HDef(hItem, "company_id", ""))
+
+      CCS_Count(hTotals, "merge_" + cAction, 1)
+
+      IF cAction == "merged" .OR. cAction == "relinked" .OR. cAction == "unchanged"
+         CCS_Log(cLogFile, "DEBUG", cAction + " " + cFrom + " -> " + cInto + " = " + ;
+                 cCompanyId + " " + CCS_List(CCS_HDef(hItem, "merged_company_ids", NIL)) + ;
+                 " " + hb_utf8ToStr(CCS_Str(CCS_HDef(hItem, "reason", ""))))
+      ELSE
+         AAdd(aErrors, "Zusammenfuehrung " + cAction + " " + cFrom + " -> " + cInto + " " + ;
+              hb_utf8ToStr(CCS_Str(CCS_HDef(hItem, "reason", ""))))
+         CCS_Log(cLogFile, "WARNING", "Zusammenfuehrung " + cAction + " " + cFrom + " -> " + ;
+                 cInto + ": " + hb_utf8ToStr(CCS_Str(CCS_HDef(hItem, "reason", ""))))
       ENDIF
    NEXT
 RETURN .T.

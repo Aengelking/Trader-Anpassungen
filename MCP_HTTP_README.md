@@ -107,7 +107,7 @@ Under a GUI GT the server window shows a **status header** on top and a
 **scrolling log** below (the uhttpd layout). The header refreshes ~once a
 second and shows: port and worker-thread count, in-flight requests (with the
 concurrency high-water mark), total requests, slow requests (>=1s), active vs.
-known clients, GET-/ pings, uptime, memory and the clock. New log lines scroll
+known clients, health-check count, uptime, memory and the clock. New log lines scroll
 in at the bottom of the lower region; the header is never overwritten. Under a
 headless/NUL GT this is skipped and logging stays line-based on stderr.
 
@@ -313,12 +313,15 @@ tool can run longer than the default 120 s.
   Accepted` with an empty body. A JSON-RPC *batch* (array) returns an array of
   the responses that carry an `id`.
 - **`GET /healthz`**, `GET /health` — health check, always returns `ok`.
-- **`GET /`** — returns `ok` for a plain health probe, but `405` when the
-  client asks for the server→client SSE stream (`Accept: text/event-stream`).
-  Single-response mode offers no stream, and per the MCP spec `405` tells the
-  client to stop; answering such a stream GET with `200 ok` made some clients
-  retry the GET in a loop (a source of request storms on `/`). The count of
-  `GET /` health/stream pings is logged once a minute in GUI mode.
+  Meant for uptime monitors (e.g. Uptime Kuma). This traffic is **not logged**
+  in GUI mode (it would flood the log); instead it is counted in the
+  dashboard's *Health-Checks* total.
+- **`GET /`** — returns `ok` for a plain health probe (also muted/counted as a
+  health check), but `405` when the client asks for the server→client SSE
+  stream (`Accept: text/event-stream`). Single-response mode offers no stream,
+  and per the MCP spec `405` tells the client to stop; answering such a stream
+  GET with `200 ok` made some clients retry the GET in a loop (a source of
+  request storms on `/`).
 - **`GET`** on any other path — `405` (single-response mode offers no SSE
   stream).
 - **`OPTIONS`** — CORS preflight, returns `204`.

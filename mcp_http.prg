@@ -49,8 +49,7 @@ STATIC s_cMcpKeysStamp   := ""    // file stamp of the loaded key table
 STATIC s_lMcpAuthWarned  := .F.   // "running without authentication" warned once
 STATIC s_cMcpSrcStamp    := ""    // stamp of the MCP source files for auto-reload
 STATIC s_hMcpClients     := {=>}  // connected-client overview, keyed by session id (fallback peer#user)
-STATIC s_nSlashHits      := 0     // GET / (health/stream) pings since the last stats flush
-STATIC s_nSlashSince     := -1    // Seconds() baseline for the slash-rate log (-1 = unset)
+STATIC s_nSlashHits      := 0     // cumulative health-check pings (/, /health, /healthz) since start
 STATIC s_nLastReloadCheck := -1   // Seconds() of the last source-stamp check (-1 = unset)
 
 // --- Multithreading (see the pool section below) --------------------------
@@ -324,6 +323,11 @@ STATIC FUNCTION MCP_Http_ConnectLeto( nWorker )
    ENDIF
 RETURN lOk
 
+// Routine health / uptime-monitor endpoints. Their traffic is muted in the
+// GUI log (still counted in the dashboard's health-check total).
+STATIC FUNCTION MCP_Http_IsHealthPath( cPath )
+RETURN cPath == "/" .OR. cPath == "/health" .OR. cPath == "/healthz"
+
 // Tools that must run one-at-a-time: they write, or they read/switch the
 // process-global Trader user context (Tr_GetIni(28) / SystemUser). Every other
 // tool is a pure read and runs concurrently in the pool.
@@ -447,7 +451,7 @@ STATIC FUNCTION MCP_Http_DashHeader()
 
    hb_DispOutAt( 2, 42, PadR( "Clients aktiv : " + Str( nActive, 4 ) + " / " + ;
       LTrim( Str( nKnown ) ) + " bekannt", MaxCol() - 42 ) )
-   hb_DispOutAt( 3, 42, PadR( "GET-/ Pings   : " + Str( s_nSlashHits, 8 ), MaxCol() - 42 ) )
+   hb_DispOutAt( 3, 42, PadR( "Health-Checks : " + Str( s_nSlashHits, 8 ), MaxCol() - 42 ) )
    hb_DispOutAt( 4, 42, PadR( "Laufzeit      : " + MCP_Http_Hms( nUp ), MaxCol() - 42 ) )
 
    hb_DispOutAt( 6, 2, PadR( "Speicher " + LTrim( Str( Int( Memory( HB_MEM_USED ) ) ) ) + ;
@@ -744,14 +748,16 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    cSessionId := IIF( HHasKey(hHeaders, "MCP-SESSION-ID"), hHeaders["MCP-SESSION-ID"], "" )
    aCors      := MCP_Http_CorsHeaders( cOrigin, hHeaders )
 
-   // Routine "/" traffic in GUI mode: also mute the 2xx response log lines
-   // written by MCP_Http_Send (errors are always logged there).
-   t_lMcpQuietReq := lQuiet .AND. cPath == "/"
+   // Routine health/monitoring traffic (/, /health, /healthz - e.g. Uptime
+   // Kuma) is muted in GUI mode: it would flood the log and is already counted
+   // in the dashboard's health-check total. This also mutes the matching 2xx
+   // response line in MCP_Http_Send (errors are always logged there).
+   t_lMcpQuietReq := lQuiet .AND. MCP_Http_IsHealthPath( cPath )
 
    // Log the request line (method, path, and body size for POST). All parts
    // come from the wire - print them filtered so binary/garbage input cannot
-   // corrupt the console. Routine "/" calls are hidden in GUI mode.
-   IF ! lQuiet .OR. ! ( cPath == "/" )
+   // corrupt the console. Health/monitoring calls are hidden in GUI mode.
+   IF ! lQuiet .OR. ! MCP_Http_IsHealthPath( cPath )
       MCP_Http_Log( "  " + MCP_Http_Printable( cHttpMethod + " " + cPath ) + ;
          IIF( HHasKey(hHeaders, "CONTENT-LENGTH"), " [" + MCP_Http_Printable(AllTrim(hHeaders["CONTENT-LENGTH"])) + " bytes]", "" ) + ;
          IIF( ! Empty(cOrigin), " origin=" + MCP_Http_Printable(cOrigin), "" ) )
@@ -772,7 +778,7 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    // source of the "very many GET / requests" seen in the log.
    IF cHttpMethod == "GET"
       IF cPath == "/" .OR. cPath == "/health" .OR. cPath == "/healthz"
-         s_nSlashHits++      // count health/stream pings for the per-minute stats
+         s_nSlashHits++      // cumulative health-check count for the dashboard
       ENDIF
       IF cPath == "/healthz" .OR. cPath == "/health"
          MCP_Http_Send( hSocket, 200, "text/plain", "ok", aCors )
@@ -1351,44 +1357,7 @@ STATIC FUNCTION MCP_Http_PumpKeys()
    CASE nKey == Asc( "c" ) .OR. nKey == Asc( "C" )
       MCP_Http_ShowClients()
    ENDCASE
-   MCP_Http_FlushSlashStats()   // piggyback the periodic housekeeping
    MCP_Http_DashHeader()        // refresh the GUI status header (no-op if off)
-RETURN NIL
-
-// Once a minute log a heartbeat: active clients and the number of GET / (health
-// /stream) pings in the interval. Runs from the loop's housekeeping (idle and
-// between requests), so it also proves the loop is alive: if the heartbeat
-// STOPS while the server is up, the loop is stuck inside a single request (a
-// hanging tool/hook) - that is the definitive hang indicator, and 'C' being
-// dead at the same time is the same cause.
-STATIC FUNCTION MCP_Http_FlushSlashStats()
-   LOCAL nNow := Seconds(), nElapsed, nActive := 0, cKey, nAge
-   IF s_nSlashSince < 0
-      s_nSlashSince := nNow
-      RETURN NIL
-   ENDIF
-   nElapsed := nNow - s_nSlashSince
-   IF nElapsed < 0
-      nElapsed += 86400
-   ENDIF
-   IF nElapsed < 60
-      RETURN NIL
-   ENDIF
-   hb_mutexLock( s_hMcpState )
-   FOR EACH cKey IN HGetKeys( s_hMcpClients )
-      nAge := nNow - s_hMcpClients[ cKey ][ "last" ]
-      IF nAge < 0
-         nAge += 86400
-      ENDIF
-      IF nAge <= 120
-         nActive++
-      ENDIF
-   NEXT
-   MCP_Http_Log( "Heartbeat: " + LTrim( Str( nActive ) ) + " Client(s) aktiv, " + ;
-      LTrim( Str( s_nSlashHits ) ) + " GET-/ Pings in " + LTrim( Str( Int( nElapsed ) ) ) + "s" )
-   s_nSlashHits := 0
-   s_nSlashSince := nNow
-   hb_mutexUnlock( s_hMcpState )
 RETURN NIL
 
 // Time-based auto-reload, callable both while idle and between requests so a

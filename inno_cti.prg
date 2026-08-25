@@ -189,7 +189,7 @@ PROCEDURE _MonitorCalls
                               _ShowInfo(hNumber["ID"])   
                               //hb_threadStart(HB_THREAD_INHERIT_MEMVARS, {|| _ShowInfo(hNumber["ID"])} ) // @ProcessConnection() )
                            ENDIF
-                           @ 02,00 SAY  "im Gesprï¿½ch"
+                           @ 02,00 SAY  "im Gespr„ch"
                         ELSEIF nState == 6 .OR. nState == 7 //hangup
                            @ 00,00 CLEAR TO 3,20
                            /*IF ! lD

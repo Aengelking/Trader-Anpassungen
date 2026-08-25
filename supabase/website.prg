@@ -10,7 +10,7 @@ PROC SYNC_Supabase_Website()
    _SyncProductsToSupabase(oRest)
 
    IF ! GetConfigValue("BATCHMODE")
-      ? "Sync abgeschlossen. Drï¿½cken Sie eine Taste, um fortzufahren."
+      ? "Sync abgeschlossen. Drcken Sie eine Taste, um fortzufahren."
       SInkey(0)
    ENDIF
 RETURN
@@ -296,7 +296,7 @@ STATIC FUNCTION _BuildProductsJson(nLimit, lForcePrices, lNoStamp)
    
    IF shop->(EOF())
       ? "Keine Produkte in der Datenbank gefunden."
-      ? nTotal," datensï¿½tze insgesamt."
+      ? nTotal," datens„tze insgesamt."
       Sinkey(0)
       RETURN hResult
    ENDIF

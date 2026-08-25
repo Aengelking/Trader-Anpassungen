@@ -42,20 +42,20 @@ LOCAL hKS         := {"000"=>"Verwaltung (000)",;
                      "400"=>"Beschaffung (400)",;
                      "500"=>"Produktmanagement (500)",;
                      "600"=>"Entwicklung (600)",;
-                     "700"=>"QualitÔøΩt (700)",;
+                     "700"=>"QualitÑt (700)",;
                      "800"=>"Lager (800)"}
 
 /*** SETTINGS ***/
 LOCAL lCanApprove := Tr_Getini(28) $ GetValue("REB_APPROVER",{9,57},"Genehmiger (Benutzernummer)")
-LOCAL lPreApprove := Tr_Getini(28) $ GetValue("REB_PREAPPROVER",{76},"VorprÔøΩfer (Benutzernummer)")
+LOCAL lPreApprove := Tr_Getini(28) $ GetValue("REB_PREAPPROVER",{76},"VorprÅfer (Benutzernummer)")
 LOCAL hApprKto    := {;
             34=>{72031,70171,71804,70887,74186,70062,70302,70141,70814,70911,70866,70995,76056,76236,;
                  76254,76239,76269,76393,76126,76168,76019,74245,76218,74930,76157,74222};
-         } /*,"Konten fÔøΩr Genehmiger")*//*GetValue("REB_APRACC",*/  //Value Editing programm needs working on
+         } /*,"Konten fÅr Genehmiger")*//*GetValue("REB_APRACC",*/  //Value Editing programm needs working on
 LOCAL nPersOnApprove := 34 //automatically assign to this person on approval
 LOCAL nPersOnPreApprove := 9 //automatically assign to this person on pre-approval
 LOCAL aAdmin      := {9}
-LOCAL nTolPaydate := GetValue("REB_TOLDATE",2,"Toleranz fÔøΩr Zahldatum") //deduct from due date to compensate for Postal time etc.
+LOCAL nTolPaydate := GetValue("REB_TOLDATE",2,"Toleranz fÅr Zahldatum") //deduct from due date to compensate for Postal time etc.
 /***************/
 LOCAL lIsAdmin    := AScan(aAdmin,Tr_Getini(28)) != 0
 LOCAL hUsers
@@ -128,7 +128,7 @@ reb->(dbSetOrder( 1 ))
 SetCursor(1)*/
 
 oBooked := HBCheckBox():New(01,00)
-oBooked:Caption := t("&Verbuchte EintrÔøΩge")
+oBooked:Caption := t("&Verbuchte Eintr‰ge")
 oBooked:colorSpec := cCol
 oBooked:sBlock := {||
    cFor := "ID != 0" //.AND. ((! Empty(Beleg_Kurz) .AND. Len(Trim(Beleg_Kurz))>10).OR.(Empty(Beleg_Kurz) .AND. Len(Trim(Beleg))>10))"
@@ -167,7 +167,7 @@ oBooked:sBlock := {||
 }
 oBooked:Display()
 oGenehm := HBCheckBox():New(01,23)
-oGenehm:Caption := t("Nicht &genehmigte EintrÔøΩge")
+oGenehm:Caption := t("Nicht &genehmigte Eintr‰ge")
 oGenehm:sBlock := oBooked:sBlock
 oGenehm:colorSpec := cCol
 
@@ -277,7 +277,7 @@ oBrowse:NewColumn(,{||
    RETURN " "
 })
 oBrowse:NewColumn("Termin",{||
-   RETURN DtoC(Eval(bTermin)) //standard ist 5 Tage nach erhalt, das sollte auch fÔøΩr Skonto reichen
+   RETURN DtoC(Eval(bTermin)) //standard ist 5 Tage nach erhalt, das sollte auch fÅr Skonto reichen
 })
 
 oBrowse:NewColumn("Kontonr.",{||
@@ -550,7 +550,7 @@ oBrowse:AddKey(K_DEL,{||
 oBrowse:AddKey(K_ENTER,{||
    LOCAL aFiles := GetArchiveFiles({"ER"=>reb->ID})
    LOCAL cZuText := "anderer Person zuordnen"
-   LOCAL cFirmText := t("Lieferant ÔøΩndern")
+   LOCAL cFirmText := t("Lieferant ‰ndern")
    LOCAL lChangePers := .F.,lChangeFirm := .F.
    LOCAL dDate
    LOCAL bOpen := {|cFile|
@@ -594,7 +594,7 @@ oBrowse:AddKey(K_ENTER,{||
                ku->(dbSeek( Str(reb->Liefnr,6) ))
                engre(ku->Kunde,Pad(IF(Empty(reb->Beleg_Kurz),reb->Beleg,reb->Beleg_Kurz),14))
             ELSE //Lexware
-               Tr_MsgBox(t("Bitte ÔøΩber Lexware buchen"))
+               Tr_MsgBox(t("Bitte ¸ber Lexware buchen"))
                IF Len(LX_GetBookingsForID("ER"+Str(reb->Id,9),.T.)) > 0
 	              reb->(Rec_Lock(0))                 
                  IF Len(LX_GetBookingsForID("ER"+Str(reb->Id,9),.F.)) > 0
@@ -619,13 +619,13 @@ oBrowse:AddKey(K_ENTER,{||
       ELSEIF (lCanApprove .OR. lPreApprove .OR. (Tr_Getini(28) $ hApprKto .AND. reb->Konto $ hApprKto[Tr_Getini(28)]) ) .AND. reb->Person == Tr_Getini(28)
          nChoice := 0
          IF lCanApprove
-            //Tr_MsgBox("PrÔøΩfe wiederkehrende Rechnungen")
+            //Tr_MsgBox("PrÅfe wiederkehrende Rechnungen")
             rerep->(dbSetORder( 1 ))
             IF rerep->(dbSeek( Str(reb->Konto,6)+Str(reb->Betrag*100,14,0) )) 
                rebp->(dbSetOrder( 1 ))
                rebp->(dbSeek( Str(reb->ID,9), .T. ))
                dDate := StoD(rebp->DateTime)
-               //Tr_MsgBox("PrÔøΩfe wiederkehrende Rechnungen")
+               //Tr_MsgBox("PrÅfe wiederkehrende Rechnungen")
                DO WHILE rerep->Konto == reb->Konto .AND. rerep->Betrag == reb->Betrag  //there can be multiple entries
                   IF Empty(rerep->End) .OR. rerep->End > dDate
                      IF rerep->Intervall=="M" 
@@ -638,7 +638,7 @@ oBrowse:AddKey(K_ENTER,{||
                         dNext := StoD("")
                      ENDIF               
                      //Tr_MsgBox(rerep->Intervall+" "+DtoC(dNext))
-                     IF dNext <= dDate .OR. Tr_MsgBox({"Intervall stimmt nicht.","NÔøΩchste FÔøΩlligkeit: "+DtoC(dNext),"Letzte Rechung: "+DtoC(rerep->Last)},,{"OK","Anpassen und freigeben"}) == 2
+                     IF dNext <= dDate .OR. Tr_MsgBox({"Intervall stimmt nicht.","NÑchste FÑlligkeit: "+DtoC(dNext),"Letzte Rechung: "+DtoC(rerep->Last)},,{"OK","Anpassen und freigeben"}) == 2
                         nChoice := 2
                         Tr_MsgBox("Automatisch freigegeben.")
                         rerep->(Rec_Lock(0))
@@ -674,7 +674,7 @@ oBrowse:AddKey(K_ENTER,{||
                @ 10,10 TO 12,41
                cInter := "M"
                @ 11,11 SAY "Intervall"
-               @ 11,21,16,40  GET cInter LISTBOX {"M"=>"monatlich","H"=>"halbjÔøΩhrlich","J"=>"jÔøΩhrlich"} ASSOCIATIVE
+               @ 11,21,16,40  GET cInter LISTBOX {"M"=>"monatlich","H"=>"halbjÑhrlich","J"=>"jÑhrlich"} ASSOCIATIVE
                READ
                RestScreen(10,10,12,41,cScreen)
                IF LastKey() != 27               
@@ -769,13 +769,13 @@ oBrowse:AddKey(K_ENTER,{||
          SetColor(c_five)
          @ nTop,35 CLEAR TO nTop+7,55
          Tr_Box(nTop,35,nTop+7,55,.T.)
-         @ nTop+1,37 SAY t("Person auswÔøΩhlen")
+         @ nTop+1,37 SAY t("Person ausw‰hlen")
          @ nTop+2,35 SAY Chr(199)+Replicate(Chr(196),19)+Chr(182)
          oRec := reb->(Record():New())
          @ nTop+4,36,nTop+15,54 GET oRec:Person LISTBOX hPeople ASSOCIATIVE
          READ
          IF LastKey() != 27
-            Eval(bAddNote,"Person von "+Trim(hPeople[oRec:GetField("Person",.T.)])+" zu "+Trim(hPeople[oRec:Person])+" geÔøΩndert.")
+            Eval(bAddNote,"Person von "+Trim(hPeople[oRec:GetField("Person",.T.)])+" zu "+Trim(hPeople[oRec:Person])+" geÑndert.")
 
             oRec:Save()            
             Eval(bSkip)
@@ -787,7 +787,7 @@ oBrowse:AddKey(K_ENTER,{||
    ELSE
       nChoice := 1
       IF reb->Liefnr != 0          
-         aChoice := {"Beleg anzeigen","Buchung ÔøΩffnen"}
+         aChoice := {"Beleg anzeigen","Buchung îffnen"}
          IF lIsAdmin
             Aadd(aChoice,cFirmText)
          ENDIF
@@ -852,13 +852,13 @@ oBrowse:AddKey(K_ENTER,{||
       READ
       IF LastKey() != 27
          IF ! Empty(cLiefma) .AND. reb->Konto != 0
-            Eval(bAddNote,"Von Konto "+LTrim(Str(reb->Konto))+" auf Lieferant "+Trim(cLiefma)+" geÔøΩndert.")
+            Eval(bAddNote,"Von Konto "+LTrim(Str(reb->Konto))+" auf Lieferant "+Trim(cLiefma)+" geÑndert.")
          ELSEIF Empty(cLiefma) .AND. reb->Konto != 0
-            Eval(bAddNote,"Konto von "+LTrim(Str(reb->Konto))+" auf "+LTrim(Str(nKonto,12,0))+" geÔøΩndert.")
+            Eval(bAddNote,"Konto von "+LTrim(Str(reb->Konto))+" auf "+LTrim(Str(nKonto,12,0))+" geÑndert.")
          ELSEIF ! Empty(cLiefma) .AND. reb->Konto == 0
-            Eval(bAddNote,"Lieferant von "+LTrim(Str(reb->Liefnr))+" auf "+Trim(cLiefma)+" geÔøΩndert.")
+            Eval(bAddNote,"Lieferant von "+LTrim(Str(reb->Liefnr))+" auf "+Trim(cLiefma)+" geÑndert.")
          ELSE
-            Eval(bAddNote,"Von Lieferant "+LTrim(Str(reb->Liefnr))+" auf Konto "+LTrim(Str(nKonto,12,0))+" geÔøΩndert.")
+            Eval(bAddNote,"Von Lieferant "+LTrim(Str(reb->Liefnr))+" auf Konto "+LTrim(Str(nKonto,12,0))+" geÑndert.")
          ENDIF
          reb->(Rec_Lock())         
          IF ! Empty(cLiefma)            
@@ -910,7 +910,7 @@ IF lIsAdmin
    oBrowse:AddKey(K_ALT_B,{||      
       LOCAL cBeleg,cBelegKurz := ""
       LOCAL nMaxLen := 10
-      Alert("ACHTUNG: Belegnummer wird nicht auf Doppel geprÔøΩft!")
+      Alert("ACHTUNG: Belegnummer wird nicht auf Doppel geprÅft!")
       cBeleg := GetBox(reb->Beleg,"Belegnummer","@!")
       IF Empty(cBeleg) .OR. LastKey() == 27
          RETURN .T.
@@ -934,7 +934,7 @@ IF lIsAdmin
       LOCAL nTop := (MaxRow()-5)/2
 
       IF reb->Liefnr != 0
-         Tr_MsgBox("Rechnung fÔøΩr Warenlieferung eines Lieferanten. Kostenstelle nur bei Kontorechnung ÔøΩndern.")
+         Tr_MsgBox("Rechnung fÅr Warenlieferung eines Lieferanten. Kostenstelle nur bei Kontorechnung Ñndern.")
          RETURN .T.
       ENDIF
 
@@ -943,7 +943,7 @@ IF lIsAdmin
       SetColor(c_five)
       @ nTop,30 CLEAR TO nTop+4,65
       Tr_Box(nTop,30,nTop+4,65,.T.)
-      @ nTop+1,32 SAY "Kostenstelle ÔøΩndern"
+      @ nTop+1,32 SAY "Kostenstelle Ñndern"
       @ nTop+2,30 SAY Chr(199)+Replicate(Chr(196),34)+Chr(182)
       
       @ nTop+3,32 SAY "KS:" GET cKostenstelle PICTURE "999"

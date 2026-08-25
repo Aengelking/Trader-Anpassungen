@@ -26,7 +26,7 @@ Default(@lReturn,.F.)
 
 
 IF ! lReturn
-   Head(t("Fremdwï¿½hrungsbedarf berechnen"))
+   Head(t("Fremdwährungsbedarf berechnen"))
    IF Tr_Getini(28) == 9
       lBes := Tr_Msgbox("Mit offenen Bestellungen?",,{"Ja","Nein"}) != 2
       SetPos(0,0)
@@ -159,7 +159,7 @@ DO WHILE ! fibu->(EOF())
             ENDIF
             nPayDate := dDelDate+nWait
 
-            //Zukï¿½nftige Lieferungen
+            //Zukünftige Lieferungen
             IF lBes
                nValue := (bes->BeQty-bes->GelQty)*nPreis
                //nBesOpen += nValue
@@ -312,7 +312,7 @@ RETURN IF(nMonths>MONTHS,"AFTER",Max(nMonths,0))
 
 STATIC FUNCTION _MonthName(nMonth)
    LOCAL nMon := Month(Date())+nMonth
-   LOCAL aMonths := {"Januar","Februar",t("Mï¿½rz"),"April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"}
+   LOCAL aMonths := {"Januar","Februar",t("März"),"April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"}
    IF nMon > 12
       nMon := nMon-12
    ENDIF

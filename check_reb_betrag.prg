@@ -25,6 +25,10 @@
    buchung stellt das Konto auf EUR. Die verbleibende Summe ist damit direkt
    mit reb->Betrag vergleichbar.
 
+   Ein Nachlass gegen das Nachlasskonto (REBCHK_NACHLASS, Standard 3800)
+   bleibt als eigene Buchung aussen vor. Als Splitzeile innerhalb der
+   Rechnungsbuchung geh”rt er dagegen zum Rechnungsbetrag und z„hlt mit.
+
    Skonto-Buchungen laufen als "Soll Kreditor / Haben Skontokonto" und werden
    deshalb nur bei Gutschriften (negativer REB-Betrag) berhaupt gewertet.
    Zeigt der Detailbereich trotzdem falsch gewertete Gegenkonten, k”nnen diese
@@ -36,6 +40,7 @@ LOCAL nYear   := Year(Date())
 LOCAL nTol    := GetValue("REBCHK_TOL",0.01,"Toleranz Betragsabweichung (EUR)")
 LOCAL aIgnore := GetValue("REBCHK_IGNKTO",{},"Weitere Konten, die bei der Betragsprfung ignoriert werden")
 LOCAL aTexts  := GetValue("REBCHK_IGNTEXT",{"HRUNGSDIFF","HRUNGDIFF","KURSDIFF"},"Buchungstexte, die nicht in die Summe eingehen")
+LOCAL nNachlass := GetValue("REBCHK_NACHLASS",3800,"Nachlasskonto, wird beim Betragsvergleich nicht mitgerechnet")
 LOCAL hIgnore := {=>}
 LOCAL nKto,cKto
 LOCAL lStapel := .T.
@@ -83,6 +88,11 @@ aCreditors := LX_GetAccountsInCat(LX_CAT_KREDITOR,.F.)
 FOR EACH nCreditor IN aCreditors
    hCreditors[nCreditor] := .T.
 NEXT
+
+//Nachlass nur als eigenst„ndige Buchung ausschliessen, daher .F.
+IF nNachlass != 0
+   hIgnore[nNachlass] := .F.
+ENDIF
 
 //Skontokonten aus der Steuertabelle - Skonto wird als
 //"Soll Kreditor / Haben Skontokonto" gebucht und darf die Summe nicht mindern
@@ -361,6 +371,7 @@ STATIC FUNCTION __SumSide(aBookings,hCreditors,hIgnore,aTexts,lHaben,aDetail,nCo
 LOCAL hBooking,nSum := 0
 LOCAL nKonto,nGegen,nGross
 LOCAL aSplits,hSplit
+LOCAL cSplit
 LOCAL cMark
 
 FOR EACH hBooking IN aBookings
@@ -372,12 +383,17 @@ FOR EACH hBooking IN aBookings
 
    nGross := hBooking["NETTO"]+hBooking["UST"]
    cMark  := IF(lHaben,"+","-")
+   cSplit := ""
 
    IF __IsIgnoredText(hBooking["TEXT"],aTexts)
       cMark := "."                                    //W„hrungsdifferenz
    ELSEIF nGegen == 0                                 //Splitbuchung
       aSplits := LX_GetSplitBooking(hBooking["NR"],hBooking["JAHR"],IF(lHaben,"S","H"),hBooking["STAPEL"])
-      IF AScan(aSplits,{|x| __IsIgnored(x["KONTO"],hIgnore) }) != 0
+      cSplit  := __SplitInfo(aSplits)
+      //Nur im Soll kann sich hinter einem Split eine Zahlung verbergen. Steht der
+      //Kreditor im Haben, ist es die Rechnung selbst und die Splitzeilen sind
+      //Aufwandskonten - ein Ausschluss w„re dort immer falsch.
+      IF ! lHaben .AND. AScan(aSplits,{|x| __IsIgnored(x["KONTO"],hIgnore,.T.) }) != 0
          cMark := "."                                 //Zahlung in einer der Splitzeilen
       ELSEIF Empty(nGross)                            //Sammelzeile fhrt keinen Betrag
          FOR EACH hSplit IN aSplits
@@ -397,7 +413,7 @@ FOR EACH hBooking IN aBookings
    ENDIF
 
    Aadd(aDetail,DtoC(hBooking["DATUM"])+" "+Str(hBooking["SOLL"],6)+" "+Str(hBooking["HABEN"],6)+" "+;
-                Str(nGross,13,2)+" "+cMark+IF(hBooking["STAPEL"],"*"," ")+" "+Trim(hBooking["TEXT"]))
+                Str(nGross,13,2)+" "+cMark+IF(hBooking["STAPEL"],"*"," ")+" "+cSplit+Trim(hBooking["TEXT"]))
 NEXT
 
 RETURN nSum
@@ -416,8 +432,29 @@ FOR EACH cFind IN aTexts
 NEXT
 RETURN .F.
 
-STATIC FUNCTION __IsIgnored(nKonto,hIgnore)
-RETURN nKonto >= 9000 .OR. ;
-       (nKonto >= 1200 .AND. nKonto <= 1299) .OR. ;
-       nKonto == 1360 .OR. nKonto == 1590 .OR. nKonto == 1591 .OR. ;
-       HHasKey(hIgnore,nKonto)
+/*  Die Konten der Splitzeilen fr die Anzeige - macht nachvollziehbar,
+    warum eine Splitbuchung gewertet oder ausgeschlossen wurde.           */
+STATIC FUNCTION __SplitInfo(aSplits)
+LOCAL cInfo := ""
+LOCAL nX
+FOR nX := 1 TO Min(4,Len(aSplits))
+   cInfo += IF(Empty(cInfo),""," ")+LTrim(Str(aSplits[nX]["KONTO"]))
+NEXT
+IF Len(aSplits) > 4
+   cInfo += "..."
+ENDIF
+RETURN IF(Empty(cInfo),"(Split leer) ","(Split "+cInfo+") ")
+
+/*  lInSplit == .T. prft eine Splitzeile. Dort z„hlen nur die Konten, die
+    eine Zahlung kennzeichnen - ein Nachlass ist als Splitzeile Teil der
+    Rechnung und darf sie nicht komplett aus der Wertung nehmen.          */
+STATIC FUNCTION __IsIgnored(nKonto,hIgnore,lInSplit)
+Default(@lInSplit,.F.)
+IF nKonto >= 9000 .OR. (nKonto >= 1200 .AND. nKonto <= 1299) .OR. ;
+   nKonto == 1360 .OR. nKonto == 1590 .OR. nKonto == 1591
+   RETURN .T.                        //Finanzkonto - immer eine Zahlung
+ENDIF
+IF ! HHasKey(hIgnore,nKonto)
+   RETURN .F.
+ENDIF
+RETURN hIgnore[nKonto] .OR. ! lInSplit

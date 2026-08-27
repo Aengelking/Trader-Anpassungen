@@ -16,6 +16,10 @@
  *                  Zahltage im Schnitt und maximal, Anzahl Mahnungen
  *   Konditionen    Zahlungsbedingung als Text, Zahlungsziel, Vorkasse
  *   Erstauftrag    Datum des ersten Auftrags
+ *   Gekaufte Artikel je Artikel die Gesamtmenge und die Mengen der letzten
+ *                  vier Zwoelfmonatszeitraeume (Abschnitt "Bisher gekaufte
+ *                  Artikel" des Berichts), dazu Anzahl der Auftragspositionen
+ *                  und erstes/letztes Bestelldatum
  *
  * Die Auswahl der Kunden folgt derselben Definition wie crm_company_sync.prg
  * (Umsatz im laufenden oder Vorjahr, oder Neukunde) und nutzt dieselben
@@ -28,9 +32,9 @@
  * supabase\supabase_kpi.prg). Zahlen gehen als Text raus, geprueft und
  * gewandelt wird im CRM (_shared/erpFigures.ts).
  *
- * Der Lauf ist rechenintensiv: je Kunde einmal Umsatz ermitteln und einmal
- * ueber seine Rechnungen laufen. Fuer einen Nachtlauf gedacht, nicht fuer
- * zwischendurch.
+ * Der Lauf ist rechenintensiv: je Kunde einmal Umsatz ermitteln und je einmal
+ * ueber seine Rechnungen und seine Auftragspositionen laufen. Fuer einen
+ * Nachtlauf gedacht, nicht fuer zwischendurch.
  *
  * Aufruf (Run-Script):
  *   trader:-R&crm_figures_sync                  alle aktiven Kunden
@@ -41,6 +45,7 @@
  *   NEXUSCRM               Keychain-Eintrag mit dem Bearer Token
  *   NEXUSCRM_FIGURES_URL   Endpunkt der Uebertragung
  *   NEXUSCRM_FIGURES_BATCH Kunden je Uebertragung (Server-Grenze: 250)
+ *   NEXUSCRM_FIGURES_ARTICLES  Gekaufte Artikel je Kunde (0 = alle)
  *
  * Protokoll: X:\run\supabase\logs\crm_figures_sync_<Datum>_<Zeit>.log
  *
@@ -118,6 +123,8 @@ FUNCTION CRM_FiguresSync_Setup()
             "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-companies/figures", ;
             "URL der NexusCRM Finanzzahlen-Uebertragung")
    GetValue("NEXUSCRM_FIGURES_BATCH", 50, "Kunden je Uebertragung (max. 250)")
+   GetValue("NEXUSCRM_FIGURES_ARTICLES", 100, ;
+            "Gekaufte Artikel je Kunde, die groessten Mengen zuerst (0 = alle)")
    // Auswahl der Kunden: dieselben Werte wie crm_company_sync.prg
    GetValue("NEXUSCRM_COMPANY_NEWDAYS", 365, ;
             "Neukunden ohne Umsatz: Tage seit 'Kunde seit'")
@@ -131,8 +138,13 @@ STATIC FUNCTION CFS_CollectFigures(nLimit, lBatch, cLogFile)
    LOCAL aFigures := {}
    LOCAL aSkip    := CFS_SkipList()
    LOCAL nNewDays := Int(Val(CFS_Str(GetValue("NEXUSCRM_COMPANY_NEWDAYS"))))
+   LOCAL nMaxArt  := Int(Val(CFS_Str(GetValue("NEXUSCRM_FIGURES_ARTICLES"))))
    LOCAL nSeen := 0, nSkipped := 0
    LOCAL dNew
+
+   IF nMaxArt < 0
+      nMaxArt := 0
+   ENDIF
 
    IF nNewDays < 0
       nNewDays := 0
@@ -143,6 +155,7 @@ STATIC FUNCTION CFS_CollectFigures(nLimit, lBatch, cLogFile)
    NetUse("englsre", "re")
    NetUse("engauf", "auf")
    NetUse("skontoa", "sk")
+   NetUse("artikel", "art")
 
    re->(dbSetOrder(1))                          // Kunde + ...
    auf->(dbSetOrder(2))                         // Kundenmatchcode
@@ -152,7 +165,7 @@ STATIC FUNCTION CFS_CollectFigures(nLimit, lBatch, cLogFile)
    DO WHILE ! ku->(EOF()) .AND. ku->Group == "K"
       nSeen++
       IF CFS_IsActive(dNew, aSkip)
-         AAdd(aFigures, CFS_Payload())
+         AAdd(aFigures, CFS_Payload(nMaxArt, cLogFile))
          IF ! lBatch .AND. Len(aFigures) % 10 == 0
             @ 21,00 SAY "Gelesen: " + LTrim(Str(Len(aFigures))) + " aktive von " + ;
                         LTrim(Str(nSeen)) + " geprueften    "
@@ -197,7 +210,7 @@ RETURN ValType(ku->K_Seit) == "D" .AND. ! Empty(ku->K_Seit) .AND. ku->K_Seit >= 
 
 
 // Nutzdaten eines Kunden. Der Satzzeiger von ku steht auf dem Kunden.
-STATIC FUNCTION CFS_Payload()
+STATIC FUNCTION CFS_Payload(nMaxArt, cLogFile)
    LOCAL hFig := {=>}
    LOCAL cKunde := ku->Kunde
    LOCAL hOpen
@@ -226,6 +239,10 @@ STATIC FUNCTION CFS_Payload()
    NEXT
 
    hFig["first_order_date"] := CFS_FirstOrder(cKunde)
+
+   // Bisher gekaufte Artikel. Der Durchlauf ueber die Auftragspositionen
+   // kommt zum Schluss, weil er den Satzzeiger von auf weit bewegt.
+   hFig["articles"] := CFS_Articles(cKunde, nMaxArt, cLogFile)
 RETURN hFig
 
 
@@ -424,6 +441,114 @@ STATIC FUNCTION CFS_FirstOrder(cKunde)
       RETURN CFS_IsoDate(auf->Besda)
    ENDIF
 RETURN ""
+
+
+
+// Bisher gekaufte Artikel - der gleichnamige Abschnitt aus bericht.prg.
+// Je Artikel die Gesamtmenge und die Mengen der letzten vier rollierenden
+// Zwoelfmonatszeitraeume, dazu Anzahl und Zeitraum der Auftragspositionen.
+// Sortiert nach Gesamtmenge, damit die Kappung bei nMax die wichtigsten
+// Artikel behaelt.
+STATIC FUNCTION CFS_Articles(cKunde, nMax, cLogFile)
+   LOCAL hBought := {=>}
+   LOCAL aSorted := {}
+   LOCAL aArt    := {}
+   LOCAL lArt    := Select("art") > 0
+   LOCAL cMatch, hRow, nQty, nX, dOrder
+   LOCAL cDesc, cUnit, aYears
+
+   IF Select("auf") == 0
+      RETURN aArt
+   ENDIF
+
+   auf->(dbSetOrder(2))                         // Kundenmatchcode
+   auf->(dbSeek(cKunde, .T.))
+
+   DO WHILE ! auf->(EOF()) .AND. auf->Kundma == cKunde
+      cMatch := auf->Matchcode
+      // Frachtpositionen und Folgeauftraege bleiben aussen vor - dieselbe
+      // Bedingung wie der Filter in bericht.prg. Leere Matchcodes fallen
+      // ueber den Teilstringtest ebenfalls heraus.
+      IF ! Trim(cMatch) $ "PORTO PORTOPAUSCHALE FRAIGHT" .AND. auf->FolgeTo == 0
+         IF ! HHasKey(hBought, cMatch)
+            hBought[cMatch] := {"total"  => 0, ;
+                                "years"  => {0, 0, 0, 0}, ;
+                                "orders" => 0, ;
+                                "first"  => CToD(""), ;
+                                "last"   => CToD("")}
+         ENDIF
+         hRow := hBought[cMatch]
+
+         // Solange der Auftrag laeuft zaehlt die bestellte Menge, ist er
+         // abgeschlossen die tatsaechlich gelieferte.
+         nQty := IF(auf->Bestat < 3, Max(auf->VkQty, auf->GelQty), auf->GelQty)
+         hRow["total"]  := hRow["total"] + nQty
+         hRow["orders"] := hRow["orders"] + 1
+
+         // Vier Zwoelfmonatsscheiben rueckwaerts ab heute. Massgeblich ist
+         // der Wunschtermin, sonst der Liefertermin.
+         FOR nX := 1 TO 4
+            IF (auf->Wterm != 0 .AND. CalWd(auf->Wterm) >= Date() - 365 * nX - 1 .AND. ;
+                CalWd(auf->Wterm) <= Date() - 365 * (nX - 1)) .OR. ;
+               (auf->Wterm == 0 .AND. CalWd(auf->Dterm) >= Date() - 365 * nX - 1 .AND. ;
+                CalWd(auf->Dterm) <= Date() - 365 * (nX - 1))
+               hRow["years"][nX] := hRow["years"][nX] + nQty
+            ENDIF
+         NEXT
+
+         dOrder := auf->Besda
+         IF ValType(dOrder) == "D" .AND. ! Empty(dOrder)
+            IF Empty(hRow["first"]) .OR. dOrder < hRow["first"]
+               hRow["first"] := dOrder
+            ENDIF
+            IF Empty(hRow["last"]) .OR. dOrder > hRow["last"]
+               hRow["last"] := dOrder
+            ENDIF
+         ENDIF
+      ENDIF
+      auf->(dbSkip())
+   ENDDO
+
+   FOR nX := 1 TO Len(hBought)
+      AAdd(aSorted, {HGetKeyAt(hBought, nX), HGetValueAt(hBought, nX)})
+   NEXT
+   ASort(aSorted, , , {|x, y| x[2]["total"] > y[2]["total"]})
+
+   IF nMax > 0 .AND. Len(aSorted) > nMax
+      CFS_Log(cLogFile, "INFO", "Kunde " + AllTrim(cKunde) + ": " + ;
+              LTrim(Str(Len(aSorted))) + " Artikel, uebertragen werden die " + ;
+              LTrim(Str(nMax)) + " mit der groessten Menge")
+      aSorted := ASize(aSorted, nMax)
+   ENDIF
+
+   IF lArt
+      art->(dbSetOrder(1))                      // Matchcode
+   ENDIF
+
+   FOR nX := 1 TO Len(aSorted)
+      cMatch := aSorted[nX][1]
+      hRow   := aSorted[nX][2]
+      aYears := hRow["years"]
+      cDesc  := ""
+      cUnit  := ""
+      IF lArt .AND. art->(dbSeek(cMatch))
+         cDesc := AllTrim(art->Artikel)
+         cUnit := AllTrim(art->Me)
+      ENDIF
+
+      AAdd(aArt, {"article_matchcode"   => hb_strToUtf8(Upper(AllTrim(cMatch))), ;
+                  "article_description" => hb_strToUtf8(cDesc), ;
+                  "unit"                => hb_strToUtf8(cUnit), ;
+                  "qty_total"           => CFS_Num(hRow["total"]), ;
+                  "qty_last_12m"        => CFS_Num(aYears[1]), ;
+                  "qty_12_24m"          => CFS_Num(aYears[2]), ;
+                  "qty_24_36m"          => CFS_Num(aYears[3]), ;
+                  "qty_36_48m"          => CFS_Num(aYears[4]), ;
+                  "orders_count"        => LTrim(Str(hRow["orders"])), ;
+                  "first_order_date"    => CFS_IsoDate(hRow["first"]), ;
+                  "last_order_date"     => CFS_IsoDate(hRow["last"])})
+   NEXT
+RETURN aArt
 
 
 // Ein Paket uebertragen und die Rueckmeldungen verbuchen.

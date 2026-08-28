@@ -36,6 +36,13 @@
  * ueber seine Rechnungen und seine Auftragspositionen laufen. Fuer einen
  * Nachtlauf gedacht, nicht fuer zwischendurch.
  *
+ * Mehrfirmenbetrieb: Kundennummern gelten nur innerhalb ihrer Trader-Firma.
+ * Der Lauf schickt deshalb die Firmennummer aus der Konfiguration (FIRMNO) als
+ * `erp_company` mit und laeuft je Firma einmal - Firma umschalten, Lauf
+ * wiederholen. Ist FIRMNO nicht gesetzt, bricht der Lauf ab: das CRM wuerde
+ * die Daten sonst stillschweigend Firma 1 zuschlagen. Naeheres in
+ * engelking-crm/docs/trader-multi-company.md.
+ *
  * Aufruf (Run-Script):
  *   trader:-R&crm_figures_sync                  alle aktiven Kunden
  *   trader:-R&crm_figures_sync&{"0","J"}        Testlauf, das CRM schreibt nichts
@@ -55,6 +62,11 @@
 
 #define CFS_MAXBATCH  250
 #define CFS_LOGDIR    "X:\run\supabase\logs\"
+
+
+// Firmennummer des laufenden Trader-Mandanten. Einmal je Lauf gesetzt,
+// weil sie fuer jedes Paket dieselbe ist.
+STATIC s_cFirm := ""
 
 
 PROCEDURE RUN_CRM_FIGURES_SYNC(cLimit, cDryRun)
@@ -83,11 +95,23 @@ PROCEDURE RUN_CRM_FIGURES_SYNC(cLimit, cDryRun)
       RETURN
    ENDIF
 
+   // Ohne Firmennummer schlaegt das CRM die Daten Firma 1 zu. In einem Lauf
+   // aus Automotive haengen sie damit an fremden Firmen - unbemerkt.
+   s_cFirm := CFS_FirmNo()
+   IF Empty(s_cFirm)
+      CFS_Log(cLogFile, "ERROR", "FIRMNO ist in dieser Firma nicht gesetzt.")
+      IF ! lBatch
+         Tr_MsgBox({"Die Firmennummer (FIRMNO) ist nicht gesetzt.", ;
+                    "Ohne sie wuerde das CRM die Daten Firma 1 zuschlagen."})
+      ENDIF
+      RETURN
+   ENDIF
+
    IF ! lBatch
       Head("NexusCRM - Finanzzahlen uebertragen" + IF(lDry, " (Testlauf)", ""))
    ENDIF
    CFS_Log(cLogFile, "INFO", "Start" + IF(lDry, " als Testlauf", "") + ;
-           ", Paketgroesse " + LTrim(Str(nBatchSize)) + ;
+           ", Firma " + s_cFirm + ", Paketgroesse " + LTrim(Str(nBatchSize)) + ;
            IF(nLimit > 0, ", begrenzt auf " + LTrim(Str(nLimit)) + " Kunden", ""))
 
    aFigures := CFS_CollectFigures(nLimit, lBatch, cLogFile)
@@ -562,9 +586,10 @@ STATIC FUNCTION CFS_PushBatch(cUrl, aBatch, lDry, hTotals, aErrors, cLogFile)
    LOCAL cResponse, xAnswer, aResults, hItem
    LOCAL cAction, cNumber, nX
 
-   hBody["source"]  := "trader"
-   hBody["dry_run"] := lDry
-   hBody["figures"] := aBatch
+   hBody["source"]      := "trader"
+   hBody["dry_run"]     := lDry
+   hBody["erp_company"] := s_cFirm
+   hBody["figures"]     := aBatch
 
    oRest:cBaseUrl    := ""
    oRest:cApiKeyName := "NEXUSCRM"               // Bearer = TRADER_API_KEY
@@ -757,3 +782,22 @@ STATIC FUNCTION CFS_Log(cLogFile, cLevel, cMessage)
       FClose(nHandle)
    ENDIF
 RETURN NIL
+
+
+// Nummer der Trader-Firma, aus der dieser Lauf stammt. Kundennummern gelten
+// nur innerhalb ihrer Firma - dieselbe Nummer meint bei Elektronik und bei
+// Automotive zwei verschiedene Betriebe. Leerstring, wenn FIRMNO nicht
+// gesetzt ist; dann bricht der Lauf ab, statt zu raten.
+STATIC FUNCTION CFS_FirmNo()
+   LOCAL xFirm := GetConfigValue("FIRMNO")
+   LOCAL nFirm := 0
+
+   IF ValType(xFirm) == "N"
+      nFirm := Int(xFirm)
+   ELSEIF ValType(xFirm) == "C"
+      nFirm := Int(Val(AllTrim(xFirm)))
+   ENDIF
+   IF nFirm < 1
+      RETURN ""
+   ENDIF
+RETURN LTrim(Str(nFirm))

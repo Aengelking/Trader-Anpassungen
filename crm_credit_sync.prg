@@ -27,6 +27,13 @@
  * kein Kurs mit: das CRM laesst die Euro-Betraege dann leer, statt Franken
  * gegen Zloty zu vergleichen.
  *
+ * Mehrfirmenbetrieb: Kundennummern gelten nur innerhalb ihrer Trader-Firma.
+ * Der Lauf schickt deshalb die Firmennummer aus der Konfiguration (FIRMNO) als
+ * `erp_company` mit und laeuft je Firma einmal - Firma umschalten, Lauf
+ * wiederholen. Ist FIRMNO nicht gesetzt, bricht der Lauf ab: das CRM wuerde
+ * die Daten sonst stillschweigend Firma 1 zuschlagen. Naeheres in
+ * engelking-crm/docs/trader-multi-company.md.
+ *
  * Aufruf (Run-Script):
  *   trader:-R&crm_credit_sync                   alle Kunden mit Auskunft
  *   trader:-R&crm_credit_sync&{"0","J"}         Testlauf, das CRM schreibt nichts
@@ -46,6 +53,11 @@
 
 #define CCR_MAXBATCH  100
 #define CCR_LOGDIR    "X:\run\supabase\logs\"
+
+
+// Firmennummer des laufenden Trader-Mandanten. Einmal je Lauf gesetzt,
+// weil sie fuer jedes Paket dieselbe ist.
+STATIC s_cFirm := ""
 
 
 PROCEDURE RUN_CRM_CREDIT_SYNC(cLimit, cDryRun)
@@ -74,11 +86,23 @@ PROCEDURE RUN_CRM_CREDIT_SYNC(cLimit, cDryRun)
       RETURN
    ENDIF
 
+   // Ohne Firmennummer schlaegt das CRM die Daten Firma 1 zu. In einem Lauf
+   // aus Automotive haengen sie damit an fremden Firmen - unbemerkt.
+   s_cFirm := CCR_FirmNo()
+   IF Empty(s_cFirm)
+      CCR_Log(cLogFile, "ERROR", "FIRMNO ist in dieser Firma nicht gesetzt.")
+      IF ! lBatch
+         Tr_MsgBox({"Die Firmennummer (FIRMNO) ist nicht gesetzt.", ;
+                    "Ohne sie wuerde das CRM die Daten Firma 1 zuschlagen."})
+      ENDIF
+      RETURN
+   ENDIF
+
    IF ! lBatch
       Head("NexusCRM - Creditsafe-Daten uebertragen" + IF(lDry, " (Testlauf)", ""))
    ENDIF
    CCR_Log(cLogFile, "INFO", "Start" + IF(lDry, " als Testlauf", "") + ;
-           ", Paketgroesse " + LTrim(Str(nBatchSize)) + ;
+           ", Firma " + s_cFirm + ", Paketgroesse " + LTrim(Str(nBatchSize)) + ;
            IF(nLimit > 0, ", begrenzt auf " + LTrim(Str(nLimit)) + " Reports", ""))
 
    aReports := CCR_CollectReports(nLimit, lBatch, cLogFile)
@@ -465,9 +489,10 @@ STATIC FUNCTION CCR_PushBatch(cUrl, aBatch, lDry, hTotals, aErrors, cLogFile)
    LOCAL cResponse, xAnswer, aResults, hItem
    LOCAL cAction, cNumber, nX
 
-   hBody["source"]  := "creditsafe"
-   hBody["dry_run"] := lDry
-   hBody["reports"] := aBatch
+   hBody["source"]      := "creditsafe"
+   hBody["dry_run"]     := lDry
+   hBody["erp_company"] := s_cFirm
+   hBody["reports"]     := aBatch
 
    oRest:cBaseUrl    := ""
    oRest:cApiKeyName := "NEXUSCRM"               // Bearer = TRADER_API_KEY
@@ -735,5 +760,25 @@ STATIC FUNCTION CCR_Log(cLogFile, cLevel, cMessage)
       FClose(nHandle)
    ENDIF
 RETURN NIL
+
+
+// Nummer der Trader-Firma, aus der dieser Lauf stammt. Kundennummern gelten
+// nur innerhalb ihrer Firma - dieselbe Nummer meint bei Elektronik und bei
+// Automotive zwei verschiedene Betriebe. Leerstring, wenn FIRMNO nicht
+// gesetzt ist; dann bricht der Lauf ab, statt zu raten.
+STATIC FUNCTION CCR_FirmNo()
+   LOCAL xFirm := GetConfigValue("FIRMNO")
+   LOCAL nFirm := 0
+
+   IF ValType(xFirm) == "N"
+      nFirm := Int(xFirm)
+   ELSEIF ValType(xFirm) == "C"
+      nFirm := Int(Val(AllTrim(xFirm)))
+   ENDIF
+   IF nFirm < 1
+      RETURN ""
+   ENDIF
+RETURN LTrim(Str(nFirm))
+
 
 #include 'X:\run\creditsafe.prg'

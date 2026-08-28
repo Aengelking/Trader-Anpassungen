@@ -26,6 +26,13 @@
  * Firma haelt das CRM in companies.erp_customer_number. Die zurueckgemeldete
  * company_id steht nur im Protokoll, damit ein Lauf nachvollziehbar bleibt.
  *
+ * Mehrfirmenbetrieb: Kundennummern gelten nur innerhalb ihrer Trader-Firma.
+ * Der Lauf schickt deshalb die Firmennummer aus der Konfiguration (FIRMNO) als
+ * `erp_company` mit und laeuft je Firma einmal - Firma umschalten, Lauf
+ * wiederholen. Ist FIRMNO nicht gesetzt, bricht der Lauf ab: das CRM wuerde
+ * die Daten sonst stillschweigend Firma 1 zuschlagen. Naeheres in
+ * engelking-crm/docs/trader-multi-company.md.
+ *
  * Aufruf (Run-Script):
  *   trader:-R&crm_company_sync                  alle aktiven Kunden
  *   trader:-R&crm_company_sync&{"0","J"}        Testlauf, nichts wird geschrieben
@@ -51,6 +58,11 @@
 #define CCS_MAXMERGE  200                        // Server-Grenze je Aufruf
 #define CCS_SEEALSO   "[SIEHE:"                  // Marker aus changku.prg
 #define CCS_LOGDIR    "X:\run\supabase\logs\"
+
+
+// Firmennummer des laufenden Trader-Mandanten. Einmal je Lauf gesetzt,
+// weil sie fuer jedes Paket dieselbe ist.
+STATIC s_cFirm := ""
 
 
 PROCEDURE RUN_CRM_COMPANY_SYNC(cLimit, cDryRun)
@@ -80,11 +92,23 @@ PROCEDURE RUN_CRM_COMPANY_SYNC(cLimit, cDryRun)
       RETURN
    ENDIF
 
+   // Ohne Firmennummer schlaegt das CRM die Daten Firma 1 zu. In einem Lauf
+   // aus Automotive haengen sie damit an fremden Firmen - unbemerkt.
+   s_cFirm := CCS_FirmNo()
+   IF Empty(s_cFirm)
+      CCS_Log(cLogFile, "ERROR", "FIRMNO ist in dieser Firma nicht gesetzt.")
+      IF ! lBatch
+         Tr_MsgBox({"Die Firmennummer (FIRMNO) ist nicht gesetzt.", ;
+                    "Ohne sie wuerde das CRM die Daten Firma 1 zuschlagen."})
+      ENDIF
+      RETURN
+   ENDIF
+
    IF ! lBatch
       Head("NexusCRM - aktive Kunden abgleichen" + IF(lDry, " (Testlauf)", ""))
    ENDIF
    CCS_Log(cLogFile, "INFO", "Start" + IF(lDry, " als Testlauf", "") + ;
-           ", Paketgroesse " + LTrim(Str(nBatchSize)) + ;
+           ", Firma " + s_cFirm + ", Paketgroesse " + LTrim(Str(nBatchSize)) + ;
            IF(nLimit > 0, ", begrenzt auf " + LTrim(Str(nLimit)) + " Kunden", ""))
 
    aCustomers := CCS_CollectCustomers(nLimit, lBatch, cLogFile, aMerges)
@@ -346,10 +370,11 @@ STATIC FUNCTION CCS_PushBatch(cUrl, aBatch, lDry, hTotals, aErrors, cLogFile)
    LOCAL cResponse, xAnswer, aResults, hItem
    LOCAL cAction, cCompanyId, cNumber, nX
 
-   hBody["source"]     := "trader"
-   hBody["dry_run"]    := lDry
-   hBody["user_email"] := Lower(AllTrim(CCS_Str(SystemUser():Email)))
-   hBody["customers"]  := aBatch
+   hBody["source"]      := "trader"
+   hBody["dry_run"]     := lDry
+   hBody["erp_company"] := s_cFirm
+   hBody["user_email"]  := Lower(AllTrim(CCS_Str(SystemUser():Email)))
+   hBody["customers"]   := aBatch
 
    oRest:cBaseUrl    := ""
    oRest:cApiKeyName := "NEXUSCRM"               // Bearer = TRADER_API_KEY
@@ -515,6 +540,7 @@ STATIC FUNCTION CCS_PushMerges(cUrl, aBatch, lDry, hTotals, aErrors, cLogFile)
 
    hBody["source"]           := "trader"
    hBody["dry_run"]          := lDry
+   hBody["erp_company"]      := s_cFirm
    hBody["user_email"]       := Lower(AllTrim(CCS_Str(SystemUser():Email)))
    hBody["customers"]        := {}
    hBody["merged_customers"] := aBatch
@@ -728,3 +754,22 @@ STATIC FUNCTION CCS_Log(cLogFile, cLevel, cMessage)
       FClose(nHandle)
    ENDIF
 RETURN NIL
+
+
+// Nummer der Trader-Firma, aus der dieser Lauf stammt. Kundennummern gelten
+// nur innerhalb ihrer Firma - dieselbe Nummer meint bei Elektronik und bei
+// Automotive zwei verschiedene Betriebe. Leerstring, wenn FIRMNO nicht
+// gesetzt ist; dann bricht der Lauf ab, statt zu raten.
+STATIC FUNCTION CCS_FirmNo()
+   LOCAL xFirm := GetConfigValue("FIRMNO")
+   LOCAL nFirm := 0
+
+   IF ValType(xFirm) == "N"
+      nFirm := Int(xFirm)
+   ELSEIF ValType(xFirm) == "C"
+      nFirm := Int(Val(AllTrim(xFirm)))
+   ENDIF
+   IF nFirm < 1
+      RETURN ""
+   ENDIF
+RETURN LTrim(Str(nFirm))

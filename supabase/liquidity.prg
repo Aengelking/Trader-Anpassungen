@@ -91,6 +91,7 @@ FUNCTION RUN_SYNC_SUPABASE_LIQUIDITY(cUserId)
       hBody["bookings"] := aBatchBookings
       hBody["replace_all"] := (nBatch == 1)
       hBody["replace_all_bookings"] := .F.
+      hBody["sync_accounts"] := (nBatch == 1)  //trigger the syncing of bank accounts
 
       ? "Sende Batch", nBatch, "von", nBatchCount, "(Items:", Len(aBatchItems), "Bookings:", Len(aBatchBookings), ")"
 

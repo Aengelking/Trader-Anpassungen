@@ -52,6 +52,7 @@ LOCAL nChecked := 0,nSumDiff := 0
 LOCAL cYear
 LOCAL nReb
 LOCAL oBrowse,oPdf,nWName
+LOCAL nWebView
 LOCAL hErrors := {"D"=>"Betrag weicht ab",;
                   "M"=>"Keine Buchung",;
                   "S"=>"Nur im Stapel",;
@@ -222,16 +223,28 @@ oBrowse:bAnyFun := {||
 oBrowse:AddKey(K_ESC,{|| .F. })
 oBrowse:AddKey(K_ENTER,{||
    LOCAL hD := oBrowse:CurrentDataRow()
-   LOCAL aFiles
-   IF hD != NIL
-      aFiles := GetArchiveFiles({"ER"=>hD["ID"]})
-      ASort(aFiles,,,{|x,y| x[6] < y[6] })
-      IF Len(aFiles) == 0
-         Tr_MsgBox(t("Keine Rechnungsdatei gefunden"))
-      ELSE
-         Wapi_ShellExecute(,"open",ATail(aFiles)[6])
-      ENDIF
+   LOCAL aFiles,cFile
+   IF hD == NIL
+      RETURN .T.
    ENDIF
+   aFiles := GetArchiveFiles({"ER"=>hD["ID"]})
+   ASort(aFiles,,,{|x,y| x[6] < y[6] })   //nach Dateiname, nicht nach Datum
+   IF Len(aFiles) == 0
+      Tr_MsgBox(t("Keine Rechnungsdatei gefunden"))
+      RETURN .T.
+   ENDIF
+   cFile := ATail(aFiles)[6]
+   IF AT(".PDF",Upper(cFile)) == 0
+      //kein PDF - das kann das WebView nicht anzeigen
+      Wapi_ShellExecute(,"open",cFile)
+      RETURN .T.
+   ENDIF
+   IF nWebView == NIL .OR. ! WAPI_ISWINDOW( hb_webview_get_window(nWebView) )
+      nWebView := hb_webview_create( .T. )   //kein Fenster oder vom Benutzer geschlossen
+   ENDIF
+   hb_webview_navigate(nWebView,"about:blank")   //altes Dokument weg, damit der Wechsel sichtbar ist
+   hb_webview_navigate(nWebView,"file:///"+StrTran(hb_strToUtf8(cFile)," ","%20"))
+   hb_webview_set_title(nWebView,"Rechnungsanzeige "+Trim(hD["BELEG"]))
    RETURN .T.
 })
 oBrowse:AddKey(K_CTRL_ENTER,{||
@@ -319,6 +332,13 @@ oBrowse:AddKey(K_CTRL_P,{||
 
 oBrowse:aData := aList
 oBrowse:EventLoop()
+
+IF nWebView != NIL
+   IF WAPI_ISWINDOW( hb_webview_get_window(nWebView) )
+      hb_webview_destroy(nWebView)
+   ENDIF
+   nWebView := NIL
+ENDIF
 
 RETURN
 

@@ -152,6 +152,7 @@ PROC CreateXRechung(nRechnr,cFile)
       "vatId"=>"DE189714518",;  //automotive anpassen
       "weeeId"=>"DE43356265",;  //automotive anpassen
       "electronicAddress"=>"buchhaltung@engelking.de",; //automotive anpassen    
+      "id"=>oRechnung:oLeistungsAdresse:Kundennr,;
       "electronicAddressTypeCode"=>"EM",;
       "address"=>{;
          "line1"=>"Albstr. 16",;
@@ -271,6 +272,9 @@ PROC CreateXRechung(nRechnr,cFile)
          IF re->Textnr != 0
             cPosText := tx->(ReadText(re->Textnr))
          ENDIF
+
+         //BT-159 Ursprungsland als ISO code
+         ATail(hData["items"])["originCountry"] := art->Ursprung
 
          //BT-132 Referenz zur Bestellposition: Zeile "Position: n" aus dem
          //Positionstext (wird bei Kunden mit oExtra:AufPos gepflegt,

@@ -20,6 +20,7 @@ PROC RUN_TestMailCheck
    LOCAL getlist := {}
    LOCAL nNummer := 0
    LOCAL hC, hDue, oExtra, cLink
+   LOCAL hAnr, aAnr, nX
    LOCAL nRow
 
    Head("Test: Pruefung der Rechnungs-Emailadresse")
@@ -67,6 +68,21 @@ PROC RUN_TestMailCheck
 
    hDue := HB_ExecFromArray("InvoiceMailCheckDue",{nNummer})
    @ nRow++,00 SAY "Anfrage faellig    : "+IF(hDue==NIL,"nein","JA")
+   nRow++
+
+   //Anrede-Zuordnung fuer das Portal - stimmt sie nicht, lassen sich die
+   //Werte BH_ANREDEM / BH_ANREDEF / BH_ANREDED / BH_ANREDEEN korrigieren
+   hAnr := HB_ExecFromArray("InvoiceMailCheckAnreden",{})
+   IF ValType(hAnr) == "H"
+      @ nRow++,00 SAY "Anrede-Zuordnung   : m="+LTrim(Str(hAnr["m"]))+ ;
+                      "  f="+LTrim(Str(hAnr["f"]))+ ;
+                      "  divers="+LTrim(Str(hAnr["d"]))+ ;
+                      "  englisch="+LTrim(Str(hAnr["en"]))
+      aAnr := HB_ExecFromArray("InvoiceMailCheckAnredeList",{})
+      FOR nX := 1 TO Len(aAnr)
+         @ nRow++,04 SAY Str(aAnr[nX]["id"],3)+"  "+aAnr[nX]["label"]
+      NEXT
+   ENDIF
    nRow++
 
    cLink := HB_ExecFromArray("InvoiceMailCheckLink",{nNummer})

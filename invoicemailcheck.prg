@@ -38,6 +38,8 @@
 #define REMAIL_TOKENDAYS  30
 #define REMAIL_PORTALURL  "https://portal.engelking.com/mail-check?token="
 #define CRLF              Chr(13)+Chr(10)
+//Name, unter dem ein allgemeines Postfach (keine Person) abgelegt wird
+#define REMAIL_POOLNAME   "Rechnungen"
 
 
 /*
@@ -164,7 +166,7 @@ FUNCTION InvoiceMailCheckInfo(cToken)
    IF hC == NIL .OR. hC["id"] != hT["c"]
       //der Rechnungsempfaenger wurde zwischenzeitlich gewechselt - der Link ist verbraucht
       RETURN { "valid" => .T., "done" => .T., "company" => Trim(ku->Name1), ;
-               "salutation" => "", "name" => "", "email" => "", "anreden" => {} }
+               "salutation" => "", "name" => "", "email" => "", "salutations" => {=>} }
    ENDIF
 
    oExtra := _RemailExtra(hT["k"])
@@ -177,7 +179,7 @@ FUNCTION InvoiceMailCheckInfo(cToken)
    hOut["salutation"] := GetContactAnrede(hC["id"],.T.)
    hOut["name"]       := hC["name"]
    hOut["email"]      := hC["email"]
-   hOut["anreden"]    := _RemailAnreden()
+   hOut["salutations"] := InvoiceMailCheckAnreden()
 RETURN hOut
 
 
@@ -200,6 +202,7 @@ FUNCTION InvoiceMailCheckApply(cToken,hData)
    LOCAL hT := InvoiceMailCheckVerify(cToken)
    LOCAL cAction, hC, oExtra
    LOCAL cName, cEmail, nAnrede
+   LOCAL cLang, cGender, hAnr
    LOCAL nNew
 
    IF hT == NIL
@@ -236,23 +239,40 @@ FUNCTION InvoiceMailCheckApply(cToken,hData)
                  "Adresse: "+hC["email"])
 
    CASE cAction == "replace"
-      cName   := AllTrim(_RemailStr(hData,"name"))
-      cEmail  := Lower(AllTrim(_RemailStr(hData,"email")))
-      nAnrede := _RemailNum(hData,"anrede")
-      IF Empty(cName)
-         RETURN { "success" => .F., "error" => "NAME_REQUIRED" }
-      ENDIF
+      cEmail := Lower(AllTrim(_RemailStr(hData,"email")))
+      cLang  := Lower(AllTrim(_RemailStr(hData,"lang")))
       IF ! _RemailValidMail(cEmail)
          RETURN { "success" => .F., "error" => "EMAIL_INVALID" }
       ENDIF
-      IF nAnrede <= 0
-         RETURN { "success" => .F., "error" => "ANREDE_REQUIRED" }
+
+      IF _RemailBool(hData,"general")
+         //Allgemeines Postfach: keine Person, also auch keine Anrede. Der
+         //Name wird gesetzt, damit in der Kontaktliste etwas Sprechendes steht.
+         nAnrede := 0
+         cName   := REMAIL_POOLNAME
+      ELSE
+         cName := AllTrim(_RemailStr(hData,"name"))
+         IF Empty(cName)
+            RETURN { "success" => .F., "error" => "NAME_REQUIRED" }
+         ENDIF
+         hAnr := InvoiceMailCheckAnreden()
+         IF cLang == "de"
+            cGender := Lower(AllTrim(_RemailStr(hData,"gender")))
+            IF ! (cGender == "m" .OR. cGender == "f" .OR. cGender == "d")
+               RETURN { "success" => .F., "error" => "ANREDE_REQUIRED" }
+            ENDIF
+            nAnrede := hAnr[cGender]
+         ELSE
+            //ausserhalb des Deutschen gibt es keine Auswahl - immer "Dear"
+            nAnrede := hAnr["en"]
+         ENDIF
       ENDIF
+
       IF Lower(cEmail) == Lower(hC["email"]) .AND. Upper(cName) == Upper(hC["name"])
          RETURN { "success" => .F., "error" => "NO_CHANGE" }
       ENDIF
 
-      nNew := _RemailNewContact(hT["k"],nAnrede,cName,cEmail)
+      nNew := _RemailNewContact(hT["k"],nAnrede,cName,cEmail,cLang)
       IF nNew == 0
          RETURN { "success" => .F., "error" => "SAVE_FAILED" }
       ENDIF
@@ -287,6 +307,70 @@ FUNCTION InvoiceMailCheckApply(cToken,hData)
    ENDCASE
 
 RETURN { "success" => .T., "error" => "" }
+
+
+/*
+   InvoiceMailCheckAnreden()
+
+   Liefert die Satznummern der anrede-Tabelle, die das Portal braucht:
+
+      m   Herr        (nur deutsche Oberflaeche)
+      f   Frau        (nur deutsche Oberflaeche)
+      d   divers      (nur deutsche Oberflaeche)
+      en  Dear        (alles ausser Deutsch - dort gibt es keine Auswahl)
+
+   Die Zuordnung wird beim ersten Aufruf aus dem Text der Tabelle erraten und
+   als Wert in Kategorie BH abgelegt. Stimmt sie nicht, laesst sie sich in der
+   Werte-Maske korrigieren, ohne dass hier etwas angefasst werden muss:
+
+      BH_ANREDEM   BH_ANREDEF   BH_ANREDED   BH_ANREDEEN
+
+   Eine 0 bedeutet "keine passende Anrede" - dann greift die allgemeine
+   Anrede aus GetContactAnrede().
+*/
+FUNCTION InvoiceMailCheckAnreden()
+   LOCAL aEnv := SaveEnv()
+   LOCAL hGuess := _RemailGuessAnreden()
+   LOCAL hOut := {=>}
+
+   hOut["m"]  := GetValue("BH_ANREDEM", hGuess["m"], "Rechnungsmail: Anrede maennlich")
+   hOut["f"]  := GetValue("BH_ANREDEF", hGuess["f"], "Rechnungsmail: Anrede weiblich")
+   hOut["d"]  := GetValue("BH_ANREDED", hGuess["d"], "Rechnungsmail: Anrede divers")
+   hOut["en"] := GetValue("BH_ANREDEEN",hGuess["en"],"Rechnungsmail: Anrede englisch")
+
+   RestEnv(aEnv,.F.)
+RETURN hOut
+
+
+//Raet die Satznummern aus dem Text der anrede-Tabelle. Nur der Startwert -
+//gespeichert wird das Ergebnis in den BH_ANREDE*-Werten.
+STATIC FUNCTION _RemailGuessAnreden()
+   LOCAL hOut := {"m"=>0,"f"=>0,"d"=>0,"en"=>0}
+   LOCAL cText, nRec
+
+   NetUse("anrede","an",.F.,0)
+   an->(dbGoTop())
+   DO WHILE ! an->(Eof())
+      cText := Lower(Trim(an->Anrede))
+      nRec  := an->(RecNo())
+      DO CASE
+      CASE Empty(cText)
+         //nichts
+      CASE "dear" $ cText
+         IF hOut["en"] == 0 ; hOut["en"] := nRec ; ENDIF
+      CASE "damen" $ cText
+         //"Sehr geehrte Damen und Herren" ist die allgemeine Form, keine Person
+      CASE "frau" $ cText
+         IF hOut["f"] == 0 ; hOut["f"] := nRec ; ENDIF
+      CASE "herr" $ cText
+         IF hOut["m"] == 0 ; hOut["m"] := nRec ; ENDIF
+      CASE "divers" $ cText .OR. "guten tag" $ cText .OR. "*" $ cText .OR. ":" $ cText
+         IF hOut["d"] == 0 ; hOut["d"] := nRec ; ENDIF
+      ENDCASE
+      an->(dbSkip())
+   ENDDO
+
+RETURN hOut
 
 
 /*
@@ -438,9 +522,14 @@ STATIC FUNCTION _RemailExtra(nNummer)
 RETURN oExtra
 
 
-//Anrede-Liste fuer die Portalseite. conts->Anrede ist die Satznummer in der
-//anrede-Tabelle, deshalb wird hier ueber Recno() gezaehlt.
-STATIC FUNCTION _RemailAnreden()
+/*
+   InvoiceMailCheckAnredeList()
+
+   Die anrede-Tabelle als {id,label}. Nur zur Kontrolle - das Portal bekommt
+   das fertige Mapping aus InvoiceMailCheckAnreden(). conts->Anrede ist die
+   Satznummer, deshalb wird hier ueber RecNo() gezaehlt.
+*/
+FUNCTION InvoiceMailCheckAnredeList()
    LOCAL aOut := {}
 
    NetUse("anrede","an",.F.,0)
@@ -470,7 +559,7 @@ RETURN JWT_Encode(hPayload,REMAIL_KEYNAME)
 //Neuen Kontakt anlegen und als Rechnungsempfaenger markieren. Erst der neue,
 //danach das Flag beim alten weg - sonst gibt es einen Moment ohne
 //Rechnungsempfaenger und die Rechnungserstellung blockiert.
-STATIC FUNCTION _RemailNewContact(nNummer,nAnrede,cName,cEmail)
+STATIC FUNCTION _RemailNewContact(nNummer,nAnrede,cName,cEmail,cLang)
    LOCAL oNew
    LOCAL nNumber := 1
 
@@ -490,6 +579,11 @@ STATIC FUNCTION _RemailNewContact(nNummer,nAnrede,cName,cEmail)
    oNew:Email   := cEmail
    oNew:Active  := .T.
    oNew:Invoice := .T.
+   IF ValType(cLang) == "C" .AND. Len(AllTrim(cLang)) >= 2
+      oNew:Lang := Upper(Left(AllTrim(cLang),2))
+   ELSE
+      oNew:Lang := IF(ku->Language=="D","DE","EN")
+   ENDIF
    oNew:Save()
 
    //Der Hook pflegt das Telefonbuch und synchronisiert nach Agorum Core. Er
@@ -649,6 +743,13 @@ STATIC FUNCTION _RemailStr(hData,cKey)
       RETURN hData[cKey]
    ENDIF
 RETURN ""
+
+
+STATIC FUNCTION _RemailBool(hData,cKey)
+   IF ValType(hData) == "H" .AND. HHasKey(hData,cKey) .AND. ValType(hData[cKey]) == "L"
+      RETURN hData[cKey]
+   ENDIF
+RETURN .F.
 
 
 STATIC FUNCTION _RemailNum(hData,cKey)

@@ -33,14 +33,14 @@ FUNCTION HOOK_GET_FREIGABE_NEXT_LEVEL(cState,nArtnr,nSupplier,lNextFrei)
          ENDIF
       ELSEIf cState == "VMU" .AND. ! oArt:KuZeichnun  .AND. Trim(oArt:Type) == "WARE"//keine Kundenzeichnung, dann muss diese vom Kunden freigegeben werden, aber nur wenn es Ware ist, d.h. RHB und UNFERT nicht
          RETURN "UNTK"
-      Elseif oArt:Gruppe != "KANK"  .AND. (cState == "VMU" .OR. cState == "UNTK") //Fremd.-Unterlagen mÔøΩssen durch uns freigegeben werden, auÔøΩer bei Netzzuleitungen
+      Elseif oArt:Gruppe != "KANK"  .AND. (cState == "VMU" .OR. cState == "UNTK") //Fremd.-Unterlagen m¸ssen durch uns freigegeben werden, auﬂer bei Netzzuleitungen
          RETURN "UNT"
       ELSEIF cState == "UNT" .OR. cState == "UNTK" 
          RETURN  "MUS"
       ELSEIF cState == "MUS" .AND. Trim(oArt:Type) == "WARE";
          .AND. (Left(oArt:Matchcode,2) $ "QX KS" .OR. "TEST" $ oArt:Matchcode) //nur bei Kundenspez. Artikeln  
 
-         IF ! lNextFrei //Kunde hat Muster abgelehnt, dann mÔøΩssen wir neue Muster freigeben
+         IF ! lNextFrei //Kunde hat Muster abgelehnt, dann mÅssen wir neue Muster freigeben
             RETURN "MUS"
          ELSE
             RETURN "KU"

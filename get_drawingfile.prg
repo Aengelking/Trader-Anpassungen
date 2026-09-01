@@ -23,7 +23,7 @@ IF Select("art") != 0
          cInd := CharRepl("/\?",cInd,"_")
       ENDIF
    ENDIF
-   IF Trim(cZeich) == Trim(art->Zeichnung) .AND. AT(".LP.BS",art->Matchcode) != 0 //Leiterplatte hier werden wir die Unterzeichnungen zu einer ZIP zusammenfÔøΩgen (falls notwendig)
+   IF Trim(cZeich) == Trim(art->Zeichnung) .AND. AT(".LP.BS",art->Matchcode) != 0 //Leiterplatte hier werden wir die Unterzeichnungen zu einer ZIP zusammenfÅgen (falls notwendig)
       lLP := .T.         
    ENDIF
 ENDIF

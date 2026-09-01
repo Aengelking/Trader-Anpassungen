@@ -15,7 +15,7 @@ LOCAL cDocType
 LOCAL aHistory
 LOCAL bAdd
 LOCAL hDocTypes := {;
-         "ek_customer_order_confirmation"=>"Auftragsbestï¿½tigung",;
+         "ek_customer_order_confirmation"=>"Auftragsbest„tigung",;
          "ek_customer_order"=>"Auftrag",;
          "ek_supplier_order"=>"Bestellung";
       }

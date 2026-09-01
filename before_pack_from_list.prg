@@ -44,7 +44,7 @@ If lRech
 		Aadd(aState,"COLL")
 	Endif
 	IF re->State != "PICK"
-      Aadd(aOptions,t("Zurï¿½cksetzen"))
+      Aadd(aOptions,t("Zurücksetzen"))
       Aadd(aState,IF(re->Termin==0,"","PICK"))
    ENDIF
 Else
@@ -55,7 +55,7 @@ Else
 		Aadd(aState,"COLL")
 	Endif
 	IF lne->State != "PICK"
-      Aadd(aOptions,t("Zurï¿½cksetzen"))
+      Aadd(aOptions,t("Zurücksetzen"))
       Aadd(aState,IF(lne->PickNum==0,"","PICK"))
    ENDIF
 Endif
@@ -110,7 +110,7 @@ If ! lInUse .OR. (nChoice := Tr_MsgBox("Dieser Vorgang wird bereits bearbeitet",
          IF lEG
 			   GotoRechAddress(.T.) //goto delivery address
 			   IF ku->CountryIso == "DE" //delivered within Germany,but is on taxcode EG
-               englipr(nNr,1,,.T.)  //print a "Gelangensbestï¿½tigung"
+               englipr(nNr,1,,.T.)  //print a "Gelangensbestätigung"
             ENDIF
          ENDIF
 
@@ -223,9 +223,9 @@ If ! lInUse .OR. (nChoice := Tr_MsgBox("Dieser Vorgang wird bereits bearbeitet",
                ELSE  //interner Auftrag
                   art->(dbSetOrder( 2 ))
                   art->(dbSeek( Str(wer->Artno,6) ))
-                  IF HB_regexMatch(".*\.LP\.BS\.[0-9]+",art->Matchcode) //bestï¿½ckte Leiterplatte
+                  IF HB_regexMatch(".*\.LP\.BS\.[0-9]+",art->Matchcode) //bestckte Leiterplatte
                      StartPrint(,,"PDF")
-                     CopyPrint(,"\\EK-SERVER4\Data\Technik\Prozessdoku\05724_Leiterplattenbestï¿½ckung.pdf")   
+                     CopyPrint(,"\\EK-SERVER4\Data\Technik\Prozessdoku\05724_Leiterplattenbestckung.pdf")   
                   ENDIF
                ENDIF
                art->(dbSetOrder( 2 ))
@@ -240,7 +240,7 @@ If ! lInUse .OR. (nChoice := Tr_MsgBox("Dieser Vorgang wird bereits bearbeitet",
                   ENDIF
                   cEti += ".lbex"
                   IF File(cEtiPath+cEti)
-                        IF Tr_MsgBox(HB_AnsiToOem("Etikettendruck ("+LTrim(Str(nStickQty,12,0))+" Stï¿½ck) starten"),cEti,{"OK","abbrechen"}) == 1
+                        IF Tr_MsgBox(HB_AnsiToOem("Etikettendruck ("+LTrim(Str(nStickQty,12,0))+" Stück) starten"),cEti,{"OK","abbrechen"}) == 1
                            MBaseRun(Trim(Tr_getini(1))+"\run\labelstar2",{cEtiPath+cEti,nStickQty})
                         ENDIF
                         nX++
@@ -250,7 +250,7 @@ If ! lInUse .OR. (nChoice := Tr_MsgBox("Dieser Vorgang wird bereits bearbeitet",
                ENDDO
                cEti := LTrim(Str(wer->Artno,6))+"_VPE"+".lbex"
                IF File(cEtiPath+cEti)
-                     IF Tr_MsgBox(HB_AnsiToOem("Etikettendruck ("+LTrim(Str(Max(1,nStickQty/art->Vpe),12,0))+" Stï¿½ck) starten"),cEti,{"OK","abbrechen"}) == 1
+                     IF Tr_MsgBox(HB_AnsiToOem("Etikettendruck ("+LTrim(Str(Max(1,nStickQty/art->Vpe),12,0))+" Stück) starten"),cEti,{"OK","abbrechen"}) == 1
                         MBaseRun(Trim(Tr_getini(1))+"\run\labelstar2",{cEtiPath+cEti,Max(1,Int(nStickQty/art->Vpe))})
                      ENDIF
                ENDIF
@@ -340,7 +340,7 @@ IF lRech
                nChoice := 0
                DO WHILE nChoice  == 0
                   SET DEVICE TO SCREEN
-                  nChoice := Tr_MsgBox({t("Auslieferung erfolgt bereits zu spï¿½t."),t("Bitte eine Versandart auswï¿½hlen")},,aOptions)
+                  nChoice := Tr_MsgBox({t("Auslieferung erfolgt bereits zu spät."),t("Bitte eine Versandart auswählen")},,aOptions)
                ENDDO
                oRechnung:VersandArt := aShipWith[nChoice]
                oRechnung:Save()

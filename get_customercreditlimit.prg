@@ -814,7 +814,7 @@ ENDIF
 
 If lToLate //one invoice was paid to late
    IF lDbg
-      Alert( "Kunde hat zu spät bezahlt. Limit wird reduziert." )
+      Alert( "Kunde hat zu sp„t bezahlt. Limit wird reduziert." )
    ENDIF
    If nToLate <= 15 //small credit limit for 15 further days
 		If ska->Ziel1 == -2 //bankeinzug

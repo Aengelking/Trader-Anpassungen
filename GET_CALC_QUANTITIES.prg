@@ -28,6 +28,7 @@ FUNCTION HOOK_GET_CALC_QUANTITIES(oArtikel)
             ang->(dbClearFilter())
          ENDIF
       ENDIF
+      ASort(aCalcQuantities)
    ENDIF
      
 RETURN aCalcQuantities

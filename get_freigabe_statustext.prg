@@ -20,13 +20,13 @@ If cState=="DONE"
 		Endif
    Endif
 Elseif cState == "DEL"
-   RETURN "zurï¿½ckgesetzt"
+   RETURN "zurckgesetzt"
 Elseif cState == ""
 	Return "nicht begonnen"
 Elseif HHasKey(hText,cState)
 	cText := hText[cState]
 	If ValType(lFrei) == "L"
-		cText := cText+" "+If(lFrei,IF(cState${"VMU","MUS"},"geprï¿½ft","freigegeben"),"abgelehnt")
+		cText := cText+" "+If(lFrei,IF(cState${"VMU","MUS"},"geprft","freigegeben"),"abgelehnt")
 	Endif
 	Return cText
 Endif

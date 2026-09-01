@@ -28,6 +28,7 @@ IF Select("art") != 0
    ENDIF
 ENDIF
 
+
 cDir := "\\EK-SERVER4\Data\Technik\Prozessdoku\"
 IF lAW 
    cDir += "Arbeitsanweisungen\"
@@ -44,6 +45,11 @@ cInd   := Trim(cInd)
 
 aDir  := Directory(cDir+"*.*")
 
+IF mlCGI
+//   oCGI:Write("HOOK_GET_DRAWINGFILE called with parameters: lAW="+IIf(lAW,".T.",".F.")+", cZeich="+cZeich+", cInd="+cInd+", lKuZeichnung="+IIf(lKuZeichnung,".T.",".F.")+", Directory="+cDir+", aFiles="+ValToPrg(aDir)+"<br>")
+ENDIF
+
+
 FOR nX := 1 TO Len(aDir)
 	nPos := At("_",aDir[nX,1])
 	IF nPos == 0
@@ -51,7 +57,9 @@ FOR nX := 1 TO Len(aDir)
 	ENDIF
 
 	cNr := SubStr(aDir[nX,1],1,nPos-1)
-
+IF mlCGI
+   //oCGI:Write("Checking file "+cNr+" against "+cZeich+cInd+" and "+cZeich+"-"+cInd+"<br>")
+ENDIF
    //with leading 0
    IF cNr == cZeich+cInd .OR. cNr == cZeich+"-"+cInd
 		cFile := cDir+aDir[nX,1]

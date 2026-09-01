@@ -26,7 +26,7 @@ FUNCTION HOOK_GET_FREIGABE_NEXT_LEVEL(cState,nArtnr,nSupplier,lNextFrei)
       ENDIF   
    ELSE //Kaufteil oder externe Prodkution      
       IF cState == "" 
-         IF Trim(oArt:Type) == "WARE"
+         IF Trim(oArt:Type) == "WARE"            
             RETURN "VMU"
          ELSE
             RETURN "UNT"

@@ -1,5 +1,5 @@
 FUNC HOOK_GET_FREIGABE_FIELDS(cState)
-   
+
    IF cState == "VMU"
       RETURN {"user","ignore"}
    ELSEIf cState $ {"UNT","ZNG"}

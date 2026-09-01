@@ -55,7 +55,13 @@ FUNCTION HOOK_ON_AUF_READY( nAbNr,lWish,lNextDue )
                RETURN .F.  //dann warten wir bis sp„ter
             ENDIF
 
-            aTo := GetConfigEmail("SO-READY")
+            //SO-READY steht in der ini als Token USER. Ohne ResolveUserMail() geht
+            //die Mail an die woertliche Adresse "USER" und wird nicht zugestellt:
+            //erst aufloesen (Postfach des Verkaeufers, sonst COMMON), dann die
+            //Abwesenheits-Umleitung - dieselbe Reihenfolge wie in checkstock.prg.
+            oAuftrag := Auftrag():New()
+            oAuftrag:Load(nAbnr)
+            aTo := RedirectAbsent(ResolveUserMail(GetConfigEmail("SO-READY"),oAuftrag:Buyer))
 
             cText := "Hallo,<br><br>"
             cText += 'ich wollte Auftrag <a href="'+TraderUrl('EngAuft('+Ltrim(Str(nAbNr))+')')+'">'+LTrim(Str(nAbNr))+'</a> verschicken, aber es gab das folgende Problem:<br><br>'

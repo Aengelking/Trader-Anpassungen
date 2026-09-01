@@ -89,7 +89,7 @@ ELSEIF cNextLevel == "MUS" .OR. ;
       //   Alert("Freigabe fr "+art->Matchcode+" mit Preis "+Str(nPrice)+" und MaxQty "+Str(hRet:nMaxQty))
       ENDIF
 	ENDIF
-ELSEIF cState == "" //Freigabe noch nicht begonnen, Vorserien Muster
+ELSEIF cState == "" .AND. cNextLevel == "VMU" //Freigabe noch nicht begonnen, Vorserien Muster
    hRet:lBes        := .T.
    hRet:nMaxQty     := 10 //1 for the customer and one for us
 ELSEIF cNextLevel == "ZNG" .AND. (Left(oArt:Matchcode,2) == "BA" .OR. Trim(oArt:Matchcode) $ {"KS28074/1"})  //Beschaffungsartikel

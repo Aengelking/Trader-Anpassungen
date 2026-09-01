@@ -108,9 +108,18 @@ IF lRech
       ENDDO
    ENDIF
 
-   IF oRechnung:Taxcode == 0 .AND. oRechnung:Brutto > 1000 .AND. oRechnung:State != "ZOLL"
+   IF oRechnung:Taxcode $ {0,5} .AND. oRechnung:Brutto > 1000 .AND. oRechnung:State != "ZOLL"
       Tr_MsgBox("Bitte zuerst die Zollanmeldung durchfhren")
       RETURN .F.
+   ENDIF
+
+   IF oRechnung:Taxcode == 5
+      IF nVersandart != 58
+         Tr_MsgBox("Bitte per Spedition versenden.")
+         nVersandart := 58 //Spedition
+      ENDIF
+      aValidVersand := {58} //only Spedition
+      Tr_MsgBox("Sendung mit der Frankatur DDP versenden!",,{"zurck","OK"})
    ENDIF
 
    IF oRechnung:Brutto > 30000

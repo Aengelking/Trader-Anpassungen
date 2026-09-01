@@ -36,7 +36,7 @@ If lRech
    oRechnung:Load(nNr)
 
 	If re->State != "COLL"
-		If re->Taxcode == 0 .AND. re->State != "ZOLL"
+		If re->Taxcode $ {0,5} .AND. re->State != "ZOLL"
 			Aadd(aOptions,"Zollanmeldung")
 			Aadd(aState,"ZOLL")
 		Endif
@@ -65,7 +65,7 @@ nChoice := 2
 If ! lInUse .OR. (nChoice := Tr_MsgBox("Dieser Vorgang wird bereits bearbeitet",,aOptions)) >= 2
 	If lRech
 		If nChoice == 2
-			lAusland := re->taxcode == 0
+			lAusland := re->taxcode $ {0,5}
 			lEG      := re->TaxCode == 3
 			lAtlas := lAusland .AND. re->poswt-re->ofqty-re->preis > 1000
 
@@ -255,7 +255,7 @@ If ! lInUse .OR. (nChoice := Tr_MsgBox("Dieser Vorgang wird bereits bearbeitet",
                      ENDIF
                ENDIF
            Else
-              PrintLag(nNr,IF(ku->TaxCode==0,4,1))
+              PrintLag(nNr,IF(ku->TaxCode $ {0,5},4,1))
            Endif
            IF lAutoPrint
             SetPrinterMethodType(0)

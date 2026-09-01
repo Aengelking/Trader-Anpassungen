@@ -1,4 +1,4 @@
-#include 'trader.ch'
+//#include 'trader.ch'
 
 /*
    invoicemailcheck.prg - Pruefung der Rechnungsempfaenger-Emailadresse
@@ -418,17 +418,21 @@ RETURN hC
 STATIC FUNCTION _RemailExtra(nNummer)
    LOCAL oExtra := ku->(ExtraData():New(nNummer))
 
+   //nDecimal MUSS bei Typ "C" mitgegeben werden: ExtraData:Create()
+   //defaultet den Parameter nur fuer "N" und schreibt sonst NIL ins
+   //Feld DECIMAL - das quittiert Record:SetField mit "Type mismatch".
+
    IF ! oExtra:HasField("REMAILCHK")
       oExtra:Create("REMAILCHK","Rechnungsmail bestaetigt","D")
    ENDIF
    IF ! oExtra:HasField("REMAILADR")
-      oExtra:Create("REMAILADR","Bestaetigte Rechnungsmail","C",Space(60),60)
+      oExtra:Create("REMAILADR","Bestaetigte Rechnungsmail","C",Space(60),60,0)
    ENDIF
    IF ! oExtra:HasField("REMAILSENT")
       oExtra:Create("REMAILSENT","Rechnungsmail angefragt","D")
    ENDIF
    IF ! oExtra:HasField("REMAILSRC")
-      oExtra:Create("REMAILSRC","Rechnungsmail Quelle","C",Space(10),10)
+      oExtra:Create("REMAILSRC","Rechnungsmail Quelle","C",Space(10),10,0)
    ENDIF
 
 RETURN oExtra

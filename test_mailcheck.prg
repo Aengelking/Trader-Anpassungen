@@ -21,6 +21,7 @@ PROC RUN_TestMailCheck
    LOCAL nNummer := 0
    LOCAL hC, hDue, oExtra, cLink
    LOCAL hAnr, aAnr, nX
+   LOCAL cTo, lStamp, hSend
    LOCAL nRow
 
    Head("Test: Pruefung der Rechnungs-Emailadresse")
@@ -99,7 +100,53 @@ PROC RUN_TestMailCheck
    ENDIF
 
    nRow++
-   @ nRow++,00 SAY "Es wurde KEINE Mail verschickt und nichts gespeichert."
+   @ nRow++,00 SAY "Bis hierher wurde nichts verschickt und nichts gespeichert."
+
+   IF Empty(cLink) .OR. hC == NIL
+      @ nRow++,00 SAY "Taste druecken..."
+      Inkey(0)
+      RETURN
+   ENDIF
+
+   IF Tr_MsgBox("Pruefmail jetzt wirklich versenden?",,{"Nein","Ja"}) != 2
+      RETURN
+   ENDIF
+
+   //Empfaenger ist aenderbar, damit sich der ganze Weg mit der eigenen
+   //Adresse testen laesst, ohne den Kunden zu behelligen
+   cTo := Pad(hC["email"],60)
+   getlist := {}
+   nRow++
+   @ nRow,00 SAY "Senden an" GET cTo PICTURE "@S45"
+   READ
+   IF LastKey() == 27 .OR. Empty(cTo)
+      RETURN
+   ENDIF
+
+   //Nur der Versand an die hinterlegte Adresse ist eine echte Anfrage. Ein
+   //Testversand woandershin darf den Kunden nicht als angefragt markieren,
+   //sonst laeuft der Nachlauf darauf an.
+   lStamp := ( Lower(AllTrim(cTo)) == Lower(AllTrim(hC["email"])) )
+
+   IF Tr_MsgBox({"Mail an "+AllTrim(cTo)+" senden?", ;
+                 IF(lStamp,"Das ist eine echte Anfrage, der Status wird gesetzt.", ;
+                           "Testversand - der Status bleibt unveraendert."), ;
+                 "Der Link bestaetigt in beiden Faellen "+hC["name"]+"."},, ;
+                {"Nein","Ja"}) != 2
+      RETURN
+   ENDIF
+
+   hSend := HB_ExecFromArray("InvoiceMailCheckSendNow",{nNummer,AllTrim(cTo),lStamp})
+
+   nRow += 2
+   IF hSend["ok"]
+      @ nRow++,00 SAY "Verschickt an "+hSend["email"]
+      @ nRow++,00 SAY IF(hSend["stamped"],"Status gesetzt (echte Anfrage).", ;
+                                          "Testversand - Status unveraendert.")
+   ELSE
+      @ nRow++,00 SAY "FEHLER: "+hSend["error"]
+   ENDIF
+
    @ nRow++,00 SAY "Taste druecken..."
    Inkey(0)
 

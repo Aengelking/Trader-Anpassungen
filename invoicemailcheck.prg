@@ -22,7 +22,7 @@
       - www\api\customer.prg          (Portal, ohne Login)
 
    Aufgeraeumt und nachgefasst wird im Nachlauf, siehe
-   InvoiceMailCheckFollowup() und runemail_followup.prg.
+   InvoiceMailCheckFollowup() und run\remail_followup.prg.
 
    Konfiguration liegt in der Values-Tabelle, Kategorie BH:
       BH_REMAILACTIVE  L  Pruefung aktiv
@@ -520,6 +520,107 @@ RETURN hOut
 
 
 /*
+   InvoiceMailCheckSendNow(nNummer,cTo,lStamp)
+
+   Verschickt die Pruefmail sofort, ohne dass dafuer ein Auftrag angelegt
+   werden muss. Damit laesst sich der ganze Weg testen: Vorlage, Versand
+   ueber David, Link, Portalseite.
+
+   cTo    - abweichender Empfaenger, leer = die hinterlegte Adresse
+   lStamp - Status setzen, als waere es eine echte Anfrage. Ohne Angabe wird
+            nur dann gesetzt, wenn an die hinterlegte Adresse geht - ein
+            Testversand an die eigene Adresse soll den Kunden nicht als
+            "angefragt" markieren und den Nachlauf nicht ausloesen.
+
+   Der Link zeigt in jedem Fall auf den echten Kontakt des Kunden. Wer ihn
+   anklickt, bestaetigt also dessen Adresse - beim Testen daran denken.
+
+   Rueckgabe: Hash {ok,error,name,email,link,stamped}
+*/
+FUNCTION InvoiceMailCheckSendNow(nNummer,cTo,lStamp)
+   LOCAL aEnv := SaveEnv()
+   LOCAL hOut := {"ok"=>.F.,"error"=>"","name"=>"","email"=>"","link"=>"","stamped"=>.F.}
+   LOCAL hC, cToken, oExtra, oErr
+
+   IF ValType(cTo) != "C"
+      cTo := ""
+   ENDIF
+   cTo := AllTrim(cTo)
+   IF ValType(lStamp) != "L"
+      lStamp := Empty(cTo)
+   ENDIF
+
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      NetUse("engkund","ku")
+      ku->(dbSetOrder( 8 ))
+      IF ! ku->(dbSeek( Str(nNummer,6) ))
+         hOut["error"] := "Kunde nicht gefunden"
+         BREAK
+      ENDIF
+
+      hC := _RemailContact(nNummer)
+      IF hC == NIL
+         hOut["error"] := "Kein Rechnungsempfaenger hinterlegt"
+         BREAK
+      ENDIF
+      IF hC["anrede"] <= 0
+         hOut["error"] := "Rechnungsempfaenger ist keine Person (Anrede 0)"
+         BREAK
+      ENDIF
+      IF ! Empty(cTo) .AND. ! _RemailValidMail(cTo)
+         hOut["error"] := "Empfaengeradresse ungueltig"
+         BREAK
+      ENDIF
+      IF Empty(cTo) .AND. ! _RemailValidMail(hC["email"])
+         hOut["error"] := "Hinterlegte Adresse unbrauchbar: "+hC["email"]
+         BREAK
+      ENDIF
+
+      cToken := _RemailToken(nNummer,hC["id"])
+      IF Empty(cToken)
+         hOut["error"] := "Kein Token - Keychain-Eintrag "+REMAIL_KEYNAME+" fehlt"
+         BREAK
+      ENDIF
+
+      IF ! _RemailMail(nNummer,hC,cToken,"remail",cTo)
+         hOut["error"] := "Versand fehlgeschlagen, siehe log\remail.log"
+         BREAK
+      ENDIF
+
+      hOut["ok"]      := .T.
+      hOut["name"]    := hC["name"]
+      hOut["email"]   := IF(Empty(cTo),hC["email"],cTo)
+      hOut["link"]    := REMAIL_PORTALURL+cToken
+      hOut["stamped"] := lStamp
+
+      IF lStamp
+         oExtra := _RemailExtra(nNummer)
+         oExtra:Set("REMAILSENT",Date())
+         oExtra:Set("REMAILCNT",0)
+         oExtra:Set("REMAILINFO",StoD(""))
+         oExtra:Save()
+      ENDIF
+
+      _RemailLog(nNummer, ;
+                 IF(lStamp,"Pruefung der Rechnungsemail verschickt", ;
+                           "Testversand der Rechnungsmail-Pruefung"), ;
+                 "Manuell ausgeloest, ohne Auftrag."+CRLF+ ;
+                 "Kontakt:      "+hC["name"]+" <"+hC["email"]+">"+CRLF+ ;
+                 "Versendet an: "+hOut["email"]+CRLF+ ;
+                 IF(lStamp,"Status wurde gesetzt.", ;
+                           "Testversand - Status blieb unveraendert."))
+   RECOVER USING oErr
+      hOut["ok"] := .F.
+      IF ValType(oErr) == "O"
+         hOut["error"] := oErr:Description
+      ENDIF
+   END SEQUENCE
+
+   RestEnv(aEnv,.F.)
+RETURN hOut
+
+
+/*
    InvoiceMailCheckContact(nNummer)
 
    Der aktive Rechnungsempfaenger als Hash {id,name,email,anrede} oder NIL.
@@ -825,7 +926,7 @@ RETURN .T.
 
 //Verschickt eine Mail aus config\email\<cTemplate>_de|en.html an den
 //Rechnungsempfaenger. Setzt keinen Status - das machen die Aufrufer.
-STATIC FUNCTION _RemailMail(nNummer,hC,cToken,cTemplate)
+STATIC FUNCTION _RemailMail(nNummer,hC,cToken,cTemplate,cTo)
    LOCAL cSubject := "", cHtml := ""
    LOCAL hRetData := {=>}, hContact := {=>}, hData := {=>}
    LOCAL cLang, cFrom := ""
@@ -863,7 +964,10 @@ STATIC FUNCTION _RemailMail(nNummer,hC,cToken,cTemplate)
    END SEQUENCE
 
    MailConnect()
-   SendMail({{ hC["email"], hC["name"] }},cSubject,cHtml,{},.F.,0,.T.,cFrom,.F.,.F.)
+   IF ValType(cTo) != "C" .OR. Empty(AllTrim(cTo))
+      cTo := hC["email"]
+   ENDIF
+   SendMail({{ AllTrim(cTo), hC["name"] }},cSubject,cHtml,{},.F.,0,.T.,cFrom,.F.,.F.)
 
 RETURN .T.
 

@@ -296,6 +296,7 @@ FUNCTION InvoiceMailCheckApply(cToken,hData)
       //gerade "nicht zustaendig" gemeldet hat, nach der Wiedervorlagefrist
       //dieselbe Mail noch einmal.
       oExtra:Set("REMAILSENT",Date()+30)
+      oExtra:Set("REMAILSRC","NICHTZUST")
       oExtra:Save()
       _RemailLog(hT["k"],"Rechnungsempfaenger: Kunde nicht zustaendig", ;
                  "Der Empfaenger "+hC["name"]+" <"+hC["email"]+"> hat angegeben, "+ ;
@@ -701,10 +702,13 @@ STATIC FUNCTION _RemailSend(oAuftrag,hDue,cToken)
               "Anlass: Auftrag "+LTrim(Str(oAuftrag:AbNr,6)))
 
    AddWiedervorlage(Date()+GetValue("BH_REMAILREMIND",7,"Rechnungsmail: Wiedervorlage in Tagen"), ;
-                    "Rechnungsemail "+Trim(ku->Kunde)+" nicht bestaetigt", ;
+                    "Rechnungsemail "+Trim(ku->Kunde)+" pruefen", ;
                     "Der Rechnungsempfaenger "+hDue["name"]+" <"+hDue["email"]+">"+CRLF+ ;
                     "von "+Trim(ku->Name1)+" ("+Trim(ku->Kunde)+")"+CRLF+ ;
-                    "hat die Emailadresse nicht bestaetigt."+CRLF+CRLF+ ;
+                    "wurde gebeten, seine Emailadresse zu bestaetigen."+CRLF+CRLF+ ;
+                    "Bitte den Stand pruefen: Bewegungskonto des Kunden, oder"+CRLF+ ;
+                    "die Variablen REMAILCHK / REMAILADR auf der Adresse."+CRLF+ ;
+                    "Ist dort nichts eingetragen, kam keine Antwort."+CRLF+CRLF+ ;
                     "Anlass war Auftrag "+LTrim(Str(oAuftrag:AbNr,6))+".", ;
                     "REMAIL"+Str(nNummer,6),,oAuftrag:Buyer)
 

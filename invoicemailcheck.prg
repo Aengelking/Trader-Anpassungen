@@ -21,16 +21,24 @@
       - source\auftrag_web.prg        (AufApiCreate, WebView-Anlage)
       - www\api\customer.prg          (Portal, ohne Login)
 
+   Aufgeraeumt und nachgefasst wird im Nachlauf, siehe
+   InvoiceMailCheckFollowup() und runemail_followup.prg.
+
    Konfiguration liegt in der Values-Tabelle, Kategorie BH:
       BH_REMAILACTIVE  L  Pruefung aktiv
       BH_REMAILMONTHS  N  Gueltigkeit einer Bestaetigung in Monaten
-      BH_REMAILREMIND  N  Wiedervorlage / Sperrfrist fuer neue Anfragen in Tagen
+      BH_REMAILREMIND  N  Frist bis zur naechsten Erinnerung, in Tagen
+      BH_REMAILMAXREM  N  maximale Zahl an Erinnerungen an den Kunden
+      BH_REMAILMAIL    C  Empfaenger der internen Meldung ("COMMON" = Archiv)
+      BH_ANREDEM/F/D/EN N Zuordnung Geschlecht -> Satz der anrede-Tabelle
 
    Status je Kunde in ExtraData auf "KU":
       REMAILCHK   D  bestaetigt am
       REMAILADR   C  bestaetigte Adresse
-      REMAILSENT  D  Anfrage verschickt am
+      REMAILSENT  D  Anfrage verschickt am, leer = nichts offen
       REMAILSRC   C  Quelle der letzten Bestaetigung (PORTAL / INTERN)
+      REMAILCNT   N  bereits verschickte Erinnerungen
+      REMAILINFO  D  intern gemeldet am
 */
 
 //Keychain-Namen duerfen hoechstens 10 Zeichen lang sein (Pad(cName,10) beim Seek)
@@ -69,7 +77,7 @@ FUNCTION InvoiceMailCheck(oAuftrag)
          BREAK
       ENDIF
 
-      cToken := _RemailToken(nNummer,hDue["contact"])
+      cToken := _RemailToken(nNummer,hDue["id"])
       IF Empty(cToken)
          //JWT_Encode liefert nur dann nichts, wenn der Keychain-Eintrag fehlt
          _RemailLogFile("Kein Token erzeugt - Keychain-Eintrag "+REMAIL_KEYNAME+" fehlt")
@@ -93,7 +101,7 @@ RETURN lSent
 
    Prueft, ob fuer den Kunden eine Anfrage faellig ist.
 
-   Rueckgabe: Hash {contact,name,email,anrede} oder NIL wenn nichts zu tun ist
+   Rueckgabe: Hash {id,name,email,anrede} oder NIL wenn nichts zu tun ist
 */
 FUNCTION InvoiceMailCheckDue(nNummer)
    LOCAL hC, oExtra
@@ -138,6 +146,156 @@ FUNCTION InvoiceMailCheckDue(nNummer)
    ENDIF
 
 RETURN hC
+
+
+/*
+   InvoiceMailCheckFollowup(bProgress)
+
+   Nachlauf fuer alle offenen Anfragen. Ersetzt die frueher beim Versand
+   erzeugte Wiedervorlage - die konnte vom Ausgang nichts wissen, weil sich
+   der Bestaetigungsklick im Portal abspielt und David-COM dort fehlt.
+
+   Je Kunde:
+      - bestaetigt (oder es gibt keine Person mehr) -> Stand aufraeumen
+      - noch innerhalb der Frist                    -> nichts tun
+      - Frist um, weniger als BH_REMAILMAXREM
+        Erinnerungen verschickt                     -> Erinnerung an denselben
+                                                       Kontakt, Frist neu
+      - danach                                      -> einmalig interne Meldung
+                                                       an BH_REMAILMAIL
+
+   Gefahrlos wiederholbar: jeder Schritt haelt seinen Stand in ExtraData.
+   bProgress ist optional und wird mit (nX,nGesamt,nKundennr) ausgewertet.
+
+   Rueckgabe: Hash {checked,reminded,reported,cleared}
+*/
+FUNCTION InvoiceMailCheckFollowup(bProgress)
+   LOCAL aEnv := SaveEnv()
+   LOCAL hOut := {"checked"=>0,"reminded"=>0,"reported"=>0,"cleared"=>0}
+   LOCAL nRemind := GetValue("BH_REMAILREMIND",7,"Rechnungsmail: Frist in Tagen")
+   LOCAL nMax    := GetValue("BH_REMAILMAXREM",2,"Rechnungsmail: maximale Zahl an Erinnerungen")
+   LOCAL aIds, nX, oErr
+
+   NetUse("engkund","ku")
+   aIds := GetIdsWithExtraField("KU","REMAILSENT")
+
+   FOR nX := 1 TO Len(aIds)
+      IF ValType(bProgress) == "B"
+         Eval(bProgress,nX,Len(aIds),aIds[nX])
+      ENDIF
+      BEGIN SEQUENCE WITH {|e| Break(e)}
+         _RemailFollowOne(aIds[nX],nRemind,nMax,hOut)
+      RECOVER USING oErr
+         IF ValType(oErr) == "O"
+            _RemailLogFile("Nachlauf, Kunde "+LTrim(Str(aIds[nX]))+": "+oErr:Description)
+         ENDIF
+      END SEQUENCE
+   NEXT
+
+   RestEnv(aEnv,.F.)
+RETURN hOut
+
+
+//Ein Kunde im Nachlauf. Eigene Funktion, damit hier mit RETURN gearbeitet
+//werden kann - in einem BEGIN SEQUENCE waere das nicht erlaubt.
+STATIC FUNCTION _RemailFollowOne(nNummer,nRemind,nMax,hOut)
+   LOCAL hC, oExtra, cToken
+   LOCAL dSent, dCheck, cAddr, nCnt
+
+   oExtra := _RemailExtra(nNummer)
+   dSent  := oExtra:Get("REMAILSENT")
+   IF Empty(dSent)
+      RETURN .F.
+   ENDIF
+   hOut["checked"]++
+
+   hC     := _RemailContact(nNummer)
+   dCheck := oExtra:Get("REMAILCHK")
+   cAddr  := AllTrim(oExtra:Get("REMAILADR"))
+
+   //erledigt: bestaetigt, oder es gibt gar keinen Personen-Empfaenger mehr
+   //(etwa weil der Kunde auf ein Sammelpostfach umgestellt hat)
+   IF hC == NIL .OR. hC["anrede"] <= 0 .OR. ;
+      (! Empty(dCheck) .AND. Lower(cAddr) == Lower(hC["email"]))
+      oExtra:Set("REMAILSENT",StoD(""))
+      oExtra:Set("REMAILCNT",0)
+      oExtra:Set("REMAILINFO",StoD(""))
+      oExtra:Save()
+      hOut["cleared"]++
+      RETURN .T.
+   ENDIF
+
+   IF dSent+nRemind > Date()      //noch in der Frist
+      RETURN .F.
+   ENDIF
+
+   nCnt := oExtra:Get("REMAILCNT")
+
+   IF nCnt < nMax
+      cToken := _RemailToken(nNummer,hC["id"])
+      IF Empty(cToken)
+         _RemailLogFile("Nachlauf: kein Token fuer Kunde "+LTrim(Str(nNummer)))
+         RETURN .F.
+      ENDIF
+      IF ! _RemailMail(nNummer,hC,cToken,"remailrem")
+         RETURN .F.
+      ENDIF
+      oExtra:Set("REMAILSENT",Date())
+      oExtra:Set("REMAILCNT",nCnt+1)
+      oExtra:Save()
+      _RemailLog(nNummer,"Erinnerung zur Rechnungsemail verschickt", ;
+                 "Erinnerung "+LTrim(Str(nCnt+1))+" an "+hC["name"]+ ;
+                 " <"+hC["email"]+">")
+      hOut["reminded"]++
+      RETURN .T.
+   ENDIF
+
+   //Erinnerungen ausgeschoepft - einmalig intern melden
+   IF Empty(oExtra:Get("REMAILINFO"))
+      IF _RemailReport(nNummer,hC,nCnt)
+         oExtra:Set("REMAILINFO",Date())
+         oExtra:Save()
+         hOut["reported"]++
+         RETURN .T.
+      ENDIF
+   ENDIF
+
+RETURN .F.
+
+
+//Interne Meldung, wenn der Kunde nach allen Erinnerungen nicht geantwortet
+//hat. Empfaenger steht in BH_REMAILMAIL; "COMMON" legt die Mail in das
+//gemeinsame Archiv, was ohne weitere Einrichtung funktioniert.
+STATIC FUNCTION _RemailReport(nNummer,hC,nCnt)
+   LOCAL cTo := AllTrim(GetValue("BH_REMAILMAIL","COMMON","Rechnungsmail: interne Meldung an"))
+   LOCAL cText
+
+   IF Empty(cTo)
+      RETURN .F.
+   ENDIF
+
+   NetUse("engkund","ku")
+   ku->(dbSetOrder( 8 ))
+   IF ! ku->(dbSeek( Str(nNummer,6) ))
+      RETURN .F.
+   ENDIF
+
+   cText := "Der Rechnungsempfaenger hat seine Emailadresse trotz "+ ;
+            LTrim(Str(nCnt))+" Erinnerungen nicht bestaetigt."+CRLF+CRLF+ ;
+            "Kunde:   "+Trim(ku->Kunde)+"  "+Trim(ku->Name1)+CRLF+ ;
+            "Kontakt: "+hC["name"]+CRLF+ ;
+            "Adresse: "+hC["email"]+CRLF+CRLF+ ;
+            "Moeglicherweise ist die Adresse nicht mehr erreichbar. Bitte"+CRLF+ ;
+            "beim Kunden nachfassen und den Kontakt in der Adresse pflegen."
+
+   MailConnect()
+   SendMail({{cTo,cTo}},"Rechnungsemail nicht bestaetigt: "+Trim(ku->Kunde),cText)
+
+   _RemailLog(nNummer,"Rechnungsemail nicht bestaetigt - intern gemeldet", ;
+              "Nach "+LTrim(Str(nCnt))+" Erinnerungen ohne Antwort."+CRLF+ ;
+              "Kontakt: "+hC["name"]+" <"+hC["email"]+">")
+
+RETURN .T.
 
 
 /*
@@ -190,8 +348,8 @@ RETURN hOut
 
    hData["action"]:
       "confirm"  Adresse stimmt
-      "replace"  anderer Ansprechpartner - hData: anrede (N), name (C), email (C)
-      "unknown"  Kunde weiss es nicht / ist nicht zustaendig
+      "replace"  andere Kontaktdaten - hData: general (L), gender (C),
+                 name (C), email (C), lang (C)
 
    Bei "replace" wird die Emailadresse der bestehenden Person NICHT geaendert.
    Stattdessen wird ein neuer Kontakt angelegt und das Rechnungs-Flag umgehaengt.
@@ -289,19 +447,6 @@ FUNCTION InvoiceMailCheckApply(cToken,hData)
                  "Bisher: "+hC["name"]+" <"+hC["email"]+"> (Kontakt "+LTrim(Str(hC["id"]))+")"+CRLF+ ;
                  "Rechnungs-Flag entfernt, Kontakt bleibt aktiv."+CRLF+ ;
                  "Neu:    "+cName+" <"+cEmail+"> (Kontakt "+LTrim(Str(nNew))+")")
-
-   CASE cAction == "unknown"
-      //Keine Bestaetigung: REMAILCHK bleibt leer, damit intern nachgefasst wird.
-      //REMAILSENT wird aber vorgezogen, sonst bekaeme genau die Person, die
-      //gerade "nicht zustaendig" gemeldet hat, nach der Wiedervorlagefrist
-      //dieselbe Mail noch einmal.
-      oExtra:Set("REMAILSENT",Date()+30)
-      oExtra:Set("REMAILSRC","NICHTZUST")
-      oExtra:Save()
-      _RemailLog(hT["k"],"Rechnungsempfaenger: Kunde nicht zustaendig", ;
-                 "Der Empfaenger "+hC["name"]+" <"+hC["email"]+"> hat angegeben, "+ ;
-                 "fuer den Rechnungsempfang nicht zustaendig zu sein."+CRLF+ ;
-                 "Bitte intern klaeren.")
 
    OTHERWISE
       RETURN { "success" => .F., "error" => "UNKNOWN_ACTION" }
@@ -519,6 +664,12 @@ STATIC FUNCTION _RemailExtra(nNummer)
    IF ! oExtra:HasField("REMAILSRC")
       oExtra:Create("REMAILSRC","Rechnungsmail Quelle","C",Space(10),10,0)
    ENDIF
+   IF ! oExtra:HasField("REMAILCNT")
+      oExtra:Create("REMAILCNT","Rechnungsmail Erinnerungen","N",0,2,0)
+   ENDIF
+   IF ! oExtra:HasField("REMAILINFO")
+      oExtra:Create("REMAILINFO","Rechnungsmail intern gemeldet","D")
+   ENDIF
 
 RETURN oExtra
 
@@ -638,49 +789,17 @@ RETURN .T.
 
 
 STATIC FUNCTION _RemailSend(oAuftrag,hDue,cToken)
-   LOCAL cSubject := "", cHtml := ""
-   LOCAL hRetData := {=>}, hContact := {=>}, hData := {=>}
-   LOCAL cLang := IF(Empty(oAuftrag:Kunde:Language),"D",oAuftrag:Kunde:Language)
-   LOCAL cFrom := ""
    LOCAL nNummer := oAuftrag:Kunde:Nummer
    LOCAL oExtra, oNote
 
-   //ku muss fuer GetContactAnrede() auf dem Kunden stehen
-   NetUse("engkund","ku")
-   ku->(dbSetOrder( 8 ))
-   IF ! ku->(dbSeek( Str(nNummer,6) ))
+   IF ! _RemailMail(nNummer,hDue,cToken,"remail")
       RETURN .F.
    ENDIF
-
-   hContact["anrede"] := GetContactAnrede(hDue["contact"])
-
-   hData["nr"]    := LTrim(Str(oAuftrag:AbNr,6))
-   hData["name"]  := hDue["name"]
-   hData["email"] := hDue["email"]
-   hData["firma"] := Trim(ku->Name1)
-   hData["link"]  := REMAIL_PORTALURL+cToken
-
-   LoadEmailTemplate("remail",cLang,@cSubject,@cHtml,hContact,hData,@hRetData,"UTF-8")
-   IF Empty(cHtml)
-      _RemailLogFile("Mailvorlage config\email\remail_"+IF(cLang=="D","de","en")+".html fehlt")
-      RETURN .F.
-   ENDIF
-   IF Empty(cSubject)
-      cSubject := "Bitte bestaetigen Sie Ihre Emailadresse fuer den Rechnungsversand"
-   ENDIF
-   cHtml := LoadEmailConfigFile("header")+cHtml+LoadEmailConfigFile("footer")
-
-   BEGIN SEQUENCE WITH {|e| Break(e)}
-      cFrom := GetConfigValue("EMAIL-FROM_SALESORDER")
-   RECOVER
-      cFrom := ""
-   END SEQUENCE
-
-   MailConnect()
-   SendMail({{ hDue["email"], hDue["name"] }},cSubject,cHtml,{},.F.,0,.T.,cFrom,.F.,.F.)
 
    oExtra := _RemailExtra(nNummer)
    oExtra:Set("REMAILSENT",Date())
+   oExtra:Set("REMAILCNT",0)        //Erinnerungszaehler fuer den Nachlauf
+   oExtra:Set("REMAILINFO",StoD(""))
    oExtra:Save()
 
    NetUse("notes","nts")
@@ -701,16 +820,50 @@ STATIC FUNCTION _RemailSend(oAuftrag,hDue,cToken)
               "Anfrage an "+hDue["name"]+" <"+hDue["email"]+">"+CRLF+ ;
               "Anlass: Auftrag "+LTrim(Str(oAuftrag:AbNr,6)))
 
-   AddWiedervorlage(Date()+GetValue("BH_REMAILREMIND",7,"Rechnungsmail: Wiedervorlage in Tagen"), ;
-                    "Rechnungsemail "+Trim(ku->Kunde)+" pruefen", ;
-                    "Der Rechnungsempfaenger "+hDue["name"]+" <"+hDue["email"]+">"+CRLF+ ;
-                    "von "+Trim(ku->Name1)+" ("+Trim(ku->Kunde)+")"+CRLF+ ;
-                    "wurde gebeten, seine Emailadresse zu bestaetigen."+CRLF+CRLF+ ;
-                    "Bitte den Stand pruefen: Bewegungskonto des Kunden, oder"+CRLF+ ;
-                    "die Variablen REMAILCHK / REMAILADR auf der Adresse."+CRLF+ ;
-                    "Ist dort nichts eingetragen, kam keine Antwort."+CRLF+CRLF+ ;
-                    "Anlass war Auftrag "+LTrim(Str(oAuftrag:AbNr,6))+".", ;
-                    "REMAIL"+Str(nNummer,6),,oAuftrag:Buyer)
+RETURN .T.
+
+
+//Verschickt eine Mail aus config\email\<cTemplate>_de|en.html an den
+//Rechnungsempfaenger. Setzt keinen Status - das machen die Aufrufer.
+STATIC FUNCTION _RemailMail(nNummer,hC,cToken,cTemplate)
+   LOCAL cSubject := "", cHtml := ""
+   LOCAL hRetData := {=>}, hContact := {=>}, hData := {=>}
+   LOCAL cLang, cFrom := ""
+
+   //ku muss fuer GetContactAnrede() auf dem Kunden stehen
+   NetUse("engkund","ku")
+   ku->(dbSetOrder( 8 ))
+   IF ! ku->(dbSeek( Str(nNummer,6) ))
+      RETURN .F.
+   ENDIF
+   cLang := IF(Empty(ku->Language),"D",ku->Language)
+
+   hContact["anrede"] := GetContactAnrede(hC["id"])
+
+   hData["name"]  := hC["name"]
+   hData["email"] := hC["email"]
+   hData["firma"] := Trim(ku->Name1)
+   hData["link"]  := REMAIL_PORTALURL+cToken
+
+   LoadEmailTemplate(cTemplate,cLang,@cSubject,@cHtml,hContact,hData,@hRetData,"UTF-8")
+   IF Empty(cHtml)
+      _RemailLogFile("Mailvorlage config\email\"+cTemplate+"_"+ ;
+                     IF(cLang=="D","de","en")+".html fehlt")
+      RETURN .F.
+   ENDIF
+   IF Empty(cSubject)
+      cSubject := "Bitte bestaetigen Sie Ihre Emailadresse fuer den Rechnungsversand"
+   ENDIF
+   cHtml := LoadEmailConfigFile("header")+cHtml+LoadEmailConfigFile("footer")
+
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      cFrom := GetConfigValue("EMAIL-FROM_SALESORDER")
+   RECOVER
+      cFrom := ""
+   END SEQUENCE
+
+   MailConnect()
+   SendMail({{ hC["email"], hC["name"] }},cSubject,cHtml,{},.F.,0,.T.,cFrom,.F.,.F.)
 
 RETURN .T.
 

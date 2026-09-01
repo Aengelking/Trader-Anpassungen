@@ -290,6 +290,74 @@ RETURN { "success" => .T., "error" => "" }
 
 
 /*
+   InvoiceMailCheckContact(nNummer)
+
+   Der aktive Rechnungsempfaenger als Hash {id,name,email,anrede} oder NIL.
+   Oeffentlich, damit die Testhilfe run	est_mailcheck.prg darauf kommt.
+*/
+FUNCTION InvoiceMailCheckContact(nNummer)
+   LOCAL aEnv := SaveEnv()
+   LOCAL hC := _RemailContact(nNummer)
+   RestEnv(aEnv,.F.)
+RETURN hC
+
+
+/*
+   InvoiceMailCheckState(nNummer)
+
+   Der gespeicherte Pruefstand aus ExtraData, ohne ihn zu veraendern.
+*/
+FUNCTION InvoiceMailCheckState(nNummer)
+   LOCAL aEnv := SaveEnv()
+   LOCAL hOut := NIL
+   LOCAL oExtra
+
+   NetUse("engkund","ku")
+   ku->(dbSetOrder( 8 ))
+   IF ku->(dbSeek( Str(nNummer,6) ))
+      oExtra := _RemailExtra(nNummer)
+      hOut := { "checked" => oExtra:Get("REMAILCHK"), ;
+                "address" => oExtra:Get("REMAILADR"), ;
+                "sent"    => oExtra:Get("REMAILSENT"), ;
+                "source"  => oExtra:Get("REMAILSRC") }
+   ENDIF
+
+   RestEnv(aEnv,.F.)
+RETURN hOut
+
+
+/*
+   InvoiceMailCheckLink(nNummer)
+
+   Erzeugt den Portal-Link fuer den aktuellen Rechnungsempfaenger des Kunden,
+   OHNE eine Mail zu verschicken und ohne den Status zu veraendern. Fuer Tests
+   und fuer den Support, wenn ein Kunde den Link direkt haben moechte.
+
+   Rueckgabe: Link oder "" wenn kein passender Rechnungsempfaenger existiert
+              bzw. der Keychain-Eintrag fehlt
+*/
+FUNCTION InvoiceMailCheckLink(nNummer)
+   LOCAL aEnv := SaveEnv()
+   LOCAL cLink := ""
+   LOCAL hC, cToken
+
+   NetUse("engkund","ku")
+   ku->(dbSetOrder( 8 ))
+   IF ku->(dbSeek( Str(nNummer,6) ))
+      hC := _RemailContact(nNummer)
+      IF hC != NIL .AND. hC["anrede"] > 0
+         cToken := _RemailToken(nNummer,hC["id"])
+         IF ! Empty(cToken)
+            cLink := REMAIL_PORTALURL+cToken
+         ENDIF
+      ENDIF
+   ENDIF
+
+   RestEnv(aEnv,.F.)
+RETURN cLink
+
+
+/*
    InvoiceMailCheckVerify(cToken)
 
    Prueft die Signatur des Links und liefert {k,c} - Kundennummer und

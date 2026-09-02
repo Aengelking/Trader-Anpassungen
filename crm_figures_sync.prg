@@ -16,10 +16,18 @@
  *                  Zahltage im Schnitt und maximal, Anzahl Mahnungen
  *   Konditionen    Zahlungsbedingung als Text, Zahlungsziel, Vorkasse
  *   Erstauftrag    Datum des ersten Auftrags
- *   Gekaufte Artikel je Artikel die Gesamtmenge und die Mengen der letzten
- *                  vier Zwoelfmonatszeitraeume (Abschnitt "Bisher gekaufte
- *                  Artikel" des Berichts), dazu Anzahl der Auftragspositionen
- *                  und erstes/letztes Bestelldatum
+ *   Gekaufte Artikel je Artikel Menge UND Umsatz, jeweils gesamt und in den
+ *                  letzten vier Zwoelfmonatszeitraeumen (Abschnitt "Bisher
+ *                  gekaufte Artikel" des Berichts), dazu Anzahl der
+ *                  Auftragspositionen und erstes/letztes Bestelldatum
+ *
+ * Der Artikelumsatz kommt aus den Auftragspositionen: Nettopreis nach Rabatt,
+ * geteilt durch die Preiseinheit, mal Menge, Fremdwaehrung mit dem
+ * Verkaufskurs. Er ist damit NICHT deckungsgleich mit turnover_total aus
+ * GetCustomerTurnOver - die Summe ueber die Artikel weicht ab, weil dort der
+ * Rabatt anders behandelt wird und Frachtpositionen mitzaehlen. Fuer die Frage
+ * "was kauft dieser Kunde nicht" ist die Positionsrechnung die richtige, fuer
+ * "was hat er insgesamt gebracht" turnover_total.
  *
  * Die Auswahl der Kunden folgt derselben Definition wie crm_company_sync.prg
  * (Umsatz im laufenden oder Vorjahr, oder Neukunde) und nutzt dieselben
@@ -468,18 +476,22 @@ RETURN ""
 
 
 
-// Bisher gekaufte Artikel - der gleichnamige Abschnitt aus bericht.prg.
-// Je Artikel die Gesamtmenge und die Mengen der letzten vier rollierenden
-// Zwoelfmonatszeitraeume, dazu Anzahl und Zeitraum der Auftragspositionen.
-// Sortiert nach Gesamtmenge, damit die Kappung bei nMax die wichtigsten
-// Artikel behaelt.
+// Bisher gekaufte Artikel - der gleichnamige Abschnitt aus bericht.prg, um den
+// Umsatz erweitert. Je Artikel Menge UND Umsatz, jeweils gesamt und in den
+// letzten vier rollierenden Zwoelfmonatszeitraeumen, dazu Anzahl und Zeitraum
+// der Auftragspositionen.
+//
+// Sortiert und gekappt wird nach UMSATZ, nicht nach Menge: Stueck, Meter und
+// Kilo lassen sich nicht gegeneinander vergleichen, Euro schon. Nur damit
+// laesst sich die Frage beantworten, was ein Kunde noch nicht kauft.
 STATIC FUNCTION CFS_Articles(cKunde, nMax, cLogFile)
    LOCAL hBought := {=>}
    LOCAL aSorted := {}
    LOCAL aArt    := {}
    LOCAL lArt    := Select("art") > 0
-   LOCAL cMatch, hRow, nQty, nX, dOrder
-   LOCAL cDesc, cUnit, aYears
+   LOCAL cMatch, hRow, nQty, nValue, nRate, nX, dOrder
+   LOCAL cDesc, cUnit, aYears, aVals
+   LOCAL nNoRate := 0
 
    IF Select("auf") == 0
       RETURN aArt
@@ -497,6 +509,8 @@ STATIC FUNCTION CFS_Articles(cKunde, nMax, cLogFile)
          IF ! HHasKey(hBought, cMatch)
             hBought[cMatch] := {"total"  => 0, ;
                                 "years"  => {0, 0, 0, 0}, ;
+                                "val"    => 0, ;
+                                "vyears" => {0, 0, 0, 0}, ;
                                 "orders" => 0, ;
                                 "first"  => CToD(""), ;
                                 "last"   => CToD("")}
@@ -506,7 +520,21 @@ STATIC FUNCTION CFS_Articles(cKunde, nMax, cLogFile)
          // Solange der Auftrag laeuft zaehlt die bestellte Menge, ist er
          // abgeschlossen die tatsaechlich gelieferte.
          nQty := IF(auf->Bestat < 3, Max(auf->VkQty, auf->GelQty), auf->GelQty)
+
+         // Positionswert in Euro. Nettopreis nach Rabatt, geteilt durch die
+         // Preiseinheit - dieselbe Rechnung wie QuoteLinePrice() in
+         // mcp_stdio.prg, samt Schutz vor Pe == 0. Fremdwaehrungen mit dem
+         // Verkaufskurs, wie supabase\supabase_kpi.prg und custturn.prg.
+         nRate := CFS_OrderRate(@nNoRate)
+         IF nRate == 0
+            nValue := 0                        // Kurs unbekannt: Menge ja, Umsatz nein
+         ELSE
+            nValue := nQty * (auf->VkPr - auf->VkPr * auf->Rabatt / 100) / ;
+                      IF(auf->Pe == 0, 1, auf->Pe) * nRate
+         ENDIF
+
          hRow["total"]  := hRow["total"] + nQty
+         hRow["val"]    := hRow["val"] + nValue
          hRow["orders"] := hRow["orders"] + 1
 
          // Vier Zwoelfmonatsscheiben rueckwaerts ab heute. Massgeblich ist
@@ -516,7 +544,8 @@ STATIC FUNCTION CFS_Articles(cKunde, nMax, cLogFile)
                 CalWd(auf->Wterm) <= Date() - 365 * (nX - 1)) .OR. ;
                (auf->Wterm == 0 .AND. CalWd(auf->Dterm) >= Date() - 365 * nX - 1 .AND. ;
                 CalWd(auf->Dterm) <= Date() - 365 * (nX - 1))
-               hRow["years"][nX] := hRow["years"][nX] + nQty
+               hRow["years"][nX]  := hRow["years"][nX] + nQty
+               hRow["vyears"][nX] := hRow["vyears"][nX] + nValue
             ENDIF
          NEXT
 
@@ -536,12 +565,12 @@ STATIC FUNCTION CFS_Articles(cKunde, nMax, cLogFile)
    FOR nX := 1 TO Len(hBought)
       AAdd(aSorted, {HGetKeyAt(hBought, nX), HGetValueAt(hBought, nX)})
    NEXT
-   ASort(aSorted, , , {|x, y| x[2]["total"] > y[2]["total"]})
+   ASort(aSorted, , , {|x, y| x[2]["val"] > y[2]["val"]})
 
    IF nMax > 0 .AND. Len(aSorted) > nMax
       CFS_Log(cLogFile, "INFO", "Kunde " + AllTrim(cKunde) + ": " + ;
               LTrim(Str(Len(aSorted))) + " Artikel, uebertragen werden die " + ;
-              LTrim(Str(nMax)) + " mit der groessten Menge")
+              LTrim(Str(nMax)) + " mit dem groessten Umsatz")
       aSorted := ASize(aSorted, nMax)
    ENDIF
 
@@ -553,6 +582,7 @@ STATIC FUNCTION CFS_Articles(cKunde, nMax, cLogFile)
       cMatch := aSorted[nX][1]
       hRow   := aSorted[nX][2]
       aYears := hRow["years"]
+      aVals  := hRow["vyears"]
       cDesc  := ""
       cUnit  := ""
       IF lArt .AND. art->(dbSeek(cMatch))
@@ -568,11 +598,44 @@ STATIC FUNCTION CFS_Articles(cKunde, nMax, cLogFile)
                   "qty_12_24m"          => CFS_Num(aYears[2]), ;
                   "qty_24_36m"          => CFS_Num(aYears[3]), ;
                   "qty_36_48m"          => CFS_Num(aYears[4]), ;
+                  "revenue_total"       => CFS_Num(hRow["val"]), ;
+                  "revenue_last_12m"    => CFS_Num(aVals[1]), ;
+                  "revenue_12_24m"      => CFS_Num(aVals[2]), ;
+                  "revenue_24_36m"      => CFS_Num(aVals[3]), ;
+                  "revenue_36_48m"      => CFS_Num(aVals[4]), ;
                   "orders_count"        => LTrim(Str(hRow["orders"])), ;
                   "first_order_date"    => CFS_IsoDate(hRow["first"]), ;
                   "last_order_date"     => CFS_IsoDate(hRow["last"])})
    NEXT
+
+   IF nNoRate > 0
+      CFS_Log(cLogFile, "WARNING", "Kunde " + AllTrim(cKunde) + ": " + ;
+              LTrim(Str(nNoRate)) + " Auftragspositionen ohne Waehrungskurs - " + ;
+              "Mengen sind vollstaendig, Umsaetze nicht.")
+   ENDIF
 RETURN aArt
+
+
+// Kurs der aktuellen Auftragsposition nach Euro. Euro-Auftraege haben kein
+// Money-Kennzeichen und damit Kurs 1. Fehlt der Kurs einer Fremdwaehrung,
+// kommt 0 zurueck - dann bleibt der Umsatz dieser Position leer, statt Zloty
+// als Euro zu buchen. Der Zaehler wandert nach oben ins Protokoll.
+STATIC FUNCTION CFS_OrderRate(nNoRate)
+   LOCAL nRate := 1
+
+   IF Empty(auf->Money)
+      RETURN 1
+   ENDIF
+   BEGIN SEQUENCE
+      nRate := Currate(auf->Money, "V")
+   RECOVER
+      nRate := 0
+   END SEQUENCE
+   IF ValType(nRate) != "N" .OR. nRate <= 0
+      nNoRate++
+      RETURN 0
+   ENDIF
+RETURN nRate
 
 
 // Ein Paket uebertragen und die Rueckmeldungen verbuchen.

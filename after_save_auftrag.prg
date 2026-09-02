@@ -45,4 +45,14 @@ FUNCTION HOOK_AFTER_SAVE_AUFTRAG(oAuftrag)
       ENDIF     
    ENDIF
    
+   //Pruefung der Rechnungsempfaenger-Emailadresse durch den Kunden selbst.
+   //Die Logik liegt in run\invoicemailcheck.prg, damit der Hook klein bleibt.
+   //Faellig ist die Anfrage hoechstens einmal je Kunde und Intervall, das
+   //regelt InvoiceMailCheckDue() ueber ExtraData REMAILCHK / REMAILSENT.
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      MBaseRun(Path("run\invoicemailcheck"),{oAuftrag})
+   RECOVER
+      //eine fehlgeschlagene Anfrage darf das Speichern des Auftrags nicht stoeren
+   END SEQUENCE
+
 RETURN NIL

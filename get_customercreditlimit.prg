@@ -22,6 +22,7 @@ LOCAL hSpecialWKV
 LOCAL hMaxLimit,hAddLimit
 LOCAL hDisputedInvoices
 LOCAL hFactoringLimits := {=>}
+LOCAL cTiltaStatus
 LOCAL cPic := "@E 99,999,999.99"
 
 MEMVAR mlShowInvoiceList
@@ -294,6 +295,25 @@ IF oExtra:Factoring
    oTiltaApi:cBaseUrl := "https://api.tilta.io/v1/"
    oTiltaApi:cApiKeyName := "TILTA"
    hLimit := hb_jsonDecode(oTiltaApi:Execute("buyers/"+LTrim(Str(ku->Nummer))+"/facility","GET",,{"authorization: Bearer $APIKEY$"}))
+
+   //Status der Fazilit„t beachten: bei FROZEN (und den endgltigen Zust„nden) finanziert Tilta
+   //nichts Neues, auch wenn available_amount noch einen Betrag ausweist. Dann bleibt es beim
+   //bereits offenen Bestand - kein zus„tzlicher Spielraum, aber auch keine knstliche 0, die
+   //jede Bewegung auf den bestehenden Rechnungen blockieren wrde.
+   cTiltaStatus := __TiltaStatus(hLimit)
+   IF lDbg
+      ? "Tilta-Status:",IF(Empty(cTiltaStatus),"(nicht geliefert)",cTiltaStatus)
+   ENDIF
+   //Achtung: AScan vergleicht Zeichenketten mit "=", also nur den Anfang - ein leerer
+   //Status wuerde damit auf JEDEN Eintrag passen. Deshalb Codeblock mit "==" und Empty-Pruefung.
+   IF ! Empty(cTiltaStatus) ;
+      .AND. AScan({"FROZEN","BLOCKED","SUSPENDED","CLOSED","CANCELLED","CANCELED","TERMINATED","REJECTED","EXPIRED","INACTIVE"},{|c| c == cTiltaStatus}) != 0
+      hTurnOver := GetCustomerTurnover(ku->kunde)
+      IF lDbg
+         ? "Fazilit„t nicht nutzbar ("+cTiltaStatus+") - nur der offene Bestand:",LTrim(Transform(hTurnOver["open"],cPic))
+      ENDIF
+      RETURN hTurnOver["open"]
+   ENDIF
 
    IF HHasKey(hLimit,"available_amount")
       hTurnOver := GetCustomerTurnover(ku->kunde)
@@ -859,6 +879,28 @@ Endif
 IF lDbg; Alert("NO LIMIT?"); ENDIF
 
 Return 0
+
+/*  Status der Tilta-Fazilit„t aus der Antwort ziehen. Tilta liefert ihn auf oberster Ebene;
+ *  die verschachtelten Varianten sind Vorsorge, falls die API das Objekt einpackt.
+ *  Rueckgabe "" wenn kein Status geliefert wird - dann gilt wie bisher available_amount.  */
+STATIC FUNCTION __TiltaStatus(hLimit)
+   LOCAL cStatus := ""
+   LOCAL cWrap
+   IF ValType(hLimit) != "H"
+      RETURN ""
+   ENDIF
+   IF HHasKey(hLimit,"status") .AND. ValType(hLimit["status"]) == "C"
+      cStatus := hLimit["status"]
+   ELSE
+      FOR EACH cWrap IN {"facility","data"}
+         IF HHasKey(hLimit,cWrap) .AND. ValType(hLimit[cWrap]) == "H" ;
+            .AND. HHasKey(hLimit[cWrap],"status") .AND. ValType(hLimit[cWrap]["status"]) == "C"
+            cStatus := hLimit[cWrap]["status"]
+            EXIT
+         ENDIF
+      NEXT
+   ENDIF
+RETURN Upper(AllTrim(cStatus))
 
 STATIC Function __TxtBox(cTxt,lWait)
    IF ! GetConfigValue("BATCHMODE")

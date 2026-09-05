@@ -304,10 +304,16 @@ IF oExtra:Factoring
    IF lDbg
       ? "Tilta-Status:",IF(Empty(cTiltaStatus),"(nicht geliefert)",cTiltaStatus)
    ENDIF
-   //Achtung: AScan vergleicht Zeichenketten mit "=", also nur den Anfang - ein leerer
-   //Status wuerde damit auf JEDEN Eintrag passen. Deshalb Codeblock mit "==" und Empty-Pruefung.
-   IF ! Empty(cTiltaStatus) ;
-      .AND. AScan({"FROZEN","BLOCKED","SUSPENDED","CLOSED","CANCELLED","CANCELED","TERMINATED","REJECTED","EXPIRED","INACTIVE"},{|c| c == cTiltaStatus}) != 0
+   //Tilta kennt genau vier Status (docs.tilta.ai, GET /v1/buyers/{id}/facility):
+   //   ACTIVE  = nutzbar
+   //   PENDING = Fazilit„t beantragt, noch nicht entschieden -> noch kein Kredit
+   //   FROZEN  = eingefroren, es wird nichts Neues finanziert
+   //   EXPIRED = abgelaufen
+   //Alles auáer ACTIVE sperrt. Ein leerer Status (kein Feld geliefert oder Request
+   //fehlgeschlagen) l„sst es bewusst beim bisherigen Verhalten: dann gilt available_amount.
+   //Vergleich mit "==" statt "!=": "=" und "!=" vergleichen bei SET EXACT OFF (uhttpd)
+   //nur den Anfang, "ACTIVEX" wuerde dann als ACTIVE durchgehen.
+   IF ! Empty(cTiltaStatus) .AND. ! (cTiltaStatus == "ACTIVE")
       hTurnOver := GetCustomerTurnover(ku->kunde)
       IF lDbg
          ? "Fazilit„t nicht nutzbar ("+cTiltaStatus+") - nur der offene Bestand:",LTrim(Transform(hTurnOver["open"],cPic))

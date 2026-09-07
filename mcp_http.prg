@@ -80,6 +80,7 @@ THREAD STATIC t_lMcpQuietReq := .F. // current request is routine "/" traffic in
 THREAD STATIC t_nReqUser     := 0   // current request's authenticated user (fed into client tracking)
 THREAD STATIC t_cReqName     := ""  // current request's user name
 THREAD STATIC t_cReqPeer     := ""  // current request's peer address
+THREAD STATIC t_lReqReadOnly := .F. // current request's API key is read-only (write tools blocked)
 THREAD STATIC t_lLetoReady   := .F. // this worker has established its own LetoDB connection
 
 FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
@@ -328,16 +329,21 @@ RETURN lOk
 STATIC FUNCTION MCP_Http_IsHealthPath( cPath )
 RETURN cPath == "/" .OR. cPath == "/health" .OR. cPath == "/healthz"
 
-// Tools that must run one-at-a-time: they write, or they read/switch the
-// process-global Trader user context (Tr_GetIni(28) / SystemUser). Every other
-// tool is a pure read and runs concurrently in the pool.
-STATIC FUNCTION MCP_Http_IsSerialTool( cToolName )
+// Tools that modify data. A read-only API key may not call these, and they
+// run one-at-a-time (see MCP_Http_IsSerialTool).
+STATIC FUNCTION MCP_Http_IsWriteTool( cToolName )
    LOCAL cName := Lower( AllTrim( cToolName ) )
 RETURN cName == "set_supplier_holiday" .OR. ;
        cName == "book_shipping_confirmation" .OR. ;
        cName == "add_delivery_schedule" .OR. ;
-       cName == "confirm_purchase_order" .OR. ;
-       cName == "get_current_user"
+       cName == "confirm_purchase_order"
+
+// Tools that must run one-at-a-time: every write tool, plus the ones that
+// read/switch the process-global Trader user context (Tr_GetIni(28) /
+// SystemUser). Every other tool is a pure read and runs concurrently.
+STATIC FUNCTION MCP_Http_IsSerialTool( cToolName )
+RETURN MCP_Http_IsWriteTool( cToolName ) .OR. ;
+       Lower( AllTrim( cToolName ) ) == "get_current_user"
 
 // Tool name of a tools/call request ("" for anything else).
 STATIC FUNCTION MCP_Http_ReqToolName( hReq )
@@ -575,15 +581,16 @@ STATIC FUNCTION MCP_Http_LoadKeys()
 RETURN s_hMcpKeys
 
 // Check the Authorization header against the key table and resolve the
-// Trader user. Returns NIL when the request may proceed (nUser/cUserName by
-// reference; nUser stays 0 when authentication is disabled), otherwise the
-// error text for the 401 response.
-STATIC FUNCTION MCP_Http_Auth( hHeaders, cUrlKey, nUser, cUserName )
+// Trader user. Returns NIL when the request may proceed (nUser/cUserName/
+// lReadOnly by reference; nUser stays 0 and lReadOnly .F. when authentication
+// is disabled), otherwise the error text for the 401 response.
+STATIC FUNCTION MCP_Http_Auth( hHeaders, cUrlKey, nUser, cUserName, lReadOnly )
    LOCAL hKeys := MCP_Http_LoadKeys()
    LOCAL cAuth, cApiKey, xEntry
 
    nUser := 0
    cUserName := ""
+   lReadOnly := .F.
 
    IF hKeys == NIL
       IF ! s_lMcpAuthWarned
@@ -614,6 +621,10 @@ STATIC FUNCTION MCP_Http_Auth( hHeaders, cUrlKey, nUser, cUserName )
       nUser := xEntry["user"]
       IF HHasKey( xEntry, "name" ) .AND. ValType( xEntry["name"] ) == "C"
          cUserName := xEntry["name"]
+      ENDIF
+      // A key can be marked read-only: its requests may call read tools only.
+      IF HHasKey( xEntry, "readonly" ) .AND. ValType( xEntry["readonly"] ) == "L"
+         lReadOnly := xEntry["readonly"]
       ENDIF
    ENDCASE
    IF nUser <= 0
@@ -656,7 +667,7 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    LOCAL nCL, cBody, cBuf, nGot
    LOCAL cOrigin, cSessionId
    LOCAL aCors
-   LOCAL cAuthErr, nAuthUser := 0, cAuthName := ""
+   LOCAL cAuthErr, nAuthUser := 0, cAuthName := "", lReadOnly := .F.
    LOCAL cUrlKey := "", cQPart
    LOCAL lQuiet, cPeer
 
@@ -672,6 +683,7 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    t_cReqPeer := cPeer
    t_nReqUser := 0
    t_cReqName := ""
+   t_lReqReadOnly := .F.
 
    IF ! lQuiet
       MCP_Http_Log( "Eingehende Verbindung von " + cPeer )
@@ -844,7 +856,7 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    // parse on a 401; a JSON-RPC error object here makes them fail ("expected
    // string, received object"). The right client setup is a static header
    // (e.g. mcp-remote --header "Authorization: Bearer <key>").
-   cAuthErr := MCP_Http_Auth( hHeaders, cUrlKey, @nAuthUser, @cAuthName )
+   cAuthErr := MCP_Http_Auth( hHeaders, cUrlKey, @nAuthUser, @cAuthName, @lReadOnly )
    IF cAuthErr != NIL
       MCP_Http_Log( "  401: " + cAuthErr + IIF( lQuiet, " [" + cPeer + "]", "" ) )
       AAdd( aCors, 'WWW-Authenticate: Bearer realm="Trader MCP", error="invalid_token", error_description="' + cAuthErr + '"' )
@@ -859,8 +871,10 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    // serial-lane tools switch it, under the serialize lock (DispatchSerial).
    t_nReqUser := nAuthUser
    t_cReqName := cAuthName
+   t_lReqReadOnly := lReadOnly
    IF nAuthUser > 0 .AND. ! lQuiet
-      MCP_Http_Log( "  Benutzer: " + cAuthName + " (" + LTrim( Str( nAuthUser ) ) + ")" )
+      MCP_Http_Log( "  Benutzer: " + cAuthName + " (" + LTrim( Str( nAuthUser ) ) + ")" + ;
+         IIF( lReadOnly, " [read-only]", "" ) )
    ENDIF
 
    // The worker's per-connection RECOVER (MCP_Http_Worker) catches dispatch
@@ -1025,6 +1039,13 @@ STATIC FUNCTION MCP_Http_DispatchOne( hReq, cSessionId, lIsInitialize, cNewSessi
    IF cMethod == "initialize"
       lIsInitialize := .T.
       cNewSession := MCP_Http_NewSession()
+   ENDIF
+
+   // A read-only API key may not call write tools.
+   IF cMethod == "tools/call" .AND. t_lReqReadOnly .AND. MCP_Http_IsWriteTool( MCP_Http_ReqToolName( hReq ) )
+      RETURN CreateErrorResponse( "This API key is read-only - the write tool '" + ;
+         MCP_Http_ReqToolName( hReq ) + "' is not permitted", ;
+         IIF( HHasKey( hReq, "id" ), hReq["id"], "" ) )
    ENDIF
 
    // Write / user-context tools go through the serialized lane; everything

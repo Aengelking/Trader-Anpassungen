@@ -136,6 +136,7 @@ server can read it:
   "keys": {
     "K7f3x…long-random-string…":  { "user": 5, "name": "Amos" },
     "Q9zd…another-random-key…":   { "user": 12, "name": "Elias" },
+    "S1de…sidekick-key…":         { "user": 9, "name": "Sidekick", "readonly": true },
     "legacy-short-form-key":      7
   }
 }
@@ -143,6 +144,11 @@ server can read it:
 
 * `user` is the Trader user (buyer) record number; the user must exist and be
   active. The short form (key → number) is also accepted.
+* `readonly: true` restricts a key to **read tools only** — the write tools
+  (`set_supplier_holiday`, `book_shipping_confirmation`,
+  `add_delivery_schedule`, `confirm_purchase_order`) return a JSON-RPC error
+  ("This API key is read-only …"). Recommended for external integrations such
+  as chayns/Sidekick, where all users share the one key's identity.
 * As soon as the file contains at least one key, every `POST` must send
   `Authorization: Bearer <key>` (a bare key without `Bearer` is accepted
   too); anything else gets `401`. `OPTIONS` (CORS preflight) and
@@ -232,6 +238,14 @@ server {
 ```
 
 ## HTTPS with IIS (Windows)
+
+> **Engelking deployment note:** the public site is already served by IIS from
+> the `Trader-www` repo, and that server has **URL Rewrite but not ARR** and
+> uses small `.ashx` forwarding handlers (see `webui/api.ashx`). A ready-to-use,
+> no-ARR MCP handler lives in **`Trader-www/mcp/`** (`mcp.ashx` + `web.config` +
+> `DEPLOY-MCP-IIS.md`): mount that folder as the `/mcp` IIS application
+> (anonymous auth) and register `https://<host>/mcp` in chayns. Use the generic
+> ARR variant below only if you prefer a dedicated proxy site.
 
 Since Trader runs on Windows, IIS is often the most convenient proxy — it can
 terminate TLS and forward to the localhost listener. IIS is not a reverse proxy

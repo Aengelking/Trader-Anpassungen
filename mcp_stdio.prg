@@ -4023,16 +4023,16 @@ FUNCTION MCP_Tool_Add_Delivery_Schedule(hArgs)
    // (same as BestellungConfirm.prg). Wrapped in a transaction for atomicity.
    LETO_BEGINTRANSACTION()
    BEGIN SEQUENCE
+      // Inside a LETO transaction the records must stay locked until commit -
+      // LETO_COMMITTRANSACTION() unlocks them (and LETO_ROLLBACK() on error).
+      // Calling dbUnLock() here would release them mid-transaction and the
+      // save would fail; that was the bug behind the generic error.
       FOR EACH hE IN aParsed
-         IF ! bdel->(Add_Rec(0))
-            cErr := "Could not append/lock a besdel record (Add_Rec returned .F.)"
-            Break( NIL )
-         ENDIF
+         bdel->(Add_Rec(0))   // append + lock (canonical usage: called as a statement)
          bdel->Besnr := nPo
          bdel->Posnr := nPos
          bdel->Lterm := hE[1]
          bdel->Qty   := hE[2]
-         bdel->(dbUnLock())
          AAdd(aOut, {"week"=>StrZero(hE[1], 4), "quantity"=>hE[2]})
       NEXT
       bes->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))
@@ -4041,7 +4041,6 @@ FUNCTION MCP_Tool_Add_Delivery_Schedule(hArgs)
          Break( NIL )
       ENDIF
       bes->Lterm := nLastWeek
-      bes->(dbUnLock())
       IF LETO_COMMITTRANSACTION()
          lOk := .T.
       ELSE

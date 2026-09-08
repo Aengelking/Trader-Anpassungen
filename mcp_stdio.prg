@@ -3909,6 +3909,7 @@ FUNCTION MCP_Tool_Add_Delivery_Schedule(hArgs)
    LOCAL nBeQty, nExisting := 0, nNewSum := 0, nLastWeek := 0, nWk, nQty, nCurLterm := 0
    LOCAL aParsed := {}, aOut := {}
    LOCAL lHasFolge := .F., dTemp, lOk := .F., cErr := ""
+   LOCAL oErr
    LOCAL nOldSelect := Select()
 
    // Return schema and description when called without arguments
@@ -4023,7 +4024,10 @@ FUNCTION MCP_Tool_Add_Delivery_Schedule(hArgs)
    LETO_BEGINTRANSACTION()
    BEGIN SEQUENCE
       FOR EACH hE IN aParsed
-         bdel->(Add_Rec(0))
+         IF ! bdel->(Add_Rec(0))
+            cErr := "Could not append/lock a besdel record (Add_Rec returned .F.)"
+            Break( NIL )
+         ENDIF
          bdel->Besnr := nPo
          bdel->Posnr := nPos
          bdel->Lterm := hE[1]
@@ -4032,18 +4036,25 @@ FUNCTION MCP_Tool_Add_Delivery_Schedule(hArgs)
          AAdd(aOut, {"week"=>StrZero(hE[1], 4), "quantity"=>hE[2]})
       NEXT
       bes->(DbSeek(Str(nPo, 6) + Str(nPos, 3)))
-      bes->(Rec_Lock(0))
+      IF ! bes->(Rec_Lock(0))
+         cErr := "Could not lock the purchase-order position (bes Rec_Lock returned .F.)"
+         Break( NIL )
+      ENDIF
       bes->Lterm := nLastWeek
       bes->(dbUnLock())
       IF LETO_COMMITTRANSACTION()
          lOk := .T.
       ELSE
          LETO_ROLLBACK()
-         cErr := "Saving the delivery schedule failed (commit) - nothing was saved"
+         cErr := "Saving the delivery schedule failed (LETO commit returned .F.) - nothing was saved"
       ENDIF
-   RECOVER
+   RECOVER USING oErr
       BEGIN SEQUENCE ; LETO_ROLLBACK() ; RECOVER ; END SEQUENCE
-      cErr := "Saving the delivery schedule failed (record locked or model error) - nothing was saved"
+      // Surface the real error instead of a generic message (the previous
+      // "record locked or model error" hid the actual cause).
+      IF Empty( cErr )
+         cErr := "Saving the delivery schedule failed: " + _MCP_ErrText( oErr ) + " - nothing was saved"
+      ENDIF
    END SEQUENCE
 
    IF ! lOk
@@ -5344,6 +5355,17 @@ FUNCTION MCP_Tool_List_Unposted_Incoming_Invoices(hArgs)
          IIF(nLief > 0, " for supplier " + AllTrim(Str(nLief)), "")
    ENDIF
 RETURN hResult
+
+// Format a caught error object as "SubSystem/GenCode Description (Operation)"
+// for diagnostic messages. Tolerates a non-object break value.
+STATIC FUNCTION _MCP_ErrText(oErr)
+   IF ! HB_IsObject(oErr)
+      RETURN "unknown error"
+   ENDIF
+RETURN IIF(Empty(oErr:SubSystem), "?", oErr:SubSystem) + "/" + ;
+       LTrim(Str(IIF(HB_IsNumeric(oErr:GenCode), oErr:GenCode, 0))) + ;
+       IIF(Empty(oErr:Description), "", " " + HB_StrToUTF8(oErr:Description)) + ;
+       IIF(Empty(oErr:Operation), "", " (" + HB_StrToUTF8(oErr:Operation) + ")")
 
 // Convert all string values in a hash from OEM to ANSI
 STATIC FUNCTION _HashToUtf8(hHash)

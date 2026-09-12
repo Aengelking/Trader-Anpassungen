@@ -29,7 +29,7 @@ PROCEDURE RUN_AGORUM_ADRESSE()
    LOCAL nReOrd, nNo, dDat, nX
    LOCAL oAgorum, oRechnung, oAddress, oExtra
    LOCAL cMatch, nNummer, cUUID
-   LOCAL hRet, nResponse := 0, cResponse := "", cData := ""
+   LOCAL hRet, hData, nResponse := 0, cResponse := "", cData := ""
 
    CLS
    Head("Agorum: Adressabgleich pruefen")
@@ -108,6 +108,21 @@ PROCEDURE RUN_AGORUM_ADRESSE()
             ELSE
                cOut += "        SaveAddress: FEHLER " + LTrim(Str(oAgorum:nError)) ;
                      + " - " + oAgorum:cErrorText + CRLF
+
+               /*  SaveAddress meldet nur Status und Statustext. Die eigentliche
+                *  Begruendung steht im Response-Body, den es wegwirft - also
+                *  denselben Aufruf noch einmal direkt absetzen und cData zeigen.
+                *  Bei einem 500 entsteht dabei nichts, was nicht schon versucht
+                *  wurde.                                                       */
+               hData := _AdressDaten(oAddress)
+               cOut += "        gesendet   : " + hb_jsonEncode(hData) + CRLF
+               nResponse := 0
+               cResponse := ""
+               cData     := ""
+               oAgorum:Execute("engelking.customers.customerService.noauth","POST", ;
+                               hData,@nResponse,@cResponse,@cData)
+               cOut += "        Antwort    : " + LTrim(Str(nResponse)) + " " + cResponse + CRLF
+               cOut += "        Body       : " + Left(cData,800) + CRLF
             ENDIF
          ENDIF
          LOOP
@@ -145,3 +160,27 @@ PROCEDURE RUN_AGORUM_ADRESSE()
    Inkey(5)
 
 RETURN
+
+/*  Baut denselben Datensatz, den AgorumCustomApi:SaveAddress sendet - damit
+ *  sichtbar wird, was der Server zu verdauen bekommt.                     */
+STATIC FUNCTION _AdressDaten(oAddress)
+   LOCAL cTyp := IF(oAddress:Group == "L","supplier","customer")
+   LOCAL hData := {=>}
+   LOCAL hContacts, hContact
+
+   hData["ek_"+cTyp+"_name"]   := hb_strtoutf8(Trim(Trim(oAddress:Name1)+" "+oAddress:Name2))
+   hData["ek_"+cTyp+"_number"] := LTrim(Str(oAddress:Nummer,6))
+   hData["ek_matchcode"]       := hb_strtoutf8(Trim(oAddress:Kunde))
+   hData["ek_"+cTyp+"_mail_addresses"] := {}
+   IF ! Empty(oAddress:Email)
+      Aadd(hData["ek_"+cTyp+"_mail_addresses"],Trim(oAddress:Email))
+   ENDIF
+   oAddress:GotoRec()
+   hContacts := GetAddressContacts(.F.,.T.)
+   FOR EACH hContact IN hContacts
+      IF ! Empty(hContact["email"]) .AND. ;
+         ! Trim(hContact["email"]) $ hData["ek_"+cTyp+"_mail_addresses"]
+         Aadd(hData["ek_"+cTyp+"_mail_addresses"],Trim(hContact["email"]))
+      ENDIF
+   NEXT
+RETURN hData

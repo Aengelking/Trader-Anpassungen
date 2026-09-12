@@ -4,3 +4,6 @@ cleverreach_token.json
 # Windows-relative include path ..\hooks\archive.ch in mcp_stdio.prg)
 ..\\hooks\\archive.ch
 supabase/logs
+
+# Auswertungsausgabe von agorum_status.prg (Laufergebnis, kein Quelltext)
+agorum_status.txt

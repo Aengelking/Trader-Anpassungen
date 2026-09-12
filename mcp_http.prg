@@ -580,6 +580,31 @@ STATIC FUNCTION MCP_Http_LoadKeys()
    s_cMcpKeysStamp := cStamp
 RETURN s_hMcpKeys
 
+// Resolve a Trader user (buyer record number) from an e-mail address, for the
+// OAuth path: the buyer's Email field is matched case-insensitively and the
+// user must be active. cName is returned by reference; 0 when not found. The
+// buyer record number is the user id used throughout (Tr_GetIni(28), DbGoTo).
+STATIC FUNCTION MCP_Http_UserByEmail( cEmail, cName )
+   LOCAL nUser := 0, nOld := Select()
+   LOCAL cWant := Lower( AllTrim( cEmail ) )
+
+   cName := ""
+   IF Empty( cWant )
+      RETURN 0
+   ENDIF
+   NetUse( "buyer", "buy" )
+   buy->( DbGoTop() )
+   DO WHILE ! buy->( Eof() )
+      IF buy->Aktive .AND. Lower( AllTrim( buy->Email ) ) == cWant
+         nUser := buy->( RecNo() )
+         cName := AllTrim( buy->Buyer )
+         EXIT
+      ENDIF
+      buy->( DbSkip() )
+   ENDDO
+   DbSelectArea( nOld )
+RETURN nUser
+
 // Check the Authorization header against the key table and resolve the
 // Trader user. Returns NIL when the request may proceed (nUser/cUserName/
 // lReadOnly by reference; nUser stays 0 and lReadOnly .F. when authentication
@@ -668,6 +693,7 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    LOCAL cOrigin, cSessionId
    LOCAL aCors
    LOCAL cAuthErr, nAuthUser := 0, cAuthName := "", lReadOnly := .F.
+   LOCAL cEmail
    LOCAL cUrlKey := "", cQPart
    LOCAL lQuiet, cPeer
 
@@ -848,6 +874,30 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
          ENDIF
          cBody += Left( cBuf, nGot )
       ENDDO
+   ENDIF
+
+   // OAuth path (public endpoint via mcp.ashx): the IIS handler has already
+   // validated the Keycloak JWT and passes the caller's e-mail in X-Auth-Email.
+   // We trust it because port 8765 is localhost-only and only mcp.ashx forwards
+   // here. Map the e-mail to a Trader user and act as that user. This is the
+   // OAuth-only path; the API-key path below stays for direct/local use.
+   IF HHasKey( hHeaders, "X-AUTH-EMAIL" ) .AND. ! Empty( hHeaders["X-AUTH-EMAIL"] )
+      cEmail := AllTrim( hHeaders["X-AUTH-EMAIL"] )
+      nAuthUser := MCP_Http_UserByEmail( cEmail, @cAuthName )
+      IF nAuthUser == 0
+         MCP_Http_Log( "  403: kein aktiver Trader-Benutzer fuer " + cEmail + IIF( lQuiet, " [" + cPeer + "]", "" ) )
+         MCP_Http_Send( hSocket, 403, "application/json", ;
+            hb_jsonEncode( {"error"=>"no_trader_user", "error_description"=>"No active Trader user for " + cEmail} ), aCors )
+         RETURN NIL
+      ENDIF
+      t_nReqUser := nAuthUser
+      t_cReqName := cAuthName
+      t_lReqReadOnly := .F.   // authenticated per-user identity acts as itself
+      IF ! lQuiet
+         MCP_Http_Log( "  OAuth-Benutzer: " + cAuthName + " (" + LTrim( Str( nAuthUser ) ) + ") <" + cEmail + ">" )
+      ENDIF
+      MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
+      RETURN NIL
    ENDIF
 
    // Per-user API-key authentication (mcp_keys.json); see above. The 401 body

@@ -25,6 +25,7 @@ PROCEDURE RUN_AGORUM_STATUS()
    LOCAL nMaxList := 200      //Notbremse, falls die Luecke doch gross ist
    LOCAL cToken, cFile, nX
    LOCAL cReDir, lDatei
+   LOCAL oAdrExtra, nAdrK := 0, nAdrL := 0, nAdrKId := 0, nAdrLId := 0
 
    CLS
    Head("Agorum: Bestandsaufnahme")
@@ -207,6 +208,41 @@ PROCEDURE RUN_AGORUM_STATUS()
                + "   " + Trim(aOffen[nX,3]) + CRLF
       NEXT
    ENDIF
+   cOut += CRLF
+
+   /*  ---------- 2c. Adressbestand ----------
+    *  Agorum nimmt einen Beleg nur an, wenn die Adresse dort existiert.
+    *  Fuer eine Migration des Altbestands ist das die Vorbedingung.      */
+
+   ? "Zaehle Adressen..."
+   NetUse("engkund","ku")
+   ku->(dbSetOrder(0))
+   ku->(dbGoTop())
+   DO WHILE ! ku->(Eof())
+      IF ! ku->(Deleted()) .AND. ku->Group $ {"K","L"}
+         oAdrExtra := ku->(ExtraData():New(ku->Nummer))
+         IF ku->Group == "K"
+            nAdrK ++
+            IF ! Empty(Trim(oAdrExtra:AgorumId))
+               nAdrKId ++
+            ENDIF
+         ELSE
+            nAdrL ++
+            IF ! Empty(Trim(oAdrExtra:AgorumId))
+               nAdrLId ++
+            ENDIF
+         ENDIF
+      ENDIF
+      ku->(dbSkip())
+   ENDDO
+
+   cOut += "ADRESSBESTAND (Vorbedingung fuer jede Belegablage)" + CRLF
+   cOut += "  " + PadR("Gruppe",10) + PadL("in Trader",11) + PadL("in Agorum",11) ;
+         + PadL("fehlen",9) + PadL("Quote",8) + CRLF
+   cOut += "  " + PadR("Kunden",10) + Str(nAdrK,11) + Str(nAdrKId,11) ;
+         + Str(nAdrK-nAdrKId,9) + Str(nAdrKId*100/Max(nAdrK,1),7,1) + "%" + CRLF
+   cOut += "  " + PadR("Lieferanten",10) + Str(nAdrL,11) + Str(nAdrLId,11) ;
+         + Str(nAdrL-nAdrLId,9) + Str(nAdrLId*100/Max(nAdrL,1),7,1) + "%" + CRLF
    cOut += CRLF
 
    /*  ---------- 3. Konfiguration ---------- */

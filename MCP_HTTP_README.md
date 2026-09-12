@@ -122,9 +122,26 @@ the time / age of the last request; "aktiv" means a request within the last
 120 seconds. A `Neuer Client verbunden` line is logged the first time a session
 is seen. The table is pruned after an hour of inactivity per client.
 
-## Authentication: per-user API keys (no OAuth)
+## Authentication: OAuth (per-user) vs. API keys
 
-Without further setup the server is **open** — anyone who can reach the port
+There are two ways the acting Trader user is determined:
+
+1. **OAuth (per-user)** — used for the public endpoint. An IIS handler
+   (`Trader-www/mcp/mcp.ashx`) terminates TLS, validates the caller's Keycloak
+   JWT (issuer, audience, RS256 via JWKS), and forwards the request to this
+   server on `127.0.0.1:8765` with the caller's e-mail in an **`X-Auth-Email`**
+   header. When that header is present this server maps the e-mail to the
+   active Trader user (buyer) with that Email and acts as that user
+   (`MCP_Http_UserByEmail`). Each person signs in with their own M365 account,
+   so writes are stamped to the real user. Trust is safe because 8765 is
+   localhost-only and only `mcp.ashx` (after verifying the JWT) sets the header
+   — never expose 8765 publicly. Setup: `Trader-www/mcp/DEPLOY-MCP-IIS.md`
+   (Keycloak + Entra + IIS on `https://api.engelking.de:2000/mcp`).
+
+2. **API keys** — for direct/local use (STDIO, or hitting 8765 without the
+   OAuth proxy). See below.
+
+Without either the server is **open** — anyone who can reach the port
 can call every tool under the user context of the process that started the
 server. To restore per-user boundaries, create `mcp_keys.json` in the
 **config folder below the data path** (`<DATA>\config\mcp_keys.json`).

@@ -5,6 +5,7 @@ FUNCTION RUN_SYNC_SUPABASE_LIQUIDITY(cUserId)
    LOCAL aInvItems
    LOCAL aCustOrdItems
    LOCAL aCustInvItems
+   LOCAL aPaidInvItems
    LOCAL aBookings
    LOCAL aBookingBatches
    LOCAL hBody
@@ -69,6 +70,12 @@ FUNCTION RUN_SYNC_SUPABASE_LIQUIDITY(cUserId)
    aCustInvItems := _CollectGuarded("Customer Invoices", {|| _CollectCustomerInvoiceItems() }, @aFailed)
    ? "Customer Invoices gesammelt:", Len(aCustInvItems)
    AEval(aCustInvItems, {|hItem| AAdd(aItems, hItem)})
+
+   //Bezahlte Rechnungen ab 2026: nicht fuer den Liquiditaetsplan, sondern
+   //damit die Zahlungszuordnung ihren Gegenpart findet.
+   aPaidInvItems := _CollectGuarded("Paid Customer Invoices", {|| _CollectPaidCustomerInvoiceItems() }, @aFailed)
+   ? "Bezahlte Kundenrechnungen gesammelt:", Len(aPaidInvItems)
+   AEval(aPaidInvItems, {|hItem| AAdd(aItems, hItem)})
 
    IF GetConfigValue("FIRMNO") == 1
       aBookings := _CollectGuarded("Lexware Buchungen", {|| _CollectLexwareBookings(Year(Date())) }, @aFailed)
@@ -570,7 +577,6 @@ STATIC FUNCTION _CollectCustomerInvoiceItems()
    LOCAL dDueDate
    LOCAL nKuNummer
    LOCAL nRechnr
-   LOCAL lBezahlt
 
    NetUse("rechnung", "reh")
    NetUse("englsre","re")
@@ -593,16 +599,7 @@ STATIC FUNCTION _CollectCustomerInvoiceItems()
 
       nAmount := Round(oRechnung:Brutto - oRechnung:Zahlbetrag, 2)
 
-      lBezahlt := _FieldValue("reh", "BEZAHLT", .F.)
-
-      //Bezahlte Rechnungen ab 2026 gehen mit. Finova braucht das ganze
-      //Rechnungsbuch, nicht nur den heute offenen Ausschnitt: eine
-      //Zahlung gehoert fast immer zu einer Rechnung, die hier laengst
-      //ausgeglichen ist, und ohne sie findet die Zuordnung ihren
-      //Gegenpart nicht. Auf den Liquiditaetsplan wirkt sich das nicht
-      //aus - der liest nur offene Posten.
-      IF (nAmount != 0 .AND. ! lBezahlt) .OR. ;
-         (lBezahlt .AND. Year(oRechnung:Rechdat) >= 2026)
+      IF nAmount != 0 .AND. ! _FieldValue("reh", "BEZAHLT", .F.)
          nRelevant++
 
          cCurrency := _CurrencyISO(_FieldValue("reh", "MONEY", "E"))
@@ -642,16 +639,14 @@ STATIC FUNCTION _CollectCustomerInvoiceItems()
          hItem["vat_handling"] := "standard"
          hItem["currency"] := cCurrency
          hItem["due_date"] := _IsoDate(dDueDate)
-         IF lBezahlt
-            hItem["payment_probability"] := 0
-         ELSEIF Date()-365 > oRechnung:Rechdat //alte Gutschriften eher unwahrscheinlich
+         IF Date()-365 > oRechnung:Rechdat //alte Gutschriften eher unwahrscheinlich
             hItem["payment_probability"] := Max(0.8-(Year(Date())-Year(oRechnung:Rechdat))*0.2,0)
          ELSEIF Abs(oRechnung:Brutto-oRechnung:Zahlbetrag) < Abs(oRechnung:Brutto * 0.05) //fast vollst„ndig bezahlt
             hItem["payment_probability"] := 0.01
          ELSE
             hItem["payment_probability"] := 0.95
          ENDIF
-         hItem["status"] := IF(lBezahlt, "paid", "open")
+         hItem["status"] := "open"
          hItem["paid_amount"] := Max(0, Round(oRechnung:Zahlbetrag, 2))
          hItem["company_id"] := GetConfigValue("FIRMNO")
          AAdd(aItems, hItem)
@@ -661,6 +656,114 @@ STATIC FUNCTION _CollectCustomerInvoiceItems()
    ENDDO
 
    ? "[CI][RH] Gelesen:", nScanned, "Relevant:", nRelevant, "Items:", Len(aItems)
+
+RETURN aItems
+
+STATIC FUNCTION _CollectPaidCustomerInvoiceItems()
+   //Bezahlte Kundenrechnungen ab 2026.
+   //
+   //Finova braucht das ganze Rechnungsbuch, nicht nur den heute offenen
+   //Ausschnitt: eine Zahlung gehoert fast immer zu einer Rechnung, die die
+   //Buchhaltung laengst gebucht hat. Ohne sie findet die Zuordnung ihren
+   //Gegenpart nicht - 654 der 763 ungeklaerten Zahlungseingaenge nennen
+   //eine Rechnungsnummer, zu der es in Finova keinen Posten mehr gibt.
+   //
+   //Bewusst ein eigener Durchlauf statt einer Erweiterung von
+   //_CollectCustomerInvoiceItems: dessen Filter laesst bezahlte Rechnungen
+   //gar nicht erst durch (Code < 3 .AND. Status <= 1), und an diesem Filter
+   //haengt der Liquiditaetsplan. Ihn zu weiten hiesse, die Kernaufgabe der
+   //App anzufassen, um eine Nebenaufgabe zu bedienen.
+   //
+   //Bezahlt ist laut model/rechnung.prg: Code >= 3 .AND. Status == 3.
+   //
+   //Die Schleife laeuft bis EOF und filtert Positionszeilen ueber den
+   //Filter statt ueber eine Abbruchbedingung. Damit haengt sie an keiner
+   //Indexreihenfolge - anders als der offene Sammler, der bei der ersten
+   //Positionszeile stehenbleibt.
+   LOCAL aItems := {}
+   LOCAL hCustomerNames := {=>}
+   LOCAL nScanned := 0
+   LOCAL nRelevant := 0
+   LOCAL hItem
+   LOCAL cKundma
+   LOCAL cCurrency
+   LOCAL cCustomerName
+   LOCAL cRef
+   LOCAL oRechnung
+   LOCAL nWait
+   LOCAL nKuNummer
+   LOCAL nRechnr
+
+   NetUse("rechnung", "reh")
+   NetUse("englsre","re")
+   NetUse("engkund", "ku")
+   NetUse("skontoa", "sk")
+
+   ku->(dbSetOrder(8))
+   re->(dbSetOrder(5))
+   re->(dbSetFilter({|| re->Reposnr == 0 .AND. re->Code >= 3 .AND. ;
+                        re->Status == 3 .AND. Year(re->Rechdat) >= 2026}, ;
+                    "Reposnr == 0 .AND. Code >= 3 .AND. Status == 3 .AND. Year(Rechdat) >= 2026"))
+   re->(dbGoTop())
+
+   ? "[CIP][RH] Sammle bezahlte Kundenrechnungen ab 2026 ..."
+
+   DO WHILE ! re->(EOF())
+      nScanned++
+      reh->(dbSeek(Str(re->Rechnr,6)))
+
+      oRechnung := Rechnung():New()
+      oRechnung:Load(re->Rechnr)
+
+      nRelevant++
+      cCurrency := _CurrencyISO(_FieldValue("reh", "MONEY", "E"))
+      nRechnr := _FieldValue("reh", "RECHNR", 0)
+      nKuNummer := _FieldValue("reh", "KUNUMMER", 0)
+      cKundma := _FieldValue("reh", "KUNDE", "")
+
+      IF nKuNummer != 0 .AND. ku->(dbSeek(Str(nKuNummer, 6)))
+         cKundma := ku->Kunde
+      ELSEIF ! Empty(cKundma)
+         ku->(dbSetOrder(1))
+         IF ku->(dbSeek(Pad(cKundma, 8) + "K"))
+            nKuNummer := ku->Nummer
+         ENDIF
+         ku->(dbSetOrder(8))
+      ENDIF
+
+      cCustomerName := IF(! Empty(cKundma), _GetCustomerName(cKundma, hCustomerNames), "Debitor " + LTrim(Str(nKuNummer)))
+
+      nWait := 0
+      IF ! Empty(cKundma) .AND. ku->(dbSetOrder(1), dbSeek(Pad(cKundma,8)+"K"))
+         nWait := sk->(GetSkontoWait(ku->Skonto, _FieldValue("reh", "RECHDAT", Date()), Date()))
+         ku->(dbSetOrder(8))
+      ENDIF
+
+      hItem := {=>}
+      cRef := "RE" + StrZero(nRechnr,6)
+      hItem["erp_reference"] := cRef
+      hItem["type"] := "customer_invoice"
+      hItem["counterparty_name"] := hb_StrToUTF8(Trim(cCustomerName))
+      hItem["amount"] := oRechnung:Brutto
+      hItem["net_amount"] := oRechnung:Brutto - oRechnung:Mwst
+      hItem["vat_key"] := oRechnung:MwstRate
+      hItem["vat_amount"] := oRechnung:Mwst
+      hItem["vat_handling"] := "standard"
+      hItem["currency"] := cCurrency
+      hItem["due_date"] := _IsoDate(oRechnung:Rechdat + nWait)
+      //Bezahlt - faellt in keine Vorschau mehr.
+      hItem["payment_probability"] := 0
+      hItem["status"] := "paid"
+      hItem["paid_amount"] := Max(0, Round(oRechnung:Zahlbetrag, 2))
+      hItem["company_id"] := GetConfigValue("FIRMNO")
+      AAdd(aItems, hItem)
+
+      re->(dbSkip())
+   ENDDO
+
+   re->(dbClearFilter())
+
+   ? "[CIP][RH] Gelesen:", nScanned, "Relevant:", nRelevant, "Items:", Len(aItems)
 
 RETURN aItems
 

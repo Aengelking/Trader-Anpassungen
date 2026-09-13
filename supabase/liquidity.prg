@@ -19,6 +19,15 @@ FUNCTION RUN_SYNC_SUPABASE_LIQUIDITY(cUserId)
    LOCAL nItemsSynced := 0
    LOCAL nBookingsSynced := 0
    LOCAL nErrors := 0
+   LOCAL aFailed := {}
+   LOCAL lComplete
+   LOCAL cFailed := ""
+   //Kennzeichnet diesen Lauf. erp-push schreibt sie an jeden gelieferten
+   //Posten; im letzten Batch gilt als abgeschlossen, was sie nicht traegt.
+   //Bewusst eine Kennung und kein Zeitstempel: ein Zeitstempel aus dieser
+   //Zeitzone koennte auf dem Server in der Zukunft liegen, und dann waere
+   //kein einziger Posten mehr "geliefert".
+   LOCAL cSyncRun := DToS(Date()) + StrTran(Time(), ":", "")
 
    Default(@cUserId, "")
 
@@ -29,7 +38,11 @@ FUNCTION RUN_SYNC_SUPABASE_LIQUIDITY(cUserId)
    ENDIF
 
    IF Empty(cUserId)
-      Tr_MsgBox("Kein Liquidity user_id konfiguriert (LIQUIDITY_USER_ID)")
+      ? "ABBRUCH: Kein Liquidity user_id konfiguriert (LIQUIDITY_USER_ID)"
+      //Tr_MsgBox blockiert im Nachtlauf auf einem Dialog, den niemand wegklickt
+      IF ! GetConfigValue("BATCHMODE")
+         Tr_MsgBox("Kein Liquidity user_id konfiguriert (LIQUIDITY_USER_ID)")
+      ENDIF
       RETURN .F.
    ENDIF
 
@@ -37,25 +50,38 @@ FUNCTION RUN_SYNC_SUPABASE_LIQUIDITY(cUserId)
    ? "Liquidity Sync gestartet:", DToC(Date()), Time()
    ? "User:", cUserId
 
-   aItems := _CollectPurchaseOrderItems()
+   //Jeder Sammler laeuft abgesichert: faellt eine Quelle aus (typischer Fall
+   //im Nachtlauf: die Lexware-ODBC-Verbindung steht unter dem Dienstkonto
+   //nicht zur Verfuegung), wird sie uebersprungen statt den ganzen Lauf
+   //abzubrechen. Ob eine Quelle gefehlt hat, steuert weiter unten, ob nicht
+   //gelieferte Posten abgeschlossen werden.
+   aItems := _CollectGuarded("Purchase Orders", {|| _CollectPurchaseOrderItems() }, @aFailed)
    ? "Purchase Orders gesammelt:", Len(aItems)
 
-  aInvItems := _CollectPurchaseInvoiceItems()
-  ? "Purchase Invoices gesammelt:", Len(aInvItems)
-  AEval(aInvItems, {|hItem| AAdd(aItems, hItem)})
+   aInvItems := _CollectGuarded("Purchase Invoices", {|| _CollectPurchaseInvoiceItems() }, @aFailed)
+   ? "Purchase Invoices gesammelt:", Len(aInvItems)
+   AEval(aInvItems, {|hItem| AAdd(aItems, hItem)})
 
-  aCustOrdItems := _CollectCustomerOrderItems()
-  ? "Customer Orders gesammelt:", Len(aCustOrdItems)
-  AEval(aCustOrdItems, {|hItem| AAdd(aItems, hItem)})
+   aCustOrdItems := _CollectGuarded("Customer Orders", {|| _CollectCustomerOrderItems() }, @aFailed)
+   ? "Customer Orders gesammelt:", Len(aCustOrdItems)
+   AEval(aCustOrdItems, {|hItem| AAdd(aItems, hItem)})
 
-  aCustInvItems := _CollectCustomerInvoiceItems()
-  ? "Customer Invoices gesammelt:", Len(aCustInvItems)
-  AEval(aCustInvItems, {|hItem| AAdd(aItems, hItem)})
-  
-  IF GetConfigValue("FIRMNO") == 1
-     aBookings := _CollectLexwareBookings(2026)
-     ? "Lexware Buchungen gesammelt:", Len(aBookings)
-  ENDIF
+   aCustInvItems := _CollectGuarded("Customer Invoices", {|| _CollectCustomerInvoiceItems() }, @aFailed)
+   ? "Customer Invoices gesammelt:", Len(aCustInvItems)
+   AEval(aCustInvItems, {|hItem| AAdd(aItems, hItem)})
+
+   IF GetConfigValue("FIRMNO") == 1
+      aBookings := _CollectGuarded("Lexware Buchungen", {|| _CollectLexwareBookings(Year(Date())) }, @aFailed)
+      ? "Lexware Buchungen gesammelt:", Len(aBookings)
+   ENDIF
+
+   lComplete := Len(aFailed) == 0
+   IF ! lComplete
+      AEval(aFailed, {|c| cFailed += IF(Empty(cFailed), "", ", ") + c})
+      ? "WARNUNG: Unvollstaendige Sammlung. Ausgefallen:", cFailed
+      ? "WARNUNG: Posten werden nicht abgeschlossen - bestehende Eintraege"
+      ? "         in Liquidity bleiben stehen und werden nur aktualisiert."
+   ENDIF
 
    ? "Gesamt Items fr Upload:", Len(aItems)
 
@@ -89,9 +115,25 @@ FUNCTION RUN_SYNC_SUPABASE_LIQUIDITY(cUserId)
       hBody["user_id"] := cUserId
       hBody["items"] := aBatchItems
       hBody["bookings"] := aBatchBookings
-      hBody["replace_all"] := (nBatch == 1)
+      //replace_all loeschte in erp-push ALLE erp_items und legte sie neu an -
+      //mit neuen IDs und ohne Historie. Abgeloest durch close_missing:
+      //erp-push schliesst ab, was dieser Lauf nicht geliefert hat. Die
+      //Posten bleiben damit erhalten, und eine bezahlte Rechnung ist weiter
+      //auffindbar, statt zu verschwinden.
+      //
+      //Nur nach vollstaendiger Sammlung: sonst gaelten die Posten der
+      //ausgefallenen Quelle als "nicht mehr geliefert" und verschwaenden
+      //aus dem Liquiditaetsbild.
+      hBody["replace_all"] := .F.
+      hBody["sync_run_id"] := cSyncRun
+      hBody["close_missing"] := (nBatch == nBatchCount) .AND. lComplete
       hBody["replace_all_bookings"] := .F.
       hBody["sync_accounts"] := (nBatch == 1)  //trigger the syncing of bank accounts
+      //Zahlungszuordnung zuletzt: bis zum letzten Batch ist das
+      //Rechnungsbuch unvollstaendig, und der Matcher wuerde eine Zahlung
+      //an den falschen Posten desselben Kunden haengen. Ohne lComplete
+      //fehlt eine ganze Quelle - dasselbe Problem.
+      hBody["run_matching"] := (nBatch == nBatchCount) .AND. lComplete
 
       ? "Sende Batch", nBatch, "von", nBatchCount, "(Items:", Len(aBatchItems), "Bookings:", Len(aBatchBookings), ")"
 
@@ -130,7 +172,11 @@ FUNCTION RUN_SYNC_SUPABASE_LIQUIDITY(cUserId)
       ENDIF
    NEXT
 
-   ? "Liquidity Sync erfolgreich."
+   IF lComplete
+      ? "Liquidity Sync erfolgreich."
+   ELSE
+      ? "Liquidity Sync abgeschlossen - UNVOLLSTAENDIG:", cFailed
+   ENDIF
    ? "ERP Elemente:", LTrim(Str(nItemsSynced))
    ? "Kostenbuchungen:", LTrim(Str(nBookingsSynced))
    ? "Fehler:", LTrim(Str(nErrors))
@@ -139,6 +185,57 @@ FUNCTION RUN_SYNC_SUPABASE_LIQUIDITY(cUserId)
       Sinkey(0)
    ENDIF
 RETURN .T.
+
+STATIC FUNCTION _CollectGuarded(cLabel, bCollect, aFailed)
+   //Ruft einen Sammler ab und faengt jeden Laufzeitfehler ab. Ohne diese
+   //Klammer reisst z.B. eine nicht erreichbare Lexware-ODBC-Quelle den
+   //kompletten Nachtlauf mit - dann wird gar nichts uebertragen.
+   //Die ausgefallene Quelle landet in aFailed; der Aufrufer laesst daraufhin
+   //replace_all weg, damit die bereits uebertragenen Posten dieser Quelle
+   //nicht aus dem Liquiditaetsbild geloescht werden.
+   LOCAL xResult
+   LOCAL oErr
+
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      xResult := Eval(bCollect)
+   RECOVER USING oErr
+      xResult := {}
+      AAdd(aFailed, cLabel)
+      ? "FEHLER in Sammler '" + cLabel + "':"
+      IF ValType(oErr) == "O"
+         ? "   ", _ErrText(oErr)
+      ENDIF
+      ? "   Quelle wird uebersprungen, der Lauf geht weiter."
+   END SEQUENCE
+
+   IF ValType(xResult) != "A"
+      xResult := {}
+   ENDIF
+
+RETURN xResult
+
+STATIC FUNCTION _ErrText(oErr)
+   //Fehlerobjekt in eine Protokollzeile. Jede Eigenschaft einzeln abgesichert:
+   //ein Fehler beim Aufbereiten des Fehlers waere besonders aergerlich.
+   LOCAL cText := ""
+
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      cText := AllTrim(oErr:Description)
+      IF ! Empty(oErr:Operation)
+         cText += " (" + AllTrim(oErr:Operation) + ")"
+      ENDIF
+      IF ValType(oErr:SubSystem) == "C" .AND. ! Empty(oErr:SubSystem)
+         cText += " [" + AllTrim(oErr:SubSystem) + "]"
+      ENDIF
+   RECOVER
+      cText := "Fehlerdetails nicht lesbar"
+   END SEQUENCE
+
+   IF Empty(cText)
+      cText := "Unbekannter Fehler"
+   ENDIF
+
+RETURN cText
 
 STATIC FUNCTION _CollectLexwareBookings(nYear)
    LOCAL aBookings := {}
@@ -231,6 +328,7 @@ STATIC FUNCTION _CollectPurchaseOrderItems()
    LOCAL nItem
    LOCAL lSpread_over_period
    LOCAL lImport, nMwst, nVatRate
+   LOCAL lPrePay   //war undeklariert: Zugriff lief ueber einen Memvar
 
    NetUse("engbes", "bes")
    NetUse("engkund", "ku")
@@ -472,6 +570,7 @@ STATIC FUNCTION _CollectCustomerInvoiceItems()
    LOCAL dDueDate
    LOCAL nKuNummer
    LOCAL nRechnr
+   LOCAL lBezahlt
 
    NetUse("rechnung", "reh")
    NetUse("englsre","re")
@@ -494,7 +593,16 @@ STATIC FUNCTION _CollectCustomerInvoiceItems()
 
       nAmount := Round(oRechnung:Brutto - oRechnung:Zahlbetrag, 2)
 
-      IF nAmount != 0 .AND. ! _FieldValue("reh", "BEZAHLT", .F.)
+      lBezahlt := _FieldValue("reh", "BEZAHLT", .F.)
+
+      //Bezahlte Rechnungen ab 2026 gehen mit. Finova braucht das ganze
+      //Rechnungsbuch, nicht nur den heute offenen Ausschnitt: eine
+      //Zahlung gehoert fast immer zu einer Rechnung, die hier laengst
+      //ausgeglichen ist, und ohne sie findet die Zuordnung ihren
+      //Gegenpart nicht. Auf den Liquiditaetsplan wirkt sich das nicht
+      //aus - der liest nur offene Posten.
+      IF (nAmount != 0 .AND. ! lBezahlt) .OR. ;
+         (lBezahlt .AND. Year(oRechnung:Rechdat) >= 2026)
          nRelevant++
 
          cCurrency := _CurrencyISO(_FieldValue("reh", "MONEY", "E"))
@@ -534,14 +642,16 @@ STATIC FUNCTION _CollectCustomerInvoiceItems()
          hItem["vat_handling"] := "standard"
          hItem["currency"] := cCurrency
          hItem["due_date"] := _IsoDate(dDueDate)
-         IF Date()-365 > oRechnung:Rechdat //alte Gutschriften eher unwahrscheinlich
+         IF lBezahlt
+            hItem["payment_probability"] := 0
+         ELSEIF Date()-365 > oRechnung:Rechdat //alte Gutschriften eher unwahrscheinlich
             hItem["payment_probability"] := Max(0.8-(Year(Date())-Year(oRechnung:Rechdat))*0.2,0)
          ELSEIF Abs(oRechnung:Brutto-oRechnung:Zahlbetrag) < Abs(oRechnung:Brutto * 0.05) //fast vollst„ndig bezahlt
             hItem["payment_probability"] := 0.01
          ELSE
             hItem["payment_probability"] := 0.95
          ENDIF
-         hItem["status"] := "open"
+         hItem["status"] := IF(lBezahlt, "paid", "open")
          hItem["paid_amount"] := Max(0, Round(oRechnung:Zahlbetrag, 2))
          hItem["company_id"] := GetConfigValue("FIRMNO")
          AAdd(aItems, hItem)
@@ -586,6 +696,7 @@ STATIC FUNCTION _CollectPurchaseInvoiceItemsFromLexware()
    LOCAL nPaidAmount
    LOCAL lStarted
    LOCAL cBeleg
+   LOCAL lPrePay   //war undeklariert: Zugriff lief ueber einen Memvar
 
    NetUse("fibu", "fibu")
    NetUse("engkund", "ku")

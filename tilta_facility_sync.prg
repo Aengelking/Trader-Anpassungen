@@ -19,18 +19,20 @@
  *  Aenderung durch, gibt es keine Mail.
  *
  *  Zweiter Teil: der Finanzierungsstand der eingereichten Rechnungen. Ein 201
- *  beim Einreichen heisst nur, dass Tilta die Rechnung angenommen hat - ob
- *  tatsaechlich finanziert wird, steht im Invoice-Objekt unter services[] mit
- *  service_type FINANCING. Wichtig sind REJECTED (Ware ist raus, Geld kommt
- *  nicht), ein haengendes IN_REVIEW samt requirements (was fehlt) und PAID_OUT
- *  mit dem tatsaechlichen Vorschussbetrag nach Gebuehren.
+ *  beim Einreichen heisst nur, dass Tilta die Rechnung angenommen hat -
+ *  finanziert wird sie durch einen Service vom Typ FINANCING
+ *  (GET /v1/invoices/{id}/services). Wichtig sind REJECTED (Ware ist raus,
+ *  Geld kommt nicht), ein haengendes IN_REVIEW samt requirements (was fehlt),
+ *  PAID_OUT mit dem tatsaechlichen Vorschussbetrag nach Gebuehren - und der
+ *  Fall, dass gar kein Service beantragt wurde: dann liegt die Rechnung nur
+ *  im Portal.
  *
  *  Im Batchmodus laeuft alles ohne Rueckfrage, interaktiv steht das Ergebnis
  *  zusaetzlich auf dem Bildschirm.
  *****************************************************************************/
 
 #define TILTA_SYNC_BLOCK   50      //so viele Buyer je Aufruf
-#define TILTA_REVIEW_DAYS   3      //ab so vielen Tagen gilt IN_REVIEW als haengend
+#define TILTA_REVIEW_DAYS   3      //ab so vielen Tagen gilt ein Vorgang als haengend
 
 PROCEDURE Run_Tilta_Facility_Sync()
 
@@ -196,8 +198,27 @@ LOCAL nOpen := 0, nNotSent := 0
          LOOP
       ENDIF
       cSt  := IF(HHasKey(hFac,"status") .AND. ValType(hFac["status"]) == "C",hFac["status"],"?")
-      cFin := __TiltaFinInfo(hFac,@nAdv,@cReq)
       nOpen++
+
+      /*  Der Finanzierungsstand haengt nicht an der Rechnung, sondern am
+       *  Service. Kein Service heisst: die Rechnung liegt bei Tilta, aber
+       *  niemand hat Geld dafuer beantragt - genau das muss auffallen.  */
+      cBody := __TiltaCall("invoices/"+LTrim(Str(nRe))+"/services","GET",NIL,@nResponse,@cResponse)
+      DO CASE
+      CASE nResponse == 200
+         cFin := __TiltaSvcInfo(cBody,@nAdv,@cReq)
+         IF Empty(cFin)
+            cFin := "NICHT BEANTRAGT"
+         ENDIF
+      CASE nResponse == 404
+         cFin := "NICHT BEANTRAGT"
+         nAdv := 0
+         cReq := ""
+      OTHERWISE
+         ? "FEHLER Service",LTrim(Str(nRe)),"HTTP "+LTrim(Str(nResponse)),cResponse
+         nErrors++
+         LOOP
+      ENDCASE
 
       cWho := "RE "+LTrim(Str(nRe))
       IF reh->(dbSeek( Str(nRe,6) ))
@@ -217,8 +238,9 @@ LOCAL nOpen := 0, nNotSent := 0
          Aadd(aChanges,Pad(cWho,24)+" Finanzierung "+AllTrim(hOld[cRe]["fin"])+" -> "+AllTrim(cFin)+ ;
                        IF(AllTrim(cFin) == "PAID_OUT" .AND. nAdv != 0,", ausgezahlt "+__TiltaMoney(nAdv),"")+ ;
                        IF(Empty(cReq),""," - offen: "+cReq))
-      ELSEIF AllTrim(cFin) == "IN_REVIEW" .AND. Date() - SToD(cSince) >= TILTA_REVIEW_DAYS
-         Aadd(aChanges,Pad(cWho,24)+" haengt seit "+LTrim(Str(Date()-SToD(cSince)))+" Tagen in IN_REVIEW"+ ;
+      ELSEIF (AllTrim(cFin) == "IN_REVIEW" .OR. AllTrim(cFin) == "NICHT BEANTRAGT") ;
+             .AND. Date() - SToD(cSince) >= TILTA_REVIEW_DAYS
+         Aadd(aChanges,Pad(cWho,24)+" haengt seit "+LTrim(Str(Date()-SToD(cSince)))+" Tagen: "+AllTrim(cFin)+ ;
                        IF(Empty(cReq),""," - offen: "+cReq))
       ENDIF
    NEXT
@@ -279,63 +301,16 @@ STATIC FUNCTION __TiltaJoin(aList,cSep)
    NEXT
 RETURN cOut
 
-/*  Status des FINANCING-Service aus dem Invoice-Objekt ziehen, dazu den
- *  Vorschussbetrag (nach Gebuehren) und die offenen Voraussetzungen.
- *  Laut Doku kommen services[] nur "when expanded" mit - fehlt das Feld,
- *  bleibt der Status leer statt dass es knallt.                          */
-STATIC FUNCTION __TiltaFinInfo(hInv,nAdvance,cReq)
-   LOCAL xServ, hS, nX
-
-   nAdvance := 0
-   cReq     := ""
-   IF ValType(hInv) != "H" .OR. ! HHasKey(hInv,"services")
-      RETURN ""
-   ENDIF
-   xServ := hInv["services"]
-   IF ValType(xServ) != "A"
-      RETURN ""
-   ENDIF
-   FOR nX := 1 TO Len(xServ)
-      hS := xServ[nX]
-      IF ValType(hS) == "H" .AND. HHasKey(hS,"service_type") .AND. hS["service_type"] == "FINANCING"
-         IF HHasKey(hS,"advance") .AND. ValType(hS["advance"]) == "H" .AND. HHasKey(hS["advance"],"value")
-            nAdvance := hS["advance"]["value"]
-         ENDIF
-         IF HHasKey(hS,"requirements")
-            cReq := __TiltaReqText(hS["requirements"])
-         ENDIF
-         RETURN IF(HHasKey(hS,"status") .AND. ValType(hS["status"]) == "C",hS["status"],"")
-      ENDIF
-   NEXT
-RETURN ""
-
-/*  Offene Voraussetzungen als kurzer Text - die Elemente koennen Zeichenketten
- *  oder Objekte sein, deshalb defensiv.                                   */
-STATIC FUNCTION __TiltaReqText(xReq)
-   LOCAL cOut := "", nX, x
-   IF ValType(xReq) != "A"
-      RETURN ""
-   ENDIF
-   FOR nX := 1 TO Len(xReq)
-      x := xReq[nX]
-      IF ValType(x) == "C"
-         cOut += IF(Empty(cOut),"",", ")+x
-      ELSEIF ValType(x) == "H"
-         IF HHasKey(x,"type") .AND. ValType(x["type"]) == "C"
-            cOut += IF(Empty(cOut),"",", ")+x["type"]
-         ELSEIF HHasKey(x,"code") .AND. ValType(x["code"]) == "C"
-            cOut += IF(Empty(cOut),"",", ")+x["code"]
-         ENDIF
-      ENDIF
-   NEXT
-RETURN Left(cOut,60)
-
 /*  Ist der Finanzierungsvorgang fuer uns abgeschlossen? Dann braucht er keinen
  *  Aufruf mehr. PAID_OUT gilt als erledigt: das Geld ist da. Was der Kunde
  *  danach an Tilta zahlt, zeigt die Fazilitaet.                           */
 STATIC FUNCTION __TiltaFinDone(cFin)
    LOCAL aDone := {"PAID_OUT","SETTLED","REJECTED","CANCELLED","COLLECTED", ;
                    "CLAIM_PAID","CLAIM_DENIED","UNCOLLECTIBLE","COVER_EXPIRED"}
+                                                //NICHT BEANTRAGT fehlt hier
+                                                //absichtlich: das bleibt in
+                                                //Beobachtung, bis jemand die
+                                                //Finanzierung beantragt hat.
    LOCAL nX
    IF ValType(cFin) != "C" .OR. Empty(cFin)
       RETURN .F.

@@ -13,6 +13,8 @@ LOCAL cErrorList := ""
 //END OF SETTINGS
 
 LOCAL nRec,nTotal,cText
+LOCAL aFina := {},nSub,nRe,hSub
+LOCAL cTilta := "",cTiltaErr := ""
 
 #include "noworking.ch"
 
@@ -24,6 +26,60 @@ NetUse("contacts","conts")
 
 Head(t("Rechnungsversand"))
 
+
+/*  Factoring: gepackte Rechnungen im Status FINA erst bei Tilta einreichen -
+ *  anlegen, Belege hochladen, Finanzierung beantragen. Das ersetzt den
+ *  Handbetrieb aus RUN_FACTORING: Mail lesen, im Portal hochladen, freigeben.
+ *
+ *  Eine erfolgreich eingereichte Rechnung hat danach keinen Status FINA mehr
+ *  und wird deshalb von der Versandschleife unten mitgenommen - derselbe Lauf
+ *  reicht ein und verschickt. Was nicht durchgeht, behaelt FINA und geht damit
+ *  nicht raus, genau wie bisher, wenn niemand freigegeben hat; diese Faelle
+ *  kommen per Mail.
+ *
+ *  Bewusst ein eigener Durchgang VOR der Schleife: run\tilta_submit.prg
+ *  arbeitet in denselben Arbeitsbereichen, das darf eine laufende Schleife
+ *  nicht unter sich haben. Der Ausschnitt ist derselbe wie beim Versand
+ *  (nLast Tage), damit alte Haenger nicht jede Nacht neu gemeldet werden - die
+ *  stehen in RUN_CHECK_FACTORING.                                          */
+NetUse("rechnung","reh")
+reh->(dbSetOrder( 1 ))
+re->(dbSetOrder( 9 ))
+re->(dbSeek( DToS(Date()-nLast), .T. ))
+DO WHILE ! re->(Eof()) .AND. re->RechDat <= Date()
+   IF re->Reposnr == 0 .AND. re->Packed .AND. re->PosWt != 0
+      nRe := re->Rechnr
+      IF reh->(dbSeek( Str(nRe,6) )) .AND. reh->State == "FINA"
+         Aadd(aFina,nRe)
+      ENDIF
+   ENDIF
+   re->(dbSkip())
+ENDDO
+
+IF Len(aFina) > 0
+   @ 11,10 SAY "Factoring bei Tilta anmelden"
+   FOR nSub := 1 TO Len(aFina)
+      @ 11,40 SAY aFina[nSub]
+      hSub := NIL
+      BEGIN SEQUENCE WITH {|e| Break(e)}
+         hSub := MBaseRun(Path("run\tilta_submit.prg"),{aFina[nSub]})
+      RECOVER
+         hSub := NIL
+      END SEQUENCE
+
+      IF ValType(hSub) != "H" .OR. ! HHasKey(hSub,"ok")
+         cTiltaErr += Str(aFina[nSub],6)+" Einreichen abgebrochen"+Chr(13)+Chr(10)
+         cTilta    += Str(aFina[nSub],6)+" Einreichen abgebrochen"+Chr(13)+Chr(10)
+      ELSE
+         cTilta += Str(aFina[nSub],6)+" "+__TiltaLogLine(hSub)+Chr(13)+Chr(10)
+         IF ! hSub["ok"]
+            cTiltaErr += Str(aFina[nSub],6)+" "+__TiltaLogLine(hSub)+Chr(13)+Chr(10)
+         ENDIF
+      ENDIF
+   NEXT
+   @ 11,40 CLEAR TO 11,MaxCol()
+   ? "Factoring eingereicht:",LTrim(Str(Len(aFina))),"Rechnungen geprueft"
+ENDIF
 
 @ 11,10 SAY t("Überprüfung und Versand")
 
@@ -100,6 +156,16 @@ ENDDO
 //   Inkey(0,128)
 //#endif
 
+IF ! Empty(cTiltaErr)
+   SendMail({{"amos.engelking@engelking.de","Amos"}, ;
+             {"sigrid.reichmann@engelking.de","Sigrid"}}, ;
+            "Factoring: Rechnungen nicht eingereicht", ;
+            "Diese Rechnungen konnten nicht bei Tilta eingereicht werden und sind"+Chr(13)+Chr(10)+ ;
+            "deshalb auch nicht versendet worden:"+Chr(13)+Chr(10)+Chr(13)+Chr(10)+ ;
+            cTiltaErr+Chr(13)+Chr(10)+ ;
+            "Gesamtprotokoll des Laufs:"+Chr(13)+Chr(10)+cTilta)
+ENDIF
+
 IF lError .OR. ! Empty(cList)
    IF lError
       cText := "Bei folgenden Rechnungen sind Fehler aufgetreten:"+Chr(13)+Chr(10)+cErrorList
@@ -112,6 +178,18 @@ IF lError .OR. ! Empty(cList)
       SendMail({{"GF","Geschäftsführung"}},"Rechnungsversand"+IF(lError," FEHLERHAFT",""),cText,,,2)
    ENDIF
 ENDIF
+
+/*  Protokoll von run\tilta_submit.prg einzeilig machen: die letzte Zeile sagt,
+ *  woran es lag, die vorherigen sagen, wie weit es kam.                    */
+STATIC FUNCTION __TiltaLogLine(hSub)
+   LOCAL cOut := "", nX
+   IF ValType(hSub) != "H" .OR. ! HHasKey(hSub,"log")
+      RETURN "keine Rueckmeldung"
+   ENDIF
+   FOR nX := 1 TO Len(hSub["log"])
+      cOut += IF(Empty(cOut),""," / ")+hSub["log"][nX]
+   NEXT
+RETURN IF(Empty(cOut),"keine Rueckmeldung",cOut)
 
 STATIC FUNCTION GetRechnungSumme()
    Local aEnv := SaveEnv()

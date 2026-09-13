@@ -30,7 +30,7 @@ METHOD Execute(cUrl,cMethod,hData)
 
       //split rows into fields
       AEval(aData,{|xRow,nX| 
-         aRowData := HB_ATokens(xRow,";")
+         aRowData := HB_ATokens(xRow,";",.T.,.T.)
          IF nX == 1         
             aData[1] := aRowData //save the header for later use
          ELSE  //convert row data into hash with field names from row one

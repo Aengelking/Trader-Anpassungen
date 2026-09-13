@@ -639,6 +639,10 @@ STATIC FUNCTION _CollectCustomerInvoiceItems()
          hItem["vat_handling"] := "standard"
          hItem["currency"] := cCurrency
          hItem["due_date"] := _IsoDate(dDueDate)
+         //Rechnungsdatum. Die Faelligkeit allein reicht der Zahlungs-
+         //zuordnung nicht: an ihr faellt nicht auf, wenn eine Zahlung
+         //aelter ist als die Rechnung, die ihr zugeordnet werden soll.
+         hItem["document_date"] := _IsoDate(oRechnung:Rechdat)
          IF Date()-365 > oRechnung:Rechdat //alte Gutschriften eher unwahrscheinlich
             hItem["payment_probability"] := Max(0.8-(Year(Date())-Year(oRechnung:Rechdat))*0.2,0)
          ELSEIF Abs(oRechnung:Brutto-oRechnung:Zahlbetrag) < Abs(oRechnung:Brutto * 0.05) //fast vollst„ndig bezahlt
@@ -751,6 +755,7 @@ STATIC FUNCTION _CollectPaidCustomerInvoiceItems()
       hItem["vat_handling"] := "standard"
       hItem["currency"] := cCurrency
       hItem["due_date"] := _IsoDate(oRechnung:Rechdat + nWait)
+      hItem["document_date"] := _IsoDate(oRechnung:Rechdat)
       //Bezahlt - faellt in keine Vorschau mehr.
       hItem["payment_probability"] := 0
       hItem["status"] := "paid"

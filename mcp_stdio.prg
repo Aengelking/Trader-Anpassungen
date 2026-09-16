@@ -4618,6 +4618,36 @@ STATIC FUNCTION _McpPjResolveCustomer(hArgs)
    ENDIF
 RETURN cKu
 
+// Permission on the "PROJECTS" right for the current request user. Uses
+// HasPermission (not CheckPermission, which pops a GUI MsgBox). SystemUser()
+// derives from Tr_GetIni(28); the project tools are dispatched serially so
+// that context is the authenticated request user (mcp_http.prg).
+STATIC FUNCTION _McpPjPerm(cType)
+   LOCAL oUsr := SystemUser()
+   IF ValType(oUsr) != "O"
+      RETURN .F.
+   ENDIF
+RETURN oUsr:HasPermission(cType, "PROJECTS")
+
+// Cross-session entity lock (protects against a concurrent desktop edit), the
+// same "PJ" lock the Projekt mask uses. Defensive: if the lock service is not
+// available the MCP serial dispatch still serialises writes, so proceed.
+STATIC FUNCTION _McpPjLock(nNummer)
+   LOCAL lOk := .T.
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      lOk := LockEntity("PJ", nNummer)
+   RECOVER
+      lOk := .T.
+   END SEQUENCE
+RETURN lOk
+
+STATIC FUNCTION _McpPjUnlock(nNummer)
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      UnLockEntity("PJ", nNummer)
+   RECOVER
+   END SEQUENCE
+RETURN NIL
+
 FUNCTION MCP_Tool_Get_Project(hArgs)
    LOCAL hResult := {=>}
    LOCAL nNummer, nStat
@@ -4635,6 +4665,13 @@ FUNCTION MCP_Tool_Get_Project(hArgs)
       hResult["description"] := "Retrieve a project (Projekt) by number: header (customer, contact, status, owner, " + ;
                               "sales, description, value, budget, specification, notes) plus its articles and cost " + ;
                               "entries (planned vs. calculated)"
+      RETURN hResult
+   ENDIF
+
+   IF ! _McpPjPerm("R")
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "forbidden"
+      hResult["message"] := "Missing permission to read projects (PROJECTS)"
       RETURN hResult
    ENDIF
 
@@ -4697,6 +4734,13 @@ FUNCTION MCP_Tool_Search_Projects(hArgs)
       }
       hResult["description"] := "Search projects (Projekte) by number, customer matchcode or description; returns a " + ;
                               "compact list with status name, owner/sales initials and open-task count"
+      RETURN hResult
+   ENDIF
+
+   IF ! _McpPjPerm("R")
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "forbidden"
+      hResult["message"] := "Missing permission to read projects (PROJECTS)"
       RETURN hResult
    ENDIF
 
@@ -4799,6 +4843,13 @@ FUNCTION MCP_Tool_Create_Project(hArgs)
       RETURN hResult
    ENDIF
 
+   IF ! _McpPjPerm("C")
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "forbidden"
+      hResult["message"] := "Missing permission to create projects (PROJECTS)"
+      RETURN hResult
+   ENDIF
+
    NetUse("projekte", "pj")
    cKunde := _McpPjResolveCustomer(hArgs)
    IF Empty(cKunde)
@@ -4863,6 +4914,13 @@ FUNCTION MCP_Tool_Update_Project(hArgs)
       RETURN hResult
    ENDIF
 
+   IF ! _McpPjPerm("U")
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "forbidden"
+      hResult["message"] := "Missing permission to change projects (PROJECTS)"
+      RETURN hResult
+   ENDIF
+
    IF ! HB_IsNumeric(hArgs["number"])
       RETURN "Parameter 'number' must be a number"
    ENDIF
@@ -4888,6 +4946,13 @@ FUNCTION MCP_Tool_Update_Project(hArgs)
       ENDIF
    ENDIF
 
+   IF ! _McpPjLock(nNummer)
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "locked"
+      hResult["message"] := "Project is locked (being edited elsewhere)"
+      RETURN hResult
+   ENDIF
+
    BEGIN SEQUENCE WITH {|e| Break(e)}
       oProj := pj->(Project():New())
       oProj:Load(nNummer)
@@ -4901,6 +4966,7 @@ FUNCTION MCP_Tool_Update_Project(hArgs)
       cErr := "Updating the project failed: " + _MCP_ErrText(oErr)
    END SEQUENCE
 
+   _McpPjUnlock(nNummer)
    DbSelectArea(nOldSelect)
    IF ! lOk
       hResult["status"] := "error"
@@ -4930,6 +4996,13 @@ FUNCTION MCP_Tool_Add_Project_Article(hArgs)
          "required"=>{"number"};
       }
       hResult["description"] := "Add an article to a project (projart). Provide 'article' (matchcode) or 'part_number'"
+      RETURN hResult
+   ENDIF
+
+   IF ! _McpPjPerm("U")
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "forbidden"
+      hResult["message"] := "Missing permission to change projects (PROJECTS)"
       RETURN hResult
    ENDIF
 
@@ -4982,6 +5055,13 @@ FUNCTION MCP_Tool_Add_Project_Article(hArgs)
       RETURN hResult
    ENDIF
 
+   IF ! _McpPjLock(nNummer)
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "locked"
+      hResult["message"] := "Project is locked (being edited elsewhere)"
+      RETURN hResult
+   ENDIF
+
    BEGIN SEQUENCE WITH {|e| Break(e)}
       oRec := pjart->(Record():New(.T.))
       __objSendMsg(oRec, "_Nummer", nNummer)
@@ -4993,6 +5073,7 @@ FUNCTION MCP_Tool_Add_Project_Article(hArgs)
       cErr := "Adding the project article failed: " + _MCP_ErrText(oErr)
    END SEQUENCE
 
+   _McpPjUnlock(nNummer)
    DbSelectArea(nOldSelect)
    IF ! lOk
       hResult["status"] := "error"
@@ -5023,6 +5104,13 @@ FUNCTION MCP_Tool_Remove_Project_Article(hArgs)
          "required"=>{"number"};
       }
       hResult["description"] := "Remove an article from a project (projart)"
+      RETURN hResult
+   ENDIF
+
+   IF ! _McpPjPerm("U")
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "forbidden"
+      hResult["message"] := "Missing permission to change projects (PROJECTS)"
       RETURN hResult
    ENDIF
 
@@ -5060,6 +5148,13 @@ FUNCTION MCP_Tool_Remove_Project_Article(hArgs)
       RETURN hResult
    ENDIF
 
+   IF ! _McpPjLock(nNummer)
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "locked"
+      hResult["message"] := "Project is locked (being edited elsewhere)"
+      RETURN hResult
+   ENDIF
+
    BEGIN SEQUENCE WITH {|e| Break(e)}
       pjart->(Rec_Lock())
       pjart->(dbDelete())
@@ -5069,6 +5164,7 @@ FUNCTION MCP_Tool_Remove_Project_Article(hArgs)
       cErr := "Removing the project article failed: " + _MCP_ErrText(oErr)
    END SEQUENCE
 
+   _McpPjUnlock(nNummer)
    DbSelectArea(nOldSelect)
    IF ! lOk
       hResult["status"] := "error"

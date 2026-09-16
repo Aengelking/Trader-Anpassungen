@@ -346,9 +346,14 @@ RETURN cName == "set_supplier_holiday" .OR. ;
 // Tools that must run one-at-a-time: every write tool, plus the ones that
 // read/switch the process-global Trader user context (Tr_GetIni(28) /
 // SystemUser). Every other tool is a pure read and runs concurrently.
+// get_project/search_projects are pure reads but check the caller's PROJECTS
+// permission via SystemUser(), so they need the serialised user context too.
 STATIC FUNCTION MCP_Http_IsSerialTool( cToolName )
+   LOCAL cName := Lower( AllTrim( cToolName ) )
 RETURN MCP_Http_IsWriteTool( cToolName ) .OR. ;
-       Lower( AllTrim( cToolName ) ) == "get_current_user"
+       cName == "get_current_user" .OR. ;
+       cName == "get_project" .OR. ;
+       cName == "search_projects"
 
 // Tool name of a tools/call request ("" for anything else).
 STATIC FUNCTION MCP_Http_ReqToolName( hReq )

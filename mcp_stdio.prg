@@ -4079,6 +4079,256 @@ FUNCTION MCP_Tool_Add_Delivery_Schedule(hArgs)
    hResult["message"] := AllTrim(Str(Len(aOut))) + " delivery-schedule entry(ies) added; delivery week set to " + StrZero(nLastWeek, 4)
 RETURN hResult
 
+FUNCTION MCP_Tool_Add_Supplier_Quote(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cLiefma := "", cQuoteno
+   LOCAL aPos, xP, hP, aResolved := {}, hRes, hR
+   LOCAL dFrom, dTo, nDays, nArt, nPe
+   LOCAL nRef := 0, lNewQuote := .F.
+   LOCAL oQuote, oAli, oBpr
+   LOCAL aOut := {}, hOut
+   LOCAL oErr, cErr := "", lOk := .F.
+   LOCAL nOldSelect := Select()
+   LOCAL nQnoLen
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "supplier"=>{"type"=>"string","description"=>"Supplier matchcode (Lieferant)"},;
+            "supplier_number"=>{"type"=>"number","description"=>"Supplier number (alternative to 'supplier')"},;
+            "quote_number"=>{"type"=>"string","description"=>"The supplier's own offer/quote number (Angebotsnr) - used as the reference linking the positions"},;
+            "valid_from"=>{"type"=>"string","description"=>"Validity start date YYYY-MM-DD (default today)"},;
+            "valid_to"=>{"type"=>"string","description"=>"Validity end date YYYY-MM-DD (default valid_from + valid_days)"},;
+            "valid_days"=>{"type"=>"number","description"=>"Validity in days when valid_to is not given (default 30)"},;
+            "positions"=>{"type"=>"array","description"=>"Quote positions",;
+               "items"=>{"type"=>"object","properties"=>{;
+                  "article"=>{"type"=>"string","description"=>"Article matchcode"},;
+                  "part_number"=>{"type"=>"number","description"=>"Internal article number (alternative to 'article')"},;
+                  "quantity"=>{"type"=>"number","description"=>"Quantity / price-break the price applies to"},;
+                  "price"=>{"type"=>"number","description"=>"Unit price in the supplier's price unit"},;
+                  "price_unit"=>{"type"=>"number","description"=>"Price unit (Preiseinheit, Pe) the price refers to (default 1)"},;
+                  "supplier_part_no"=>{"type"=>"string","description"=>"Supplier's part number (only used when the article-supplier link is created)"},;
+                  "lead_time_weeks"=>{"type"=>"number","description"=>"Delivery time in weeks (only used when the article-supplier link is created)"}},;
+                  "required"=>{"quantity","price"}}};
+         },;
+         "required"=>{"quote_number","positions"};
+      }
+      hResult["description"] := "Create a supplier quote (Einkaufsangebot / Lieferantenangebot): a quote header " + ;
+                              "(quote) for the supplier plus one QUOTE price row (buyprice) per position, keyed by the " + ;
+                              "supplier's quote number. If a quote with the same supplier and quote_number already " + ;
+                              "exists, the positions are appended to it. The article-supplier link (artlief) is created " + ;
+                              "automatically when it does not exist yet. Mirrors the Trader 'Einkaufsangebot' mask"
+      RETURN hResult
+   ENDIF
+
+   IF ! HHasKey(hArgs, "quote_number") .OR. Empty(AllTrim(HB_CStr(hArgs["quote_number"])))
+      RETURN "Parameter 'quote_number' (the supplier's offer number) is required"
+   ENDIF
+   cQuoteno := AllTrim(HB_CStr(hArgs["quote_number"]))
+
+   IF ! HB_IsArray(hArgs["positions"]) .OR. Len(hArgs["positions"]) == 0
+      RETURN "Parameter 'positions' must be a non-empty array of {article|part_number, quantity, price}"
+   ENDIF
+   aPos := hArgs["positions"]
+
+   NetUse("engkund", "ku")
+   NetUse("artikel", "art")
+   NetUse("artlief", "ali")
+   NetUse("buyprice", "bpr")
+   NetUse("quote", "qt")
+
+   // Resolve the supplier to the 8-char matchcode key (ku->Kunde) that Liefma /
+   // Kunde hold in artlief/buyprice/quote - same resolution as _WeResolveLiefma
+   // in wareneingang_web.prg.
+   IF HHasKey(hArgs, "supplier_number") .AND. HB_IsNumeric(hArgs["supplier_number"]) .AND. hArgs["supplier_number"] > 0
+      ku->(DbSetOrder(8))   // by supplier number
+      IF ku->(DbSeek(Str(Int(hArgs["supplier_number"]), 6)))
+         cLiefma := Pad(AllTrim(ku->Kunde), 8)
+      ENDIF
+   ELSEIF HHasKey(hArgs, "supplier") .AND. ! Empty(hArgs["supplier"])
+      ku->(DbSetOrder(1))   // by matchcode + group
+      IF ku->(DbSeek(Pad(Upper(AllTrim(HB_CStr(hArgs["supplier"]))), 8) + "L"))
+         cLiefma := Pad(AllTrim(ku->Kunde), 8)
+      ENDIF
+   ELSE
+      DbSelectArea(nOldSelect)
+      RETURN "Provide 'supplier' (matchcode) or 'supplier_number'"
+   ENDIF
+   IF Empty(cLiefma)
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Supplier not found"
+      RETURN hResult
+   ENDIF
+
+   // Validity dates
+   dFrom := Date()
+   IF HHasKey(hArgs, "valid_from") .AND. ! Empty(hArgs["valid_from"])
+      dFrom := StoD(StrTran(AllTrim(HB_CStr(hArgs["valid_from"])), "-", ""))
+      IF Empty(dFrom)
+         DbSelectArea(nOldSelect)
+         RETURN "Invalid 'valid_from' - expected YYYY-MM-DD"
+      ENDIF
+   ENDIF
+   IF HHasKey(hArgs, "valid_to") .AND. ! Empty(hArgs["valid_to"])
+      dTo := StoD(StrTran(AllTrim(HB_CStr(hArgs["valid_to"])), "-", ""))
+      IF Empty(dTo)
+         DbSelectArea(nOldSelect)
+         RETURN "Invalid 'valid_to' - expected YYYY-MM-DD"
+      ENDIF
+   ELSE
+      nDays := IIF(HHasKey(hArgs, "valid_days") .AND. HB_IsNumeric(hArgs["valid_days"]) .AND. hArgs["valid_days"] > 0, Int(hArgs["valid_days"]), 30)
+      dTo := dFrom + nDays
+   ENDIF
+   IF dTo < dFrom
+      DbSelectArea(nOldSelect)
+      RETURN "'valid_to' must not be before 'valid_from'"
+   ENDIF
+
+   // Validate and resolve every position BEFORE writing anything, so a bad
+   // position does not leave a half-created quote behind.
+   FOR EACH xP IN aPos
+      IF ! HB_IsHash(xP)
+         DbSelectArea(nOldSelect)
+         RETURN "Each position must be an object {article|part_number, quantity, price}"
+      ENDIF
+      hP := xP
+      nArt := 0
+      IF HHasKey(hP, "part_number") .AND. HB_IsNumeric(hP["part_number"]) .AND. hP["part_number"] > 0
+         art->(DbSetOrder(2))   // by article number
+         IF art->(DbSeek(Str(Int(hP["part_number"]), 6)))
+            nArt := art->Artikelnr
+         ENDIF
+      ELSEIF HHasKey(hP, "article") .AND. ! Empty(hP["article"])
+         art->(DbSetOrder(1))   // by matchcode
+         IF art->(DbSeek(Pad(Upper(AllTrim(HB_CStr(hP["article"]))), 25)))
+            nArt := art->Artikelnr
+         ENDIF
+      ENDIF
+      IF nArt == 0
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "not_found"
+         hResult["message"] := "Article not found for a position: " + ;
+            HB_CStr(IIF(HHasKey(hP, "article"), hP["article"], IIF(HHasKey(hP, "part_number"), hP["part_number"], "?")))
+         RETURN hResult
+      ENDIF
+      IF ! HB_IsNumeric(hP["quantity"]) .OR. hP["quantity"] <= 0
+         DbSelectArea(nOldSelect)
+         RETURN "Each position needs a positive 'quantity'"
+      ENDIF
+      IF ! HB_IsNumeric(hP["price"]) .OR. hP["price"] <= 0
+         DbSelectArea(nOldSelect)
+         RETURN "Each position needs a positive 'price'"
+      ENDIF
+      nPe := IIF(HHasKey(hP, "price_unit") .AND. HB_IsNumeric(hP["price_unit"]) .AND. hP["price_unit"] > 0, hP["price_unit"], 1)
+      hRes := {=>}
+      hRes["art"]        := nArt
+      hRes["matchcode"]  := AllTrim(art->Matchcode)
+      hRes["zeichnung"]  := art->Zeichnung
+      hRes["zeichindex"] := art->Zeichindex
+      hRes["qty"]        := hP["quantity"]
+      hRes["price"]      := hP["price"]
+      hRes["pe"]         := nPe
+      hRes["part_no"]    := IIF(HHasKey(hP, "supplier_part_no"), AllTrim(HB_CStr(hP["supplier_part_no"])), "")
+      hRes["lz"]         := IIF(HHasKey(hP, "lead_time_weeks") .AND. HB_IsNumeric(hP["lead_time_weeks"]), Int(hP["lead_time_weeks"]), -1)
+      AAdd(aResolved, hRes)
+   NEXT
+
+   // Create (or reuse) the quote header and write the positions. The Quote /
+   // Record ORM handles auto-numbering and record locking (Save() locks and
+   // unlocks per record), so no explicit LETO transaction here - mirrors the
+   // Quote_edit mask.
+   BEGIN SEQUENCE WITH {|oE| Break(oE)}
+      qt->(DbSetOrder(2))   // Liefma + Quoteno
+      nQnoLen := qt->(FieldLen(FieldPos("QUOTENO")))
+      IF qt->(DbSeek(cLiefma + Pad(cQuoteno, nQnoLen)))
+         nRef := qt->No
+      ELSE
+         // Same as the Quote class (model/quote.prg: "ID no INDEXORDER 1"),
+         // but built from the generic Record so the MCP build does not depend
+         // on the app-level Quote class: Record + SetID auto-numbers qt->No.
+         oQuote := qt->(Record():New(.T.))
+         oQuote:SetID("no", 1)
+         oQuote:Liefma  := cLiefma
+         oQuote:Quoteno := cQuoteno
+         oQuote:Save()
+         nRef := oQuote:No
+         lNewQuote := .T.
+      ENDIF
+
+      FOR EACH hR IN aResolved
+         // Ensure the article-supplier link (artlief) exists.
+         ali->(DbSetOrder(1))   // Kunde + Str(Artikelnr,6)
+         IF ! ali->(DbSeek(cLiefma + Str(hR["art"], 6)))
+            oAli := ali->(Record():New(.T.))
+            oAli:Kunde     := cLiefma
+            oAli:Artikelnr := hR["art"]
+            oAli:Matchcode := hR["matchcode"]
+            oAli:Priority  := 8
+            IF ! Empty(hR["part_no"])
+               oAli:ArtLief := hR["part_no"]
+            ENDIF
+            IF hR["lz"] >= 0
+               oAli:LZ := hR["lz"]
+            ENDIF
+            oAli:Save()
+         ENDIF
+
+         // Add the QUOTE price row (buyprice), keyed by the supplier quote no.
+         oBpr := bpr->(Record():New(.T.))
+         oBpr:Liefma     := cLiefma
+         oBpr:Artikelnr  := hR["art"]
+         oBpr:Qty        := hR["qty"]
+         oBpr:Price      := hR["price"]
+         oBpr:Pe         := hR["pe"]
+         oBpr:Number     := cQuoteno
+         oBpr:Type       := "QUOTE"
+         oBpr:StartDate  := dFrom
+         oBpr:EndDate    := dTo
+         oBpr:Lots       := 1
+         oBpr:LotSize    := hR["qty"]
+         oBpr:Zeichnung  := hR["zeichnung"]
+         oBpr:ZeichIndex := hR["zeichindex"]
+         oBpr:Save()
+
+         hOut := {=>}
+         hOut["article"]    := HB_StrToUTF8(hR["matchcode"])
+         hOut["quantity"]   := hR["qty"]
+         hOut["price"]      := hR["price"]
+         hOut["price_unit"] := hR["pe"]
+         AAdd(aOut, hOut)
+      NEXT
+      lOk := .T.
+   RECOVER USING oErr
+      cErr := "Saving the supplier quote failed: " + _MCP_ErrText(oErr) + " - it may be partially saved"
+   END SEQUENCE
+
+   DbSelectArea(nOldSelect)
+
+   IF ! lOk
+      hResult["status"] := "error"
+      hResult["message"] := cErr
+      RETURN hResult
+   ENDIF
+
+   // Top-level string fields are left raw; _HashToUtf8() (applied on RETURN)
+   // encodes them. Only nested strings (aOut) are pre-encoded above, since
+   // _HashToUtf8() does not recurse into arrays.
+   hResult["reference_number"] := nRef
+   hResult["supplier"]         := AllTrim(cLiefma)
+   hResult["quote_number"]     := cQuoteno
+   hResult["valid_from"]       := dFrom
+   hResult["valid_to"]         := dTo
+   hResult["new_quote"]        := lNewQuote
+   hResult["positions"]        := aOut
+   hResult["positions_added"]  := Len(aOut)
+   hResult["status"]           := "success"
+   hResult["message"]          := IIF(lNewQuote, "Supplier quote created", "Positions appended to existing supplier quote") + ;
+      " (reference " + AllTrim(Str(nRef)) + ") with " + AllTrim(Str(Len(aOut))) + " position(s)"
+RETURN _HashToUtf8(hResult)
+
 FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)
    LOCAL hResult := {=>}
    LOCAL nPo, nPos, nWeek := 0, nWk

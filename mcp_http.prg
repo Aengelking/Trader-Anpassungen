@@ -336,6 +336,7 @@ STATIC FUNCTION MCP_Http_IsWriteTool( cToolName )
 RETURN cName == "set_supplier_holiday" .OR. ;
        cName == "book_shipping_confirmation" .OR. ;
        cName == "add_delivery_schedule" .OR. ;
+       cName == "add_supplier_quote" .OR. ;
        cName == "confirm_purchase_order"
 
 // Tools that must run one-at-a-time: every write tool, plus the ones that

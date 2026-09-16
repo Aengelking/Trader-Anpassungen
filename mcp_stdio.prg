@@ -4246,11 +4246,9 @@ FUNCTION MCP_Tool_Add_Supplier_Quote(hArgs)
       IF qt->(DbSeek(cLiefma + Pad(cQuoteno, nQnoLen)))
          nRef := qt->No
       ELSE
-         // Same as the Quote class (model/quote.prg: "ID no INDEXORDER 1"),
-         // but built from the generic Record so the MCP build does not depend
-         // on the app-level Quote class: Record + SetID auto-numbers qt->No.
-         oQuote := qt->(Record():New(.T.))
-         oQuote:SetID("no", 1)
+         // Quote (model/quote.prg) is a Record subclass with "ID no INDEXORDER 1",
+         // so New(.T.) + Save() auto-numbers qt->No.
+         oQuote := Quote():New(.T.)
          oQuote:Liefma  := cLiefma
          oQuote:Quoteno := cQuoteno
          oQuote:Save()

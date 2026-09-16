@@ -4079,6 +4079,135 @@ FUNCTION MCP_Tool_Add_Delivery_Schedule(hArgs)
    hResult["message"] := AllTrim(Str(Len(aOut))) + " delivery-schedule entry(ies) added; delivery week set to " + StrZero(nLastWeek, 4)
 RETURN hResult
 
+FUNCTION MCP_Tool_Get_Supplier_Quote(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cLiefma := "", cQuoteno := ""
+   LOCAL nNoLen, nQnoLen, lFound := .F.
+   LOCAL nNo, cLief, cQno, nBuyer := 0
+   LOCAL aPos := {}, hPos
+   LOCAL oLief
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "reference_number"=>{"type"=>"number","description"=>"Quote reference number (the 'reference_number' returned by add_supplier_quote)"},;
+            "supplier"=>{"type"=>"string","description"=>"Supplier matchcode (use together with quote_number)"},;
+            "supplier_number"=>{"type"=>"number","description"=>"Supplier number (alternative to 'supplier')"},;
+            "quote_number"=>{"type"=>"string","description"=>"The supplier's quote number (use together with supplier/supplier_number)"};
+         },;
+         "anyOf"=>{{"reference_number"}, {"quote_number"}};
+      }
+      hResult["description"] := "Retrieve a supplier quote (Einkaufsangebot) by reference number, or by supplier plus " + ;
+                              "quote_number, with its QUOTE price positions (buyprice): article, quantity, price, price " + ;
+                              "unit and validity"
+      RETURN hResult
+   ENDIF
+
+   NetUse("engkund", "ku")
+   NetUse("artikel", "art")
+   NetUse("buyprice", "bpr")
+   NetUse("quote", "qt")
+
+   IF HHasKey(hArgs, "reference_number") .AND. HB_IsNumeric(hArgs["reference_number"]) .AND. hArgs["reference_number"] > 0
+      qt->(DbSetOrder(1))   // No
+      nNoLen := qt->(FieldLen(FieldPos("NO")))
+      lFound := qt->(DbSeek(Str(Int(hArgs["reference_number"]), nNoLen)))
+   ELSE
+      IF ! HHasKey(hArgs, "quote_number") .OR. Empty(AllTrim(HB_CStr(hArgs["quote_number"])))
+         DbSelectArea(nOldSelect)
+         RETURN "Provide 'reference_number', or 'quote_number' together with 'supplier'/'supplier_number'"
+      ENDIF
+      cQuoteno := AllTrim(HB_CStr(hArgs["quote_number"]))
+      IF HHasKey(hArgs, "supplier_number") .AND. HB_IsNumeric(hArgs["supplier_number"]) .AND. hArgs["supplier_number"] > 0
+         ku->(DbSetOrder(8))
+         IF ku->(DbSeek(Str(Int(hArgs["supplier_number"]), 6)))
+            cLiefma := Pad(AllTrim(ku->Kunde), 8)
+         ENDIF
+      ELSEIF HHasKey(hArgs, "supplier") .AND. ! Empty(hArgs["supplier"])
+         ku->(DbSetOrder(1))
+         IF ku->(DbSeek(Pad(Upper(AllTrim(HB_CStr(hArgs["supplier"]))), 8) + "L"))
+            cLiefma := Pad(AllTrim(ku->Kunde), 8)
+         ENDIF
+      ELSE
+         DbSelectArea(nOldSelect)
+         RETURN "Provide 'supplier' or 'supplier_number' together with 'quote_number'"
+      ENDIF
+      IF Empty(cLiefma)
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "not_found"
+         hResult["message"] := "Supplier not found"
+         RETURN hResult
+      ENDIF
+      qt->(DbSetOrder(2))   // Liefma + Quoteno
+      nQnoLen := qt->(FieldLen(FieldPos("QUOTENO")))
+      lFound := qt->(DbSeek(cLiefma + Pad(cQuoteno, nQnoLen)))
+   ENDIF
+
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Supplier quote not found"
+      RETURN hResult
+   ENDIF
+
+   // Snapshot the header before walking the positions (the loop only moves bpr).
+   nNo    := qt->No
+   cLief  := qt->Liefma
+   cQno   := qt->Quoteno
+   IF qt->(FieldPos("BUYER")) > 0
+      nBuyer := qt->Buyer
+   ENDIF
+
+   // Positions: buyprice index 4 = Liefma + Pad(Type,10) + Number, filtered to
+   // this supplier's QUOTE rows with the matching quote number (as Quote_edit).
+   bpr->(DbSetOrder(4))
+   IF bpr->(DbSeek(cLief + Pad("QUOTE", 10) + cQno))
+      DO WHILE ! bpr->(Eof()) .AND. bpr->Liefma == cLief .AND. Trim(bpr->Type) == "QUOTE" .AND. bpr->Number == cQno
+         hPos := {=>}
+         hPos["article_number"] := bpr->Artikelnr
+         art->(DbSetOrder(2))
+         IF art->(DbSeek(Str(bpr->Artikelnr, 6)))
+            hPos["article"]     := HB_StrToUTF8(AllTrim(art->Matchcode))
+            hPos["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+         ENDIF
+         hPos["quantity"]   := bpr->Qty
+         hPos["price"]      := bpr->Price
+         hPos["price_unit"] := bpr->Pe
+         hPos["unit_price"] := Round(bpr->Price / IIF(bpr->Pe == 0, 1, bpr->Pe), 4)
+         IF ! Empty(bpr->StartDate)
+            hPos["valid_from"] := bpr->StartDate
+         ENDIF
+         IF ! Empty(bpr->EndDate)
+            hPos["valid_to"] := bpr->EndDate
+         ENDIF
+         AAdd(aPos, hPos)
+         bpr->(DbSkip())
+      ENDDO
+   ENDIF
+
+   // Supplier name / number for context.
+   oLief := Adresse():New()
+   IF oLief:LoadMatchcode(Pad(AllTrim(cLief), 8), "L")
+      hResult["supplier_name"]   := HB_StrToUTF8(AllTrim(oLief:cName))
+      hResult["supplier_number"] := oLief:nummer
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["reference_number"] := nNo
+   hResult["supplier"]         := HB_StrToUTF8(AllTrim(cLief))
+   hResult["quote_number"]     := HB_StrToUTF8(AllTrim(cQno))
+   IF nBuyer > 0
+      hResult["buyer"] := nBuyer
+   ENDIF
+   hResult["positions"]        := aPos
+   hResult["positions_count"]  := Len(aPos)
+   hResult["status"]           := "found"
+RETURN hResult
+
 FUNCTION MCP_Tool_Add_Supplier_Quote(hArgs)
    LOCAL hResult := {=>}
    LOCAL cLiefma := "", cQuoteno

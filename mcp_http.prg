@@ -337,6 +337,10 @@ RETURN cName == "set_supplier_holiday" .OR. ;
        cName == "book_shipping_confirmation" .OR. ;
        cName == "add_delivery_schedule" .OR. ;
        cName == "add_supplier_quote" .OR. ;
+       cName == "create_project" .OR. ;
+       cName == "update_project" .OR. ;
+       cName == "add_project_article" .OR. ;
+       cName == "remove_project_article" .OR. ;
        cName == "confirm_purchase_order"
 
 // Tools that must run one-at-a-time: every write tool, plus the ones that

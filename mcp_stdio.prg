@@ -4456,6 +4456,631 @@ FUNCTION MCP_Tool_Add_Supplier_Quote(hArgs)
       " (reference " + AllTrim(Str(nRef)) + ") with " + AllTrim(Str(Len(aOut))) + " position(s)"
 RETURN _HashToUtf8(hResult)
 
+// ---------------------------------------------------------------------------
+// Projects (Projekte) - read/manage. Ported from projekt_web.prg (the web
+// master-detail port of Project_Browse / Project_Edit), sharing its defensive
+// field access so a renamed field degrades gracefully instead of crashing.
+// ---------------------------------------------------------------------------
+
+STATIC FUNCTION _McpPjNum(x)
+   DO CASE
+   CASE ValType(x) == "N" ; RETURN x
+   CASE ValType(x) == "C" ; RETURN Val(x)
+   ENDCASE
+RETURN 0
+
+STATIC FUNCTION _McpPjStr(x)
+   DO CASE
+   CASE ValType(x) == "M" ; RETURN x
+   CASE ValType(x) == "C" ; RETURN x
+   CASE ValType(x) == "N" ; RETURN AllTrim(Str(x))
+   CASE ValType(x) == "D" ; RETURN DtoC(x)
+   CASE ValType(x) == "L" ; RETURN IIF(x, ".T.", ".F.")
+   ENDCASE
+RETURN ""
+
+// Defensive field read: unknown field -> default (never crashes on a rename).
+STATIC FUNCTION _McpPjF(cAlias, cField, xDef)
+   LOCAL nFP := (cAlias)->(FieldPos(cField))
+   IF nFP == 0
+      RETURN xDef
+   ENDIF
+RETURN (cAlias)->(FieldGet(nFP))
+
+STATIC FUNCTION _McpPjStatusName(nStat)
+   LOCAL h := GetProjectStatusNames()
+   IF ValType(h) == "H" .AND. HB_HHasKey(h, nStat)
+      RETURN AllTrim(_McpPjStr(h[nStat]))
+   ENDIF
+RETURN "?"
+
+// User id -> initials (buyer table), like Project_Browse.
+STATIC FUNCTION _McpPjInitials(nId)
+   LOCAL c := ""
+   IF _McpPjNum(nId) == 0
+      RETURN ""
+   ENDIF
+   NetUse("buyer", "buy")
+   buy->(DbSetOrder(0))
+   IF buy->(DbGoto(nId)) == NIL .AND. ! buy->(Eof())
+      c := AllTrim(_McpPjStr(_McpPjF("buy", "INITIALS", "")))
+      IF Empty(c)
+         c := AllTrim(_McpPjStr(_McpPjF("buy", "BUYER", "")))
+      ENDIF
+   ENDIF
+RETURN c
+
+STATIC FUNCTION _McpPjKundeName(nKunde)
+   LOCAL c := ""
+   IF nKunde == 0
+      RETURN ""
+   ENDIF
+   NetUse("engkund", "ku")
+   ku->(DbSetOrder(8))
+   IF ku->(DbSeek(Str(nKunde, 6)))
+      c := AllTrim(_McpPjStr(_McpPjF("ku", "NAME1", "")))
+   ENDIF
+RETURN c
+
+// Open-task count for a project (todo order 3: REFTYPE+Str(REF,6)+DONE).
+STATIC FUNCTION _McpPjOpenTasks(nNummer)
+   LOCAL n := 0
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      NetUse("todo", "todo")
+      todo->(DbSetOrder(3))
+      IF todo->(DbSeek("PJ " + Str(nNummer, 6) + "N"))
+         DO WHILE ! todo->(Eof()) .AND. AllTrim(_McpPjStr(_McpPjF("todo", "REFTYPE", ""))) == "PJ" .AND. ;
+                  _McpPjNum(_McpPjF("todo", "REF", 0)) == nNummer
+            IF ! _McpPjF("todo", "DONE", .F.)
+               n++
+            ENDIF
+            todo->(DbSkip())
+         ENDDO
+      ENDIF
+   RECOVER
+      n := 0
+   END SEQUENCE
+RETURN n
+
+// Project articles (projart/pjart order 1: Str(Nummer,6)); resolve name/drawing.
+STATIC FUNCTION _McpPjArticles(nNummer)
+   LOCAL a := {}
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      NetUse("projart", "pjart")
+      NetUse("artikel", "art")
+      art->(DbSetOrder(2))
+      pjart->(DbSetOrder(1))
+      IF pjart->(DbSeek(Str(nNummer, 6)))
+         DO WHILE ! pjart->(Eof()) .AND. _McpPjNum(_McpPjF("pjart", "NUMMER", 0)) == nNummer
+            art->(DbSeek(Str(_McpPjNum(_McpPjF("pjart", "ARTIKELNR", 0)), 6)))
+            AAdd(a, { ;
+               "article_number" => _McpPjNum(_McpPjF("pjart", "ARTIKELNR", 0)), ;
+               "article"        => HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("pjart", "MATCHCODE", "")))), ;
+               "description"    => HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("art", "ARTIKEL", "")))), ;
+               "drawing"        => HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("art", "ZEICHNUNG", "")))), ;
+               "revision"       => HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("art", "ZEICHINDEX", "")))) })
+            pjart->(DbSkip())
+         ENDDO
+      ENDIF
+   RECOVER
+      a := {}
+   END SEQUENCE
+RETURN a
+
+// Costs (projcost/pjcst): planned vs. calculated per entry.
+STATIC FUNCTION _McpPjCosts(nNummer)
+   LOCAL a := {}, nPlan, nCalc
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      NetUse("projcost", "pjcst")
+      NetUse("engbes", "bes")
+      NetUse("engauf", "auf")
+      NetUse("reb", "reb")
+      NetUse("rechpos", "rpos")
+      NetUse("engrech", "rech")
+      NetUse("artikel", "art")
+      pjcst->(DbSeek(Str(nNummer, 6)))
+      DO WHILE ! pjcst->(Eof()) .AND. _McpPjNum(_McpPjF("pjcst", "PROJEKT", 0)) == nNummer
+         nPlan := 0 ; nCalc := 0
+         BEGIN SEQUENCE WITH {|e| Break(e)}
+            nPlan := _McpPjNum(GetProjectCostValue(.T.))
+            nCalc := _McpPjNum(GetProjectCostValue(.F.))
+         RECOVER
+            nPlan := 0 ; nCalc := 0
+         END SEQUENCE
+         AAdd(a, { ;
+            "date"    => _McpPjF("pjcst", "DATUM", CToD("")), ;
+            "type"    => AllTrim(_McpPjStr(_McpPjF("pjcst", "TYP", ""))), ;
+            "planned" => Round(nPlan, 2), ;
+            "calculated" => Round(nCalc, 2) })
+         pjcst->(DbSkip())
+      ENDDO
+   RECOVER
+      a := {}
+   END SEQUENCE
+RETURN a
+
+// Resolve a customer to its 8-char matchcode key (engkund Kunde, group "K"),
+// padded to 8 so Project:_cKunde's "ku->(DbSeek(cKunde + 'K'))" (fixed-width
+// index: matchcode(8) + group) matches.
+STATIC FUNCTION _McpPjResolveCustomer(hArgs)
+   LOCAL cKu := ""
+   NetUse("engkund", "ku")
+   IF HHasKey(hArgs, "customer_number") .AND. HB_IsNumeric(hArgs["customer_number"]) .AND. hArgs["customer_number"] > 0
+      ku->(DbSetOrder(8))
+      IF ku->(DbSeek(Str(Int(hArgs["customer_number"]), 6))) .AND. AllTrim(_McpPjStr(_McpPjF("ku", "GROUP", ""))) == "K"
+         cKu := Pad(AllTrim(_McpPjStr(_McpPjF("ku", "KUNDE", ""))), 8)
+      ENDIF
+   ELSEIF HHasKey(hArgs, "customer") .AND. ! Empty(hArgs["customer"])
+      ku->(DbSetOrder(1))
+      IF ku->(DbSeek(Pad(Upper(AllTrim(HB_CStr(hArgs["customer"]))), 8) + "K"))
+         cKu := Pad(AllTrim(_McpPjStr(_McpPjF("ku", "KUNDE", ""))), 8)
+      ENDIF
+   ENDIF
+RETURN cKu
+
+FUNCTION MCP_Tool_Get_Project(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nNummer, nStat
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "number"=>{"type"=>"number","description"=>"Project number (Projektnummer)"};
+         },;
+         "required"=>{"number"};
+      }
+      hResult["description"] := "Retrieve a project (Projekt) by number: header (customer, contact, status, owner, " + ;
+                              "sales, description, value, budget, specification, notes) plus its articles and cost " + ;
+                              "entries (planned vs. calculated)"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   nNummer := Int(hArgs["number"])
+
+   NetUse("projekte", "pj")
+   pj->(DbSetOrder(1))
+   IF nNummer <= 0 .OR. ! pj->(DbSeek(Str(nNummer, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Project not found: " + AllTrim(Str(nNummer))
+      RETURN hResult
+   ENDIF
+
+   nStat := _McpPjNum(_McpPjF("pj", "STATUS", 0))
+   hResult["number"]         := nNummer
+   hResult["customer"]       := HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("pj", "KUNDMA", ""))))
+   hResult["customer_name"]  := HB_StrToUTF8(_McpPjKundeName(_McpPjNum(_McpPjF("pj", "KUNDE", 0))))
+   hResult["customer_number"] := _McpPjNum(_McpPjF("pj", "KUNDE", 0))
+   hResult["contact"]        := _McpPjNum(_McpPjF("pj", "CONTACT", 0))
+   hResult["state"]          := nStat
+   hResult["state_name"]     := HB_StrToUTF8(_McpPjStatusName(nStat))
+   hResult["active"]         := (nStat < 7)
+   hResult["owner"]          := _McpPjNum(_McpPjF("pj", "OWNER", 0))
+   hResult["owner_initials"] := HB_StrToUTF8(_McpPjInitials(_McpPjNum(_McpPjF("pj", "OWNER", 0))))
+   hResult["sales"]          := _McpPjNum(_McpPjF("pj", "SALES", 0))
+   hResult["sales_initials"] := HB_StrToUTF8(_McpPjInitials(_McpPjNum(_McpPjF("pj", "SALES", 0))))
+   hResult["description"]    := HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("pj", "BESCHREIBU", ""))))
+   hResult["value"]          := _McpPjNum(_McpPjF("pj", "VALUE", 0))
+   hResult["budget"]         := _McpPjNum(_McpPjF("pj", "BUDGET", 0))
+   hResult["specification"]  := HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("pj", "SPEC", ""))))
+   hResult["notes"]          := HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("pj", "NOTES", ""))))
+   hResult["open_tasks"]     := _McpPjOpenTasks(nNummer)
+   hResult["articles"]       := _McpPjArticles(nNummer)
+   hResult["costs"]          := _McpPjCosts(nNummer)
+   hResult["status"]         := "found"
+
+   DbSelectArea(nOldSelect)
+RETURN hResult
+
+FUNCTION MCP_Tool_Search_Projects(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cSearch := "", lOpenOnly := .T.
+   LOCAL nMax, nCount := 0
+   LOCAL aRows := {}, nStat, cKu, cBe, lHit, nNummer
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "search"=>{"type"=>"string","description"=>"Case-insensitive substring matched against project number, customer matchcode or description"},;
+            "open_only"=>{"type"=>"boolean","description"=>"Only active projects (status < 7 paused/cancelled/archived). Default true"},;
+            "max_results"=>{"type"=>"number","description"=>"Maximum number of projects to return (default 50, max 200)"};
+         };
+      }
+      hResult["description"] := "Search projects (Projekte) by number, customer matchcode or description; returns a " + ;
+                              "compact list with status name, owner/sales initials and open-task count"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "search") .AND. ! Empty(hArgs["search"])
+      cSearch := Upper(AllTrim(HB_CStr(hArgs["search"])))
+   ENDIF
+   IF HHasKey(hArgs, "open_only") .AND. ValType(hArgs["open_only"]) == "L"
+      lOpenOnly := hArgs["open_only"]
+   ENDIF
+   nMax := IIF(HHasKey(hArgs, "max_results") .AND. HB_IsNumeric(hArgs["max_results"]), Int(hArgs["max_results"]), 50)
+   nMax := Max(1, Min(nMax, 200))
+
+   NetUse("projekte", "pj")
+   pj->(DbSetOrder(1))
+   pj->(DbGoTop())
+   DO WHILE ! pj->(Eof())
+      nStat := _McpPjNum(_McpPjF("pj", "STATUS", 0))
+      IF lOpenOnly .AND. nStat >= 7
+         pj->(DbSkip()) ; LOOP
+      ENDIF
+      nNummer := _McpPjNum(_McpPjF("pj", "NUMMER", 0))
+      IF ! Empty(cSearch)
+         cKu := Upper(AllTrim(_McpPjStr(_McpPjF("pj", "KUNDMA", ""))))
+         cBe := Upper(AllTrim(_McpPjStr(_McpPjF("pj", "BESCHREIBU", ""))))
+         lHit := (cSearch $ cKu) .OR. (cSearch $ cBe) .OR. (cSearch $ AllTrim(Str(nNummer, 6)))
+         IF ! lHit
+            pj->(DbSkip()) ; LOOP
+         ENDIF
+      ENDIF
+      IF nCount >= nMax
+         EXIT
+      ENDIF
+      AAdd(aRows, { ;
+         "number"      => nNummer, ;
+         "customer"    => HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("pj", "KUNDMA", "")))), ;
+         "state"       => nStat, ;
+         "state_name"  => HB_StrToUTF8(_McpPjStatusName(nStat)), ;
+         "owner"       => HB_StrToUTF8(_McpPjInitials(_McpPjNum(_McpPjF("pj", "OWNER", 0)))), ;
+         "sales"       => HB_StrToUTF8(_McpPjInitials(_McpPjNum(_McpPjF("pj", "SALES", 0)))), ;
+         "open_tasks"  => _McpPjOpenTasks(nNummer), ;
+         "description" => HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("pj", "BESCHREIBU", "")))) })
+      nCount++
+      pj->(DbSkip())
+   ENDDO
+
+   DbSelectArea(nOldSelect)
+   hResult["projects"] := aRows
+   hResult["count"] := Len(aRows)
+   hResult["status"] := "found"
+RETURN hResult
+
+// Apply the optional header fields present in hArgs onto a Project model
+// object (only fields whose DB column exists are set, like projekt_web.prg).
+STATIC FUNCTION _McpPjSet(oProj, cProp, xVal)
+   IF pj->(FieldPos(Upper(cProp))) > 0
+      __objSendMsg(oProj, "_" + cProp, xVal)
+   ENDIF
+RETURN NIL
+
+STATIC FUNCTION _McpPjApplyFields(oProj, hArgs)
+   IF HHasKey(hArgs, "description")   ; _McpPjSet(oProj, "Beschreibu", AllTrim(HB_CStr(hArgs["description"])))   ; ENDIF
+   IF HHasKey(hArgs, "status")        ; _McpPjSet(oProj, "Status",     _McpPjNum(hArgs["status"]))                ; ENDIF
+   IF HHasKey(hArgs, "contact")       ; _McpPjSet(oProj, "Contact",    _McpPjNum(hArgs["contact"]))               ; ENDIF
+   IF HHasKey(hArgs, "owner")         ; _McpPjSet(oProj, "Owner",      _McpPjNum(hArgs["owner"]))                 ; ENDIF
+   IF HHasKey(hArgs, "sales")         ; _McpPjSet(oProj, "Sales",      _McpPjNum(hArgs["sales"]))                 ; ENDIF
+   IF HHasKey(hArgs, "value")         ; _McpPjSet(oProj, "Value",      _McpPjNum(hArgs["value"]))                 ; ENDIF
+   IF HHasKey(hArgs, "budget")        ; _McpPjSet(oProj, "Budget",     _McpPjNum(hArgs["budget"]))                ; ENDIF
+   IF HHasKey(hArgs, "specification") ; _McpPjSet(oProj, "Spec",       AllTrim(HB_CStr(hArgs["specification"])))  ; ENDIF
+   IF HHasKey(hArgs, "notes")         ; _McpPjSet(oProj, "Notes",      AllTrim(HB_CStr(hArgs["notes"])))          ; ENDIF
+   IF HHasKey(hArgs, "closed_for")    ; _McpPjSet(oProj, "ClosedFor",  AllTrim(HB_CStr(hArgs["closed_for"])))     ; ENDIF
+RETURN NIL
+
+FUNCTION MCP_Tool_Create_Project(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cKunde, oProj, nNummer := 0
+   LOCAL oErr, cErr := "", lOk := .F.
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "customer"=>{"type"=>"string","description"=>"Customer matchcode (required, or customer_number)"},;
+            "customer_number"=>{"type"=>"number","description"=>"Customer number (alternative to 'customer')"},;
+            "description"=>{"type"=>"string","description"=>"Project description (Beschreibung)"},;
+            "status"=>{"type"=>"number","description"=>"Status: 0 open, 1 closed, 7 paused, 8 cancelled, 9 archived (default 0)"},;
+            "contact"=>{"type"=>"number","description"=>"Contact id at the customer"},;
+            "owner"=>{"type"=>"number","description"=>"Owner user id (Verantwortlich)"},;
+            "sales"=>{"type"=>"number","description"=>"Sales user id (Vertrieb)"},;
+            "value"=>{"type"=>"number","description"=>"Project value (Wert)"},;
+            "budget"=>{"type"=>"number","description"=>"Project budget"},;
+            "specification"=>{"type"=>"string","description"=>"Specification text (Spezifikation)"},;
+            "notes"=>{"type"=>"string","description"=>"Notes"};
+         },;
+         "anyOf"=>{{"customer"}, {"customer_number"}};
+      }
+      hResult["description"] := "Create a project (Projekt) for a customer via the Project model (auto-numbered). " + ;
+                              "Provide 'customer' (matchcode) or 'customer_number'; all other header fields are optional"
+      RETURN hResult
+   ENDIF
+
+   NetUse("projekte", "pj")
+   cKunde := _McpPjResolveCustomer(hArgs)
+   IF Empty(cKunde)
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Customer not found - provide 'customer' (matchcode) or 'customer_number' of an existing customer"
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      oProj := Project():New(.T.)
+      oProj:cKunde := cKunde
+      _McpPjApplyFields(oProj, hArgs)
+      oProj:Save()
+      nNummer := _McpPjNum(oProj:Nummer)
+      lOk := .T.
+   RECOVER USING oErr
+      cErr := "Creating the project failed: " + _MCP_ErrText(oErr)
+   END SEQUENCE
+
+   DbSelectArea(nOldSelect)
+   IF ! lOk
+      hResult["status"] := "error"
+      hResult["message"] := cErr
+      RETURN hResult
+   ENDIF
+   hResult["number"] := nNummer
+   hResult["customer"] := HB_StrToUTF8(AllTrim(cKunde))
+   hResult["status"] := "success"
+   hResult["message"] := "Project " + AllTrim(Str(nNummer)) + " created"
+RETURN hResult
+
+FUNCTION MCP_Tool_Update_Project(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nNummer, cKunde, oProj
+   LOCAL oErr, cErr := "", lOk := .F.
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "number"=>{"type"=>"number","description"=>"Project number to update"},;
+            "customer"=>{"type"=>"string","description"=>"Change the customer (matchcode)"},;
+            "customer_number"=>{"type"=>"number","description"=>"Change the customer (by number)"},;
+            "description"=>{"type"=>"string","description"=>"Project description"},;
+            "status"=>{"type"=>"number","description"=>"Status: 0 open, 1 closed, 7 paused, 8 cancelled, 9 archived"},;
+            "contact"=>{"type"=>"number","description"=>"Contact id"},;
+            "owner"=>{"type"=>"number","description"=>"Owner user id"},;
+            "sales"=>{"type"=>"number","description"=>"Sales user id"},;
+            "value"=>{"type"=>"number","description"=>"Project value"},;
+            "budget"=>{"type"=>"number","description"=>"Project budget"},;
+            "specification"=>{"type"=>"string","description"=>"Specification text"},;
+            "notes"=>{"type"=>"string","description"=>"Notes"},;
+            "closed_for"=>{"type"=>"string","description"=>"Closed-for reason"};
+         },;
+         "required"=>{"number"};
+      }
+      hResult["description"] := "Update an existing project's header. Only the fields you pass are changed " + ;
+                              "(partial update)"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   nNummer := Int(hArgs["number"])
+
+   NetUse("projekte", "pj")
+   pj->(DbSetOrder(1))
+   IF nNummer <= 0 .OR. ! pj->(DbSeek(Str(nNummer, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Project not found: " + AllTrim(Str(nNummer))
+      RETURN hResult
+   ENDIF
+
+   cKunde := ""
+   IF HHasKey(hArgs, "customer") .OR. HHasKey(hArgs, "customer_number")
+      cKunde := _McpPjResolveCustomer(hArgs)
+      IF Empty(cKunde)
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "not_found"
+         hResult["message"] := "Customer not found"
+         RETURN hResult
+      ENDIF
+   ENDIF
+
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      oProj := pj->(Project():New())
+      oProj:Load(nNummer)
+      IF ! Empty(cKunde)
+         oProj:cKunde := cKunde
+      ENDIF
+      _McpPjApplyFields(oProj, hArgs)
+      oProj:Save()
+      lOk := .T.
+   RECOVER USING oErr
+      cErr := "Updating the project failed: " + _MCP_ErrText(oErr)
+   END SEQUENCE
+
+   DbSelectArea(nOldSelect)
+   IF ! lOk
+      hResult["status"] := "error"
+      hResult["message"] := cErr
+      RETURN hResult
+   ENDIF
+   hResult["number"] := nNummer
+   hResult["status"] := "success"
+   hResult["message"] := "Project " + AllTrim(Str(nNummer)) + " updated"
+RETURN hResult
+
+FUNCTION MCP_Tool_Add_Project_Article(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nNummer, nArtnr := 0, cMc := ""
+   LOCAL oRec, oErr, cErr := "", lOk := .F.
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "number"=>{"type"=>"number","description"=>"Project number"},;
+            "article"=>{"type"=>"string","description"=>"Article matchcode to add"},;
+            "part_number"=>{"type"=>"number","description"=>"Internal article number (alternative to 'article')"};
+         },;
+         "required"=>{"number"};
+      }
+      hResult["description"] := "Add an article to a project (projart). Provide 'article' (matchcode) or 'part_number'"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   nNummer := Int(hArgs["number"])
+
+   NetUse("projekte", "pj")
+   NetUse("artikel", "art")
+   NetUse("projart", "pjart")
+
+   pj->(DbSetOrder(1))
+   IF ! pj->(DbSeek(Str(nNummer, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Project not found: " + AllTrim(Str(nNummer))
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "part_number") .AND. HB_IsNumeric(hArgs["part_number"]) .AND. hArgs["part_number"] > 0
+      art->(DbSetOrder(2))
+      IF art->(DbSeek(Str(Int(hArgs["part_number"]), 6)))
+         nArtnr := art->Artikelnr
+         cMc := AllTrim(art->Matchcode)
+      ENDIF
+   ELSEIF HHasKey(hArgs, "article") .AND. ! Empty(hArgs["article"])
+      art->(DbSetOrder(1))
+      IF art->(DbSeek(Pad(Upper(AllTrim(HB_CStr(hArgs["article"]))), 25)))
+         nArtnr := art->Artikelnr
+         cMc := AllTrim(art->Matchcode)
+      ENDIF
+   ELSE
+      DbSelectArea(nOldSelect)
+      RETURN "Provide 'article' (matchcode) or 'part_number'"
+   ENDIF
+   IF nArtnr == 0
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   pjart->(DbSetOrder(1))
+   IF pjart->(DbSeek(Str(nNummer, 6) + Str(nArtnr, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "exists"
+      hResult["message"] := "Article is already part of the project"
+      hResult["articles"] := _McpPjArticles(nNummer)
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      oRec := pjart->(Record():New(.T.))
+      __objSendMsg(oRec, "_Nummer", nNummer)
+      __objSendMsg(oRec, "_Artikelnr", nArtnr)
+      __objSendMsg(oRec, "_Matchcode", cMc)
+      oRec:Save()
+      lOk := .T.
+   RECOVER USING oErr
+      cErr := "Adding the project article failed: " + _MCP_ErrText(oErr)
+   END SEQUENCE
+
+   DbSelectArea(nOldSelect)
+   IF ! lOk
+      hResult["status"] := "error"
+      hResult["message"] := cErr
+      RETURN hResult
+   ENDIF
+   hResult["number"] := nNummer
+   hResult["articles"] := _McpPjArticles(nNummer)
+   hResult["status"] := "success"
+   hResult["message"] := "Article " + cMc + " added to project " + AllTrim(Str(nNummer))
+RETURN _HashToUtf8(hResult)
+
+FUNCTION MCP_Tool_Remove_Project_Article(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nNummer, nArtnr := 0
+   LOCAL oErr, cErr := "", lOk := .F.
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "number"=>{"type"=>"number","description"=>"Project number"},;
+            "part_number"=>{"type"=>"number","description"=>"Internal article number to remove"},;
+            "article"=>{"type"=>"string","description"=>"Article matchcode to remove (alternative to 'part_number')"};
+         },;
+         "required"=>{"number"};
+      }
+      hResult["description"] := "Remove an article from a project (projart)"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   nNummer := Int(hArgs["number"])
+
+   NetUse("artikel", "art")
+   NetUse("projart", "pjart")
+
+   IF HHasKey(hArgs, "part_number") .AND. HB_IsNumeric(hArgs["part_number"]) .AND. hArgs["part_number"] > 0
+      nArtnr := Int(hArgs["part_number"])
+   ELSEIF HHasKey(hArgs, "article") .AND. ! Empty(hArgs["article"])
+      art->(DbSetOrder(1))
+      IF art->(DbSeek(Pad(Upper(AllTrim(HB_CStr(hArgs["article"]))), 25)))
+         nArtnr := art->Artikelnr
+      ENDIF
+   ELSE
+      DbSelectArea(nOldSelect)
+      RETURN "Provide 'part_number' or 'article' (matchcode)"
+   ENDIF
+   IF nArtnr == 0
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   pjart->(DbSetOrder(1))
+   IF ! pjart->(DbSeek(Str(nNummer, 6) + Str(nArtnr, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article is not part of the project"
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      pjart->(Rec_Lock())
+      pjart->(dbDelete())
+      pjart->(dbUnLock())
+      lOk := .T.
+   RECOVER USING oErr
+      cErr := "Removing the project article failed: " + _MCP_ErrText(oErr)
+   END SEQUENCE
+
+   DbSelectArea(nOldSelect)
+   IF ! lOk
+      hResult["status"] := "error"
+      hResult["message"] := cErr
+      RETURN hResult
+   ENDIF
+   hResult["number"] := nNummer
+   hResult["articles"] := _McpPjArticles(nNummer)
+   hResult["status"] := "success"
+   hResult["message"] := "Article removed from project " + AllTrim(Str(nNummer))
+RETURN _HashToUtf8(hResult)
+
 FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)
    LOCAL hResult := {=>}
    LOCAL nPo, nPos, nWeek := 0, nWk

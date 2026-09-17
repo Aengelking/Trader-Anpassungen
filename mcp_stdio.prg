@@ -213,28 +213,65 @@ FUNCTION MCP_Shutdown(hRequest, xId)
    
 RETURN CreateSuccessResponse(hResult, xId)
 
+// Our tool schemas carry a compact custom "anyOf" - an array of groups, each a
+// list of property NAMES meaning "provide one of these" (validated in
+// MCP_Tools_Call). That is NOT valid JSON Schema (anyOf items must be schema
+// objects), so a strict client (chayns) rejects the whole tools/list while a
+// lenient one (Claude) ignores it. Rewrite it to valid JSON Schema before it
+// goes on the wire: one group -> anyOf of {required:[name]}; several groups ->
+// allOf of those (each group still "one of"). Runtime validation is unaffected
+// (MCP_Tools_Call reads the tool's raw schema directly).
+STATIC FUNCTION _McpSchemaForClient(hSchema)
+   LOCAL aGroups, xGroup, cName, aAny, aAll
+   IF ValType(hSchema) != "H" .OR. ! HHasKey(hSchema, "anyOf") .OR. ! HB_IsArray(hSchema["anyOf"])
+      RETURN hSchema
+   ENDIF
+   aGroups := hSchema["anyOf"]
+   IF Len(aGroups) == 0 .OR. ! HB_IsArray(aGroups[1])   // already valid (schema objects) or empty
+      RETURN hSchema
+   ENDIF
+   IF Len(aGroups) == 1
+      aAny := {}
+      FOR EACH cName IN aGroups[1]
+         AAdd(aAny, {"required"=>{cName}})
+      NEXT
+      hSchema["anyOf"] := aAny
+   ELSE
+      aAll := {}
+      FOR EACH xGroup IN aGroups
+         aAny := {}
+         FOR EACH cName IN xGroup
+            AAdd(aAny, {"required"=>{cName}})
+         NEXT
+         AAdd(aAll, {"anyOf"=>aAny})
+      NEXT
+      HDel(hSchema, "anyOf")
+      hSchema["allOf"] := aAll
+   ENDIF
+RETURN hSchema
+
 FUNCTION MCP_Tools_List(hRequest, xId)
    LOCAL aTools := {}
    LOCAL aFuncNames, cFuncName, cToolName, hTool, hToolInfo
-   
+
    // Dynamically discover all MCP_Tool_* functions
    aFuncNames := GetFunctionsWithPrefix("MCP_TOOL_")
-   
+
    FOR EACH cFuncName IN aFuncNames
       // Convert MCP_TOOL_GET_CUSTOMER to get_customer
       cToolName := Lower(SubStr(cFuncName, 10))  // Remove "MCP_TOOL_"
-      
+
       // Get schema and description from the tool function itself
       hToolInfo := HB_ExecFromArray(cFuncName, {})
-      
+
       hTool := {=>}
       hTool["name"] := cToolName
       hTool["description"] := hToolInfo["description"]
-      hTool["inputSchema"] := hToolInfo["schema"]
-      
+      hTool["inputSchema"] := _McpSchemaForClient(hToolInfo["schema"])
+
       AAdd(aTools, hTool)
    NEXT
-   
+
 RETURN CreateSuccessResponse({"tools"=>aTools}, xId)
 
 FUNCTION GetFunctionsWithPrefix(cPrefix)

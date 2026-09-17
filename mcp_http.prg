@@ -336,14 +336,29 @@ STATIC FUNCTION MCP_Http_IsWriteTool( cToolName )
 RETURN cName == "set_supplier_holiday" .OR. ;
        cName == "book_shipping_confirmation" .OR. ;
        cName == "add_delivery_schedule" .OR. ;
+       cName == "add_supplier_quote" .OR. ;
+       cName == "create_project" .OR. ;
+       cName == "update_project" .OR. ;
+       cName == "add_project_article" .OR. ;
+       cName == "remove_project_article" .OR. ;
+       cName == "archive_document" .OR. ;
        cName == "confirm_purchase_order"
 
 // Tools that must run one-at-a-time: every write tool, plus the ones that
 // read/switch the process-global Trader user context (Tr_GetIni(28) /
-// SystemUser). Every other tool is a pure read and runs concurrently.
+// SystemUser). Every other tool is a pure read and runs concurrently - the
+// per-tool permission checks use the thread-local request user, so reads
+// (projects included) stay concurrent.
 STATIC FUNCTION MCP_Http_IsSerialTool( cToolName )
 RETURN MCP_Http_IsWriteTool( cToolName ) .OR. ;
        Lower( AllTrim( cToolName ) ) == "get_current_user"
+
+// The authenticated user (buyer record number) of the request being handled on
+// THIS worker thread, or 0 when unknown. Read by the central permission gate in
+// mcp_stdio.prg so concurrent (non-serialised) read tools can check the caller's
+// Trader permissions without touching the process-global Tr_GetIni(28).
+FUNCTION MCP_Http_ReqUser()
+RETURN t_nReqUser
 
 // Tool name of a tools/call request ("" for anything else).
 STATIC FUNCTION MCP_Http_ReqToolName( hReq )

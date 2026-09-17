@@ -254,6 +254,91 @@ FUNCTION GetFunctionsWithPrefix(cPrefix)
 RETURN aFunctions
 
 
+// ---------------------------------------------------------------------------
+// Central permission gate. Each tool maps to a Trader permission (name + type
+// C/R/U/D); the caller must hold it or the tools/call is refused. The check
+// runs against the authenticated REQUEST user (thread-local, from the HTTP
+// transport) so concurrent read tools stay concurrent - it never touches the
+// process-global Tr_GetIni(28). In stdio mode it falls back to that global
+// (the single startup user). Fails closed. Project tools carry their own
+// permission check (see _McpPjPerm) and are intentionally not listed here.
+// ---------------------------------------------------------------------------
+
+STATIC FUNCTION _McpAuthUserId()
+   LOCAL nU := 0
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      nU := MCP_Http_ReqUser()   // thread-local request user (0 in stdio)
+   RECOVER
+      nU := 0
+   END SEQUENCE
+   IF nU <= 0
+      nU := Tr_GetIni(28)        // stdio / fallback: the process user
+   ENDIF
+RETURN nU
+
+STATIC FUNCTION _McpAuthHasPerm(cType, cName)
+   LOCAL nU := _McpAuthUserId()
+   LOCAL lOk := .F.
+   LOCAL oUsr
+   IF nU <= 0
+      RETURN .F.
+   ENDIF
+   // Build a User for this request's user id directly. SystemUser() keys on
+   // Tr_GetIni(28), which is only pinned to the caller under the serial
+   // dispatch - concurrent read tools would see the wrong (or default) user.
+   // User:Load(nU) does buy->(dbGoto(nU)) on the thread-local work area, so the
+   // per-request check is correct and concurrency-safe.
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      oUsr := User():New(.F.)
+      oUsr:Load(nU)
+      lOk := oUsr:HasPermission(cType, cName)
+   RECOVER
+      lOk := .F.                 // fail closed on any error resolving the right
+   END SEQUENCE
+RETURN lOk
+
+// Tool -> required { type, permission } or .F. (no gate here). Names come from
+// the app's own HasPermission/CheckPermission calls (Auftrag=SALESORDER,
+// Bestellung=PURCHASEORDER, Artikel=ART, Werksauftrag=WERKAUF, ...).
+STATIC FUNCTION _McpInList(c, aList)
+RETURN AScan(aList, {|x| x == c}) > 0   // exact match (avoids '=' prefix semantics)
+
+STATIC FUNCTION _McpToolRequiredPerm(cTool, cType, cName)
+   LOCAL c := Lower(AllTrim(cTool))
+   cType := "R" ; cName := ""
+   DO CASE
+   CASE _McpInList(c, {"get_article","search_articles","get_article_options","get_article_schedule",;
+                       "get_article_where_used","get_article_movements","get_article_suppliers",;
+                       "get_article_prices","get_article_orders","get_bom","check_stock",;
+                       "get_stock_withdrawal"})
+      cName := "ART" ; cType := "R"
+   CASE _McpInList(c, {"get_customer","search_customers","get_customer_part_number",;
+                       "get_customer_turnover"})
+      cName := "ADR_CUSTOMER" ; cType := "R"
+   CASE c == "get_supplier"
+      cName := "ADR_SUPPLIER" ; cType := "R"
+   CASE _McpInList(c, {"get_customer_orders","get_order_details"})
+      cName := "SALESORDER" ; cType := "R"
+   CASE _McpInList(c, {"get_customer_quotes","get_quote"})
+      cName := "SALESQUOTE" ; cType := "R"
+   CASE _McpInList(c, {"get_customer_invoices","get_invoice","get_customer_open_items"})
+      cName := "SALESINVOICE" ; cType := "R"
+   CASE c == "get_production_order"
+      cName := "WERKAUF" ; cType := "R"
+   CASE _McpInList(c, {"get_purchase_order","get_supplier_orders"})
+      cName := "PURCHASEORDER" ; cType := "R"
+   CASE c == "get_supplier_quote"
+      cName := "PURCHASEQUOTE" ; cType := "R"
+   CASE c == "list_unposted_incoming_invoices"
+      cName := "PURCHASEINVOICE" ; cType := "R"
+   CASE _McpInList(c, {"add_delivery_schedule","book_shipping_confirmation",;
+                       "confirm_purchase_order","set_supplier_holiday"})
+      cName := "PURCHASEORDER" ; cType := "U"
+   CASE c == "add_supplier_quote"
+      cName := "PURCHASEQUOTE" ; cType := "C"
+   ENDCASE
+RETURN ! Empty(cName)
+
 FUNCTION MCP_Tools_Call(hRequest, xId)
    LOCAL hParams := hRequest["params"]
    LOCAL cToolName := hParams["name"]
@@ -266,6 +351,7 @@ FUNCTION MCP_Tools_Call(hRequest, xId)
    LOCAL nProvidedCount := 0
    LOCAL cProvidedParams := ""
    LOCAL aContent, cChatMsg
+   LOCAL cPType, cPName
 
    
    // Convert tool name to function name: get_customer -> MCP_Tool_Get_Customer
@@ -329,6 +415,12 @@ FUNCTION MCP_Tools_Call(hRequest, xId)
       //make sure the tool is not called with no arguments, this would otherwise return the schmema
       IF hArguments == NIL .OR. ValType(hArguments) != "H" .OR. Len(hArguments) == 0
          hArguments := {"DUMMY"=>.T.}
+      ENDIF
+
+      // Permission gate: refuse the call if the caller lacks the tool's Trader
+      // permission (project tools self-gate and are not listed).
+      IF _McpToolRequiredPerm(cToolName, @cPType, @cPName) .AND. ! _McpAuthHasPerm(cPType, cPName)
+         RETURN CreateErrorResponse("Permission denied: missing " + cPName + " (" + cPType + ") for tool " + cToolName, xId)
       ENDIF
 
       MCPChatBuffer(.T.)  // fresh chat-message buffer for this call (see MCPChatMessage)
@@ -4077,6 +4169,1420 @@ FUNCTION MCP_Tool_Add_Delivery_Schedule(hArgs)
    ENDIF
    hResult["status"] := "success"
    hResult["message"] := AllTrim(Str(Len(aOut))) + " delivery-schedule entry(ies) added; delivery week set to " + StrZero(nLastWeek, 4)
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Supplier_Quote(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cLiefma := "", cQuoteno := ""
+   LOCAL nNoLen, nQnoLen, lFound := .F.
+   LOCAL nNo, cLief, cQno, nBuyer := 0
+   LOCAL aPos := {}, hPos
+   LOCAL oLief
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "reference_number"=>{"type"=>"number","description"=>"Quote reference number (the 'reference_number' returned by add_supplier_quote)"},;
+            "supplier"=>{"type"=>"string","description"=>"Supplier matchcode (use together with quote_number)"},;
+            "supplier_number"=>{"type"=>"number","description"=>"Supplier number (alternative to 'supplier')"},;
+            "quote_number"=>{"type"=>"string","description"=>"The supplier's quote number (use together with supplier/supplier_number)"};
+         },;
+         "anyOf"=>{{"reference_number"}, {"quote_number"}};
+      }
+      hResult["description"] := "Retrieve a supplier quote (Einkaufsangebot) by reference number, or by supplier plus " + ;
+                              "quote_number, with its QUOTE price positions (buyprice): article, quantity, price, price " + ;
+                              "unit and validity"
+      RETURN hResult
+   ENDIF
+
+   NetUse("engkund", "ku")
+   NetUse("artikel", "art")
+   NetUse("buyprice", "bpr")
+   NetUse("quote", "qt")
+
+   IF HHasKey(hArgs, "reference_number") .AND. HB_IsNumeric(hArgs["reference_number"]) .AND. hArgs["reference_number"] > 0
+      qt->(DbSetOrder(1))   // No
+      nNoLen := qt->(FieldLen(FieldPos("NO")))
+      lFound := qt->(DbSeek(Str(Int(hArgs["reference_number"]), nNoLen)))
+   ELSE
+      IF ! HHasKey(hArgs, "quote_number") .OR. Empty(AllTrim(HB_CStr(hArgs["quote_number"])))
+         DbSelectArea(nOldSelect)
+         RETURN "Provide 'reference_number', or 'quote_number' together with 'supplier'/'supplier_number'"
+      ENDIF
+      cQuoteno := AllTrim(HB_CStr(hArgs["quote_number"]))
+      IF HHasKey(hArgs, "supplier_number") .AND. HB_IsNumeric(hArgs["supplier_number"]) .AND. hArgs["supplier_number"] > 0
+         ku->(DbSetOrder(8))
+         IF ku->(DbSeek(Str(Int(hArgs["supplier_number"]), 6)))
+            cLiefma := Pad(AllTrim(ku->Kunde), 8)
+         ENDIF
+      ELSEIF HHasKey(hArgs, "supplier") .AND. ! Empty(hArgs["supplier"])
+         ku->(DbSetOrder(1))
+         IF ku->(DbSeek(Pad(Upper(AllTrim(HB_CStr(hArgs["supplier"]))), 8) + "L"))
+            cLiefma := Pad(AllTrim(ku->Kunde), 8)
+         ENDIF
+      ELSE
+         DbSelectArea(nOldSelect)
+         RETURN "Provide 'supplier' or 'supplier_number' together with 'quote_number'"
+      ENDIF
+      IF Empty(cLiefma)
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "not_found"
+         hResult["message"] := "Supplier not found"
+         RETURN hResult
+      ENDIF
+      qt->(DbSetOrder(2))   // Liefma + Quoteno
+      nQnoLen := qt->(FieldLen(FieldPos("QUOTENO")))
+      lFound := qt->(DbSeek(cLiefma + Pad(cQuoteno, nQnoLen)))
+   ENDIF
+
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Supplier quote not found"
+      RETURN hResult
+   ENDIF
+
+   // Snapshot the header before walking the positions (the loop only moves bpr).
+   nNo    := qt->No
+   cLief  := qt->Liefma
+   cQno   := qt->Quoteno
+   IF qt->(FieldPos("BUYER")) > 0
+      nBuyer := qt->Buyer
+   ENDIF
+
+   // Positions: buyprice index 4 = Liefma + Pad(Type,10) + Number, filtered to
+   // this supplier's QUOTE rows with the matching quote number (as Quote_edit).
+   bpr->(DbSetOrder(4))
+   IF bpr->(DbSeek(cLief + Pad("QUOTE", 10) + cQno))
+      DO WHILE ! bpr->(Eof()) .AND. bpr->Liefma == cLief .AND. Trim(bpr->Type) == "QUOTE" .AND. bpr->Number == cQno
+         hPos := {=>}
+         hPos["article_number"] := bpr->Artikelnr
+         art->(DbSetOrder(2))
+         IF art->(DbSeek(Str(bpr->Artikelnr, 6)))
+            hPos["article"]     := HB_StrToUTF8(AllTrim(art->Matchcode))
+            hPos["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+         ENDIF
+         hPos["quantity"]   := bpr->Qty
+         hPos["price"]      := bpr->Price
+         hPos["price_unit"] := bpr->Pe
+         hPos["unit_price"] := Round(bpr->Price / IIF(bpr->Pe == 0, 1, bpr->Pe), 4)
+         IF ! Empty(bpr->StartDate)
+            hPos["valid_from"] := bpr->StartDate
+         ENDIF
+         IF ! Empty(bpr->EndDate)
+            hPos["valid_to"] := bpr->EndDate
+         ENDIF
+         AAdd(aPos, hPos)
+         bpr->(DbSkip())
+      ENDDO
+   ENDIF
+
+   // Supplier name / number for context.
+   oLief := Adresse():New()
+   IF oLief:LoadMatchcode(Pad(AllTrim(cLief), 8), "L")
+      hResult["supplier_name"]   := HB_StrToUTF8(AllTrim(oLief:cName))
+      hResult["supplier_number"] := oLief:nummer
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["reference_number"] := nNo
+   hResult["supplier"]         := HB_StrToUTF8(AllTrim(cLief))
+   hResult["quote_number"]     := HB_StrToUTF8(AllTrim(cQno))
+   IF nBuyer > 0
+      hResult["buyer"] := nBuyer
+   ENDIF
+   hResult["positions"]        := aPos
+   hResult["positions_count"]  := Len(aPos)
+   hResult["status"]           := "found"
+RETURN hResult
+
+FUNCTION MCP_Tool_Add_Supplier_Quote(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cLiefma := "", cQuoteno
+   LOCAL aPos, xP, hP, aResolved := {}, hRes, hR
+   LOCAL dFrom, dTo, nDays, nArt, nPe
+   LOCAL nRef := 0, lNewQuote := .F.
+   LOCAL oQuote, oAli, oBpr
+   LOCAL aOut := {}, hOut
+   LOCAL oErr, cErr := "", lOk := .F.
+   LOCAL nOldSelect := Select()
+   LOCAL nQnoLen
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "supplier"=>{"type"=>"string","description"=>"Supplier matchcode (Lieferant)"},;
+            "supplier_number"=>{"type"=>"number","description"=>"Supplier number (alternative to 'supplier')"},;
+            "quote_number"=>{"type"=>"string","description"=>"The supplier's own offer/quote number (Angebotsnr) - used as the reference linking the positions"},;
+            "valid_from"=>{"type"=>"string","description"=>"Validity start date YYYY-MM-DD (default today)"},;
+            "valid_to"=>{"type"=>"string","description"=>"Validity end date YYYY-MM-DD (default valid_from + valid_days)"},;
+            "valid_days"=>{"type"=>"number","description"=>"Validity in days when valid_to is not given (default 30)"},;
+            "positions"=>{"type"=>"array","description"=>"Quote positions",;
+               "items"=>{"type"=>"object","properties"=>{;
+                  "article"=>{"type"=>"string","description"=>"Article matchcode"},;
+                  "part_number"=>{"type"=>"number","description"=>"Internal article number (alternative to 'article')"},;
+                  "quantity"=>{"type"=>"number","description"=>"Quantity / price-break the price applies to"},;
+                  "price"=>{"type"=>"number","description"=>"Unit price in the supplier's price unit"},;
+                  "price_unit"=>{"type"=>"number","description"=>"Price unit (Preiseinheit, Pe) the price refers to (default 1)"},;
+                  "supplier_part_no"=>{"type"=>"string","description"=>"Supplier's part number (only used when the article-supplier link is created)"},;
+                  "lead_time_weeks"=>{"type"=>"number","description"=>"Delivery time in weeks (only used when the article-supplier link is created)"}},;
+                  "required"=>{"quantity","price"}}};
+         },;
+         "required"=>{"quote_number","positions"};
+      }
+      hResult["description"] := "Create a supplier quote (Einkaufsangebot / Lieferantenangebot): a quote header " + ;
+                              "(quote) for the supplier plus one QUOTE price row (buyprice) per position, keyed by the " + ;
+                              "supplier's quote number. If a quote with the same supplier and quote_number already " + ;
+                              "exists, the positions are appended to it. The article-supplier link (artlief) is created " + ;
+                              "automatically when it does not exist yet. Mirrors the Trader 'Einkaufsangebot' mask"
+      RETURN hResult
+   ENDIF
+
+   IF ! HHasKey(hArgs, "quote_number") .OR. Empty(AllTrim(HB_CStr(hArgs["quote_number"])))
+      RETURN "Parameter 'quote_number' (the supplier's offer number) is required"
+   ENDIF
+   cQuoteno := AllTrim(HB_CStr(hArgs["quote_number"]))
+
+   IF ! HB_IsArray(hArgs["positions"]) .OR. Len(hArgs["positions"]) == 0
+      RETURN "Parameter 'positions' must be a non-empty array of {article|part_number, quantity, price}"
+   ENDIF
+   aPos := hArgs["positions"]
+
+   NetUse("engkund", "ku")
+   NetUse("artikel", "art")
+   NetUse("artlief", "ali")
+   NetUse("buyprice", "bpr")
+   NetUse("quote", "qt")
+
+   // Resolve the supplier to the 8-char matchcode key (ku->Kunde) that Liefma /
+   // Kunde hold in artlief/buyprice/quote - same resolution as _WeResolveLiefma
+   // in wareneingang_web.prg.
+   IF HHasKey(hArgs, "supplier_number") .AND. HB_IsNumeric(hArgs["supplier_number"]) .AND. hArgs["supplier_number"] > 0
+      ku->(DbSetOrder(8))   // by supplier number
+      IF ku->(DbSeek(Str(Int(hArgs["supplier_number"]), 6)))
+         cLiefma := Pad(AllTrim(ku->Kunde), 8)
+      ENDIF
+   ELSEIF HHasKey(hArgs, "supplier") .AND. ! Empty(hArgs["supplier"])
+      ku->(DbSetOrder(1))   // by matchcode + group
+      IF ku->(DbSeek(Pad(Upper(AllTrim(HB_CStr(hArgs["supplier"]))), 8) + "L"))
+         cLiefma := Pad(AllTrim(ku->Kunde), 8)
+      ENDIF
+   ELSE
+      DbSelectArea(nOldSelect)
+      RETURN "Provide 'supplier' (matchcode) or 'supplier_number'"
+   ENDIF
+   IF Empty(cLiefma)
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Supplier not found"
+      RETURN hResult
+   ENDIF
+
+   // Validity dates
+   dFrom := Date()
+   IF HHasKey(hArgs, "valid_from") .AND. ! Empty(hArgs["valid_from"])
+      dFrom := StoD(StrTran(AllTrim(HB_CStr(hArgs["valid_from"])), "-", ""))
+      IF Empty(dFrom)
+         DbSelectArea(nOldSelect)
+         RETURN "Invalid 'valid_from' - expected YYYY-MM-DD"
+      ENDIF
+   ENDIF
+   IF HHasKey(hArgs, "valid_to") .AND. ! Empty(hArgs["valid_to"])
+      dTo := StoD(StrTran(AllTrim(HB_CStr(hArgs["valid_to"])), "-", ""))
+      IF Empty(dTo)
+         DbSelectArea(nOldSelect)
+         RETURN "Invalid 'valid_to' - expected YYYY-MM-DD"
+      ENDIF
+   ELSE
+      nDays := IIF(HHasKey(hArgs, "valid_days") .AND. HB_IsNumeric(hArgs["valid_days"]) .AND. hArgs["valid_days"] > 0, Int(hArgs["valid_days"]), 30)
+      dTo := dFrom + nDays
+   ENDIF
+   IF dTo < dFrom
+      DbSelectArea(nOldSelect)
+      RETURN "'valid_to' must not be before 'valid_from'"
+   ENDIF
+
+   // Validate and resolve every position BEFORE writing anything, so a bad
+   // position does not leave a half-created quote behind.
+   FOR EACH xP IN aPos
+      IF ! HB_IsHash(xP)
+         DbSelectArea(nOldSelect)
+         RETURN "Each position must be an object {article|part_number, quantity, price}"
+      ENDIF
+      hP := xP
+      nArt := 0
+      IF HHasKey(hP, "part_number") .AND. HB_IsNumeric(hP["part_number"]) .AND. hP["part_number"] > 0
+         art->(DbSetOrder(2))   // by article number
+         IF art->(DbSeek(Str(Int(hP["part_number"]), 6)))
+            nArt := art->Artikelnr
+         ENDIF
+      ELSEIF HHasKey(hP, "article") .AND. ! Empty(hP["article"])
+         art->(DbSetOrder(1))   // by matchcode
+         IF art->(DbSeek(Pad(Upper(AllTrim(HB_CStr(hP["article"]))), 25)))
+            nArt := art->Artikelnr
+         ENDIF
+      ENDIF
+      IF nArt == 0
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "not_found"
+         hResult["message"] := "Article not found for a position: " + ;
+            HB_CStr(IIF(HHasKey(hP, "article"), hP["article"], IIF(HHasKey(hP, "part_number"), hP["part_number"], "?")))
+         RETURN hResult
+      ENDIF
+      IF ! HB_IsNumeric(hP["quantity"]) .OR. hP["quantity"] <= 0
+         DbSelectArea(nOldSelect)
+         RETURN "Each position needs a positive 'quantity'"
+      ENDIF
+      IF ! HB_IsNumeric(hP["price"]) .OR. hP["price"] <= 0
+         DbSelectArea(nOldSelect)
+         RETURN "Each position needs a positive 'price'"
+      ENDIF
+      nPe := IIF(HHasKey(hP, "price_unit") .AND. HB_IsNumeric(hP["price_unit"]) .AND. hP["price_unit"] > 0, hP["price_unit"], 1)
+      hRes := {=>}
+      hRes["art"]        := nArt
+      hRes["matchcode"]  := AllTrim(art->Matchcode)
+      hRes["zeichnung"]  := art->Zeichnung
+      hRes["zeichindex"] := art->Zeichindex
+      hRes["qty"]        := hP["quantity"]
+      hRes["price"]      := hP["price"]
+      hRes["pe"]         := nPe
+      hRes["part_no"]    := IIF(HHasKey(hP, "supplier_part_no"), AllTrim(HB_CStr(hP["supplier_part_no"])), "")
+      hRes["lz"]         := IIF(HHasKey(hP, "lead_time_weeks") .AND. HB_IsNumeric(hP["lead_time_weeks"]), Int(hP["lead_time_weeks"]), -1)
+      AAdd(aResolved, hRes)
+   NEXT
+
+   // Create (or reuse) the quote header and write the positions. The Quote /
+   // Record ORM handles auto-numbering and record locking (Save() locks and
+   // unlocks per record), so no explicit LETO transaction here - mirrors the
+   // Quote_edit mask.
+   BEGIN SEQUENCE WITH {|oE| Break(oE)}
+      qt->(DbSetOrder(2))   // Liefma + Quoteno
+      nQnoLen := qt->(FieldLen(FieldPos("QUOTENO")))
+      IF qt->(DbSeek(cLiefma + Pad(cQuoteno, nQnoLen)))
+         nRef := qt->No
+      ELSE
+         // Quote (model/quote.prg) is a Record subclass with "ID no INDEXORDER 1",
+         // so New(.T.) + Save() auto-numbers qt->No.
+         oQuote := Quote():New(.T.)
+         oQuote:Liefma  := cLiefma
+         oQuote:Quoteno := cQuoteno
+         oQuote:Save()
+         nRef := oQuote:No
+         lNewQuote := .T.
+      ENDIF
+
+      FOR EACH hR IN aResolved
+         // Ensure the article-supplier link (artlief) exists.
+         ali->(DbSetOrder(1))   // Kunde + Str(Artikelnr,6)
+         IF ! ali->(DbSeek(cLiefma + Str(hR["art"], 6)))
+            oAli := ali->(Record():New(.T.))
+            oAli:Kunde     := cLiefma
+            oAli:Artikelnr := hR["art"]
+            oAli:Matchcode := hR["matchcode"]
+            oAli:Priority  := 8
+            IF ! Empty(hR["part_no"])
+               oAli:ArtLief := hR["part_no"]
+            ENDIF
+            IF hR["lz"] >= 0
+               oAli:LZ := hR["lz"]
+            ENDIF
+            oAli:Save()
+         ENDIF
+
+         // Add the QUOTE price row (buyprice), keyed by the supplier quote no.
+         oBpr := bpr->(Record():New(.T.))
+         oBpr:Liefma     := cLiefma
+         oBpr:Artikelnr  := hR["art"]
+         oBpr:Qty        := hR["qty"]
+         oBpr:Price      := hR["price"]
+         oBpr:Pe         := hR["pe"]
+         oBpr:Number     := cQuoteno
+         oBpr:Type       := "QUOTE"
+         oBpr:StartDate  := dFrom
+         oBpr:EndDate    := dTo
+         oBpr:Lots       := 1
+         oBpr:LotSize    := hR["qty"]
+         oBpr:Zeichnung  := hR["zeichnung"]
+         oBpr:ZeichIndex := hR["zeichindex"]
+         oBpr:Save()
+
+         hOut := {=>}
+         hOut["article"]    := HB_StrToUTF8(hR["matchcode"])
+         hOut["quantity"]   := hR["qty"]
+         hOut["price"]      := hR["price"]
+         hOut["price_unit"] := hR["pe"]
+         AAdd(aOut, hOut)
+      NEXT
+      lOk := .T.
+   RECOVER USING oErr
+      cErr := "Saving the supplier quote failed: " + _MCP_ErrText(oErr) + " - it may be partially saved"
+   END SEQUENCE
+
+   DbSelectArea(nOldSelect)
+
+   IF ! lOk
+      hResult["status"] := "error"
+      hResult["message"] := cErr
+      RETURN hResult
+   ENDIF
+
+   // Top-level string fields are left raw; _HashToUtf8() (applied on RETURN)
+   // encodes them. Only nested strings (aOut) are pre-encoded above, since
+   // _HashToUtf8() does not recurse into arrays.
+   hResult["reference_number"] := nRef
+   hResult["supplier"]         := AllTrim(cLiefma)
+   hResult["quote_number"]     := cQuoteno
+   hResult["valid_from"]       := dFrom
+   hResult["valid_to"]         := dTo
+   hResult["new_quote"]        := lNewQuote
+   hResult["positions"]        := aOut
+   hResult["positions_added"]  := Len(aOut)
+   hResult["status"]           := "success"
+   hResult["message"]          := IIF(lNewQuote, "Supplier quote created", "Positions appended to existing supplier quote") + ;
+      " (reference " + AllTrim(Str(nRef)) + ") with " + AllTrim(Str(Len(aOut))) + " position(s)"
+RETURN _HashToUtf8(hResult)
+
+// ---------------------------------------------------------------------------
+// Projects (Projekte) - read/manage. Ported from projekt_web.prg (the web
+// master-detail port of Project_Browse / Project_Edit), sharing its defensive
+// field access so a renamed field degrades gracefully instead of crashing.
+// ---------------------------------------------------------------------------
+
+STATIC FUNCTION _McpPjNum(x)
+   DO CASE
+   CASE ValType(x) == "N" ; RETURN x
+   CASE ValType(x) == "C" ; RETURN Val(x)
+   ENDCASE
+RETURN 0
+
+STATIC FUNCTION _McpPjStr(x)
+   DO CASE
+   CASE ValType(x) == "M" ; RETURN x
+   CASE ValType(x) == "C" ; RETURN x
+   CASE ValType(x) == "N" ; RETURN AllTrim(Str(x))
+   CASE ValType(x) == "D" ; RETURN DtoC(x)
+   CASE ValType(x) == "L" ; RETURN IIF(x, ".T.", ".F.")
+   ENDCASE
+RETURN ""
+
+// Defensive field read: unknown field -> default (never crashes on a rename).
+STATIC FUNCTION _McpPjF(cAlias, cField, xDef)
+   LOCAL nFP := (cAlias)->(FieldPos(cField))
+   IF nFP == 0
+      RETURN xDef
+   ENDIF
+RETURN (cAlias)->(FieldGet(nFP))
+
+STATIC FUNCTION _McpPjStatusName(nStat)
+   LOCAL h := GetProjectStatusNames()
+   IF ValType(h) == "H" .AND. HB_HHasKey(h, nStat)
+      RETURN AllTrim(_McpPjStr(h[nStat]))
+   ENDIF
+RETURN "?"
+
+// User id -> initials (buyer table), like Project_Browse.
+STATIC FUNCTION _McpPjInitials(nId)
+   LOCAL c := ""
+   IF _McpPjNum(nId) == 0
+      RETURN ""
+   ENDIF
+   NetUse("buyer", "buy")
+   buy->(DbSetOrder(0))
+   IF buy->(DbGoto(nId)) == NIL .AND. ! buy->(Eof())
+      c := AllTrim(_McpPjStr(_McpPjF("buy", "INITIALS", "")))
+      IF Empty(c)
+         c := AllTrim(_McpPjStr(_McpPjF("buy", "BUYER", "")))
+      ENDIF
+   ENDIF
+RETURN c
+
+STATIC FUNCTION _McpPjKundeName(nKunde)
+   LOCAL c := ""
+   IF nKunde == 0
+      RETURN ""
+   ENDIF
+   NetUse("engkund", "ku")
+   ku->(DbSetOrder(8))
+   IF ku->(DbSeek(Str(nKunde, 6)))
+      c := AllTrim(_McpPjStr(_McpPjF("ku", "NAME1", "")))
+   ENDIF
+RETURN c
+
+// Open-task count for a project (todo order 3: REFTYPE+Str(REF,6)+DONE).
+STATIC FUNCTION _McpPjOpenTasks(nNummer)
+   LOCAL n := 0
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      NetUse("todo", "todo")
+      todo->(DbSetOrder(3))
+      IF todo->(DbSeek("PJ " + Str(nNummer, 6) + "N"))
+         DO WHILE ! todo->(Eof()) .AND. AllTrim(_McpPjStr(_McpPjF("todo", "REFTYPE", ""))) == "PJ" .AND. ;
+                  _McpPjNum(_McpPjF("todo", "REF", 0)) == nNummer
+            IF ! _McpPjF("todo", "DONE", .F.)
+               n++
+            ENDIF
+            todo->(DbSkip())
+         ENDDO
+      ENDIF
+   RECOVER
+      n := 0
+   END SEQUENCE
+RETURN n
+
+// Project articles (projart/pjart order 1: Str(Nummer,6)); resolve name/drawing.
+STATIC FUNCTION _McpPjArticles(nNummer)
+   LOCAL a := {}
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      NetUse("projart", "pjart")
+      NetUse("artikel", "art")
+      art->(DbSetOrder(2))
+      pjart->(DbSetOrder(1))
+      IF pjart->(DbSeek(Str(nNummer, 6)))
+         DO WHILE ! pjart->(Eof()) .AND. _McpPjNum(_McpPjF("pjart", "NUMMER", 0)) == nNummer
+            art->(DbSeek(Str(_McpPjNum(_McpPjF("pjart", "ARTIKELNR", 0)), 6)))
+            AAdd(a, { ;
+               "article_number" => _McpPjNum(_McpPjF("pjart", "ARTIKELNR", 0)), ;
+               "article"        => HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("pjart", "MATCHCODE", "")))), ;
+               "description"    => HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("art", "ARTIKEL", "")))), ;
+               "drawing"        => HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("art", "ZEICHNUNG", "")))), ;
+               "revision"       => HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("art", "ZEICHINDEX", "")))) })
+            pjart->(DbSkip())
+         ENDDO
+      ENDIF
+   RECOVER
+      a := {}
+   END SEQUENCE
+RETURN a
+
+// Costs (projcost/pjcst): planned vs. calculated per entry.
+STATIC FUNCTION _McpPjCosts(nNummer)
+   LOCAL a := {}, nPlan, nCalc
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      NetUse("projcost", "pjcst")
+      NetUse("engbes", "bes")
+      NetUse("engauf", "auf")
+      NetUse("reb", "reb")
+      NetUse("rechpos", "rpos")
+      NetUse("engrech", "rech")
+      NetUse("artikel", "art")
+      pjcst->(DbSeek(Str(nNummer, 6)))
+      DO WHILE ! pjcst->(Eof()) .AND. _McpPjNum(_McpPjF("pjcst", "PROJEKT", 0)) == nNummer
+         nPlan := 0 ; nCalc := 0
+         BEGIN SEQUENCE WITH {|e| Break(e)}
+            nPlan := _McpPjNum(GetProjectCostValue(.T.))
+            nCalc := _McpPjNum(GetProjectCostValue(.F.))
+         RECOVER
+            nPlan := 0 ; nCalc := 0
+         END SEQUENCE
+         AAdd(a, { ;
+            "date"    => _McpPjF("pjcst", "DATUM", CToD("")), ;
+            "type"    => AllTrim(_McpPjStr(_McpPjF("pjcst", "TYP", ""))), ;
+            "planned" => Round(nPlan, 2), ;
+            "calculated" => Round(nCalc, 2) })
+         pjcst->(DbSkip())
+      ENDDO
+   RECOVER
+      a := {}
+   END SEQUENCE
+RETURN a
+
+// Resolve a customer to its 8-char matchcode key (engkund Kunde, group "K"),
+// padded to 8 so Project:_cKunde's "ku->(DbSeek(cKunde + 'K'))" (fixed-width
+// index: matchcode(8) + group) matches.
+STATIC FUNCTION _McpPjResolveCustomer(hArgs)
+   LOCAL cKu := ""
+   NetUse("engkund", "ku")
+   IF HHasKey(hArgs, "customer_number") .AND. HB_IsNumeric(hArgs["customer_number"]) .AND. hArgs["customer_number"] > 0
+      ku->(DbSetOrder(8))
+      IF ku->(DbSeek(Str(Int(hArgs["customer_number"]), 6))) .AND. AllTrim(_McpPjStr(_McpPjF("ku", "GROUP", ""))) == "K"
+         cKu := Pad(AllTrim(_McpPjStr(_McpPjF("ku", "KUNDE", ""))), 8)
+      ENDIF
+   ELSEIF HHasKey(hArgs, "customer") .AND. ! Empty(hArgs["customer"])
+      ku->(DbSetOrder(1))
+      IF ku->(DbSeek(Pad(Upper(AllTrim(HB_CStr(hArgs["customer"]))), 8) + "K"))
+         cKu := Pad(AllTrim(_McpPjStr(_McpPjF("ku", "KUNDE", ""))), 8)
+      ENDIF
+   ENDIF
+RETURN cKu
+
+// Permission on the "PROJECTS" right for the current request user, via the
+// shared concurrency-safe check (thread-local request user, HasPermission - no
+// GUI MsgBox). So the project read tools need not be serialised.
+STATIC FUNCTION _McpPjPerm(cType)
+RETURN _McpAuthHasPerm(cType, "PROJECTS")
+
+// Cross-session entity lock (protects against a concurrent desktop edit), the
+// same "PJ" lock the Projekt mask uses. Defensive: if the lock service is not
+// available the MCP serial dispatch still serialises writes, so proceed.
+STATIC FUNCTION _McpPjLock(nNummer)
+   LOCAL lOk := .T.
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      lOk := LockEntity("PJ", nNummer)
+   RECOVER
+      lOk := .T.
+   END SEQUENCE
+RETURN lOk
+
+STATIC FUNCTION _McpPjUnlock(nNummer)
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      UnLockEntity("PJ", nNummer)
+   RECOVER
+   END SEQUENCE
+RETURN NIL
+
+FUNCTION MCP_Tool_Get_Project(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nNummer, nStat
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "number"=>{"type"=>"number","description"=>"Project number (Projektnummer)"};
+         },;
+         "required"=>{"number"};
+      }
+      hResult["description"] := "Retrieve a project (Projekt) by number: header (customer, contact, status, owner, " + ;
+                              "sales, description, value, budget, specification, notes) plus its articles and cost " + ;
+                              "entries (planned vs. calculated)"
+      RETURN hResult
+   ENDIF
+
+   IF ! _McpPjPerm("R")
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "forbidden"
+      hResult["message"] := "Missing permission to read projects (PROJECTS)"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   nNummer := Int(hArgs["number"])
+
+   NetUse("projekte", "pj")
+   pj->(DbSetOrder(1))
+   IF nNummer <= 0 .OR. ! pj->(DbSeek(Str(nNummer, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Project not found: " + AllTrim(Str(nNummer))
+      RETURN hResult
+   ENDIF
+
+   nStat := _McpPjNum(_McpPjF("pj", "STATUS", 0))
+   hResult["number"]         := nNummer
+   hResult["customer"]       := HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("pj", "KUNDMA", ""))))
+   hResult["customer_name"]  := HB_StrToUTF8(_McpPjKundeName(_McpPjNum(_McpPjF("pj", "KUNDE", 0))))
+   hResult["customer_number"] := _McpPjNum(_McpPjF("pj", "KUNDE", 0))
+   hResult["contact"]        := _McpPjNum(_McpPjF("pj", "CONTACT", 0))
+   hResult["state"]          := nStat
+   hResult["state_name"]     := HB_StrToUTF8(_McpPjStatusName(nStat))
+   hResult["active"]         := (nStat < 7)
+   hResult["owner"]          := _McpPjNum(_McpPjF("pj", "OWNER", 0))
+   hResult["owner_initials"] := HB_StrToUTF8(_McpPjInitials(_McpPjNum(_McpPjF("pj", "OWNER", 0))))
+   hResult["sales"]          := _McpPjNum(_McpPjF("pj", "SALES", 0))
+   hResult["sales_initials"] := HB_StrToUTF8(_McpPjInitials(_McpPjNum(_McpPjF("pj", "SALES", 0))))
+   hResult["description"]    := HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("pj", "BESCHREIBU", ""))))
+   hResult["value"]          := _McpPjNum(_McpPjF("pj", "VALUE", 0))
+   hResult["budget"]         := _McpPjNum(_McpPjF("pj", "BUDGET", 0))
+   hResult["specification"]  := HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("pj", "SPEC", ""))))
+   hResult["notes"]          := HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("pj", "NOTES", ""))))
+   hResult["open_tasks"]     := _McpPjOpenTasks(nNummer)
+   hResult["articles"]       := _McpPjArticles(nNummer)
+   hResult["costs"]          := _McpPjCosts(nNummer)
+   hResult["status"]         := "found"
+
+   DbSelectArea(nOldSelect)
+RETURN hResult
+
+FUNCTION MCP_Tool_Search_Projects(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cSearch := "", lOpenOnly := .T.
+   LOCAL nMax, nCount := 0
+   LOCAL aRows := {}, nStat, cKu, cBe, lHit, nNummer
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "search"=>{"type"=>"string","description"=>"Case-insensitive substring matched against project number, customer matchcode or description"},;
+            "open_only"=>{"type"=>"boolean","description"=>"Only active projects (status < 7 paused/cancelled/archived). Default true"},;
+            "max_results"=>{"type"=>"number","description"=>"Maximum number of projects to return (default 50, max 200)"};
+         };
+      }
+      hResult["description"] := "Search projects (Projekte) by number, customer matchcode or description; returns a " + ;
+                              "compact list with status name, owner/sales initials and open-task count"
+      RETURN hResult
+   ENDIF
+
+   IF ! _McpPjPerm("R")
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "forbidden"
+      hResult["message"] := "Missing permission to read projects (PROJECTS)"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "search") .AND. ! Empty(hArgs["search"])
+      cSearch := Upper(AllTrim(HB_CStr(hArgs["search"])))
+   ENDIF
+   IF HHasKey(hArgs, "open_only") .AND. ValType(hArgs["open_only"]) == "L"
+      lOpenOnly := hArgs["open_only"]
+   ENDIF
+   nMax := IIF(HHasKey(hArgs, "max_results") .AND. HB_IsNumeric(hArgs["max_results"]), Int(hArgs["max_results"]), 50)
+   nMax := Max(1, Min(nMax, 200))
+
+   NetUse("projekte", "pj")
+   pj->(DbSetOrder(1))
+   pj->(DbGoTop())
+   DO WHILE ! pj->(Eof())
+      nStat := _McpPjNum(_McpPjF("pj", "STATUS", 0))
+      IF lOpenOnly .AND. nStat >= 7
+         pj->(DbSkip()) ; LOOP
+      ENDIF
+      nNummer := _McpPjNum(_McpPjF("pj", "NUMMER", 0))
+      IF ! Empty(cSearch)
+         cKu := Upper(AllTrim(_McpPjStr(_McpPjF("pj", "KUNDMA", ""))))
+         cBe := Upper(AllTrim(_McpPjStr(_McpPjF("pj", "BESCHREIBU", ""))))
+         lHit := (cSearch $ cKu) .OR. (cSearch $ cBe) .OR. (cSearch $ AllTrim(Str(nNummer, 6)))
+         IF ! lHit
+            pj->(DbSkip()) ; LOOP
+         ENDIF
+      ENDIF
+      IF nCount >= nMax
+         EXIT
+      ENDIF
+      AAdd(aRows, { ;
+         "number"      => nNummer, ;
+         "customer"    => HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("pj", "KUNDMA", "")))), ;
+         "state"       => nStat, ;
+         "state_name"  => HB_StrToUTF8(_McpPjStatusName(nStat)), ;
+         "owner"       => HB_StrToUTF8(_McpPjInitials(_McpPjNum(_McpPjF("pj", "OWNER", 0)))), ;
+         "sales"       => HB_StrToUTF8(_McpPjInitials(_McpPjNum(_McpPjF("pj", "SALES", 0)))), ;
+         "open_tasks"  => _McpPjOpenTasks(nNummer), ;
+         "description" => HB_StrToUTF8(AllTrim(_McpPjStr(_McpPjF("pj", "BESCHREIBU", "")))) })
+      nCount++
+      pj->(DbSkip())
+   ENDDO
+
+   DbSelectArea(nOldSelect)
+   hResult["projects"] := aRows
+   hResult["count"] := Len(aRows)
+   hResult["status"] := "found"
+RETURN hResult
+
+// Apply the optional header fields present in hArgs onto a Project model
+// object (only fields whose DB column exists are set, like projekt_web.prg).
+STATIC FUNCTION _McpPjSet(oProj, cProp, xVal)
+   IF pj->(FieldPos(Upper(cProp))) > 0
+      __objSendMsg(oProj, "_" + cProp, xVal)
+   ENDIF
+RETURN NIL
+
+STATIC FUNCTION _McpPjApplyFields(oProj, hArgs)
+   IF HHasKey(hArgs, "description")   ; _McpPjSet(oProj, "Beschreibu", AllTrim(HB_CStr(hArgs["description"])))   ; ENDIF
+   IF HHasKey(hArgs, "status")        ; _McpPjSet(oProj, "Status",     _McpPjNum(hArgs["status"]))                ; ENDIF
+   IF HHasKey(hArgs, "contact")       ; _McpPjSet(oProj, "Contact",    _McpPjNum(hArgs["contact"]))               ; ENDIF
+   IF HHasKey(hArgs, "owner")         ; _McpPjSet(oProj, "Owner",      _McpPjNum(hArgs["owner"]))                 ; ENDIF
+   IF HHasKey(hArgs, "sales")         ; _McpPjSet(oProj, "Sales",      _McpPjNum(hArgs["sales"]))                 ; ENDIF
+   IF HHasKey(hArgs, "value")         ; _McpPjSet(oProj, "Value",      _McpPjNum(hArgs["value"]))                 ; ENDIF
+   IF HHasKey(hArgs, "budget")        ; _McpPjSet(oProj, "Budget",     _McpPjNum(hArgs["budget"]))                ; ENDIF
+   IF HHasKey(hArgs, "specification") ; _McpPjSet(oProj, "Spec",       AllTrim(HB_CStr(hArgs["specification"])))  ; ENDIF
+   IF HHasKey(hArgs, "notes")         ; _McpPjSet(oProj, "Notes",      AllTrim(HB_CStr(hArgs["notes"])))          ; ENDIF
+   IF HHasKey(hArgs, "closed_for")    ; _McpPjSet(oProj, "ClosedFor",  AllTrim(HB_CStr(hArgs["closed_for"])))     ; ENDIF
+RETURN NIL
+
+FUNCTION MCP_Tool_Create_Project(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cKunde, oProj, nNummer := 0
+   LOCAL oErr, cErr := "", lOk := .F.
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "customer"=>{"type"=>"string","description"=>"Customer matchcode (required, or customer_number)"},;
+            "customer_number"=>{"type"=>"number","description"=>"Customer number (alternative to 'customer')"},;
+            "description"=>{"type"=>"string","description"=>"Project description (Beschreibung)"},;
+            "status"=>{"type"=>"number","description"=>"Status: 0 open, 1 closed, 7 paused, 8 cancelled, 9 archived (default 0)"},;
+            "contact"=>{"type"=>"number","description"=>"Contact id at the customer"},;
+            "owner"=>{"type"=>"number","description"=>"Owner user id (Verantwortlich)"},;
+            "sales"=>{"type"=>"number","description"=>"Sales user id (Vertrieb)"},;
+            "value"=>{"type"=>"number","description"=>"Project value (Wert)"},;
+            "budget"=>{"type"=>"number","description"=>"Project budget"},;
+            "specification"=>{"type"=>"string","description"=>"Specification text (Spezifikation)"},;
+            "notes"=>{"type"=>"string","description"=>"Notes"};
+         },;
+         "anyOf"=>{{"customer"}, {"customer_number"}};
+      }
+      hResult["description"] := "Create a project (Projekt) for a customer via the Project model (auto-numbered). " + ;
+                              "Provide 'customer' (matchcode) or 'customer_number'; all other header fields are optional"
+      RETURN hResult
+   ENDIF
+
+   IF ! _McpPjPerm("C")
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "forbidden"
+      hResult["message"] := "Missing permission to create projects (PROJECTS)"
+      RETURN hResult
+   ENDIF
+
+   NetUse("projekte", "pj")
+   cKunde := _McpPjResolveCustomer(hArgs)
+   IF Empty(cKunde)
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Customer not found - provide 'customer' (matchcode) or 'customer_number' of an existing customer"
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      oProj := Project():New(.T.)
+      oProj:cKunde := cKunde
+      _McpPjApplyFields(oProj, hArgs)
+      oProj:Save()
+      nNummer := _McpPjNum(oProj:Nummer)
+      lOk := .T.
+   RECOVER USING oErr
+      cErr := "Creating the project failed: " + _MCP_ErrText(oErr)
+   END SEQUENCE
+
+   DbSelectArea(nOldSelect)
+   IF ! lOk
+      hResult["status"] := "error"
+      hResult["message"] := cErr
+      RETURN hResult
+   ENDIF
+   hResult["number"] := nNummer
+   hResult["customer"] := HB_StrToUTF8(AllTrim(cKunde))
+   hResult["status"] := "success"
+   hResult["message"] := "Project " + AllTrim(Str(nNummer)) + " created"
+RETURN hResult
+
+FUNCTION MCP_Tool_Update_Project(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nNummer, cKunde, oProj
+   LOCAL oErr, cErr := "", lOk := .F.
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "number"=>{"type"=>"number","description"=>"Project number to update"},;
+            "customer"=>{"type"=>"string","description"=>"Change the customer (matchcode)"},;
+            "customer_number"=>{"type"=>"number","description"=>"Change the customer (by number)"},;
+            "description"=>{"type"=>"string","description"=>"Project description"},;
+            "status"=>{"type"=>"number","description"=>"Status: 0 open, 1 closed, 7 paused, 8 cancelled, 9 archived"},;
+            "contact"=>{"type"=>"number","description"=>"Contact id"},;
+            "owner"=>{"type"=>"number","description"=>"Owner user id"},;
+            "sales"=>{"type"=>"number","description"=>"Sales user id"},;
+            "value"=>{"type"=>"number","description"=>"Project value"},;
+            "budget"=>{"type"=>"number","description"=>"Project budget"},;
+            "specification"=>{"type"=>"string","description"=>"Specification text"},;
+            "notes"=>{"type"=>"string","description"=>"Notes"},;
+            "closed_for"=>{"type"=>"string","description"=>"Closed-for reason"};
+         },;
+         "required"=>{"number"};
+      }
+      hResult["description"] := "Update an existing project's header. Only the fields you pass are changed " + ;
+                              "(partial update)"
+      RETURN hResult
+   ENDIF
+
+   IF ! _McpPjPerm("U")
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "forbidden"
+      hResult["message"] := "Missing permission to change projects (PROJECTS)"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   nNummer := Int(hArgs["number"])
+
+   NetUse("projekte", "pj")
+   pj->(DbSetOrder(1))
+   IF nNummer <= 0 .OR. ! pj->(DbSeek(Str(nNummer, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Project not found: " + AllTrim(Str(nNummer))
+      RETURN hResult
+   ENDIF
+
+   cKunde := ""
+   IF HHasKey(hArgs, "customer") .OR. HHasKey(hArgs, "customer_number")
+      cKunde := _McpPjResolveCustomer(hArgs)
+      IF Empty(cKunde)
+         DbSelectArea(nOldSelect)
+         hResult["status"] := "not_found"
+         hResult["message"] := "Customer not found"
+         RETURN hResult
+      ENDIF
+   ENDIF
+
+   IF ! _McpPjLock(nNummer)
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "locked"
+      hResult["message"] := "Project is locked (being edited elsewhere)"
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      oProj := pj->(Project():New())
+      oProj:Load(nNummer)
+      IF ! Empty(cKunde)
+         oProj:cKunde := cKunde
+      ENDIF
+      _McpPjApplyFields(oProj, hArgs)
+      oProj:Save()
+      lOk := .T.
+   RECOVER USING oErr
+      cErr := "Updating the project failed: " + _MCP_ErrText(oErr)
+   END SEQUENCE
+
+   _McpPjUnlock(nNummer)
+   DbSelectArea(nOldSelect)
+   IF ! lOk
+      hResult["status"] := "error"
+      hResult["message"] := cErr
+      RETURN hResult
+   ENDIF
+   hResult["number"] := nNummer
+   hResult["status"] := "success"
+   hResult["message"] := "Project " + AllTrim(Str(nNummer)) + " updated"
+RETURN hResult
+
+FUNCTION MCP_Tool_Add_Project_Article(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nNummer, nArtnr := 0, cMc := ""
+   LOCAL oRec, oErr, cErr := "", lOk := .F.
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "number"=>{"type"=>"number","description"=>"Project number"},;
+            "article"=>{"type"=>"string","description"=>"Article matchcode to add"},;
+            "part_number"=>{"type"=>"number","description"=>"Internal article number (alternative to 'article')"};
+         },;
+         "required"=>{"number"};
+      }
+      hResult["description"] := "Add an article to a project (projart). Provide 'article' (matchcode) or 'part_number'"
+      RETURN hResult
+   ENDIF
+
+   IF ! _McpPjPerm("U")
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "forbidden"
+      hResult["message"] := "Missing permission to change projects (PROJECTS)"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   nNummer := Int(hArgs["number"])
+
+   NetUse("projekte", "pj")
+   NetUse("artikel", "art")
+   NetUse("projart", "pjart")
+
+   pj->(DbSetOrder(1))
+   IF ! pj->(DbSeek(Str(nNummer, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Project not found: " + AllTrim(Str(nNummer))
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "part_number") .AND. HB_IsNumeric(hArgs["part_number"]) .AND. hArgs["part_number"] > 0
+      art->(DbSetOrder(2))
+      IF art->(DbSeek(Str(Int(hArgs["part_number"]), 6)))
+         nArtnr := art->Artikelnr
+         cMc := AllTrim(art->Matchcode)
+      ENDIF
+   ELSEIF HHasKey(hArgs, "article") .AND. ! Empty(hArgs["article"])
+      art->(DbSetOrder(1))
+      IF art->(DbSeek(Pad(Upper(AllTrim(HB_CStr(hArgs["article"]))), 25)))
+         nArtnr := art->Artikelnr
+         cMc := AllTrim(art->Matchcode)
+      ENDIF
+   ELSE
+      DbSelectArea(nOldSelect)
+      RETURN "Provide 'article' (matchcode) or 'part_number'"
+   ENDIF
+   IF nArtnr == 0
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   pjart->(DbSetOrder(1))
+   IF pjart->(DbSeek(Str(nNummer, 6) + Str(nArtnr, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "exists"
+      hResult["message"] := "Article is already part of the project"
+      hResult["articles"] := _McpPjArticles(nNummer)
+      RETURN hResult
+   ENDIF
+
+   IF ! _McpPjLock(nNummer)
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "locked"
+      hResult["message"] := "Project is locked (being edited elsewhere)"
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      oRec := pjart->(Record():New(.T.))
+      __objSendMsg(oRec, "_Nummer", nNummer)
+      __objSendMsg(oRec, "_Artikelnr", nArtnr)
+      __objSendMsg(oRec, "_Matchcode", cMc)
+      oRec:Save()
+      lOk := .T.
+   RECOVER USING oErr
+      cErr := "Adding the project article failed: " + _MCP_ErrText(oErr)
+   END SEQUENCE
+
+   _McpPjUnlock(nNummer)
+   DbSelectArea(nOldSelect)
+   IF ! lOk
+      hResult["status"] := "error"
+      hResult["message"] := cErr
+      RETURN hResult
+   ENDIF
+   hResult["number"] := nNummer
+   hResult["articles"] := _McpPjArticles(nNummer)
+   hResult["status"] := "success"
+   hResult["message"] := "Article " + cMc + " added to project " + AllTrim(Str(nNummer))
+RETURN _HashToUtf8(hResult)
+
+FUNCTION MCP_Tool_Remove_Project_Article(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL nNummer, nArtnr := 0
+   LOCAL oErr, cErr := "", lOk := .F.
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "number"=>{"type"=>"number","description"=>"Project number"},;
+            "part_number"=>{"type"=>"number","description"=>"Internal article number to remove"},;
+            "article"=>{"type"=>"string","description"=>"Article matchcode to remove (alternative to 'part_number')"};
+         },;
+         "required"=>{"number"};
+      }
+      hResult["description"] := "Remove an article from a project (projart)"
+      RETURN hResult
+   ENDIF
+
+   IF ! _McpPjPerm("U")
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "forbidden"
+      hResult["message"] := "Missing permission to change projects (PROJECTS)"
+      RETURN hResult
+   ENDIF
+
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   nNummer := Int(hArgs["number"])
+
+   NetUse("artikel", "art")
+   NetUse("projart", "pjart")
+
+   IF HHasKey(hArgs, "part_number") .AND. HB_IsNumeric(hArgs["part_number"]) .AND. hArgs["part_number"] > 0
+      nArtnr := Int(hArgs["part_number"])
+   ELSEIF HHasKey(hArgs, "article") .AND. ! Empty(hArgs["article"])
+      art->(DbSetOrder(1))
+      IF art->(DbSeek(Pad(Upper(AllTrim(HB_CStr(hArgs["article"]))), 25)))
+         nArtnr := art->Artikelnr
+      ENDIF
+   ELSE
+      DbSelectArea(nOldSelect)
+      RETURN "Provide 'part_number' or 'article' (matchcode)"
+   ENDIF
+   IF nArtnr == 0
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   pjart->(DbSetOrder(1))
+   IF ! pjart->(DbSeek(Str(nNummer, 6) + Str(nArtnr, 6)))
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article is not part of the project"
+      RETURN hResult
+   ENDIF
+
+   IF ! _McpPjLock(nNummer)
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "locked"
+      hResult["message"] := "Project is locked (being edited elsewhere)"
+      RETURN hResult
+   ENDIF
+
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      pjart->(Rec_Lock())
+      pjart->(dbDelete())
+      pjart->(dbUnLock())
+      lOk := .T.
+   RECOVER USING oErr
+      cErr := "Removing the project article failed: " + _MCP_ErrText(oErr)
+   END SEQUENCE
+
+   _McpPjUnlock(nNummer)
+   DbSelectArea(nOldSelect)
+   IF ! lOk
+      hResult["status"] := "error"
+      hResult["message"] := cErr
+      RETURN hResult
+   ENDIF
+   hResult["number"] := nNummer
+   hResult["articles"] := _McpPjArticles(nNummer)
+   hResult["status"] := "success"
+   hResult["message"] := "Article removed from project " + AllTrim(Str(nNummer))
+RETURN _HashToUtf8(hResult)
+
+// ---------------------------------------------------------------------------
+// Document archive (Vorgangsarchiv). Standard Trader archive via
+// GetArchiveFiles()/AddFileToArchive() (archive.prg) - NOT David. Restored
+// after the David/OLE removal (commit 5298d45), which took these along even
+// though only archive_document's former message_id branch used David; that
+// branch is dropped here (file-based archiving only).
+// ---------------------------------------------------------------------------
+
+// Guess a MIME type from a file name's extension for get_archive_document.
+STATIC FUNCTION _MCP_MimeFromName(cName)
+   LOCAL cExt := Lower(AllTrim(cName))
+   LOCAL nDot := RAt(".", cExt)
+   IF nDot > 0
+      cExt := SubStr(cExt, nDot + 1)
+   ELSE
+      cExt := ""
+   ENDIF
+   DO CASE
+   CASE cExt == "pdf"                     ; RETURN "application/pdf"
+   CASE cExt == "png"                     ; RETURN "image/png"
+   CASE cExt == "jpg" .OR. cExt == "jpeg" ; RETURN "image/jpeg"
+   CASE cExt == "tif" .OR. cExt == "tiff" ; RETURN "image/tiff"
+   CASE cExt == "gif"                     ; RETURN "image/gif"
+   CASE cExt == "txt"                     ; RETURN "text/plain"
+   CASE cExt == "xml"                     ; RETURN "application/xml"
+   CASE cExt == "html" .OR. cExt == "htm" ; RETURN "text/html"
+   CASE cExt == "csv"                     ; RETURN "text/csv"
+   CASE cExt == "zip"                     ; RETURN "application/zip"
+   CASE cExt == "doc"                     ; RETURN "application/msword"
+   CASE cExt == "docx"                    ; RETURN "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+   CASE cExt == "xls"                     ; RETURN "application/vnd.ms-excel"
+   CASE cExt == "xlsx"                    ; RETURN "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+   ENDCASE
+RETURN "application/octet-stream"
+
+FUNCTION MCP_Tool_Archive_Document(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cTyp, nNo, cFile, cArchived
+   LOCAL aArchived := {}
+   LOCAL hDocType
+   #include '..\hooks\archive.ch'
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "doc_type"=>{"type"=>"string","enum"=>{},"description"=>"Transaction type: "},;
+            "number"=>{"type"=>"number","description"=>"Number of the transaction (e.g. the Bestellnummer for BES/BB)"},;
+            "file"=>{"type"=>"string","description"=>"Full path (as seen by the Trader server) of a file to archive"};
+         },;
+         "required"=>{"doc_type","number","file"};
+      }
+      FOR EACH hDocType IN hTypes
+         Aadd(hResult["schema"]["properties"]["doc_type"]["enum"],hDocType:__enumKey)
+         hResult["schema"]["properties"]["doc_type"]["description"] += IF(hDocType:__eNumIndex>1,",","")+hDocType:__enumKey+"="+HB_StrToUtf8(hDocType["NAME"])
+      NEXT
+      hResult["description"] := "Archive a file to a business transaction (Vorgang), e.g. a supplier's order " + ;
+                                "confirmation PDF to purchase order BB/4711. The file is stored via the standard " + ;
+                                "Trader archive (the same location the archive browser shows) and its path must be " + ;
+                                "reachable by the Trader server"
+      RETURN hResult
+   ENDIF
+
+   IF ValType(hArgs["doc_type"]) != "C" .OR. ! Upper(AllTrim(hArgs["doc_type"])) $ hTypes
+      RETURN "Invalid doc_type. Valid types: " + DV_Join(HGetKeys(hTypes), ", ")
+   ENDIF
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   IF ! HHasKey(hArgs, "file") .OR. Empty(hArgs["file"])
+      RETURN "Parameter 'file' (a path reachable by the Trader server) is required"
+   ENDIF
+   cTyp := Upper(AllTrim(hArgs["doc_type"]))
+   nNo := hArgs["number"]
+
+   cFile := HB_UTF8ToStr(AllTrim(hArgs["file"]))
+   IF ! File(cFile)
+      RETURN "File not found: " + cFile
+   ENDIF
+   BEGIN SEQUENCE
+      cArchived := AddFileToArchive(cTyp, nNo, cFile, .T.)
+   RECOVER
+      cArchived := ""
+   END SEQUENCE
+   IF Empty(cArchived)
+      hResult["status"] := "error"
+      hResult["message"] := "Archiving failed - the archive hook returned no target file"
+      RETURN hResult
+   ENDIF
+   AAdd(aArchived, {"source"=>HB_StrToUTF8(cFile), "archived_as"=>HB_StrToUTF8(cArchived)})
+
+   hResult["doc_type"] := cTyp
+   hResult["number"] := nNo
+   hResult["archived"] := aArchived
+   hResult["count"] := Len(aArchived)
+   hResult["status"] := "success"
+RETURN hResult
+
+FUNCTION MCP_Tool_List_Archive_Documents(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cTyp, nNo
+   LOCAL aFiles, aFile, hDoc
+   LOCAL aDocs := {}
+   LOCAL hDocType
+   #include '..\hooks\archive.ch'
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "doc_type"=>{"type"=>"string","enum"=>{},"description"=>"Transaction type: "},;
+            "number"=>{"type"=>"number","description"=>"Number of the transaction"};
+         },;
+         "required"=>{"doc_type","number"};
+      }
+      FOR EACH hDocType IN hTypes
+         Aadd(hResult["schema"]["properties"]["doc_type"]["enum"],hDocType:__enumKey)
+         hResult["schema"]["properties"]["doc_type"]["description"] += IF(hDocType:__eNumIndex>1,",","")+hDocType:__enumKey+"="+HB_StrToUtf8(hDocType["NAME"])
+      NEXT
+      hResult["description"] := "List the documents archived on a business transaction (Vorgang), oldest first, " + ;
+                                "with name, date and file path - e.g. everything filed on Bestellung 4711 under BES/BB"
+      RETURN hResult
+   ENDIF
+
+   IF ValType(hArgs["doc_type"]) != "C" .OR. ! Upper(AllTrim(hArgs["doc_type"])) $ hTypes
+      RETURN "Invalid doc_type. Valid types: " + DV_Join(HGetKeys(hTypes), ", ")
+   ENDIF
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   cTyp := Upper(AllTrim(hArgs["doc_type"]))
+   nNo := hArgs["number"]
+
+   BEGIN SEQUENCE
+      aFiles := GetArchiveFiles({cTyp => nNo})
+   RECOVER
+      aFiles := NIL
+   END SEQUENCE
+
+   IF ! HB_IsArray(aFiles)
+      hResult["status"] := "error"
+      hResult["message"] := "Archive lookup failed"
+      RETURN hResult
+   ENDIF
+
+   // Directory()-style entries: [1] display name, [2] size, [3] date,
+   // [4] time, [6] full path (see Trader-Hooks/get_archive_files.prg)
+   FOR EACH aFile IN aFiles
+      IF HB_IsArray(aFile) .AND. Len(aFile) >= 6
+         hDoc := {=>}
+         hDoc["name"] := HB_StrToUTF8(AllTrim(aFile[1]))
+         IF HB_IsNumeric(aFile[2])
+            hDoc["size"] := aFile[2]
+         ENDIF
+         hDoc["date"] := aFile[3]
+         hDoc["time"] := aFile[4]
+         hDoc["path"] := HB_StrToUTF8(aFile[6])
+         AAdd(aDocs, hDoc)
+      ENDIF
+   NEXT
+
+   hResult["doc_type"] := cTyp
+   hResult["number"] := nNo
+   hResult["count"] := Len(aDocs)
+   hResult["documents"] := aDocs
+   hResult["status"] := IIF(Len(aDocs) > 0, "found", "not_found")
+   IF Len(aDocs) == 0
+      hResult["message"] := "No documents archived on this transaction"
+   ENDIF
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Archive_Document(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cTyp, nNo, cWant := "", nIndex := 0
+   LOCAL aFiles, aFile, aValid := {}, aNames := {}
+   LOCAL nMax := 650000    // stay well under the MCP client's ~1 MB message buffer (base64 is ~33% larger)
+   LOCAL nSel := 0, nX, nSize, cPath, cName, cData
+   LOCAL hDocType
+   #include '..\hooks\archive.ch'
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "doc_type"=>{"type"=>"string","enum"=>{},"description"=>"Transaction type (e.g. ER for an incoming invoice)"},;
+            "number"=>{"type"=>"number","description"=>"Number of the transaction (e.g. the ER number)"},;
+            "filename"=>{"type"=>"string","description"=>"Name of the document to fetch (from list_archive_documents); optional when the transaction has exactly one document"},;
+            "index"=>{"type"=>"number","description"=>"1-based position in the archived-documents list, as an alternative to filename"},;
+            "max_bytes"=>{"type"=>"number","description"=>"Refuse files larger than this many raw bytes (default and hard cap ~650 KB). The content is returned base64-encoded (~33% larger) and must fit the MCP client's ~1 MB message buffer; larger documents must be fetched via the path from list_archive_documents"};
+         },;
+         "required"=>{"doc_type","number"};
+      }
+      FOR EACH hDocType IN hTypes
+         Aadd(hResult["schema"]["properties"]["doc_type"]["enum"], hDocType:__enumKey)
+      NEXT
+      hResult["description"] := "Fetch one archived document of a business transaction (Vorgang) and return its " + ;
+                               "content base64-encoded - e.g. the PDF of an incoming invoice via doc_type ER and " + ;
+                               "the ER number. Use list_archive_documents first to see the available file names"
+      RETURN hResult
+   ENDIF
+
+   IF ValType(hArgs["doc_type"]) != "C" .OR. ! Upper(AllTrim(hArgs["doc_type"])) $ hTypes
+      RETURN "Invalid doc_type. Valid types: " + DV_Join(HGetKeys(hTypes), ", ")
+   ENDIF
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   cTyp := Upper(AllTrim(hArgs["doc_type"]))
+   nNo := hArgs["number"]
+   IF HHasKey(hArgs, "filename") .AND. ValType(hArgs["filename"]) == "C" .AND. ! Empty(hArgs["filename"])
+      cWant := Upper(AllTrim(hArgs["filename"]))
+   ENDIF
+   IF HHasKey(hArgs, "index") .AND. HB_IsNumeric(hArgs["index"]) .AND. hArgs["index"] > 0
+      nIndex := Int(hArgs["index"])
+   ENDIF
+   IF HHasKey(hArgs, "max_bytes") .AND. HB_IsNumeric(hArgs["max_bytes"]) .AND. hArgs["max_bytes"] > 0
+      nMax := Min(Int(hArgs["max_bytes"]), 650000)   // never above the buffer-safe ceiling
+   ENDIF
+
+   BEGIN SEQUENCE
+      aFiles := GetArchiveFiles({cTyp => nNo})
+   RECOVER
+      aFiles := NIL
+   END SEQUENCE
+   IF ! HB_IsArray(aFiles)
+      hResult["status"] := "error"
+      hResult["message"] := "Archive lookup failed"
+      RETURN hResult
+   ENDIF
+
+   // Directory()-style entries: [1] name, [2] size, [3] date, [4] time, [6] path
+   FOR EACH aFile IN aFiles
+      IF HB_IsArray(aFile) .AND. Len(aFile) >= 6
+         AAdd(aValid, aFile)
+         AAdd(aNames, HB_StrToUTF8(AllTrim(aFile[1])))
+      ENDIF
+   NEXT
+
+   IF Len(aValid) == 0
+      hResult["doc_type"] := cTyp
+      hResult["number"] := nNo
+      hResult["status"] := "not_found"
+      hResult["message"] := "No documents archived on this transaction"
+      RETURN hResult
+   ENDIF
+
+   // Pick the requested document (by name, by index, or the only one).
+   IF ! Empty(cWant)
+      FOR nX := 1 TO Len(aValid)
+         IF Upper(AllTrim(HB_StrToUTF8(aValid[nX][1]))) == cWant
+            nSel := nX
+            EXIT
+         ENDIF
+      NEXT
+      IF nSel == 0
+         RETURN "Document not found: " + hArgs["filename"] + ". Available: " + DV_Join(aNames, ", ")
+      ENDIF
+   ELSEIF nIndex > 0
+      IF nIndex > Len(aValid)
+         RETURN "index " + AllTrim(Str(nIndex)) + " out of range (1.." + AllTrim(Str(Len(aValid))) + ")"
+      ENDIF
+      nSel := nIndex
+   ELSEIF Len(aValid) == 1
+      nSel := 1
+   ELSE
+      hResult["doc_type"] := cTyp
+      hResult["number"] := nNo
+      hResult["status"] := "ambiguous"
+      hResult["count"] := Len(aValid)
+      hResult["available"] := aNames
+      hResult["message"] := "Several documents archived - specify 'filename' or 'index'"
+      RETURN hResult
+   ENDIF
+
+   aFile := aValid[nSel]
+   cName := HB_StrToUTF8(AllTrim(aFile[1]))
+   cPath := aFile[6]   // app-codepage path, used as-is for File()/read
+   nSize := IIF(HB_IsNumeric(aFile[2]), aFile[2], 0)
+
+   hResult["doc_type"] := cTyp
+   hResult["number"] := nNo
+   hResult["name"] := cName
+   hResult["path"] := HB_StrToUTF8(AllTrim(cPath))
+   hResult["mime_type"] := _MCP_MimeFromName(aFile[1])
+
+   IF nSize > nMax
+      hResult["size"] := nSize
+      hResult["status"] := "too_large"
+      hResult["message"] := "Document is " + AllTrim(Str(nSize)) + " bytes, larger than the buffer-safe limit (" + ;
+         AllTrim(Str(nMax)) + "). Fetch it via the path from list_archive_documents instead"
+      RETURN hResult
+   ENDIF
+
+   IF ! File(cPath)
+      hResult["status"] := "error"
+      hResult["message"] := "Archived file not found on disk: " + HB_StrToUTF8(AllTrim(cPath))
+      RETURN hResult
+   ENDIF
+
+   cData := hb_MemoRead(cPath)   // binary-safe whole-file read
+   IF Empty(cData)
+      hResult["status"] := "error"
+      hResult["message"] := "Archived file is empty or could not be read"
+      RETURN hResult
+   ENDIF
+   IF Len(cData) > nMax
+      hResult["size"] := Len(cData)
+      hResult["status"] := "too_large"
+      hResult["message"] := "Document exceeds max_bytes after reading"
+      RETURN hResult
+   ENDIF
+
+   hResult["size"] := Len(cData)
+   hResult["encoding"] := "base64"
+   hResult["content"] := hb_base64Encode(cData)
+   hResult["status"] := "found"
 RETURN hResult
 
 FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)

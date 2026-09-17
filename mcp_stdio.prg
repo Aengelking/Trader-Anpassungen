@@ -254,6 +254,91 @@ FUNCTION GetFunctionsWithPrefix(cPrefix)
 RETURN aFunctions
 
 
+// ---------------------------------------------------------------------------
+// Central permission gate. Each tool maps to a Trader permission (name + type
+// C/R/U/D); the caller must hold it or the tools/call is refused. The check
+// runs against the authenticated REQUEST user (thread-local, from the HTTP
+// transport) so concurrent read tools stay concurrent - it never touches the
+// process-global Tr_GetIni(28). In stdio mode it falls back to that global
+// (the single startup user). Fails closed. Project tools carry their own
+// permission check (see _McpPjPerm) and are intentionally not listed here.
+// ---------------------------------------------------------------------------
+
+STATIC FUNCTION _McpAuthUserId()
+   LOCAL nU := 0
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      nU := MCP_Http_ReqUser()   // thread-local request user (0 in stdio)
+   RECOVER
+      nU := 0
+   END SEQUENCE
+   IF nU <= 0
+      nU := Tr_GetIni(28)        // stdio / fallback: the process user
+   ENDIF
+RETURN nU
+
+STATIC FUNCTION _McpAuthHasPerm(cType, cName)
+   LOCAL nU := _McpAuthUserId()
+   LOCAL lOk := .F.
+   LOCAL oUsr
+   IF nU <= 0
+      RETURN .F.
+   ENDIF
+   // Build a User for this request's user id directly. SystemUser() keys on
+   // Tr_GetIni(28), which is only pinned to the caller under the serial
+   // dispatch - concurrent read tools would see the wrong (or default) user.
+   // User:Load(nU) does buy->(dbGoto(nU)) on the thread-local work area, so the
+   // per-request check is correct and concurrency-safe.
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      oUsr := User():New(.F.)
+      oUsr:Load(nU)
+      lOk := oUsr:HasPermission(cType, cName)
+   RECOVER
+      lOk := .F.                 // fail closed on any error resolving the right
+   END SEQUENCE
+RETURN lOk
+
+// Tool -> required { type, permission } or .F. (no gate here). Names come from
+// the app's own HasPermission/CheckPermission calls (Auftrag=SALESORDER,
+// Bestellung=PURCHASEORDER, Artikel=ART, Werksauftrag=WERKAUF, ...).
+STATIC FUNCTION _McpInList(c, aList)
+RETURN AScan(aList, {|x| x == c}) > 0   // exact match (avoids '=' prefix semantics)
+
+STATIC FUNCTION _McpToolRequiredPerm(cTool, cType, cName)
+   LOCAL c := Lower(AllTrim(cTool))
+   cType := "R" ; cName := ""
+   DO CASE
+   CASE _McpInList(c, {"get_article","search_articles","get_article_options","get_article_schedule",;
+                       "get_article_where_used","get_article_movements","get_article_suppliers",;
+                       "get_article_prices","get_article_orders","get_bom","check_stock",;
+                       "get_stock_withdrawal"})
+      cName := "ART" ; cType := "R"
+   CASE _McpInList(c, {"get_customer","search_customers","get_customer_part_number",;
+                       "get_customer_turnover"})
+      cName := "ADR_CUSTOMER" ; cType := "R"
+   CASE c == "get_supplier"
+      cName := "ADR_SUPPLIER" ; cType := "R"
+   CASE _McpInList(c, {"get_customer_orders","get_order_details"})
+      cName := "SALESORDER" ; cType := "R"
+   CASE _McpInList(c, {"get_customer_quotes","get_quote"})
+      cName := "SALESQUOTE" ; cType := "R"
+   CASE _McpInList(c, {"get_customer_invoices","get_invoice","get_customer_open_items"})
+      cName := "SALESINVOICE" ; cType := "R"
+   CASE c == "get_production_order"
+      cName := "WERKAUF" ; cType := "R"
+   CASE _McpInList(c, {"get_purchase_order","get_supplier_orders"})
+      cName := "PURCHASEORDER" ; cType := "R"
+   CASE c == "get_supplier_quote"
+      cName := "PURCHASEQUOTE" ; cType := "R"
+   CASE c == "list_unposted_incoming_invoices"
+      cName := "PURCHASEINVOICE" ; cType := "R"
+   CASE _McpInList(c, {"add_delivery_schedule","book_shipping_confirmation",;
+                       "confirm_purchase_order","set_supplier_holiday"})
+      cName := "PURCHASEORDER" ; cType := "U"
+   CASE c == "add_supplier_quote"
+      cName := "PURCHASEQUOTE" ; cType := "C"
+   ENDCASE
+RETURN ! Empty(cName)
+
 FUNCTION MCP_Tools_Call(hRequest, xId)
    LOCAL hParams := hRequest["params"]
    LOCAL cToolName := hParams["name"]
@@ -266,6 +351,7 @@ FUNCTION MCP_Tools_Call(hRequest, xId)
    LOCAL nProvidedCount := 0
    LOCAL cProvidedParams := ""
    LOCAL aContent, cChatMsg
+   LOCAL cPType, cPName
 
    
    // Convert tool name to function name: get_customer -> MCP_Tool_Get_Customer
@@ -329,6 +415,12 @@ FUNCTION MCP_Tools_Call(hRequest, xId)
       //make sure the tool is not called with no arguments, this would otherwise return the schmema
       IF hArguments == NIL .OR. ValType(hArguments) != "H" .OR. Len(hArguments) == 0
          hArguments := {"DUMMY"=>.T.}
+      ENDIF
+
+      // Permission gate: refuse the call if the caller lacks the tool's Trader
+      // permission (project tools self-gate and are not listed).
+      IF _McpToolRequiredPerm(cToolName, @cPType, @cPName) .AND. ! _McpAuthHasPerm(cPType, cPName)
+         RETURN CreateErrorResponse("Permission denied: missing " + cPName + " (" + cPType + ") for tool " + cToolName, xId)
       ENDIF
 
       MCPChatBuffer(.T.)  // fresh chat-message buffer for this call (see MCPChatMessage)
@@ -4618,16 +4710,11 @@ STATIC FUNCTION _McpPjResolveCustomer(hArgs)
    ENDIF
 RETURN cKu
 
-// Permission on the "PROJECTS" right for the current request user. Uses
-// HasPermission (not CheckPermission, which pops a GUI MsgBox). SystemUser()
-// derives from Tr_GetIni(28); the project tools are dispatched serially so
-// that context is the authenticated request user (mcp_http.prg).
+// Permission on the "PROJECTS" right for the current request user, via the
+// shared concurrency-safe check (thread-local request user, HasPermission - no
+// GUI MsgBox). So the project read tools need not be serialised.
 STATIC FUNCTION _McpPjPerm(cType)
-   LOCAL oUsr := SystemUser()
-   IF ValType(oUsr) != "O"
-      RETURN .F.
-   ENDIF
-RETURN oUsr:HasPermission(cType, "PROJECTS")
+RETURN _McpAuthHasPerm(cType, "PROJECTS")
 
 // Cross-session entity lock (protects against a concurrent desktop edit), the
 // same "PJ" lock the Projekt mask uses. Defensive: if the lock service is not

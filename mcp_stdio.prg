@@ -5264,6 +5264,327 @@ FUNCTION MCP_Tool_Remove_Project_Article(hArgs)
    hResult["message"] := "Article removed from project " + AllTrim(Str(nNummer))
 RETURN _HashToUtf8(hResult)
 
+// ---------------------------------------------------------------------------
+// Document archive (Vorgangsarchiv). Standard Trader archive via
+// GetArchiveFiles()/AddFileToArchive() (archive.prg) - NOT David. Restored
+// after the David/OLE removal (commit 5298d45), which took these along even
+// though only archive_document's former message_id branch used David; that
+// branch is dropped here (file-based archiving only).
+// ---------------------------------------------------------------------------
+
+// Guess a MIME type from a file name's extension for get_archive_document.
+STATIC FUNCTION _MCP_MimeFromName(cName)
+   LOCAL cExt := Lower(AllTrim(cName))
+   LOCAL nDot := RAt(".", cExt)
+   IF nDot > 0
+      cExt := SubStr(cExt, nDot + 1)
+   ELSE
+      cExt := ""
+   ENDIF
+   DO CASE
+   CASE cExt == "pdf"                     ; RETURN "application/pdf"
+   CASE cExt == "png"                     ; RETURN "image/png"
+   CASE cExt == "jpg" .OR. cExt == "jpeg" ; RETURN "image/jpeg"
+   CASE cExt == "tif" .OR. cExt == "tiff" ; RETURN "image/tiff"
+   CASE cExt == "gif"                     ; RETURN "image/gif"
+   CASE cExt == "txt"                     ; RETURN "text/plain"
+   CASE cExt == "xml"                     ; RETURN "application/xml"
+   CASE cExt == "html" .OR. cExt == "htm" ; RETURN "text/html"
+   CASE cExt == "csv"                     ; RETURN "text/csv"
+   CASE cExt == "zip"                     ; RETURN "application/zip"
+   CASE cExt == "doc"                     ; RETURN "application/msword"
+   CASE cExt == "docx"                    ; RETURN "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+   CASE cExt == "xls"                     ; RETURN "application/vnd.ms-excel"
+   CASE cExt == "xlsx"                    ; RETURN "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+   ENDCASE
+RETURN "application/octet-stream"
+
+FUNCTION MCP_Tool_Archive_Document(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cTyp, nNo, cFile, cArchived
+   LOCAL aArchived := {}
+   LOCAL hDocType
+   #include '..\hooks\archive.ch'
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "doc_type"=>{"type"=>"string","enum"=>{},"description"=>"Transaction type: "},;
+            "number"=>{"type"=>"number","description"=>"Number of the transaction (e.g. the Bestellnummer for BES/BB)"},;
+            "file"=>{"type"=>"string","description"=>"Full path (as seen by the Trader server) of a file to archive"};
+         },;
+         "required"=>{"doc_type","number","file"};
+      }
+      FOR EACH hDocType IN hTypes
+         Aadd(hResult["schema"]["properties"]["doc_type"]["enum"],hDocType:__enumKey)
+         hResult["schema"]["properties"]["doc_type"]["description"] += IF(hDocType:__eNumIndex>1,",","")+hDocType:__enumKey+"="+HB_StrToUtf8(hDocType["NAME"])
+      NEXT
+      hResult["description"] := "Archive a file to a business transaction (Vorgang), e.g. a supplier's order " + ;
+                                "confirmation PDF to purchase order BB/4711. The file is stored via the standard " + ;
+                                "Trader archive (the same location the archive browser shows) and its path must be " + ;
+                                "reachable by the Trader server"
+      RETURN hResult
+   ENDIF
+
+   IF ValType(hArgs["doc_type"]) != "C" .OR. ! Upper(AllTrim(hArgs["doc_type"])) $ hTypes
+      RETURN "Invalid doc_type. Valid types: " + DV_Join(HGetKeys(hTypes), ", ")
+   ENDIF
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   IF ! HHasKey(hArgs, "file") .OR. Empty(hArgs["file"])
+      RETURN "Parameter 'file' (a path reachable by the Trader server) is required"
+   ENDIF
+   cTyp := Upper(AllTrim(hArgs["doc_type"]))
+   nNo := hArgs["number"]
+
+   cFile := HB_UTF8ToStr(AllTrim(hArgs["file"]))
+   IF ! File(cFile)
+      RETURN "File not found: " + cFile
+   ENDIF
+   BEGIN SEQUENCE
+      cArchived := AddFileToArchive(cTyp, nNo, cFile, .T.)
+   RECOVER
+      cArchived := ""
+   END SEQUENCE
+   IF Empty(cArchived)
+      hResult["status"] := "error"
+      hResult["message"] := "Archiving failed - the archive hook returned no target file"
+      RETURN hResult
+   ENDIF
+   AAdd(aArchived, {"source"=>HB_StrToUTF8(cFile), "archived_as"=>HB_StrToUTF8(cArchived)})
+
+   hResult["doc_type"] := cTyp
+   hResult["number"] := nNo
+   hResult["archived"] := aArchived
+   hResult["count"] := Len(aArchived)
+   hResult["status"] := "success"
+RETURN hResult
+
+FUNCTION MCP_Tool_List_Archive_Documents(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cTyp, nNo
+   LOCAL aFiles, aFile, hDoc
+   LOCAL aDocs := {}
+   LOCAL hDocType
+   #include '..\hooks\archive.ch'
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "doc_type"=>{"type"=>"string","enum"=>{},"description"=>"Transaction type: "},;
+            "number"=>{"type"=>"number","description"=>"Number of the transaction"};
+         },;
+         "required"=>{"doc_type","number"};
+      }
+      FOR EACH hDocType IN hTypes
+         Aadd(hResult["schema"]["properties"]["doc_type"]["enum"],hDocType:__enumKey)
+         hResult["schema"]["properties"]["doc_type"]["description"] += IF(hDocType:__eNumIndex>1,",","")+hDocType:__enumKey+"="+HB_StrToUtf8(hDocType["NAME"])
+      NEXT
+      hResult["description"] := "List the documents archived on a business transaction (Vorgang), oldest first, " + ;
+                                "with name, date and file path - e.g. everything filed on Bestellung 4711 under BES/BB"
+      RETURN hResult
+   ENDIF
+
+   IF ValType(hArgs["doc_type"]) != "C" .OR. ! Upper(AllTrim(hArgs["doc_type"])) $ hTypes
+      RETURN "Invalid doc_type. Valid types: " + DV_Join(HGetKeys(hTypes), ", ")
+   ENDIF
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   cTyp := Upper(AllTrim(hArgs["doc_type"]))
+   nNo := hArgs["number"]
+
+   BEGIN SEQUENCE
+      aFiles := GetArchiveFiles({cTyp => nNo})
+   RECOVER
+      aFiles := NIL
+   END SEQUENCE
+
+   IF ! HB_IsArray(aFiles)
+      hResult["status"] := "error"
+      hResult["message"] := "Archive lookup failed"
+      RETURN hResult
+   ENDIF
+
+   // Directory()-style entries: [1] display name, [2] size, [3] date,
+   // [4] time, [6] full path (see Trader-Hooks/get_archive_files.prg)
+   FOR EACH aFile IN aFiles
+      IF HB_IsArray(aFile) .AND. Len(aFile) >= 6
+         hDoc := {=>}
+         hDoc["name"] := HB_StrToUTF8(AllTrim(aFile[1]))
+         IF HB_IsNumeric(aFile[2])
+            hDoc["size"] := aFile[2]
+         ENDIF
+         hDoc["date"] := aFile[3]
+         hDoc["time"] := aFile[4]
+         hDoc["path"] := HB_StrToUTF8(aFile[6])
+         AAdd(aDocs, hDoc)
+      ENDIF
+   NEXT
+
+   hResult["doc_type"] := cTyp
+   hResult["number"] := nNo
+   hResult["count"] := Len(aDocs)
+   hResult["documents"] := aDocs
+   hResult["status"] := IIF(Len(aDocs) > 0, "found", "not_found")
+   IF Len(aDocs) == 0
+      hResult["message"] := "No documents archived on this transaction"
+   ENDIF
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Archive_Document(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL cTyp, nNo, cWant := "", nIndex := 0
+   LOCAL aFiles, aFile, aValid := {}, aNames := {}
+   LOCAL nMax := 650000    // stay well under the MCP client's ~1 MB message buffer (base64 is ~33% larger)
+   LOCAL nSel := 0, nX, nSize, cPath, cName, cData
+   LOCAL hDocType
+   #include '..\hooks\archive.ch'
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "doc_type"=>{"type"=>"string","enum"=>{},"description"=>"Transaction type (e.g. ER for an incoming invoice)"},;
+            "number"=>{"type"=>"number","description"=>"Number of the transaction (e.g. the ER number)"},;
+            "filename"=>{"type"=>"string","description"=>"Name of the document to fetch (from list_archive_documents); optional when the transaction has exactly one document"},;
+            "index"=>{"type"=>"number","description"=>"1-based position in the archived-documents list, as an alternative to filename"},;
+            "max_bytes"=>{"type"=>"number","description"=>"Refuse files larger than this many raw bytes (default and hard cap ~650 KB). The content is returned base64-encoded (~33% larger) and must fit the MCP client's ~1 MB message buffer; larger documents must be fetched via the path from list_archive_documents"};
+         },;
+         "required"=>{"doc_type","number"};
+      }
+      FOR EACH hDocType IN hTypes
+         Aadd(hResult["schema"]["properties"]["doc_type"]["enum"], hDocType:__enumKey)
+      NEXT
+      hResult["description"] := "Fetch one archived document of a business transaction (Vorgang) and return its " + ;
+                               "content base64-encoded - e.g. the PDF of an incoming invoice via doc_type ER and " + ;
+                               "the ER number. Use list_archive_documents first to see the available file names"
+      RETURN hResult
+   ENDIF
+
+   IF ValType(hArgs["doc_type"]) != "C" .OR. ! Upper(AllTrim(hArgs["doc_type"])) $ hTypes
+      RETURN "Invalid doc_type. Valid types: " + DV_Join(HGetKeys(hTypes), ", ")
+   ENDIF
+   IF ! HB_IsNumeric(hArgs["number"])
+      RETURN "Parameter 'number' must be a number"
+   ENDIF
+   cTyp := Upper(AllTrim(hArgs["doc_type"]))
+   nNo := hArgs["number"]
+   IF HHasKey(hArgs, "filename") .AND. ValType(hArgs["filename"]) == "C" .AND. ! Empty(hArgs["filename"])
+      cWant := Upper(AllTrim(hArgs["filename"]))
+   ENDIF
+   IF HHasKey(hArgs, "index") .AND. HB_IsNumeric(hArgs["index"]) .AND. hArgs["index"] > 0
+      nIndex := Int(hArgs["index"])
+   ENDIF
+   IF HHasKey(hArgs, "max_bytes") .AND. HB_IsNumeric(hArgs["max_bytes"]) .AND. hArgs["max_bytes"] > 0
+      nMax := Min(Int(hArgs["max_bytes"]), 650000)   // never above the buffer-safe ceiling
+   ENDIF
+
+   BEGIN SEQUENCE
+      aFiles := GetArchiveFiles({cTyp => nNo})
+   RECOVER
+      aFiles := NIL
+   END SEQUENCE
+   IF ! HB_IsArray(aFiles)
+      hResult["status"] := "error"
+      hResult["message"] := "Archive lookup failed"
+      RETURN hResult
+   ENDIF
+
+   // Directory()-style entries: [1] name, [2] size, [3] date, [4] time, [6] path
+   FOR EACH aFile IN aFiles
+      IF HB_IsArray(aFile) .AND. Len(aFile) >= 6
+         AAdd(aValid, aFile)
+         AAdd(aNames, HB_StrToUTF8(AllTrim(aFile[1])))
+      ENDIF
+   NEXT
+
+   IF Len(aValid) == 0
+      hResult["doc_type"] := cTyp
+      hResult["number"] := nNo
+      hResult["status"] := "not_found"
+      hResult["message"] := "No documents archived on this transaction"
+      RETURN hResult
+   ENDIF
+
+   // Pick the requested document (by name, by index, or the only one).
+   IF ! Empty(cWant)
+      FOR nX := 1 TO Len(aValid)
+         IF Upper(AllTrim(HB_StrToUTF8(aValid[nX][1]))) == cWant
+            nSel := nX
+            EXIT
+         ENDIF
+      NEXT
+      IF nSel == 0
+         RETURN "Document not found: " + hArgs["filename"] + ". Available: " + DV_Join(aNames, ", ")
+      ENDIF
+   ELSEIF nIndex > 0
+      IF nIndex > Len(aValid)
+         RETURN "index " + AllTrim(Str(nIndex)) + " out of range (1.." + AllTrim(Str(Len(aValid))) + ")"
+      ENDIF
+      nSel := nIndex
+   ELSEIF Len(aValid) == 1
+      nSel := 1
+   ELSE
+      hResult["doc_type"] := cTyp
+      hResult["number"] := nNo
+      hResult["status"] := "ambiguous"
+      hResult["count"] := Len(aValid)
+      hResult["available"] := aNames
+      hResult["message"] := "Several documents archived - specify 'filename' or 'index'"
+      RETURN hResult
+   ENDIF
+
+   aFile := aValid[nSel]
+   cName := HB_StrToUTF8(AllTrim(aFile[1]))
+   cPath := aFile[6]   // app-codepage path, used as-is for File()/read
+   nSize := IIF(HB_IsNumeric(aFile[2]), aFile[2], 0)
+
+   hResult["doc_type"] := cTyp
+   hResult["number"] := nNo
+   hResult["name"] := cName
+   hResult["path"] := HB_StrToUTF8(AllTrim(cPath))
+   hResult["mime_type"] := _MCP_MimeFromName(aFile[1])
+
+   IF nSize > nMax
+      hResult["size"] := nSize
+      hResult["status"] := "too_large"
+      hResult["message"] := "Document is " + AllTrim(Str(nSize)) + " bytes, larger than the buffer-safe limit (" + ;
+         AllTrim(Str(nMax)) + "). Fetch it via the path from list_archive_documents instead"
+      RETURN hResult
+   ENDIF
+
+   IF ! File(cPath)
+      hResult["status"] := "error"
+      hResult["message"] := "Archived file not found on disk: " + HB_StrToUTF8(AllTrim(cPath))
+      RETURN hResult
+   ENDIF
+
+   cData := hb_MemoRead(cPath)   // binary-safe whole-file read
+   IF Empty(cData)
+      hResult["status"] := "error"
+      hResult["message"] := "Archived file is empty or could not be read"
+      RETURN hResult
+   ENDIF
+   IF Len(cData) > nMax
+      hResult["size"] := Len(cData)
+      hResult["status"] := "too_large"
+      hResult["message"] := "Document exceeds max_bytes after reading"
+      RETURN hResult
+   ENDIF
+
+   hResult["size"] := Len(cData)
+   hResult["encoding"] := "base64"
+   hResult["content"] := hb_base64Encode(cData)
+   hResult["status"] := "found"
+RETURN hResult
+
 FUNCTION MCP_Tool_Confirm_Purchase_Order(hArgs)
    LOCAL hResult := {=>}
    LOCAL nPo, nPos, nWeek := 0, nWk

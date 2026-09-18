@@ -43,6 +43,11 @@
 STATIC s_nMcpSessionSeq  := 0     // monotonic counter for session-id uniqueness
 STATIC s_lMcpHttpStop    := .F.   // set when a "shutdown" request arrives
 STATIC s_lMcpHttpVerbose := .T.   // per-request console logging on/off
+// TEMPORARY DIAGNOSTIC: dump the exact request/response bytes for POST and the
+// SSE-stream GET on the "/" endpoint, so we can see precisely what a strict
+// client (chayns) sends and what we reply. The Authorization header and any
+// ?key= are redacted. Set to .F. (or delete) once the transport bug is found.
+STATIC s_lMcpWire        := .T.   // wire-level request/response dump on/off
 STATIC s_cMcpLogSink     := ""    // "QOUT" or "STDERR"; decided from the GT on first use
 STATIC s_hMcpKeys        := NIL   // API-key table from mcp_keys.json (NIL = auth disabled)
 STATIC s_cMcpKeysStamp   := ""    // file stamp of the loaded key table
@@ -82,6 +87,7 @@ THREAD STATIC t_cReqName     := ""  // current request's user name
 THREAD STATIC t_cReqPeer     := ""  // current request's peer address
 THREAD STATIC t_lReqReadOnly := .F. // current request's API key is read-only (write tools blocked)
 THREAD STATIC t_lLetoReady   := .F. // this worker has established its own LetoDB connection
+THREAD STATIC t_lMcpWireReq  := .F. // current request is being wire-dumped (see s_lMcpWire)
 
 FUNCTION MCP_Http( nPort, cBindAddr, lVerbose, lAutoReload )
    LOCAL nStdErr := hb_GetStdErr()
@@ -718,6 +724,7 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    lQuiet := ( MCP_Http_LogSink() == "QOUT" )
    cPeer := MCP_Http_Peer( hSocket )
    t_lMcpQuietReq := .F.  // set once the path is known; early sends stay logged
+   t_lMcpWireReq  := .F.  // set once the path/method are known (see s_lMcpWire)
 
    // Request context for the connected-client overview (see MCP_Http_TrackClient).
    // Peer is known now; the user/name follow once authentication succeeds.
@@ -816,6 +823,16 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
          IIF( ! Empty(cOrigin), " origin=" + MCP_Http_Printable(cOrigin), "" ) )
    ENDIF
 
+   // TEMPORARY DIAGNOSTIC (s_lMcpWire): mark POST and the SSE-stream GET on "/"
+   // for a full request/response byte dump, so we can see exactly what a strict
+   // client (chayns) sends and what we send back.
+   t_lMcpWireReq := s_lMcpWire .AND. cPath == "/" .AND. ;
+      ( cHttpMethod == "POST" .OR. ;
+        ( cHttpMethod == "GET" .AND. "text/event-stream" $ Lower( IIF( HHasKey(hHeaders,"ACCEPT"), hHeaders["ACCEPT"], "" ) ) ) )
+   IF t_lMcpWireReq .AND. cHttpMethod == "GET"
+      MCP_Http_WireIn( aLines, "" )   // POST bodies are dumped after they are read
+   ENDIF
+
    // ---- Route by HTTP method -------------------------------------------
 
    // CORS preflight.
@@ -889,6 +906,12 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
          ENDIF
          cBody += Left( cBuf, nGot )
       ENDDO
+   ENDIF
+
+   // TEMPORARY DIAGNOSTIC (s_lMcpWire): dump the exact POST request now that the
+   // body is in hand (Authorization / ?key= redacted in MCP_Http_WireIn).
+   IF t_lMcpWireReq
+      MCP_Http_WireIn( aLines, cBody )
    ENDIF
 
    // OAuth path (public endpoint via mcp.ashx): the IIS handler has already
@@ -1228,6 +1251,14 @@ STATIC FUNCTION MCP_Http_Send( hSocket, nStatus, cContentType, cBody, aHeaders )
    NEXT
    cOut += cCRLF + cBody
 
+   // TEMPORARY DIAGNOSTIC (s_lMcpWire): dump the exact bytes we send back for a
+   // wire-marked request, so the response framing (status line, headers, SSE
+   // envelope, id) can be checked against what a strict client expects.
+   IF t_lMcpWireReq
+      MCP_Http_Log( "  [WIRE out " + LTrim(Str(Len(cOut))) + " bytes] v" + Chr(10) + ;
+         MCP_Http_WireShow( cOut ) + "  [WIRE out end] ^" )
+   ENDIF
+
    // Success responses of routine "/" requests are muted in GUI mode
    // (t_lMcpQuietReq, see ServeConnection); errors are always logged.
    IF ! t_lMcpQuietReq .OR. nStatus >= 400
@@ -1337,6 +1368,53 @@ STATIC FUNCTION MCP_Http_LogSink()
    ENDIF
 
 RETURN "STDERR"
+
+// TEMPORARY DIAGNOSTIC (s_lMcpWire): render raw wire bytes readably. CR and LF
+// are shown as explicit \r / \n tokens (so CRLF header framing can be told
+// apart from the bare-LF SSE envelope), and a real newline is added after each
+// LF so the block stays human-readable in the log.
+STATIC FUNCTION MCP_Http_WireShow( cRaw )
+   LOCAL cOut := cRaw
+   cOut := StrTran( cOut, Chr(13), "\r" )
+   cOut := StrTran( cOut, Chr(10), "\n" + Chr(10) )
+RETURN cOut
+
+// TEMPORARY DIAGNOSTIC (s_lMcpWire): dump an inbound request. aLines holds the
+// request line (aLines[1]) and header lines; cBody is the POST body ("" for
+// GET). The Authorization header value and any ?key= are redacted so no
+// credential reaches the log.
+STATIC FUNCTION MCP_Http_WireIn( aLines, cBody )
+   LOCAL nX, cLine, cLower, nK, nEnd
+   LOCAL cRaw := ""
+
+   FOR nX := 1 TO Len( aLines )
+      cLine := aLines[nX]
+      IF nX == 1
+         // Request line: mask a key=... query value if present.
+         nK := At( "key=", Lower( cLine ) )
+         IF nK > 0
+            nEnd := nK + 4
+            DO WHILE nEnd <= Len( cLine ) .AND. !( SubStr( cLine, nEnd, 1 ) $ "& " )
+               nEnd++
+            ENDDO
+            cLine := Left( cLine, nK + 3 ) + "***REDACTED***" + SubStr( cLine, nEnd )
+         ENDIF
+      ELSE
+         cLower := Lower( AllTrim( cLine ) )
+         IF Left( cLower, 14 ) == "authorization:"
+            cLine := Left( cLine, At( ":", cLine ) ) + " ***REDACTED***"
+         ENDIF
+      ENDIF
+      cRaw += cLine + Chr(13) + Chr(10)
+   NEXT
+   cRaw += Chr(13) + Chr(10)        // blank line before body
+   IF ! Empty( cBody )
+      cRaw += cBody
+   ENDIF
+
+   MCP_Http_Log( "  [WIRE in " + LTrim(Str(Len(cRaw))) + " bytes] v" + Chr(10) + ;
+      MCP_Http_WireShow( cRaw ) + "  [WIRE in end] ^" )
+RETURN NIL
 
 // Remote peer address of an accepted socket (best effort; never fatal).
 STATIC FUNCTION MCP_Http_Peer( hSocket )

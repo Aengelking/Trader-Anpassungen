@@ -196,16 +196,26 @@ RETURN cResponse
 FUNCTION MCP_Initialize(hRequest, xId)
    LOCAL hResult := {=>}
    LOCAL hCapabilities := {=>}
-   
+   LOCAL hParams, cReqVer := ""
+
    hCapabilities["tools"] := {=>}
    hCapabilities["resources"] := {=>}
-   
-   hResult["protocolVersion"] := "2024-11-05"
+
+   // Echo back the protocol version the client requested. Hard-coding the old
+   // "2024-11-05" made strict clients negotiate the legacy HTTP+SSE transport
+   // (two endpoints, responses over an SSE stream) and stall - this server
+   // speaks Streamable HTTP. Reflecting the client's version keeps it on that
+   // transport. Fall back to a current default when the client sends none.
+   IF ValType(hRequest) == "H" .AND. HHasKey(hRequest, "params") .AND. ValType(hRequest["params"]) == "H" ;
+      .AND. HHasKey(hRequest["params"], "protocolVersion")
+      cReqVer := AllTrim(HB_CStr(hRequest["params"]["protocolVersion"]))
+   ENDIF
+   hResult["protocolVersion"] := IIF(Empty(cReqVer), "2025-06-18", cReqVer)
    hResult["capabilities"] := hCapabilities
    hResult["serverInfo"] := {;
       "name"=>"Trader MCP Server (STDIO Integrated)",;
       "version"=>"1.0.0"}
-   
+
 RETURN CreateSuccessResponse(hResult, xId)
 
 FUNCTION MCP_Shutdown(hRequest, xId)

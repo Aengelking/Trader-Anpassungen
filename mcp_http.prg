@@ -47,7 +47,7 @@ STATIC s_lMcpHttpVerbose := .T.   // per-request console logging on/off
 // SSE-stream GET on the "/" endpoint, so we can see precisely what a strict
 // client (chayns) sends and what we reply. The Authorization header and any
 // ?key= are redacted. Set to .F. (or delete) once the transport bug is found.
-STATIC s_lMcpWire        := .T.   // wire-level request/response dump on/off
+STATIC s_lMcpWire        := .F.   // wire-level request/response dump on/off
 STATIC s_cMcpLogSink     := ""    // "QOUT" or "STDERR"; decided from the GT on first use
 STATIC s_hMcpKeys        := NIL   // API-key table from mcp_keys.json (NIL = auth disabled)
 STATIC s_cMcpKeysStamp   := ""    // file stamp of the loaded key table

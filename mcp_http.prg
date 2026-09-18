@@ -911,7 +911,11 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
       IF ! lQuiet
          MCP_Http_Log( "  OAuth-Benutzer: " + cAuthName + " (" + LTrim( Str( nAuthUser ) ) + ") <" + cEmail + ">" )
       ENDIF
-      MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
+      // Pass the SSE preference here too - this is the OAuth path (the one
+      // mcp.ashx/chayns use); omitting it made every reply application/json
+      // regardless of Accept, which strict proxies reject.
+      MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors, ;
+         "text/event-stream" $ Lower( IIF( HHasKey(hHeaders, "ACCEPT"), hHeaders["ACCEPT"], "" ) ) )
       RETURN NIL
    ENDIF
 

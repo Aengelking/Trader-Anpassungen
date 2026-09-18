@@ -188,7 +188,11 @@ FUNCTION ProcessMCPRequest(hRequest)
          cResponse := CreateErrorResponse(cMessage, xID)
       END SEQUENCE
    ELSE
-      cResponse := CreateErrorResponse("Unknown method: " + cMethod + " (function: " + cFunctionName + ")", xId)
+      // -32601 = JSON-RPC "Method not found" - the correct, benign reply when a
+      // client probes an unsupported method (prompts/list, resources/templates/
+      // list, ...). Returning -32603 (Internal error) made strict clients treat
+      // the probe as a server failure and abort.
+      cResponse := CreateErrorResponse("Method not found: " + cMethod, xId, -32601)
    ENDIF
    
 RETURN cResponse
@@ -2174,17 +2178,20 @@ FUNCTION CreateSuccessResponse(hResult, xId)
    
 RETURN HB_JsonEncode(hResponse)
 
-FUNCTION CreateErrorResponse(cMessage, xId)
+FUNCTION CreateErrorResponse(cMessage, xId, nCode)
    LOCAL hResponse := {=>}
    LOCAL hError := {=>}
-   
-   hError["code"] := -32603  // Internal error code
+
+   IF ! HB_IsNumeric(nCode)
+      nCode := -32603  // default: JSON-RPC "Internal error"
+   ENDIF
+   hError["code"] := nCode
    hError["message"] := cMessage
-   
+
    hResponse["jsonrpc"] := "2.0"
    hResponse["id"] := xId  // Keep original ID, even if null
    hResponse["error"] := hError
-   
+
 RETURN HB_JsonEncode(hResponse)
 
 FUNCTION MCPErrorHandler(oError, nStdOut)

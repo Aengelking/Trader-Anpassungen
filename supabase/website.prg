@@ -1,13 +1,24 @@
 PROC SYNC_Supabase_Website()
    LOCAL oRest := RestApi():New()
+   LOCAL lOptions := GetConfigValue("BATCHMODE")
+   LOCAL lProducts := GetConfigValue("BATCHMODE")
 
    Head("Sync Supabase Website")
+
+   IF ! GetConfigValue("BATCHMODE")
+      lOptions := Tr_msgbox("Sync Options zu Supabase?",, {"Ja", "Nein"}) != 2
+      lProducts := Tr_msgbox("Sync Products zu Supabase?",, {"Ja", "Nein"}) != 2
+   ENDIF
 
    oRest:cBaseUrl := "https://kooxwelqbqplbryoxbya.supabase.co/"
    oRest:cApiKeyName := "WEBSITE"
 
-   //_SyncOptionsToSupabase(oRest)
-   _SyncProductsToSupabase(oRest)
+   IF lOptions
+      _SyncOptionsToSupabase(oRest)
+   ENDIF
+   IF lProducts
+      _SyncProductsToSupabase(oRest)
+   ENDIF
 
    IF ! GetConfigValue("BATCHMODE")
       ? "Sync abgeschlossen. Drcken Sie eine Taste, um fortzufahren."
@@ -300,8 +311,10 @@ STATIC FUNCTION _BuildProductsJson(nLimit, lForcePrices, lNoStamp)
       Sinkey(0)
       RETURN hResult
    ENDIF
-   
-   //shop->(dbSeek("CM22/V2/R/M/S/20")); nLimit := 1
+
+   IF Tr_Getini(28) == 9 .AND. ! GetConfigValue("BATCHMODE")
+      //shop->(dbSeek("THB.381.A2A")); nLimit := 1
+   ENDIF
    DO WHILE ! shop->(EOF()) .AND. (nLimit == 0 .OR. Len(aProducts) < nLimit)
       nCount++
       @ 03,00 SAY Str(nCount)+"/"+LTrim(Str(nTotal))
@@ -329,9 +342,8 @@ STATIC FUNCTION _BuildProductsJson(nLimit, lForcePrices, lNoStamp)
 
             _ApplyProductStockData(hProduct, oArtikel, nCurWeek, cWaldom)
             
-            IF lForcePrices .OR. StoT(shop->LastPrUpd) < DateTime()-7*24*3600 //only update every 7 days
+            IF lForcePrices .OR. StoT(shop->LastPrUpd) < DateTime()-7 //*24*3600 //only update every 7 days
                aPrices := oArtikel:GetSellPrices(Date())
-
                IF Len(aPrices) > 0
                   DO WHILE Len(aPrices) > 0 .AND. aPrices[1,1] == 0
                      HB_ADel(aPrices, 1, .T.)
@@ -416,6 +428,9 @@ STATIC FUNCTION _BuildProductsJson(nLimit, lForcePrices, lNoStamp)
       ENDIF
       shop->(dbSkip())      
    ENDDO
+   IF Tr_Getini(28) == 9 .AND. ! GetConfigValue("BATCHMODE")
+      //? ValToPrg(hProducts)
+   ENDIF
 
 
    RestEnv(aEnv,.F.)

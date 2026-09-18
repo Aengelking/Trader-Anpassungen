@@ -214,39 +214,18 @@ FUNCTION MCP_Shutdown(hRequest, xId)
 RETURN CreateSuccessResponse(hResult, xId)
 
 // Our tool schemas carry a compact custom "anyOf" - an array of groups, each a
-// list of property NAMES meaning "provide one of these" (validated in
-// MCP_Tools_Call). That is NOT valid JSON Schema (anyOf items must be schema
-// objects), so a strict client (chayns) rejects the whole tools/list while a
-// lenient one (Claude) ignores it. Rewrite it to valid JSON Schema before it
-// goes on the wire: one group -> anyOf of {required:[name]}; several groups ->
-// allOf of those (each group still "one of"). Runtime validation is unaffected
-// (MCP_Tools_Call reads the tool's raw schema directly).
+// list of property NAMES meaning "provide one of these" (enforced at call time
+// in MCP_Tools_Call and by the tool itself). That is NOT valid JSON Schema
+// (anyOf items must be schema objects). Even rewritten to valid anyOf/allOf,
+// many MCP clients/proxies cannot handle anyOf/allOf when they build/validate a
+// tool call and refuse it locally (chayns/tobit: tools/list shows, but the
+// tools/call never leaves the proxy). Maximum compatibility: drop it entirely
+// from the wire schema - the alternative parameters stay as optional
+// properties, and the "provide one of ..." rule is still enforced at runtime
+// (with a clear error). Claude is unaffected (it reads the description).
 STATIC FUNCTION _McpSchemaForClient(hSchema)
-   LOCAL aGroups, xGroup, cName, aAny, aAll
-   IF ValType(hSchema) != "H" .OR. ! HHasKey(hSchema, "anyOf") .OR. ! HB_IsArray(hSchema["anyOf"])
-      RETURN hSchema
-   ENDIF
-   aGroups := hSchema["anyOf"]
-   IF Len(aGroups) == 0 .OR. ! HB_IsArray(aGroups[1])   // already valid (schema objects) or empty
-      RETURN hSchema
-   ENDIF
-   IF Len(aGroups) == 1
-      aAny := {}
-      FOR EACH cName IN aGroups[1]
-         AAdd(aAny, {"required"=>{cName}})
-      NEXT
-      hSchema["anyOf"] := aAny
-   ELSE
-      aAll := {}
-      FOR EACH xGroup IN aGroups
-         aAny := {}
-         FOR EACH cName IN xGroup
-            AAdd(aAny, {"required"=>{cName}})
-         NEXT
-         AAdd(aAll, {"anyOf"=>aAny})
-      NEXT
+   IF ValType(hSchema) == "H" .AND. HHasKey(hSchema, "anyOf")
       HDel(hSchema, "anyOf")
-      hSchema["allOf"] := aAll
    ENDIF
 RETURN hSchema
 

@@ -253,6 +253,30 @@ STATIC FUNCTION _McpSchemaForClient(hSchema)
    ENDIF
 RETURN hSchema
 
+// Recursively UTF-8 encode every string inside a tools/list entry (description,
+// schema, enum values, ...). The tool functions return their description and
+// schema as raw source literals in the DOS/OEM codepage, so umlauts (e.g. the
+// doc_type enum "Auftragsbestaetigung") went out as single high bytes - invalid
+// UTF-8 in the tools/list JSON. Lenient clients (undici) replace the bytes, but
+// a strict JSON parser (the chayns MCPProxy) rejects the whole response and
+// aborts after tools/list. Data tools already do this via _HashToUtf8; tools/
+// list never did. Keys stay as-is (they are ASCII schema/property names).
+STATIC FUNCTION _McpDeepUtf8(x)
+   LOCAL k, i
+   DO CASE
+   CASE ValType(x) == "C"
+      RETURN HB_StrToUTF8(x)
+   CASE ValType(x) == "H"
+      FOR EACH k IN HB_HKeys(x)
+         x[k] := _McpDeepUtf8(x[k])
+      NEXT
+   CASE ValType(x) == "A"
+      FOR i := 1 TO Len(x)
+         x[i] := _McpDeepUtf8(x[i])
+      NEXT
+   ENDCASE
+RETURN x
+
 FUNCTION MCP_Tools_List(hRequest, xId)
    LOCAL aTools := {}
    LOCAL aFuncNames, cFuncName, cToolName, hTool, hToolInfo
@@ -272,7 +296,9 @@ FUNCTION MCP_Tools_List(hRequest, xId)
       hTool["description"] := hToolInfo["description"]
       hTool["inputSchema"] := _McpSchemaForClient(hToolInfo["schema"])
 
-      AAdd(aTools, hTool)
+      // UTF-8 encode the whole entry so umlauts in descriptions/enums are valid
+      // UTF-8 (strict clients reject the tools/list response otherwise).
+      AAdd(aTools, _McpDeepUtf8(hTool))
    NEXT
 
 RETURN CreateSuccessResponse({"tools"=>aTools}, xId)

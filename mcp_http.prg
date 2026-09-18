@@ -943,19 +943,36 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    ENDIF
 
    // The worker's per-connection RECOVER (MCP_Http_Worker) catches dispatch
-   // errors, so no local error trap is needed here.
-   MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
+   // errors, so no local error trap is needed here. Pass whether the client
+   // accepts an SSE response (Streamable HTTP: the POST reply may be an SSE
+   // stream) - some MCP proxies (chayns/tobit) require that and reject a plain
+   // application/json reply.
+   MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors, ;
+      "text/event-stream" $ Lower( IIF( HHasKey(hHeaders, "ACCEPT"), hHeaders["ACCEPT"], "" ) ) )
 
 RETURN NIL
 
+// Send a JSON-RPC response, as an SSE stream when the client asked for one
+// (Streamable HTTP allows the POST reply to be text/event-stream; some MCP
+// proxies require it), otherwise as plain application/json.
+STATIC FUNCTION MCP_Http_SendJsonRpc( hSocket, cResponse, aHeaders, lWantSSE )
+   IF lWantSSE
+      MCP_Http_Send( hSocket, 200, "text/event-stream", ;
+         "event: message" + Chr(10) + "data: " + cResponse + Chr(10) + Chr(10), aHeaders )
+   ELSE
+      MCP_Http_Send( hSocket, 200, "application/json; charset=utf-8", cResponse, aHeaders )
+   ENDIF
+RETURN NIL
+
 // Decode the JSON-RPC body, dispatch it and write the HTTP response.
-STATIC FUNCTION MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
+STATIC FUNCTION MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors, lWantSSE )
    LOCAL xMsg, hReq, cMethod, cResponse
    LOCAL lIsInitialize, cNewSession
    LOCAL aOut, cItem
    LOCAL aHeaders := {}
    LOCAL nX
    LOCAL nT0, nMs
+   HB_Default( @lWantSSE, .F. )
 
    FOR nX := 1 TO Len(aCors)
       AAdd( aHeaders, aCors[nX] )
@@ -1001,7 +1018,7 @@ STATIC FUNCTION MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
             MCP_Http_Log( "  Batch-Antwort zu gross (" + LTrim( Str( Len( cResponse ) ) ) + " bytes) - durch Fehler ersetzt" )
             cResponse := CreateErrorResponse( "Batch response too large for the MCP client buffer", "" )
          ENDIF
-         MCP_Http_Send( hSocket, 200, "application/json; charset=utf-8", cResponse, aHeaders )
+         MCP_Http_SendJsonRpc( hSocket, cResponse, aHeaders, lWantSSE )
       ENDIF
       RETURN NIL
    ENDIF
@@ -1063,7 +1080,7 @@ STATIC FUNCTION MCP_Http_HandleMessage( hSocket, cBody, cSessionId, aCors )
       AAdd( aHeaders, "Mcp-Session-Id: " + cNewSession )
    ENDIF
 
-   MCP_Http_Send( hSocket, 200, "application/json; charset=utf-8", cResponse, aHeaders )
+   MCP_Http_SendJsonRpc( hSocket, cResponse, aHeaders, lWantSSE )
 
    // Honour a graceful shutdown request after the reply has been sent.
    IF cMethod == "shutdown"

@@ -232,7 +232,10 @@ RETURN NIL
 // [1, 32]. Setting it to 1 gives back the old serial behaviour (a safe
 // fallback if the linked LetoDB RDD turns out not to like per-thread sessions).
 STATIC FUNCTION MCP_Http_PoolSize()
-   LOCAL nX, cArg, nSize := 4
+   // Default 12: the standalone GET SSE stream holds one worker per connected
+   // client for the connection's lifetime, so the pool needs headroom for held
+   // streams PLUS concurrent POSTs. Override with -threads <n> (capped at 32).
+   LOCAL nX, cArg, nSize := 12
    FOR nX := 1 TO HB_ArgC()
       cArg := Lower( HB_ArgV(nX) )
       IF ( cArg == "-threads" .OR. cArg == "--threads" ) .AND. nX < HB_ArgC()
@@ -841,11 +844,14 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
       RETURN NIL
    ENDIF
 
-   // GET: health probes answer 200; a client opening the optional MCP
-   // server->client SSE stream (Accept: text/event-stream) gets 405, because
-   // this is single-response mode. Answering that stream GET with 200 "ok"
-   // made some clients treat the stream as broken and retry in a loop - a
-   // source of the "very many GET / requests" seen in the log.
+   // GET: health probes answer 200; a client opening the Streamable HTTP
+   // server->client SSE stream (Accept: text/event-stream) gets a real, held-
+   // open 200 stream (like the reference MCP SDK transport). The chayns/Tobit
+   // MCPProxy opens this stream and treats its downstream session as not ready
+   // until it exists - without it, it aborts upstream (the server/discover /
+   // initialize -32001 the connector reports). Requires mcp.ashx to STREAM the
+   // response instead of buffering it. One worker is held per open stream (see
+   // the enlarged pool in MCP_Http_PoolSize).
    IF cHttpMethod == "GET"
       IF cPath == "/" .OR. cPath == "/health" .OR. cPath == "/healthz"
          s_nSlashHits++      // cumulative health-check count for the dashboard
@@ -854,14 +860,7 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
          MCP_Http_Send( hSocket, 200, "text/plain", "ok", aCors )
       ELSEIF cPath == "/"
          IF "text/event-stream" $ Lower( IIF( HHasKey(hHeaders, "ACCEPT"), hHeaders["ACCEPT"], "" ) )
-            // The optional Streamable HTTP server->client SSE stream is NOT
-            // offered: this server never pushes server-initiated messages, and
-            // holding the stream open blocked the IIS proxy (mcp.ashx buffers
-            // the response, so an endless stream never returns to the client)
-            // and tied up a worker per connection. 405 is spec-allowed and MCP
-            // SDK clients handle it; the client just uses POST responses.
-            AAdd( aCors, "Allow: POST, OPTIONS" )
-            MCP_Http_Send( hSocket, 405, "text/plain", "Method Not Allowed (no SSE stream)", aCors )
+            MCP_Http_GetSseStream( hSocket, aCors )
          ELSE
             MCP_Http_Send( hSocket, 200, "text/plain", "ok", aCors )
          ENDIF
@@ -1327,6 +1326,52 @@ STATIC FUNCTION MCP_Http_ProtoVersionRejected( hSocket, hHeaders, cBody, aCors )
       '{"jsonrpc":"2.0","error":' + hb_jsonEncode( {"code"=>-32000, "message"=>cErr} ) + ',"id":null}', ;
       aCors )
 RETURN .T.
+
+// Open the Streamable HTTP standalone server->client SSE stream on GET and hold
+// it open with periodic keepalives, like the reference MCP SDK transport. This
+// server never pushes server-initiated messages, so the stream only carries
+// keepalive comments; its purpose is to satisfy strict clients (the chayns
+// MCPProxy) that require the stream to exist before they use the session. The
+// call blocks the worker until the client disconnects or the server shuts down
+// (hence the enlarged pool). NOTE: mcp.ashx must stream (not buffer) the
+// response for this to reach a client behind the IIS proxy.
+STATIC FUNCTION MCP_Http_GetSseStream( hSocket, aCors )
+   LOCAL cCRLF := Chr(13) + Chr(10)
+   LOCAL cHead, nX
+
+   cHead := "HTTP/1.1 200 OK" + cCRLF
+   cHead += "Content-Type: text/event-stream" + cCRLF
+   cHead += "Cache-Control: no-cache, no-transform" + cCRLF
+   cHead += "Connection: keep-alive" + cCRLF
+   FOR nX := 1 TO Len( aCors )
+      cHead += aCors[nX] + cCRLF
+   NEXT
+   cHead += cCRLF
+   cHead += ": connected" + Chr(10) + Chr(10)   // initial SSE comment
+
+   IF ! t_lMcpQuietReq
+      MCP_Http_Log( "  <= 200 OK (SSE stream opened, keepalive)" )
+   ENDIF
+
+   IF hb_InetSendAll( hSocket, cHead, Len( cHead ) ) <= 0
+      RETURN NIL                                 // client already gone
+   ENDIF
+
+   DO WHILE ! s_lMcpHttpStop
+      FOR nX := 1 TO 15                          // ~15s between keepalives
+         IF s_lMcpHttpStop
+            EXIT
+         ENDIF
+         hb_idleSleep( 1 )
+      NEXT
+      IF s_lMcpHttpStop
+         EXIT
+      ENDIF
+      IF hb_InetSendAll( hSocket, ": keepalive" + Chr(10) + Chr(10), 13 ) <= 0
+         EXIT                                     // client disconnected
+      ENDIF
+   ENDDO
+RETURN NIL
 
 STATIC FUNCTION MCP_Http_SendAll( hSocket, cSend )
    LOCAL nLen

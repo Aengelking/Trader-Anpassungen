@@ -232,11 +232,7 @@ RETURN NIL
 // [1, 32]. Setting it to 1 gives back the old serial behaviour (a safe
 // fallback if the linked LetoDB RDD turns out not to like per-thread sessions).
 STATIC FUNCTION MCP_Http_PoolSize()
-   // Default raised from 4 to 12: the standalone GET SSE stream holds one worker
-   // per connected client for the life of the connection, so the pool must have
-   // headroom for those held streams PLUS concurrent POST requests. Override
-   // with -threads <n> (capped at 32).
-   LOCAL nX, cArg, nSize := 12
+   LOCAL nX, cArg, nSize := 4
    FOR nX := 1 TO HB_ArgC()
       cArg := Lower( HB_ArgV(nX) )
       IF ( cArg == "-threads" .OR. cArg == "--threads" ) .AND. nX < HB_ArgC()
@@ -858,14 +854,14 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
          MCP_Http_Send( hSocket, 200, "text/plain", "ok", aCors )
       ELSEIF cPath == "/"
          IF "text/event-stream" $ Lower( IIF( HHasKey(hHeaders, "ACCEPT"), hHeaders["ACCEPT"], "" ) )
-            // Streamable HTTP standalone server->client SSE stream. Strict
-            // clients (e.g. the chayns/Tobit MCPProxy) open this and treat the
-            // session as not ready until it is established, even though this
-            // server never pushes server-initiated messages. Answer 200 and
-            // hold the stream open with periodic keepalives (like the reference
-            // MCP SDK transport) instead of 405. One worker is held per open
-            // stream - see the enlarged default pool in MCP_Http_PoolSize().
-            MCP_Http_GetSseStream( hSocket, aCors )
+            // The optional Streamable HTTP server->client SSE stream is NOT
+            // offered: this server never pushes server-initiated messages, and
+            // holding the stream open blocked the IIS proxy (mcp.ashx buffers
+            // the response, so an endless stream never returns to the client)
+            // and tied up a worker per connection. 405 is spec-allowed and MCP
+            // SDK clients handle it; the client just uses POST responses.
+            AAdd( aCors, "Allow: POST, OPTIONS" )
+            MCP_Http_Send( hSocket, 405, "text/plain", "Method Not Allowed (no SSE stream)", aCors )
          ELSE
             MCP_Http_Send( hSocket, 200, "text/plain", "ok", aCors )
          ENDIF
@@ -1297,17 +1293,29 @@ RETURN NIL
 // the Anthropic connector's 2026-07-28 server/discover probe) negotiates down.
 // initialize is exempt: it carries the version in its body, not the header.
 STATIC FUNCTION MCP_Http_ProtoVersionRejected( hSocket, hHeaders, cBody, aCors )
-   LOCAL cVer, cErr
+   LOCAL cVer := "", cErr
+   LOCAL lDiscover
    LOCAL aSupported := {"2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"}
 
-   IF ! HHasKey( hHeaders, "MCP-PROTOCOL-VERSION" )
+   // initialize negotiates the version in its body and is always exempt.
+   IF "initialize" $ Lower( cBody )
       RETURN .F.
    ENDIF
-   cVer := AllTrim( hHeaders["MCP-PROTOCOL-VERSION"] )
-   IF Empty( cVer ) .OR. AScan( aSupported, {|x| x == cVer} ) > 0
-      RETURN .F.
+
+   IF HHasKey( hHeaders, "MCP-PROTOCOL-VERSION" )
+      cVer := AllTrim( hHeaders["MCP-PROTOCOL-VERSION"] )
    ENDIF
-   IF "initialize" $ Lower( cBody )       // initialize negotiates via the body
+
+   // server/discover exists only in the 2026-07-28 revision this server does
+   // not speak, so it is rejected outright (the version may travel in _meta
+   // rather than the header). Otherwise reject only a header version that is
+   // present and outside the supported set.
+   lDiscover := "server/discover" $ Lower( cBody )
+   IF lDiscover
+      IF Empty( cVer )
+         cVer := "2026-07-28"
+      ENDIF
+   ELSEIF Empty( cVer ) .OR. AScan( aSupported, {|x| x == cVer} ) > 0
       RETURN .F.
    ENDIF
 
@@ -1319,51 +1327,6 @@ STATIC FUNCTION MCP_Http_ProtoVersionRejected( hSocket, hHeaders, cBody, aCors )
       '{"jsonrpc":"2.0","error":' + hb_jsonEncode( {"code"=>-32000, "message"=>cErr} ) + ',"id":null}', ;
       aCors )
 RETURN .T.
-
-// Open a Streamable HTTP standalone server->client SSE stream on GET and hold
-// it open. This server never pushes server-initiated messages, so the stream
-// only carries periodic keepalive comments; its job is to satisfy strict
-// clients that require the stream to exist before they use the session. The
-// call blocks the worker until the client disconnects or the server shuts down
-// (that is why the worker pool default was raised). Shutdown is checked every
-// second; a failed send (client gone) ends the loop.
-STATIC FUNCTION MCP_Http_GetSseStream( hSocket, aCors )
-   LOCAL cCRLF := Chr(13) + Chr(10)
-   LOCAL cHead, nX
-
-   cHead := "HTTP/1.1 200 OK" + cCRLF
-   cHead += "Content-Type: text/event-stream" + cCRLF
-   cHead += "Cache-Control: no-cache, no-transform" + cCRLF
-   cHead += "Connection: keep-alive" + cCRLF
-   FOR nX := 1 TO Len( aCors )
-      cHead += aCors[nX] + cCRLF
-   NEXT
-   cHead += cCRLF
-   cHead += ": connected" + Chr(10) + Chr(10)   // initial SSE comment
-
-   IF ! t_lMcpQuietReq
-      MCP_Http_Log( "  <= 200 OK (SSE stream opened, keepalive)" )
-   ENDIF
-
-   IF hb_InetSendAll( hSocket, cHead, Len( cHead ) ) <= 0
-      RETURN NIL                                 // client already gone
-   ENDIF
-
-   DO WHILE ! s_lMcpHttpStop
-      FOR nX := 1 TO 15                          // ~15s between keepalives
-         IF s_lMcpHttpStop
-            EXIT
-         ENDIF
-         hb_idleSleep( 1 )
-      NEXT
-      IF s_lMcpHttpStop
-         EXIT
-      ENDIF
-      IF hb_InetSendAll( hSocket, ": keepalive" + Chr(10) + Chr(10), 13 ) <= 0
-         EXIT                                     // client disconnected
-      ENDIF
-   ENDDO
-RETURN NIL
 
 STATIC FUNCTION MCP_Http_SendAll( hSocket, cSend )
    LOCAL nLen

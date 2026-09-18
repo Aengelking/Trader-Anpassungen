@@ -222,9 +222,31 @@ FUNCTION MCP_Initialize(hRequest, xId)
 
 RETURN CreateSuccessResponse(hResult, xId)
 
+// server/discover (MCP 2026-07-28 RC): a client queries supported protocol
+// versions, capabilities and identity up front. Servers MUST implement it - a
+// client on the new revision (e.g. chayns/Anthropic connector) calls this
+// first and aborts the whole session if it errors. We advertise the versions
+// we serve via the classic initialize handshake (up to 2025-11-25, NOT
+// 2026-07-28), so the client negotiates down to that proven request/response
+// flow instead of the stateless 2026-07-28 flow.
+FUNCTION MCP_server_discover(hRequest, xId)
+   LOCAL hResult := {=>}
+
+   hResult["resultType"] := "complete"
+   hResult["supportedVersions"] := {"2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}
+   hResult["capabilities"] := {"tools"=>{=>}, "resources"=>{=>}}
+   hResult["instructions"] := "Trader ERP (Harbour/LetoDB): articles, customers, suppliers, sales/purchase orders, " + ;
+      "invoices, production orders, projects, supplier quotes and the document archive. Call any tool without " + ;
+      "arguments to get its JSON schema."
+   hResult["ttlMs"] := 3600000
+   hResult["cacheScope"] := "public"
+   hResult["_meta"] := {"io.modelcontextprotocol/serverInfo"=>{"name"=>"Trader MCP Server", "version"=>"1.0.0"}}
+
+RETURN CreateSuccessResponse(hResult, xId)
+
 FUNCTION MCP_Shutdown(hRequest, xId)
    LOCAL hResult := {=>}
-   
+
 RETURN CreateSuccessResponse(hResult, xId)
 
 // Our tool schemas carry a compact custom "anyOf" - an array of groups, each a

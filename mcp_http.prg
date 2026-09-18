@@ -1255,8 +1255,7 @@ STATIC FUNCTION MCP_Http_Send( hSocket, nStatus, cContentType, cBody, aHeaders )
    // wire-marked request, so the response framing (status line, headers, SSE
    // envelope, id) can be checked against what a strict client expects.
    IF t_lMcpWireReq
-      MCP_Http_Log( "  [WIRE out " + LTrim(Str(Len(cOut))) + " bytes] v" + Chr(10) + ;
-         MCP_Http_WireShow( cOut ) + "  [WIRE out end] ^" )
+      MCP_Http_WireFile( "OUT (" + LTrim(Str(Len(cOut))) + " bytes)", cOut )
    ENDIF
 
    // Success responses of routine "/" requests are muted in GUI mode
@@ -1412,8 +1411,44 @@ STATIC FUNCTION MCP_Http_WireIn( aLines, cBody )
       cRaw += cBody
    ENDIF
 
-   MCP_Http_Log( "  [WIRE in " + LTrim(Str(Len(cRaw))) + " bytes] v" + Chr(10) + ;
-      MCP_Http_WireShow( cRaw ) + "  [WIRE in end] ^" )
+   MCP_Http_WireFile( "IN  (" + LTrim(Str(Len(cRaw))) + " bytes)", cRaw )
+RETURN NIL
+
+// TEMPORARY DIAGNOSTIC (s_lMcpWire): append a full, untruncated wire block to
+// mcp_wire.log next to the running exe. The console/dashboard log truncates
+// multi-line messages to screen width, which hid the response bodies we need,
+// so the raw bytes go to a file instead (rendered with visible \r / \n tokens
+// so copy-pasting the file preserves the exact framing). A one-line breadcrumb
+// still goes to the normal log. Writes are serialized with the log mutex.
+STATIC FUNCTION MCP_Http_WireFile( cTag, cRaw )
+   LOCAL hFile, lLock, cStamp
+   LOCAL cBlock
+
+   cStamp := DToS( Date() ) + " " + Time()
+   cBlock := "==== [" + cStamp + "] " + cTag + " ====" + Chr(13) + Chr(10) + ;
+      MCP_Http_WireShow( cRaw ) + Chr(13) + Chr(10) + ;
+      "==== end ====" + Chr(13) + Chr(10) + Chr(13) + Chr(10)
+
+   lLock := ( s_hMcpState != NIL )
+   IF lLock
+      hb_mutexLock( s_hMcpState )
+   ENDIF
+   BEGIN SEQUENCE
+      hFile := FOpen( "mcp_wire.log", 1 )   // FO_WRITE
+      IF hFile == -1
+         hFile := FCreate( "mcp_wire.log" )
+      ENDIF
+      IF hFile != -1
+         FSeek( hFile, 0, 2 )               // FS_END -> append
+         FWrite( hFile, cBlock )
+         FClose( hFile )
+      ENDIF
+   END SEQUENCE
+   IF lLock
+      hb_mutexUnlock( s_hMcpState )
+   ENDIF
+
+   MCP_Http_Log( "  [WIRE " + cTag + " -> mcp_wire.log]" )
 RETURN NIL
 
 // Remote peer address of an accepted socket (best effort; never fatal).

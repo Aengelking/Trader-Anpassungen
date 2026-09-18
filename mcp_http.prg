@@ -924,6 +924,18 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
       MCP_Http_WireIn( aLines, cBody )
    ENDIF
 
+   // Protocol-version negotiation, matching the reference MCP SDK transport.
+   // A client on a newer revision (e.g. the Anthropic connector on 2026-07-28)
+   // probes with an unsupported MCP-Protocol-Version header; the SDK server
+   // rejects it with HTTP 400 "Unsupported protocol version", which is exactly
+   // what makes the connector negotiate down to a supported version and use the
+   // classic initialize handshake. Returning a success (or a generic error)
+   // instead leaves the connector stuck. The check is skipped for initialize
+   // (which carries the version in its body), like the SDK.
+   IF MCP_Http_ProtoVersionRejected( hSocket, hHeaders, cBody, aCors )
+      RETURN NIL
+   ENDIF
+
    // OAuth path (public endpoint via mcp.ashx): the IIS handler has already
    // validated the Keycloak JWT and passes the caller's e-mail in X-Auth-Email.
    // We trust it because port 8765 is localhost-only and only mcp.ashx forwards
@@ -1278,6 +1290,35 @@ STATIC FUNCTION MCP_Http_Send( hSocket, nStatus, cContentType, cBody, aHeaders )
    MCP_Http_SendAll( hSocket, cOut )
 
 RETURN NIL
+
+// Supported MCP protocol versions (same set as the reference SDK). A request
+// carrying an MCP-Protocol-Version header outside this set is rejected with the
+// SDK's exact HTTP 400 "Unsupported protocol version" so a newer client (e.g.
+// the Anthropic connector's 2026-07-28 server/discover probe) negotiates down.
+// initialize is exempt: it carries the version in its body, not the header.
+STATIC FUNCTION MCP_Http_ProtoVersionRejected( hSocket, hHeaders, cBody, aCors )
+   LOCAL cVer, cErr
+   LOCAL aSupported := {"2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"}
+
+   IF ! HHasKey( hHeaders, "MCP-PROTOCOL-VERSION" )
+      RETURN .F.
+   ENDIF
+   cVer := AllTrim( hHeaders["MCP-PROTOCOL-VERSION"] )
+   IF Empty( cVer ) .OR. AScan( aSupported, {|x| x == cVer} ) > 0
+      RETURN .F.
+   ENDIF
+   IF "initialize" $ Lower( cBody )       // initialize negotiates via the body
+      RETURN .F.
+   ENDIF
+
+   cErr := "Bad Request: Unsupported protocol version: " + cVer + ;
+           " (supported versions: " + MCP_Http_Join( aSupported, ", " ) + ")"
+   MCP_Http_Log( "  400: unsupported MCP-Protocol-Version " + cVer )
+   // id:null - this is a transport-level rejection, not tied to the request id.
+   MCP_Http_Send( hSocket, 400, "application/json", ;
+      '{"jsonrpc":"2.0","error":' + hb_jsonEncode( {"code"=>-32000, "message"=>cErr} ) + ',"id":null}', ;
+      aCors )
+RETURN .T.
 
 // Open a Streamable HTTP standalone server->client SSE stream on GET and hold
 // it open. This server never pushes server-initiated messages, so the stream

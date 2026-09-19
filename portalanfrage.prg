@@ -19,6 +19,11 @@
  *
  *   trader:-R&portalanfrage&{"<angebotsnr>","<erp_firm_id>"}
  *
+ * Run twice for the same quote and the DRAFT of the first run is replaced, not
+ * added to - one quote stays one enquiry. Once that enquiry has been SENT the
+ * import refuses (HTTP 409) instead of putting a second one in front of the
+ * suppliers; changes then belong in the portal.
+ *
  * PRECONDITION (Phase 4 will automate this): the articles and their suppliers
  * must already exist in the portal (run portalarticle / portalsuppliers first,
  * or the combined Phase-4 push). import-enquiry resolves saved_articles by
@@ -127,11 +132,34 @@ PROCEDURE PortalAnfrage(cAngnr, cFirm)
                 LTrim(Str(nPos)) + " Position(en) an " + LTrim(Str(Len(aAllSup))) + ;
                 " Lieferant(en) als Entwurf angelegt." + ;
                 IF(Len(aNoSup) > 0, Chr(13) + "Ohne Lieferant (nicht angefragt): " + _pfJoin(aNoSup), "") + ;
+                _pfReplaceNote(cResponse) + ;
                 Chr(13) + _pfStr(cResponse))
+   ELSEIF nStatus == 409
+      // Zu diesem Angebot steht im Portal schon eine versendete Anfrage. Sie
+      // wird nicht ersetzt - sonst bekaeme jeder Lieferant eine zweite.
+      Tr_MsgBox("Angebot " + LTrim(Str(nAngnr)) + ": im Portal liegt bereits eine " + ;
+                "VERSENDETE Anfrage zu diesem Angebot." + Chr(13) + ;
+                "Es wurde nichts angelegt - Aenderungen bitte im Portal an der " + ;
+                "vorhandenen Anfrage vornehmen.")
    ELSE
       Tr_MsgBox("Anfrage-Erstellung fehlgeschlagen (HTTP " + LTrim(Str(nStatus)) + ")." + Chr(13) + _pfStr(cResponse))
    ENDIF
 RETURN
+
+
+// Hinweis auf einen ersetzten Entwurf. Ein zweiter Lauf zum selben Angebot legt
+// keine zweite Anfrage an, sondern ersetzt den Entwurf des ersten - was jemand
+// im Portal von Hand daran ergaenzt hat, ist damit weg. Das gehoert in die
+// Meldung und nicht in den JSON-Rumpf.
+STATIC FUNCTION _pfReplaceNote(cResponse)
+   LOCAL xData := hb_jsonDecode(_pfStr(cResponse))
+
+   IF ValType(xData) == "H" .AND. HHasKey(xData, "replaced_enquiry_ids") ;
+      .AND. ValType(xData["replaced_enquiry_ids"]) == "A" ;
+      .AND. Len(xData["replaced_enquiry_ids"]) > 0
+      RETURN Chr(13) + "Der vorhandene Entwurf zu diesem Angebot wurde ersetzt."
+   ENDIF
+RETURN ""
 
 
 // Read the quote and return its 0-price positions (one per part matchcode):

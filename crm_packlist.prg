@@ -52,7 +52,7 @@
 
 PROCEDURE RUN_CRM_PACKLIST(cMode, xArg)
    LOCAL cUpper := Upper(CPL_Str(cMode))
-
+   CRM_PackList_Setup()
    DO CASE
    CASE cUpper == "ROWS"
       CPL_Rows(xArg)
@@ -283,10 +283,8 @@ RETURN .F.
  */
 STATIC FUNCTION CPL_Ghostscript()
    LOCAL aCandidates := { ;
-      "C:\Program Files\gs\gs9.22\bin\gswin64c.exe", ;
-      "C:\Program Files\gs\gs9.06\bin\gswin64c.exe", ;
-      "C:\Program Files (x86)\gs\gs9.14\bin\gswin32c.exe", ;
-      "C:\Programme\gs\gs8.54\bin\gswin32c.exe" }
+      "C:\Program Files\gs\gs10.08.0\bin\gswin64c.exe", ;
+    }
    LOCAL cExtra := AllTrim(CPL_Str(GetValue("GHOSTSCRIPT_EXE")))
    LOCAL nX
 

@@ -20,9 +20,11 @@
  *   trader:-R&portalanfrage&{"<angebotsnr>","<erp_firm_id>"}
  *
  * Run twice for the same quote and the DRAFT of the first run is replaced, not
- * added to - one quote stays one enquiry. Once that enquiry has been SENT the
- * import refuses (HTTP 409) instead of putting a second one in front of the
- * suppliers; changes then belong in the portal.
+ * added to - one quote stays one enquiry. The portal only replaces when asked
+ * to (replace_existing), so this asks first and names what hangs off that
+ * draft: manual additions there are lost with it. Once the enquiry has been
+ * SENT the import refuses (HTTP 409) instead of putting a second one in front
+ * of the suppliers; changes then belong in the portal.
  *
  * PRECONDITION (Phase 4 will automate this): the articles and their suppliers
  * must already exist in the portal (run portalarticle / portalsuppliers first,
@@ -127,6 +129,18 @@ PROCEDURE PortalAnfrage(cAngnr, cFirm)
    oRest:cApiKeyName := "PORTALDRW"
    oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus, @cResponse)
 
+   // Steht zu dem Angebot schon ein Entwurf, ersetzt ihn das Portal nur auf
+   // ausdrueckliche Anweisung: was jemand dort von Hand ergaenzt hat -
+   // Empfaenger, Anhaenge, Texte - geht beim Ersetzen mit. Also erst fragen.
+   IF nStatus == 409 .AND. _pfTxt(cResponse, "reason") == "draft_exists"
+      IF Tr_MsgBox(_pfReplaceQuestion(nAngnr, cResponse),, {"Nein","Ja"}) != 2
+         Tr_MsgBox("Abgebrochen. Der vorhandene Entwurf bleibt unveraendert.")
+         RETURN
+      ENDIF
+      hBody["replace_existing"] := .T.
+      oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus, @cResponse)
+   ENDIF
+
    IF nStatus >= 200 .AND. nStatus < 300
       Tr_MsgBox("Angebot " + LTrim(Str(nAngnr)) + ": Anfrage mit " + ;
                 LTrim(Str(nPos)) + " Position(en) an " + LTrim(Str(Len(aAllSup))) + ;
@@ -147,19 +161,53 @@ PROCEDURE PortalAnfrage(cAngnr, cFirm)
 RETURN
 
 
-// Hinweis auf einen ersetzten Entwurf. Ein zweiter Lauf zum selben Angebot legt
-// keine zweite Anfrage an, sondern ersetzt den Entwurf des ersten - was jemand
-// im Portal von Hand daran ergaenzt hat, ist damit weg. Das gehoert in die
-// Meldung und nicht in den JSON-Rumpf.
-STATIC FUNCTION _pfReplaceNote(cResponse)
-   LOCAL xData := hb_jsonDecode(_pfStr(cResponse))
+// Rueckfrage vor dem Ersetzen. Sie nennt, was an dem vorhandenen Entwurf
+// haengt - ohne diese Zahlen ist "Ersetzen?" keine Frage, die jemand
+// beantworten kann.
+STATIC FUNCTION _pfReplaceQuestion(nAngnr, cResponse)
+   LOCAL xItems := _pfVal(cResponse, "existing_items")
+   LOCAL xRecip := _pfVal(cResponse, "existing_recipients")
+   LOCAL cWhat := ""
 
-   IF ValType(xData) == "H" .AND. HHasKey(xData, "replaced_enquiry_ids") ;
-      .AND. ValType(xData["replaced_enquiry_ids"]) == "A" ;
-      .AND. Len(xData["replaced_enquiry_ids"]) > 0
+   IF ValType(xItems) == "N" .AND. ValType(xRecip) == "N"
+      cWhat := " (" + hb_ntos(xItems) + " Position(en), " + ;
+               hb_ntos(xRecip) + " Empfaenger)"
+   ENDIF
+RETURN "Angebot " + LTrim(Str(nAngnr)) + ": im Portal steht bereits ein " + ;
+       "Entwurf" + cWhat + "." + Chr(13) + ;
+       "Ersetzen? Was dort von Hand ergaenzt wurde - Empfaenger, Anhaenge, " + ;
+       "Texte - geht dabei verloren."
+
+
+// Hinweis auf einen ersetzten Entwurf: die Meldung soll es benennen und nicht
+// nur im JSON-Rumpf stehen lassen.
+STATIC FUNCTION _pfReplaceNote(cResponse)
+   LOCAL xIds := _pfVal(cResponse, "replaced_enquiry_ids")
+
+   IF ValType(xIds) == "A" .AND. Len(xIds) > 0
       RETURN Chr(13) + "Der vorhandene Entwurf zu diesem Angebot wurde ersetzt."
    ENDIF
 RETURN ""
+
+
+// Ein Feld aus der JSON-Antwort. NIL, wenn die Antwort kein Objekt ist oder das
+// Feld fehlt - der Aufrufer prueft den Typ und faellt sonst auf den Normalfall
+// zurueck.
+STATIC FUNCTION _pfVal(cResponse, cKey)
+   LOCAL xData := hb_jsonDecode(_pfStr(cResponse))
+
+   IF ValType(xData) == "H" .AND. HHasKey(xData, cKey)
+      RETURN xData[cKey]
+   ENDIF
+RETURN NIL
+
+
+// Dasselbe als Zeichenkette. Fehlt das Feld, kommt "" statt NIL zurueck: ein
+// Vergleich NIL == "..." waere ein Laufzeitfehler, und eine Antwort ohne das
+// Feld ist der Normalfall (jede erfolgreiche Antwort hat kein "reason").
+STATIC FUNCTION _pfTxt(cResponse, cKey)
+   LOCAL xVal := _pfVal(cResponse, cKey)
+RETURN IF(ValType(xVal) == "C", xVal, "")
 
 
 // Read the quote and return its 0-price positions (one per part matchcode):

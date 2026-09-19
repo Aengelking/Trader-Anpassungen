@@ -30,11 +30,20 @@
  *   NEXUSCRM             Keychain-Eintrag mit dem Bearer Token (TRADER_API_KEY)
  *   NEXUSCRM_LABELS_URL  Basis der Etiketten-Schnittstelle (ohne /open)
  *   NEXUSCRM_LABELS_PRINTER  Drucker fuer die Etiketten. Leer = Standarddrucker
+ *   NEXUSCRM_LABELS_PRINTCMD (optional) eigener Druckbefehl; {file} und
+ *                            {printer} werden ersetzt. Gesetzt, gilt nur er.
  *
- * Gedruckt wird ueber das Windows-Druckverb: mit Druckernamen "printto", ohne
- * "print". Beides setzt voraus, dass ein PDF-Betrachter fuer diese Verben
- * registriert ist (Adobe Reader, SumatraPDF) - ein eigener Druckfilter waere
- * ein zweiter Ort, an dem Papierformate falsch sein koennen.
+ * Gedruckt wird ueber Ghostscript, das hier ohnehin an mehreren Stellen laeuft
+ * (invoice_beleg, david, auto_beleg). Der Weg ueber die Windows-Druckverben
+ * "print"/"printto" waere kuerzer, haengt aber daran, dass ein PDF-Programm sie
+ * anmeldet: Adobe Reader tut das, Edge - auf neueren Windows der Standard fuer
+ * PDF - nicht. Dann passiert schlicht nichts, ohne Fehler und ohne Papier.
+ * Ghostscript druckt selbst und braucht kein registriertes Programm.
+ *
+ * Reihenfolge: eigener Befehl aus der Konfiguration, sonst Ghostscript, sonst
+ * das Druckverb als letzter Versuch. Klappt keines davon, sagt das Script es -
+ * ein stiller Fehlschlag waere hier das Schlimmste, weil danach die Frage nach
+ * dem gelungenen Druck kommt.
  *
  * Wirkung im CRM: engelking-crm/docs/deutsche-post-versand.md
  */
@@ -146,7 +155,7 @@ RETURN hRow
 STATIC FUNCTION CPL_Pack(hRow)
    LOCAL hItem, cUrl := CPL_BaseUrl()
    LOCAL hLabel, cFile, nStatus := 0, hAnswer
-   LOCAL cActionId, cBase64, nAnswer
+   LOCAL cActionId, cBase64, nAnswer, lPrinted
 
    IF ValType(hRow) != "H" .OR. ! HB_HHasKey(hRow, "crm")
       RETURN .F.
@@ -176,11 +185,15 @@ STATIC FUNCTION CPL_Pack(hRow)
       RETURN .F.
    ENDIF
 
-   CPL_Print(cFile)
+   lPrinted := CPL_Print(cFile)
 
    // Gefragt wird nach dem Druck, nicht davor: Was nicht auf Papier ist, ist
    // nicht versendet. Bei "Nein" bleibt die Zeile stehen und kann erneut.
-   nAnswer := Tr_MsgBox("Etikett gedruckt und Sendung fertig?", , {"Nein", "Versendet"})
+   // Ist schon der Druckauftrag gescheitert, steht das in der Frage - sonst
+   // bestaetigt jemand einen Druck, den es nie gab.
+   nAnswer := Tr_MsgBox(If(lPrinted, "Etikett gedruckt und Sendung fertig?", ;
+                           "Druck konnte nicht ausgeloest werden. Trotzdem als versendet melden?"), ;
+                        , {"Nein", "Versendet"})
    IF nAnswer != 2
       RETURN .F.
    ENDIF
@@ -198,24 +211,94 @@ RETURN .T.
 
 
 /*
- * Drucken ueber das Windows-Druckverb.
+ * Etikett auf Papier bringen.
  *
- * Mit eingestelltem Drucker "printto" (der Name wandert als Parameter mit),
- * ohne Angabe "print" auf den Standarddrucker.
+ * Drei Wege, in dieser Reihenfolge:
+ *
+ *   1. Eigener Befehl aus der Konfiguration (NEXUSCRM_LABELS_PRINTCMD).
+ *   2. Ghostscript auf den eingestellten Drucker - der verlaessliche Weg,
+ *      weil er kein registriertes PDF-Programm braucht.
+ *   3. Das Windows-Druckverb als letzter Versuch.
+ *
+ * Rueckgabe .F., wenn keiner gegriffen hat. Das muss der Aufrufer wissen:
+ * Gleich danach wird gefragt, ob der Druck gelungen ist, und diese Frage waere
+ * sinnlos, wenn nie ein Druckauftrag entstanden ist.
  */
 STATIC FUNCTION CPL_Print(cFile)
    LOCAL cPrinter := AllTrim(CPL_Str(GetValue("NEXUSCRM_LABELS_PRINTER")))
+   LOCAL cCmd     := AllTrim(CPL_Str(GetValue("NEXUSCRM_LABELS_PRINTCMD")))
+   LOCAL cGS
 
 #ifndef __XHARBOUR__
    #xtranslate ShellExecute([<x,...>])        => Wapi_ShellExecute(<x>)
 #endif
 
+   // 1. Eigener Befehl: Wer einen Etikettendrucker mit eigenem Werkzeug
+   //    ansteuert, kommt hier durch, ohne dass das Script davon wissen muss.
+   IF ! Empty(cCmd)
+      cCmd := StrTran(cCmd, "{file}", '"' + cFile + '"')
+      cCmd := StrTran(cCmd, "{printer}", cPrinter)
+      RETURN HB_ProcessRun(cCmd) == 0
+   ENDIF
+
+   // 2. Ghostscript: druckt selbst auf den Windows-Druckertreiber. Ohne
+   //    Druckernamen zeigte mswinpr2 einen Auswahldialog - am Packplatz waere
+   //    das ein Klick zu viel, deshalb nur mit eingestelltem Drucker.
+   cGS := CPL_Ghostscript()
+   IF ! Empty(cGS) .AND. ! Empty(cPrinter)
+      cCmd := '"' + cGS + '"' + ;
+              ' -dPrinted -dBATCH -dNOPAUSE -dNOSAFER -dNoCancel -q' + ;
+              ' -sDEVICE=mswinpr2 -sOutputFile="%printer%' + cPrinter + '"' + ;
+              ' "' + cFile + '"'
+      IF HB_ProcessRun(cCmd) == 0
+         RETURN .T.
+      ENDIF
+   ENDIF
+
+   // 3. Druckverb: kurz, aber es haengt daran, dass ein PDF-Programm es
+   //    anmeldet. Edge tut das nicht.
    IF Empty(cPrinter)
       ShellExecute(NIL, "print", cFile, "", "", 0)
    ELSE
       ShellExecute(NIL, "printto", cFile, '"' + cPrinter + '"', "", 0)
    ENDIF
-RETURN .T.
+
+   IF Empty(cGS)
+      Tr_MsgBox("Ghostscript nicht gefunden - es wurde das Windows-Druckverb " + ;
+                "versucht. Bleibt der Drucker still, bitte NEXUSCRM_LABELS_PRINTCMD setzen.")
+   ELSEIF Empty(cPrinter)
+      Tr_MsgBox("Kein Drucker eingestellt - es wurde der Standarddrucker ueber das " + ;
+                "Windows-Druckverb versucht (NEXUSCRM_LABELS_PRINTER).")
+   ENDIF
+RETURN .F.
+
+
+/*
+ * Ghostscript finden.
+ *
+ * Dieselben Orte, die auch david.prg und invoice_beleg.prg absuchen - der Pfad
+ * traegt die Versionsnummer, und die ist je Server eine andere. Gefunden wird
+ * hier, damit eine neue Ghostscript-Version an einer Stelle nachgetragen wird
+ * und nicht in jedem Script einzeln.
+ */
+STATIC FUNCTION CPL_Ghostscript()
+   LOCAL aCandidates := { ;
+      "C:\Program Files\gs\gs9.22\bin\gswin64c.exe", ;
+      "C:\Program Files\gs\gs9.06\bin\gswin64c.exe", ;
+      "C:\Program Files (x86)\gs\gs9.14\bin\gswin32c.exe", ;
+      "C:\Programme\gs\gs8.54\bin\gswin32c.exe" }
+   LOCAL cExtra := AllTrim(CPL_Str(GetValue("GHOSTSCRIPT_EXE")))
+   LOCAL nX
+
+   IF ! Empty(cExtra) .AND. File(cExtra)
+      RETURN cExtra
+   ENDIF
+   FOR nX := 1 TO Len(aCandidates)
+      IF File(aCandidates[nX])
+         RETURN aCandidates[nX]
+      ENDIF
+   NEXT
+RETURN ""
 
 
 /*
@@ -257,6 +340,8 @@ FUNCTION CRM_PackList_Setup()
       "Basis der Etiketten-Schnittstelle im NexusCRM (ohne /open)")
    GetValue("NEXUSCRM_LABELS_PRINTER", "", ;
       "Drucker fuer die Frankier-Etiketten (leer = Standarddrucker)")
+   GetValue("NEXUSCRM_LABELS_PRINTCMD", "", ;
+      "Eigener Druckbefehl, {file} und {printer} werden ersetzt (leer = Ghostscript)")
 RETURN NIL
 
 

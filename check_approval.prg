@@ -8,7 +8,7 @@ PROC RUN_CHECK_APPROVAL
    NetUse("angebot","ang")
    NetUse("engbes","bes")
 
-   apr->(__dbSetFilter({|| apr->ApprovedBy == 0 .AND. SToD(apr->RequestDa) < Date()-2 }))
+   apr->(__dbSetFilter({|| Empty(apr->ApprovedDa) .AND. SToD(apr->RequestDa) < Date()-2 }))
    apr->(dbGoTop())
 
    cText := "Folgende Genehmigungen stehen noch aus:<pre>"
@@ -55,9 +55,9 @@ PROC RUN_CHECK_APPROVAL
    ctext += "</pre>"
    IF lFound
       aTo := {}
-      add(aTo,{"thimo.hamma@engelking.de","Thimo"})
+      Aadd(aTo,{"thimo.hamma@engelking.de","Thimo"})
       Aadd(aTo,{"amos.engelking@engelking.de","Amos","CC"})
-      //SendMail(aTo,HB_AnsiToOem("Auﬂstehende Genehmigungen"),cText,,,,.T.)
+      SendMail(aTo,HB_AnsiToOem("Auﬂstehende Genehmigungen"),cText,,,,.T.)
    ENDIF
 
 

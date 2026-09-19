@@ -12,7 +12,7 @@
 /*  .T. = Sandbox (https://api.tilta-sandbox.io, Schluesselbund TILTA_SB)
  *  .F. = Produktion (https://api.tilta.io, Schluesselbund TILTA)          */
 STATIC FUNCTION __TiltaIsSandbox()
-RETURN .T.
+RETURN .F.
 
 STATIC FUNCTION __TiltaBase()
 RETURN IF(__TiltaIsSandbox(),"https://api.tilta-sandbox.io/v1/","https://api.tilta.io/v1/")

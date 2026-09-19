@@ -47,7 +47,7 @@ STATIC s_lMcpHttpVerbose := .T.   // per-request console logging on/off
 // SSE-stream GET on the "/" endpoint, so we can see precisely what a strict
 // client (chayns) sends and what we reply. The Authorization header and any
 // ?key= are redacted. Set to .F. (or delete) once the transport bug is found.
-STATIC s_lMcpWire        := .T.   // wire-level request/response dump on/off
+STATIC s_lMcpWire        := .F.   // wire-level request/response dump on/off
 STATIC s_cMcpLogSink     := ""    // "QOUT" or "STDERR"; decided from the GT on first use
 STATIC s_hMcpKeys        := NIL   // API-key table from mcp_keys.json (NIL = auth disabled)
 STATIC s_cMcpKeysStamp   := ""    // file stamp of the loaded key table
@@ -232,7 +232,10 @@ RETURN NIL
 // [1, 32]. Setting it to 1 gives back the old serial behaviour (a safe
 // fallback if the linked LetoDB RDD turns out not to like per-thread sessions).
 STATIC FUNCTION MCP_Http_PoolSize()
-   LOCAL nX, cArg, nSize := 4
+   // Default 12: the standalone GET SSE stream holds one worker per connected
+   // client for the connection's lifetime, so the pool needs headroom for held
+   // streams PLUS concurrent POSTs. Override with -threads <n> (capped at 32).
+   LOCAL nX, cArg, nSize := 12
    FOR nX := 1 TO HB_ArgC()
       cArg := Lower( HB_ArgV(nX) )
       IF ( cArg == "-threads" .OR. cArg == "--threads" ) .AND. nX < HB_ArgC()
@@ -841,11 +844,14 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
       RETURN NIL
    ENDIF
 
-   // GET: health probes answer 200; a client opening the optional MCP
-   // server->client SSE stream (Accept: text/event-stream) gets 405, because
-   // this is single-response mode. Answering that stream GET with 200 "ok"
-   // made some clients treat the stream as broken and retry in a loop - a
-   // source of the "very many GET / requests" seen in the log.
+   // GET: health probes answer 200; a client opening the Streamable HTTP
+   // server->client SSE stream (Accept: text/event-stream) gets a real, held-
+   // open 200 stream (like the reference MCP SDK transport). The chayns/Tobit
+   // MCPProxy opens this stream and treats its downstream session as not ready
+   // until it exists - without it, it aborts upstream (the server/discover /
+   // initialize -32001 the connector reports). Requires mcp.ashx to STREAM the
+   // response instead of buffering it. One worker is held per open stream (see
+   // the enlarged pool in MCP_Http_PoolSize).
    IF cHttpMethod == "GET"
       IF cPath == "/" .OR. cPath == "/health" .OR. cPath == "/healthz"
          s_nSlashHits++      // cumulative health-check count for the dashboard
@@ -854,8 +860,7 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
          MCP_Http_Send( hSocket, 200, "text/plain", "ok", aCors )
       ELSEIF cPath == "/"
          IF "text/event-stream" $ Lower( IIF( HHasKey(hHeaders, "ACCEPT"), hHeaders["ACCEPT"], "" ) )
-            AAdd( aCors, "Allow: POST, OPTIONS" )
-            MCP_Http_Send( hSocket, 405, "text/plain", "Method Not Allowed (no SSE stream)", aCors )
+            MCP_Http_GetSseStream( hSocket, aCors )
          ELSE
             MCP_Http_Send( hSocket, 200, "text/plain", "ok", aCors )
          ENDIF
@@ -912,6 +917,18 @@ STATIC FUNCTION MCP_Http_ServeConnection( hSocket )
    // body is in hand (Authorization / ?key= redacted in MCP_Http_WireIn).
    IF t_lMcpWireReq
       MCP_Http_WireIn( aLines, cBody )
+   ENDIF
+
+   // Protocol-version negotiation, matching the reference MCP SDK transport.
+   // A client on a newer revision (e.g. the Anthropic connector on 2026-07-28)
+   // probes with an unsupported MCP-Protocol-Version header; the SDK server
+   // rejects it with HTTP 400 "Unsupported protocol version", which is exactly
+   // what makes the connector negotiate down to a supported version and use the
+   // classic initialize handshake. Returning a success (or a generic error)
+   // instead leaves the connector stuck. The check is skipped for initialize
+   // (which carries the version in its body), like the SDK.
+   IF MCP_Http_ProtoVersionRejected( hSocket, hHeaders, cBody, aCors )
+      RETURN NIL
    ENDIF
 
    // OAuth path (public endpoint via mcp.ashx): the IIS handler has already
@@ -1267,6 +1284,93 @@ STATIC FUNCTION MCP_Http_Send( hSocket, nStatus, cContentType, cBody, aHeaders )
 
    MCP_Http_SendAll( hSocket, cOut )
 
+RETURN NIL
+
+// Supported MCP protocol versions (same set as the reference SDK). A request
+// carrying an MCP-Protocol-Version header outside this set is rejected with the
+// SDK's exact HTTP 400 "Unsupported protocol version" so a newer client (e.g.
+// the Anthropic connector's 2026-07-28 server/discover probe) negotiates down.
+// initialize is exempt: it carries the version in its body, not the header.
+STATIC FUNCTION MCP_Http_ProtoVersionRejected( hSocket, hHeaders, cBody, aCors )
+   LOCAL cVer := "", cErr
+   LOCAL lDiscover
+   LOCAL aSupported := {"2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"}
+
+   // initialize negotiates the version in its body and is always exempt.
+   IF "initialize" $ Lower( cBody )
+      RETURN .F.
+   ENDIF
+
+   IF HHasKey( hHeaders, "MCP-PROTOCOL-VERSION" )
+      cVer := AllTrim( hHeaders["MCP-PROTOCOL-VERSION"] )
+   ENDIF
+
+   // server/discover exists only in the 2026-07-28 revision this server does
+   // not speak, so it is rejected outright (the version may travel in _meta
+   // rather than the header). Otherwise reject only a header version that is
+   // present and outside the supported set.
+   lDiscover := "server/discover" $ Lower( cBody )
+   IF lDiscover
+      IF Empty( cVer )
+         cVer := "2026-07-28"
+      ENDIF
+   ELSEIF Empty( cVer ) .OR. AScan( aSupported, {|x| x == cVer} ) > 0
+      RETURN .F.
+   ENDIF
+
+   cErr := "Bad Request: Unsupported protocol version: " + cVer + ;
+           " (supported versions: " + MCP_Http_Join( aSupported, ", " ) + ")"
+   MCP_Http_Log( "  400: unsupported MCP-Protocol-Version " + cVer )
+   // id:null - this is a transport-level rejection, not tied to the request id.
+   MCP_Http_Send( hSocket, 400, "application/json", ;
+      '{"jsonrpc":"2.0","error":' + hb_jsonEncode( {"code"=>-32000, "message"=>cErr} ) + ',"id":null}', ;
+      aCors )
+RETURN .T.
+
+// Open the Streamable HTTP standalone server->client SSE stream on GET and hold
+// it open with periodic keepalives, like the reference MCP SDK transport. This
+// server never pushes server-initiated messages, so the stream only carries
+// keepalive comments; its purpose is to satisfy strict clients (the chayns
+// MCPProxy) that require the stream to exist before they use the session. The
+// call blocks the worker until the client disconnects or the server shuts down
+// (hence the enlarged pool). NOTE: mcp.ashx must stream (not buffer) the
+// response for this to reach a client behind the IIS proxy.
+STATIC FUNCTION MCP_Http_GetSseStream( hSocket, aCors )
+   LOCAL cCRLF := Chr(13) + Chr(10)
+   LOCAL cHead, nX
+
+   cHead := "HTTP/1.1 200 OK" + cCRLF
+   cHead += "Content-Type: text/event-stream" + cCRLF
+   cHead += "Cache-Control: no-cache, no-transform" + cCRLF
+   cHead += "Connection: keep-alive" + cCRLF
+   FOR nX := 1 TO Len( aCors )
+      cHead += aCors[nX] + cCRLF
+   NEXT
+   cHead += cCRLF
+   cHead += ": connected" + Chr(10) + Chr(10)   // initial SSE comment
+
+   IF ! t_lMcpQuietReq
+      MCP_Http_Log( "  <= 200 OK (SSE stream opened, keepalive)" )
+   ENDIF
+
+   IF hb_InetSendAll( hSocket, cHead, Len( cHead ) ) <= 0
+      RETURN NIL                                 // client already gone
+   ENDIF
+
+   DO WHILE ! s_lMcpHttpStop
+      FOR nX := 1 TO 15                          // ~15s between keepalives
+         IF s_lMcpHttpStop
+            EXIT
+         ENDIF
+         hb_idleSleep( 1 )
+      NEXT
+      IF s_lMcpHttpStop
+         EXIT
+      ENDIF
+      IF hb_InetSendAll( hSocket, ": keepalive" + Chr(10) + Chr(10), 13 ) <= 0
+         EXIT                                     // client disconnected
+      ENDIF
+   ENDDO
 RETURN NIL
 
 STATIC FUNCTION MCP_Http_SendAll( hSocket, cSend )

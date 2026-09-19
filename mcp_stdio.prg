@@ -222,27 +222,15 @@ FUNCTION MCP_Initialize(hRequest, xId)
 
 RETURN CreateSuccessResponse(hResult, xId)
 
-// server/discover (MCP 2026-07-28 RC): a client queries supported protocol
-// versions, capabilities and identity up front. Servers MUST implement it - a
-// client on the new revision (e.g. chayns/Anthropic connector) calls this
-// first and aborts the whole session if it errors. We advertise the versions
-// we serve via the classic initialize handshake (up to 2025-11-25, NOT
-// 2026-07-28), so the client negotiates down to that proven request/response
-// flow instead of the stateless 2026-07-28 flow.
-FUNCTION MCP_server_discover(hRequest, xId)
-   LOCAL hResult := {=>}
-
-   hResult["resultType"] := "complete"
-   hResult["supportedVersions"] := {"2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}
-   hResult["capabilities"] := {"tools"=>{=>}, "resources"=>{=>}}
-   hResult["instructions"] := "Trader ERP (Harbour/LetoDB): articles, customers, suppliers, sales/purchase orders, " + ;
-      "invoices, production orders, projects, supplier quotes and the document archive. Call any tool without " + ;
-      "arguments to get its JSON schema."
-   hResult["ttlMs"] := 3600000
-   hResult["cacheScope"] := "public"
-   hResult["_meta"] := {"io.modelcontextprotocol/serverInfo"=>{"name"=>"Trader MCP Server", "version"=>"1.0.0"}}
-
-RETURN CreateSuccessResponse(hResult, xId)
+// NOTE: server/discover is intentionally NOT implemented. The reference MCP SDK
+// has no such method; a newer client (e.g. the Anthropic connector on protocol
+// 2026-07-28) sends it with an unsupported MCP-Protocol-Version header, and the
+// transport layer (MCP_Http_ProtoVersionRejected in mcp_http.prg) rejects it
+// with HTTP 400 "Unsupported protocol version" - exactly like the SDK - which
+// makes the connector negotiate down to a supported version and use the classic
+// initialize handshake. Answering server/discover with a success instead left
+// the connector stuck on the 2026-07-28 stateless flow this server does not
+// speak.
 
 FUNCTION MCP_Shutdown(hRequest, xId)
    LOCAL hResult := {=>}
@@ -265,6 +253,30 @@ STATIC FUNCTION _McpSchemaForClient(hSchema)
    ENDIF
 RETURN hSchema
 
+// Recursively UTF-8 encode every string inside a tools/list entry (description,
+// schema, enum values, ...). The tool functions return their description and
+// schema as raw source literals in the DOS/OEM codepage, so umlauts (e.g. the
+// doc_type enum "Auftragsbestaetigung") went out as single high bytes - invalid
+// UTF-8 in the tools/list JSON. Lenient clients (undici) replace the bytes, but
+// a strict JSON parser (the chayns MCPProxy) rejects the whole response and
+// aborts after tools/list. Data tools already do this via _HashToUtf8; tools/
+// list never did. Keys stay as-is (they are ASCII schema/property names).
+STATIC FUNCTION _McpDeepUtf8(x)
+   LOCAL k, i
+   DO CASE
+   CASE ValType(x) == "C"
+      RETURN HB_StrToUTF8(x)
+   CASE ValType(x) == "H"
+      FOR EACH k IN HB_HKeys(x)
+         x[k] := _McpDeepUtf8(x[k])
+      NEXT
+   CASE ValType(x) == "A"
+      FOR i := 1 TO Len(x)
+         x[i] := _McpDeepUtf8(x[i])
+      NEXT
+   ENDCASE
+RETURN x
+
 FUNCTION MCP_Tools_List(hRequest, xId)
    LOCAL aTools := {}
    LOCAL aFuncNames, cFuncName, cToolName, hTool, hToolInfo
@@ -284,7 +296,9 @@ FUNCTION MCP_Tools_List(hRequest, xId)
       hTool["description"] := hToolInfo["description"]
       hTool["inputSchema"] := _McpSchemaForClient(hToolInfo["schema"])
 
-      AAdd(aTools, hTool)
+      // UTF-8 encode the whole entry so umlauts in descriptions/enums are valid
+      // UTF-8 (strict clients reject the tools/list response otherwise).
+      AAdd(aTools, _McpDeepUtf8(hTool))
    NEXT
 
 RETURN CreateSuccessResponse({"tools"=>aTools}, xId)

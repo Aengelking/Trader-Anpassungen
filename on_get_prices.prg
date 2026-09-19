@@ -265,7 +265,7 @@ ELSEIF nTab == 15 //Value-Add
       art->(dbSetOrder( 2 ))
 
       IF ! part->(dbSeek( Str(nArtnr,6) ))      
-         Alert("No partlist")
+         //Alert("No partlist")
       ENDIF
       nSubArt := 0
       nAddPrice := 0

@@ -39,7 +39,7 @@
  * Wirkung im CRM: engelking-crm/docs/deutsche-post-versand.md
  */
 
-#include 'trader.ch'
+//#include 'trader.ch'
 
 PROCEDURE RUN_CRM_PACKLIST(cMode, xArg)
    LOCAL cUpper := Upper(CPL_Str(cMode))
@@ -77,7 +77,7 @@ STATIC FUNCTION CPL_Rows(aRecs)
       // Eine stille Liste waere die schlechtere Antwort: Sie saehe aus, als
       // gaebe es nichts zu packen.
       AAdd(aRecs, CPL_Row(0, ;
-           If(nStatus == -1, "CRM antwortet unverstaendlich", ;
+           If(nStatus == -1, "CRM antwortet unverst„ndlich", ;
               "CRM nicht erreichbar (HTTP " + LTrim(Str(nStatus)) + ")"), .F., NIL))
       RETURN .F.
    ENDIF
@@ -251,7 +251,7 @@ RETURN xAnswer
 
 
 FUNCTION CRM_PackList_Setup()
-   GetValue("NEXUSCRM", "", "API Key fuer NexusCRM (Bearer Token)")
+   //GetValue("NEXUSCRM", "", "API Key fuer NexusCRM (Bearer Token)")
    GetValue("NEXUSCRM_LABELS_URL", ;
       "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-labels", ;
       "Basis der Etiketten-Schnittstelle im NexusCRM (ohne /open)")
@@ -263,7 +263,8 @@ RETURN NIL
 // --- Kleinkram -----------------------------------------------------------
 
 STATIC FUNCTION CPL_BaseUrl()
-   LOCAL cUrl := AllTrim(CPL_Str(GetValue("NEXUSCRM_LABELS_URL")))
+   LOCAL cUrl := AllTrim(CPL_Str(GetValue("NEXUSCRM_LABELS_URL","https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-labels", ;
+      "Basis der Etiketten-Schnittstelle im NexusCRM (ohne /open)")))
    DO WHILE Right(cUrl, 1) == "/"
       cUrl := Left(cUrl, Len(cUrl) - 1)
    ENDDO

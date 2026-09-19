@@ -1,17 +1,30 @@
 /*
- * portalanfrage.prg  -  Convert a 0-price quote (Angebot) into portal enquiries.
+ * portalanfrage.prg  -  Convert a 0-price quote (Angebot) into a portal enquiry.
  * -----------------------------------------------------------------------
  * Phase 3 of "0-price quote -> portal enquiry". Reads a quote (angebot),
- * takes the positions whose sales price is 0 (= to be sourced), groups them by
- * their SET of active suppliers, and pushes one DRAFT enquiry per supplier-set
- * to the edge function `import-enquiry`:
- *   - positions with the same set of suppliers are combined into one enquiry,
- *   - recipients of that enquiry = exactly that supplier set.
+ * takes the positions whose sales price is 0 (= to be sourced) and pushes them
+ * as ONE DRAFT enquiry to the edge function `import-enquiry`.
+ *
+ * The positions are still grouped by their SET of active suppliers, but the
+ * groups no longer split the enquiry - they only tell the portal which position
+ * goes to which supplier:
+ *   - recipients of the enquiry = the UNION of all supplier sets,
+ *   - a position its recipient does not supply is de-selected for him there
+ *     (enquiry_recipient_excluded_items), so he never gets to see it.
+ * One quote is one enquiry: one mail per supplier and one price comparison over
+ * the whole quote, instead of one enquiry per supplier set.
  *
  * Runs in the Trader DESKTOP context. Invoked via the trader: protocol
  * (opaque, '&' separator):
  *
  *   trader:-R&portalanfrage&{"<angebotsnr>","<erp_firm_id>"}
+ *
+ * Run twice for the same quote and the DRAFT of the first run is replaced, not
+ * added to - one quote stays one enquiry. The portal only replaces when asked
+ * to (replace_existing), so this asks first and names what hangs off that
+ * draft: manual additions there are lost with it. Once the enquiry has been
+ * SENT the import refuses (HTTP 409) instead of putting a second one in front
+ * of the suppliers; changes then belong in the portal.
  *
  * PRECONDITION (Phase 4 will automate this): the articles and their suppliers
  * must already exist in the portal (run portalarticle / portalsuppliers first,
@@ -28,6 +41,7 @@ PROCEDURE PortalAnfrage(cAngnr, cFirm)
    LOCAL nAngnr := Val(_pfStr(cAngnr))
    LOCAL nFirm  := Val(_pfStr(cFirm))
    LOCAL aParts, aGroups := {}, aNoSup := {}, hPart, aSup, hS, aIds, cKey, nG, nId
+   LOCAL nPos := 0, aAllSup := {}
    LOCAL cCustomer := "", hBody, aHeader, nStatus := 0, cResponse := "", oRest, g
    LOCAL nArt, cM := ""
    LOCAL cUrl := "https://jjxieivxbnkjoboiysaj.supabase.co/functions/v1/import-enquiry"
@@ -43,7 +57,8 @@ PROCEDURE PortalAnfrage(cAngnr, cFirm)
       RETURN
    ENDIF
 
-   // group the 0-price positions by their set of active suppliers
+   // group the 0-price positions by their set of active suppliers - the portal
+   // derives the per-recipient position selection from these groups
    FOR EACH hPart IN aParts
       nArt := hPart["artikelnr"]
       // Phase 4: Artikel (inkl. Zeichnung/Beistellteile) sicherstellen
@@ -85,6 +100,17 @@ PROCEDURE PortalAnfrage(cAngnr, cFirm)
       RETURN
    ENDIF
 
+   // Kennzahlen fuer die Meldung: gesendete Positionen und Empfaenger der Anfrage
+   // (der Lieferant haengt an mehreren Gruppen, gezaehlt wird er einmal).
+   FOR EACH g IN aGroups
+      nPos += Len(g["positions"])
+      FOR EACH nId IN g["supplier_erp_ids"]
+         IF AScan(aAllSup, nId) == 0
+            AAdd(aAllSup, nId)
+         ENDIF
+      NEXT
+   NEXT
+
    FOR EACH g IN aGroups           // internen Gruppierungs-Schluessel nicht mitsenden
       HB_HDel(g, "key")
    NEXT
@@ -103,15 +129,85 @@ PROCEDURE PortalAnfrage(cAngnr, cFirm)
    oRest:cApiKeyName := "PORTALDRW"
    oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus, @cResponse)
 
+   // Steht zu dem Angebot schon ein Entwurf, ersetzt ihn das Portal nur auf
+   // ausdrueckliche Anweisung: was jemand dort von Hand ergaenzt hat -
+   // Empfaenger, Anhaenge, Texte - geht beim Ersetzen mit. Also erst fragen.
+   IF nStatus == 409 .AND. _pfTxt(cResponse, "reason") == "draft_exists"
+      IF Tr_MsgBox(_pfReplaceQuestion(nAngnr, cResponse),, {"Nein","Ja"}) != 2
+         Tr_MsgBox("Abgebrochen. Der vorhandene Entwurf bleibt unveraendert.")
+         RETURN
+      ENDIF
+      hBody["replace_existing"] := .T.
+      oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus, @cResponse)
+   ENDIF
+
    IF nStatus >= 200 .AND. nStatus < 300
-      Tr_MsgBox("Angebot " + LTrim(Str(nAngnr)) + ": " + LTrim(Str(Len(aGroups))) + ;
-                " Anfrage(n) als Entwurf angelegt." + ;
+      Tr_MsgBox("Angebot " + LTrim(Str(nAngnr)) + ": Anfrage mit " + ;
+                LTrim(Str(nPos)) + " Position(en) an " + LTrim(Str(Len(aAllSup))) + ;
+                " Lieferant(en) als Entwurf angelegt." + ;
                 IF(Len(aNoSup) > 0, Chr(13) + "Ohne Lieferant (nicht angefragt): " + _pfJoin(aNoSup), "") + ;
+                _pfReplaceNote(cResponse) + ;
                 Chr(13) + _pfStr(cResponse))
+   ELSEIF nStatus == 409
+      // Zu diesem Angebot steht im Portal schon eine versendete Anfrage. Sie
+      // wird nicht ersetzt - sonst bekaeme jeder Lieferant eine zweite.
+      Tr_MsgBox("Angebot " + LTrim(Str(nAngnr)) + ": im Portal liegt bereits eine " + ;
+                "VERSENDETE Anfrage zu diesem Angebot." + Chr(13) + ;
+                "Es wurde nichts angelegt - Aenderungen bitte im Portal an der " + ;
+                "vorhandenen Anfrage vornehmen.")
    ELSE
       Tr_MsgBox("Anfrage-Erstellung fehlgeschlagen (HTTP " + LTrim(Str(nStatus)) + ")." + Chr(13) + _pfStr(cResponse))
    ENDIF
 RETURN
+
+
+// Rueckfrage vor dem Ersetzen. Sie nennt, was an dem vorhandenen Entwurf
+// haengt - ohne diese Zahlen ist "Ersetzen?" keine Frage, die jemand
+// beantworten kann.
+STATIC FUNCTION _pfReplaceQuestion(nAngnr, cResponse)
+   LOCAL xItems := _pfVal(cResponse, "existing_items")
+   LOCAL xRecip := _pfVal(cResponse, "existing_recipients")
+   LOCAL cWhat := ""
+
+   IF ValType(xItems) == "N" .AND. ValType(xRecip) == "N"
+      cWhat := " (" + hb_ntos(xItems) + " Position(en), " + ;
+               hb_ntos(xRecip) + " Empfaenger)"
+   ENDIF
+RETURN "Angebot " + LTrim(Str(nAngnr)) + ": im Portal steht bereits ein " + ;
+       "Entwurf" + cWhat + "." + Chr(13) + ;
+       "Ersetzen? Was dort von Hand ergaenzt wurde - Empfaenger, Anhaenge, " + ;
+       "Texte - geht dabei verloren."
+
+
+// Hinweis auf einen ersetzten Entwurf: die Meldung soll es benennen und nicht
+// nur im JSON-Rumpf stehen lassen.
+STATIC FUNCTION _pfReplaceNote(cResponse)
+   LOCAL xIds := _pfVal(cResponse, "replaced_enquiry_ids")
+
+   IF ValType(xIds) == "A" .AND. Len(xIds) > 0
+      RETURN Chr(13) + "Der vorhandene Entwurf zu diesem Angebot wurde ersetzt."
+   ENDIF
+RETURN ""
+
+
+// Ein Feld aus der JSON-Antwort. NIL, wenn die Antwort kein Objekt ist oder das
+// Feld fehlt - der Aufrufer prueft den Typ und faellt sonst auf den Normalfall
+// zurueck.
+STATIC FUNCTION _pfVal(cResponse, cKey)
+   LOCAL xData := hb_jsonDecode(_pfStr(cResponse))
+
+   IF ValType(xData) == "H" .AND. HHasKey(xData, cKey)
+      RETURN xData[cKey]
+   ENDIF
+RETURN NIL
+
+
+// Dasselbe als Zeichenkette. Fehlt das Feld, kommt "" statt NIL zurueck: ein
+// Vergleich NIL == "..." waere ein Laufzeitfehler, und eine Antwort ohne das
+// Feld ist der Normalfall (jede erfolgreiche Antwort hat kein "reason").
+STATIC FUNCTION _pfTxt(cResponse, cKey)
+   LOCAL xVal := _pfVal(cResponse, cKey)
+RETURN IF(ValType(xVal) == "C", xVal, "")
 
 
 // Read the quote and return its 0-price positions (one per part matchcode):

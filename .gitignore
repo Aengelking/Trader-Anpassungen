@@ -7,3 +7,6 @@ supabase/logs
 
 # Auswertungsausgabe von agorum_status.prg (Laufergebnis, kein Quelltext)
 agorum_status.txt
+agorum_adresse.txt
+agorum_mailpruefung.txt
+agorum_nachtrag.txt

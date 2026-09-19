@@ -5,7 +5,7 @@ FUNCTION HOOK_after_fertigung_job_completed(nAufno,nCompleted,nNext)
    LOCAL cText := "Auftrag: "+LTrim(Str(nAufno))+BR
    LOCAL cCompleted,oFrepple,hResult
    LOCAL lOK := .F.
-   LOCAL cFreppleId,nX,lOkResult
+   LOCAL cFreppleId,nX,lOkResult,cRaw
    
    NetUSe("artikel","art")
    NetUse( "jobs",   "job" )
@@ -26,33 +26,27 @@ FUNCTION HOOK_after_fertigung_job_completed(nAufno,nCompleted,nNext)
       oFrepple := GetFreppleApi()
       cFreppleId := Trim(fjob->FreppleId)
       FOR nX := 1 TO 2
-         //resources/materials muessen mitgeschickt werden, sonst antwortet Frepple mit
-         //"This field is required". Leere Listen werden von Frepples update() uebersprungen
-         //(if opplanreslist:), Belegungen und Materialbewegungen bleiben unangetastet.
-         hResult := oFrepple:patchWorkOrder(StrTran(tip_urlEncode(hb_strtoutf8(cFreppleId)),"+","%20"),;
-                                            {"status"=>"completed","resources"=>{},"materials"=>{}})
+         //Statuswechsel ueber den Service-Endpunkt svc/<scenario>/operationplan/, den auch
+         //Frepples Plan-Oberflaeche benutzt. Der REST-Input-Endpunkt ist fuer Work Orders
+         //unbrauchbar: ohne resources/materials antwortet er "This field is required", mit
+         //ihnen "Direct assignment to the reverse side of a related set is prohibited".
+         //Die ID steht hier im JSON-Body, daher hb_strtoutf8() statt URL-Encoding.
+         hResult := oFrepple:updateOperationPlan({{"id"=>hb_strtoutf8(cFreppleId),"status"=>"completed"}})
          cText += BR+"Frepple Auftrag: "+cFreppleId
          cText += BR+"Fertigungsauftrag in Frepple "
+         cRaw := hResult   //Rohantwort behalten, damit auch nicht-JSON im Fehlertext landet
          IF ValType(hResult) == "C"
             hResult := hb_jsondecode(hResult)
          ENDIF
-         lOkResult := .F.
-         IF ValType(hResult) == "H"
-            //Detail-Endpunkt antwortet mit dem gepatchten Objekt ...
-            IF HHasKey(hResult,"status") .AND. hResult["status"] == "completed"
-               lOkResult := .T.
-            //... der Bulk-Endpunkt mit einer Zusammenfassung (created/updated/deleted/failed)
-            ELSEIF HHasKey(hResult,"failed") .AND. HHasKey(hResult,"updated")
-               lOkResult := Val(cStr(hResult["failed"])) == 0 .AND. Val(cStr(hResult["updated"])) > 0
-            ENDIF
-         ENDIF
+         //Der Service antwortet bei Erfolg mit {"OK": 1}, bei Fehlern mit {"errors": [...]}
+         lOkResult := ValType(hResult) == "H" .AND. HHasKey(hResult,"OK")
          IF lOkResult
             cText += "erfolgreich abgeschlossen"
             oFrepple:LoadPlan()
             lOK := .T.
             EXIT
          ELSE
-            cText += "nicht abgeschlossen: "+ValToPrg(hResult)            
+            cText += "nicht abgeschlossen: "+IF(ValType(hResult) == "H",ValToPrg(hResult),cStr(cRaw))
             
             IF LTrim(Str(Val(cFreppleId))) != cFreppleId //Not a numeric ID, then exit
                EXIT

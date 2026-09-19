@@ -23,6 +23,8 @@ LOCAL hMaxLimit,hAddLimit
 LOCAL hDisputedInvoices
 LOCAL hFactoringLimits := {=>}
 LOCAL cTiltaStatus
+LOCAL oTiltaApi,hLimit          //bisher undeklariert, also PRIVATE-Memvars,
+                                //die in jede gerufene Funktion durchschlagen
 LOCAL cPic := "@E 99,999,999.99"
 
 MEMVAR mlShowInvoiceList
@@ -322,6 +324,10 @@ IF oExtra:Factoring
    ENDIF
 
    IF HHasKey(hLimit,"available_amount")
+      //Deckt die FazilitÑt das im Trader hinterlegte Kreditlimit nicht, hier die
+      //Erhîhung beantragen. Der Antrag lÑuft dann bei Tilta durch die PrÅfung;
+      //bis er gewÑhrt ist, gilt weiter available_amount.
+      __TiltaAskIncrease(hLimit,LTrim(Str(ku->Nummer)),ku->CredLimit,lDbg)
       hTurnOver := GetCustomerTurnover(ku->kunde)
       RETURN hLimit["available_amount"]/100+hTurnOver["open"]
    ELSEIF HHasKey(hFactoringLimits,Trim(ku->Kunde))
@@ -885,6 +891,145 @@ Endif
 IF lDbg; Alert("NO LIMIT?"); ENDIF
 
 Return 0
+
+/*  Erhîhung der Tilta-FazilitÑt beantragen, wenn im Trader ein hîheres Kredit-
+ *  limit hinterlegt ist als Tilta gewÑhrt hat. requested_amount ist dabei das
+ *  neue Gesamtlimit, nicht die Differenz
+ *  (POST /v1/buyers/{external_id}/facility/increase, Antwort 202 PENDING).
+ *
+ *  Damit folgt die FazilitÑt dem Limit im Trader: wer hier erhîht, stîsst die
+ *  PrÅfung bei Tilta an, ohne ins Portal zu wechseln. Dieselbe Zahl geht beim
+ *  Einrichten des Buyers als requested_amount raus (run\tilta_setup.prg).
+ *
+ *  Beantragt wird nur bei einer echten LÅcke und nur, wenn nicht schon ein
+ *  Antrag lÑuft - das sagt pending_actions mit type INCREASE. Ohne diese
+ *  PrÅfung antwortete Tilta bei jeder KreditprÅfung mit 409 "Buyer already
+ *  has a pending facility increase request".
+ *
+ *  Ein Fehler darf die KreditprÅfung nicht anhalten, deshalb ist der Aufruf
+ *  gekapselt und das Ergebnis interessiert nur den Debug-Modus. Ob die
+ *  Erhîhung gewÑhrt wurde, meldet der Nachtlauf RUN_TILTA_FACILITY_SYNC als
+ *  LimitÑnderung.                                                            */
+STATIC FUNCTION __TiltaAskIncrease(hLimit,cBuyer,nLimitEuro,lDbg)
+   LOCAL nWant, nHave := 0
+   LOCAL oApi, hSend
+   LOCAL nHttp, cResp, cBody
+
+   IF ValType(hLimit) != "H" .OR. ValType(nLimitEuro) != "N"
+      RETURN .F.
+   ENDIF
+   nWant := Round(nLimitEuro*100,0)
+   IF nWant <= 0
+      RETURN .F.                          //kein Limit hinterlegt, nichts zu beantragen
+   ENDIF
+   IF HHasKey(hLimit,"total_amount") .AND. ValType(hLimit["total_amount"]) == "N"
+      nHave := hLimit["total_amount"]
+   ENDIF
+   IF nWant <= nHave
+      RETURN .F.                          //Tilta gewÑhrt schon genug
+   ENDIF
+   IF __TiltaPendingAction(hLimit,"INCREASE")
+      IF lDbg
+         ? "Tilta: Erhîhung ist bereits beantragt"
+      ENDIF
+      RETURN .F.
+   ENDIF
+   IF __TiltaIncreaseState(cBuyer,nWant,.F.)
+      IF lDbg
+         ? "Tilta: Erhîhung wurde schon einmal beantragt, nicht gewÑhrt"
+      ENDIF
+      RETURN .F.
+   ENDIF
+
+   hSend := {"requested_amount" => nWant, ;
+             "comments"         => "Kreditlimit Trader "+LTrim(Transform(nLimitEuro,"@E 9,999,999.99"))+" EUR"}
+
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      oApi := RestApi():New()
+      oApi:cBaseUrl    := "https://api.tilta.io/v1/"
+      oApi:cApiKeyName := "TILTA"
+      cBody := oApi:Execute("buyers/"+cBuyer+"/facility/increase","POST",hSend, ;
+                            {"authorization: Bearer $APIKEY$","content-type: application/json"}, ;
+                            .T.,@nHttp,@cResp)
+   RECOVER
+      nHttp := 0
+      cResp := "Verbindungsfehler"
+   END SEQUENCE
+
+   IF ValType(nHttp) != "N"
+      nHttp := 0
+   ENDIF
+   IF nHttp > 0
+      //Jede echte Antwort vermerken, auch 409 und 400: sonst stellt jede
+      //weitere KreditprÅfung denselben Antrag. Nur nach einem Transportfehler
+      //(nHttp 0) bleibt es unvermerkt, damit ein Ausfall nichts verschluckt.
+      __TiltaIncreaseState(cBuyer,nWant,.T.)
+   ENDIF
+   IF lDbg
+      ? "Tilta: Erhîhung auf",LTrim(Transform(nWant/100,"@E 9,999,999.99")), ;
+        "beantragt (bisher "+LTrim(Transform(nHave/100,"@E 9,999,999.99"))+")", ;
+        "HTTP "+LTrim(Str(nHttp)),cResp,Left(hb_ValToStr(cBody),80)
+   ENDIF
+
+RETURN nHttp >= 200 .AND. nHttp < 300
+
+/*  Gedaechtnis fuer gestellte Antraege, damit nicht jede KreditprÅfung erneut
+ *  eine Erhîhung beantragt. pending_actions allein reicht dafuer nicht: lehnt
+ *  Tilta ab, ist der Antrag weg und das Limit unverÑndert - die LÅcke bliebe
+ *  also bestehen und wÅrde bei jeder Auftragserfassung neu angefragt.
+ *
+ *  Vermerkt wird je Buyer der hîchste beantragte Betrag mit Datum. Ein neuer
+ *  Antrag geht erst wieder raus, wenn im Trader ein hîheres Limit steht oder
+ *  TILTA_INCREASE_WAIT Tage vergangen sind. Die Datei liegt zentral im
+ *  Datenverzeichnis, damit die Sperre nicht am einzelnen Rechner hÑngt.
+ *
+ *  lNote = .T. schreibt den Vermerk, .F. fragt nur.                         */
+#define TILTA_INCREASE_WAIT  30      //Tage bis zum nÑchsten Versuch
+
+STATIC FUNCTION __TiltaIncreaseState(cBuyer,nWant,lNote)
+   LOCAL cFile := Path("export\tilta_increase.json")
+   LOCAL hAll, hOne
+   LOCAL lSeen := .F.
+
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      hAll := IF(File(cFile),hb_jsonDecode(MemoRead(cFile)),{=>})
+      IF ValType(hAll) != "H"
+         hAll := {=>}
+      ENDIF
+      IF HHasKey(hAll,cBuyer) .AND. ValType(hAll[cBuyer]) == "H" ;
+         .AND. HHasKey(hAll[cBuyer],"amount") .AND. HHasKey(hAll[cBuyer],"date")
+         hOne  := hAll[cBuyer]
+         lSeen := nWant <= hOne["amount"] .AND. Date() - SToD(hOne["date"]) < TILTA_INCREASE_WAIT
+      ENDIF
+      IF lNote == .T.
+         hAll[cBuyer] := {"amount" => nWant, "date" => DToS(Date())}
+         MemoWrit(cFile,hb_jsonEncode(hAll))
+      ENDIF
+   RECOVER
+      lSeen := .F.                        //Stand unlesbar: lieber einmal zu viel fragen
+   END SEQUENCE
+
+RETURN lSeen
+
+/*  LÑuft bei Tilta schon ein Antrag dieser Art? pending_actions trÑgt je
+ *  Eintrag type CREATION, RENEWAL oder INCREASE.                            */
+STATIC FUNCTION __TiltaPendingAction(hLimit,cType)
+   LOCAL xList, hAct, nX
+   IF ValType(hLimit) != "H" .OR. ! HHasKey(hLimit,"pending_actions")
+      RETURN .F.
+   ENDIF
+   xList := hLimit["pending_actions"]
+   IF ValType(xList) != "A"
+      RETURN .F.
+   ENDIF
+   FOR nX := 1 TO Len(xList)
+      hAct := xList[nX]
+      IF ValType(hAct) == "H" .AND. HHasKey(hAct,"type") ;
+         .AND. ValType(hAct["type"]) == "C" .AND. hAct["type"] == cType
+         RETURN .T.
+      ENDIF
+   NEXT
+RETURN .F.
 
 /*  Status der Tilta-FazilitÑt aus der Antwort ziehen. Tilta liefert ihn auf oberster Ebene;
  *  die verschachtelten Varianten sind Vorsorge, falls die API das Objekt einpackt.

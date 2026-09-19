@@ -1,12 +1,18 @@
 /*
- * portalanfrage.prg  -  Convert a 0-price quote (Angebot) into portal enquiries.
+ * portalanfrage.prg  -  Convert a 0-price quote (Angebot) into a portal enquiry.
  * -----------------------------------------------------------------------
  * Phase 3 of "0-price quote -> portal enquiry". Reads a quote (angebot),
- * takes the positions whose sales price is 0 (= to be sourced), groups them by
- * their SET of active suppliers, and pushes one DRAFT enquiry per supplier-set
- * to the edge function `import-enquiry`:
- *   - positions with the same set of suppliers are combined into one enquiry,
- *   - recipients of that enquiry = exactly that supplier set.
+ * takes the positions whose sales price is 0 (= to be sourced) and pushes them
+ * as ONE DRAFT enquiry to the edge function `import-enquiry`.
+ *
+ * The positions are still grouped by their SET of active suppliers, but the
+ * groups no longer split the enquiry - they only tell the portal which position
+ * goes to which supplier:
+ *   - recipients of the enquiry = the UNION of all supplier sets,
+ *   - a position its recipient does not supply is de-selected for him there
+ *     (enquiry_recipient_excluded_items), so he never gets to see it.
+ * One quote is one enquiry: one mail per supplier and one price comparison over
+ * the whole quote, instead of one enquiry per supplier set.
  *
  * Runs in the Trader DESKTOP context. Invoked via the trader: protocol
  * (opaque, '&' separator):
@@ -28,6 +34,7 @@ PROCEDURE PortalAnfrage(cAngnr, cFirm)
    LOCAL nAngnr := Val(_pfStr(cAngnr))
    LOCAL nFirm  := Val(_pfStr(cFirm))
    LOCAL aParts, aGroups := {}, aNoSup := {}, hPart, aSup, hS, aIds, cKey, nG, nId
+   LOCAL nPos := 0, aAllSup := {}
    LOCAL cCustomer := "", hBody, aHeader, nStatus := 0, cResponse := "", oRest, g
    LOCAL nArt, cM := ""
    LOCAL cUrl := "https://jjxieivxbnkjoboiysaj.supabase.co/functions/v1/import-enquiry"
@@ -43,7 +50,8 @@ PROCEDURE PortalAnfrage(cAngnr, cFirm)
       RETURN
    ENDIF
 
-   // group the 0-price positions by their set of active suppliers
+   // group the 0-price positions by their set of active suppliers - the portal
+   // derives the per-recipient position selection from these groups
    FOR EACH hPart IN aParts
       nArt := hPart["artikelnr"]
       // Phase 4: Artikel (inkl. Zeichnung/Beistellteile) sicherstellen
@@ -85,6 +93,17 @@ PROCEDURE PortalAnfrage(cAngnr, cFirm)
       RETURN
    ENDIF
 
+   // Kennzahlen fuer die Meldung: gesendete Positionen und Empfaenger der Anfrage
+   // (der Lieferant haengt an mehreren Gruppen, gezaehlt wird er einmal).
+   FOR EACH g IN aGroups
+      nPos += Len(g["positions"])
+      FOR EACH nId IN g["supplier_erp_ids"]
+         IF AScan(aAllSup, nId) == 0
+            AAdd(aAllSup, nId)
+         ENDIF
+      NEXT
+   NEXT
+
    FOR EACH g IN aGroups           // internen Gruppierungs-Schluessel nicht mitsenden
       HB_HDel(g, "key")
    NEXT
@@ -104,8 +123,9 @@ PROCEDURE PortalAnfrage(cAngnr, cFirm)
    oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus, @cResponse)
 
    IF nStatus >= 200 .AND. nStatus < 300
-      Tr_MsgBox("Angebot " + LTrim(Str(nAngnr)) + ": " + LTrim(Str(Len(aGroups))) + ;
-                " Anfrage(n) als Entwurf angelegt." + ;
+      Tr_MsgBox("Angebot " + LTrim(Str(nAngnr)) + ": Anfrage mit " + ;
+                LTrim(Str(nPos)) + " Position(en) an " + LTrim(Str(Len(aAllSup))) + ;
+                " Lieferant(en) als Entwurf angelegt." + ;
                 IF(Len(aNoSup) > 0, Chr(13) + "Ohne Lieferant (nicht angefragt): " + _pfJoin(aNoSup), "") + ;
                 Chr(13) + _pfStr(cResponse))
    ELSE

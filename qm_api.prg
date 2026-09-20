@@ -9,9 +9,15 @@
  * Auth laeuft ueber den verschluesselten Keychain: der Eintrag QM-TRADER
  * liefert den Wert fuer den Platzhalter $APIKEY$ im Header x-api-key.
  * Muster: portalarticle.prg / PA_PushArticle().
+ *
+ * Die Adresse der Edge Function steht in den Einstellungen unter QM_API_URL
+ * (Kategorie QM, Maske Browse_Values). Der Default unten wird beim ersten
+ * Aufruf automatisch angelegt - wie bei NEXUSCRM_URL, NOCRM_URL, FREPPLE_URL.
+ * Sie liegt damit pro Mandant vor und ist ohne Neuuebersetzung aenderbar.
  */
 
 #define QM_KEYNAME "QM-TRADER"
+#define QM_DEFURL  "https://gkwtwjvjzdsbejwqfeig.supabase.co/functions/v1/trader-incoming-receipt"
 
 // POST eines Hashes an die Edge Function. Gibt den dekodierten Antwort-Hash
 // zurueck oder NIL, wenn der Aufruf nicht sauber durchging. nStatus und
@@ -19,7 +25,8 @@
 // 401/403 (Schluessel) und 0 (kein Netz) unterscheiden kann.
 STATIC FUNCTION QmPost(hBody, nStatus, cResponse)
    LOCAL oRest, aHeader, hRet
-   LOCAL cUrl := Trim(GetConfigValue("QM_API_URL"))
+   LOCAL cUrl := AllTrim(GetValue("QM_API_URL", QM_DEFURL, ;
+                                  "URL der QM-Wareneingangsschnittstelle (engelking-qm)"))
 
    nStatus   := 0
    cResponse := ""

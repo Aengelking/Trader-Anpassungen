@@ -32,10 +32,13 @@ PROC RUN_WEP()
          //hb_webview_bind2(nW,"aawEditorSave",HB_CALL_FUNC_DIRECT)
 //tip_URLEncode(cMessage)
 
+         //Die Pruefungen legt inzwischen der Wareneingang selbst an (Hook
+         //GET_WE_QM_NUMBER / AFTER_BOOK_WE -> run\qm_we_register). Deshalb
+         //oeffnet dieser Aufruf die LISTE der Pruefungen und nicht mehr die
+         //Neuanlage mit einem fest verdrahteten Artikel.
          cUrl := "https://preview--engelking-qm.lovable.app/auth/token"
          cUrl += "?token="+Trim(SystemUser():oSettings:QmRefresh)
-         //cUrl += "&redirect=/pruefplaene"
-         cUrl += "&redirect=/wareneingangspruefungen/neu"+tip_URLEncode("?article=KS13262/1/270")         
+         cUrl += "&redirect=/wareneingangspruefungen"
 
          hb_webview_navigate(nW,cUrl)
          hb_webview_run(nW)

@@ -11,6 +11,11 @@
  * und sieht die Funktionen der anderen nicht - eine zweite Kopie der
  * Schluesselbildung wuerde frueher oder spaeter auseinanderlaufen.
  *
+ * qs_required ist das Artikelstamm-Flag art->QS ("WE-QS Pruefung",
+ * artikel_edit.prg:380). Ist es nicht gesetzt, legt das Portal fuer diesen
+ * Artikel keine neue Pruefung an. Fehlt das Feld im Payload, wird geprueft -
+ * die sichere Richtung.
+ *
  * Rueckgabe: der Antwort-Hash des Portals
  *   { decision, status, inspection_number, inspection_id, plan_id, reason }
  * oder NIL, wenn das Portal nicht erreichbar war. In dem Fall liegt der
@@ -57,6 +62,7 @@ STATIC FUNCTION QmWePayload(cPhase, oBesPos, oArt, hData, cBeleg)
                                    Trim(cBeleg) + "/" + ;
                                    LTrim(Str(oArt:Artikelnr)), ;
       "part_number"             => QmStr(oArt:Matchcode), ;
+      "qs_required"             => IF(ValType(oArt:QS) == "L", oArt:QS, .T.), ;
       "supplier_number"         => QmStr(oBesPos:Liefma), ;
       "trader_supplier_id"      => LTrim(Str(QmSupplierNo(oBesPos:Liefma))), ;
       "delivery_note_number"    => QmStr(cBeleg), ;

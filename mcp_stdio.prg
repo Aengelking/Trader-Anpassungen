@@ -697,7 +697,8 @@ FUNCTION MCP_Tool_Get_Article(hArgs)
          "anyOf"=>{{"matchcode", "partno"}};
       }
       hResult["description"] := "Retrieve detailed information for a single article/product by matchcode or part number. " + ;
-                                "Returns comprehensive data including stock, prices, description" + ;
+                                "Returns comprehensive data including stock, prices, description " + ;
+                                "and the 'qs' flag (incoming-inspection required for this article). " + ;
                                 "Use this when you need detailed information"
       RETURN hResult
    ENDIF
@@ -727,6 +728,11 @@ FUNCTION MCP_Tool_Get_Article(hArgs)
       hResult["group"] := AllTrim(art->gruppe)
       //hResult["sell_price"] := art->vkpr
       hResult["stock"] := art->bestand
+      // "WE-QS Pruefung" aus dem Artikelstamm (artikel_edit.prg:380).
+      // .T. = dieser Artikel braucht eine Wareneingangspruefung. Das QM-Portal
+      // entscheidet daran, ob zu einer Lieferung eine Pruefung entsteht
+      // (qs_required in qm_we_register.prg).
+      hResult["qs"] := art->QS
       
       hResult["status"] := "found"
    ELSE

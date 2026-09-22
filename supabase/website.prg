@@ -293,6 +293,7 @@ STATIC FUNCTION _BuildProductsJson(nLimit, lForcePrices, lNoStamp)
    NetUse("shopware", "shop")
    NetUse("ptcache", "ptc")
    NetUse("liefstock", "lsto")
+   NetUse("waldom","wald")
    NetUse("buyprice", "bpr")
    NetUse("engkund","ku")  //ONPOW_PRICING uses this
    NetUse("stafprei","stpr")

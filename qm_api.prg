@@ -42,7 +42,7 @@ STATIC FUNCTION QmPost(hBody, nStatus, cResponse)
    oRest:cApiKeyName := QM_KEYNAME
 
    BEGIN SEQUENCE WITH {|e| Break(e)}
-      oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus, @cResponse)
+      cResponse := oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus)
    RECOVER
       nStatus := 0
    END SEQUENCE

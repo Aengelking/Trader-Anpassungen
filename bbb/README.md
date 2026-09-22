@@ -42,6 +42,15 @@ Der `api_key` passt **nicht** ins Username-Feld von `BBB` — das ist ein kurzes
 Klartextfeld. Lang genug (247 Zeichen) und verschlüsselt ist nur das
 Kennwortfeld, deshalb der zweite Eintrag.
 
+**Der Keychain ist in Trader firmenbezogen.** Beide Einträge gelten also nur für
+die Firma, in der sie angelegt wurden — für eine weitere Firma müssen sie dort
+erneut hinterlegt werden, mit deren eigenem `api_key`. Das ist zugleich der
+Schutz davor, die Belege der einen Firma in die Buchhaltung der anderen zu
+schicken: fehlt `BBBKEY` in der gerade laufenden Firma, bleibt `cApiKey` NIL,
+der Platzhalter geht unersetzt raus und BuchhaltungsButler antwortet mit
+Fehlercode 3. Der Lauf bricht dann schon beim ersten `receipts/get` ab — bevor
+irgendetwas gesendet wird.
+
 Den Schlüssel im Sync-Modul selbst aus dem Keychain zu lesen geht nicht:
 `Keychain_GetPassword` prüft `ProcName(1)` gegen eine feste Liste und lässt nur
 `RestApi:Execute` und wenige andere durch. Der Weg über `RestApi` ist also nicht
@@ -78,15 +87,18 @@ Jeder Lauf rechnet die **Beträge** beider Seiten gegeneinander, nicht die
 Stückzahlen. Eine Stückzahl verdeckt den einen fehlenden Beleg über 40.000 Euro
 zwischen dreihundert kleinen.
 
+Aus dem ersten Trockenlauf gegen einen leeren BuchhaltungsButler-Mandanten
+(Engelking Automotive, 22.09.2026):
+
 ```
 KONTROLLRECHNUNG (Betraege, nicht Stueck)
                           Ausgangsbelege   Eingangsbelege
-  Trader gesamt              1.284.310,55       612.044,18
-  BuchhaltungsButler         1.201.880,55       612.044,18
-  Luecke                        82.430,00             0,00
-  davon wird gesendet           82.430,00             0,00
-  davon zur Klaerung                 0,00             0,00
-  bleibt danach offen                0,00             0,00
+  Trader gesamt                154925.51             0.00
+  BuchhaltungsButler                0.00             0.00
+  Luecke                       154925.51             0.00
+  davon wird gesendet          154925.51             0.00
+  davon zur Klaerung                0.00             0.00
+  bleibt danach offen               0.00             0.00
 ```
 
 Das kostet keinen einzigen zusätzlichen API-Aufruf — beide Seiten liegen nach dem

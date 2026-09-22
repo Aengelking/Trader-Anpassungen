@@ -30,17 +30,27 @@ gelten — es steht im Protokoll, damit jemand hinsieht.
 
 ## Einrichtung
 
-Ein Keychain-Eintrag **`BBB`**:
+**Zwei** Keychain-Einträge, weil zwei verschiedene Geheimnisse gebraucht werden —
+und beide ins **Password**-Feld gehören:
 
-| Feld | Inhalt |
-|---|---|
-| Username | der `api_key` des Mandanten (aus den Firmendaten in BuchhaltungsButler) |
-| Password | `APICLIENT:APISECRET` — die globalen Zugangsdaten, mit Doppelpunkt verbunden |
+| Eintrag | Password | wofür |
+|---|---|---|
+| `BBB` | `APICLIENT:APISECRET` | HTTP-Basic. `RestApi:Execute` reicht das Kennwortfeld bei gesetztem `cKeyName` unverändert als `CURLOPT_USERPWD` an curl weiter — genau die Form, die Basic braucht. |
+| `BBBKEY` | der `api_key` des Mandanten | wählt die Firma. Über `cApiKeyName` geladen und im Rumpf als `$APIKEY$` ersetzt. |
 
-Das Kennwortfeld trägt beide Teile, weil `RestApi:Execute` bei gesetztem
-`cKeyName` genau dieses Feld als `CURLOPT_USERPWD` an curl weiterreicht. Der
-`api_key` geht über den Platzhalter `$USERNAME$` in den Rumpf. So steht kein
-Zugangsdatum im Quelltext.
+Der `api_key` passt **nicht** ins Username-Feld von `BBB` — das ist ein kurzes
+Klartextfeld. Lang genug (247 Zeichen) und verschlüsselt ist nur das
+Kennwortfeld, deshalb der zweite Eintrag.
+
+Den Schlüssel im Sync-Modul selbst aus dem Keychain zu lesen geht nicht:
+`Keychain_GetPassword` prüft `ProcName(1)` gegen eine feste Liste und lässt nur
+`RestApi:Execute` und wenige andere durch. Der Weg über `RestApi` ist also nicht
+der bequemere, sondern der einzige.
+
+> Dafür war eine Ergänzung in `lib/restapi.prg` nötig (Trader-Repo): `$APIKEY$`
+> wurde bisher nur in Headern ersetzt, nicht in Rumpfwerten. Siehe dort.
+
+So steht kein Zugangsdatum im Quelltext.
 
 Optional im allgemeinen Wertespeicher:
 

@@ -36,15 +36,25 @@
   *
   * KEYCHAIN
   *
-  *   Ein Eintrag "BBB":
-  *     Username = der api_key des Mandanten  -> im Rumpf als $USERNAME$
-  *     Password = "APICLIENT:APISECRET"      -> RestApi setzt das als
-  *                                              CURLOPT_USERPWD fuer Basic
+  *   ZWEI Eintraege, weil zwei verschiedene Geheimnisse gebraucht werden:
   *
-  *   Das sieht schief aus, ist aber genau das, was RestApi:Execute anbietet:
-  *   bei gesetztem cKeyName geht das Kennwort unveraendert als USERPWD an
-  *   curl, und $USERNAME$ wird in den Rumpfwerten ersetzt. So bleibt kein
-  *   Zugangsdatum im Quelltext.
+  *     "BBB"     Password = "APICLIENT:APISECRET"
+  *               RestApi reicht das Kennwortfeld bei gesetztem cKeyName
+  *               unveraendert als CURLOPT_USERPWD an curl weiter - genau die
+  *               Form, die HTTP-Basic braucht.
+  *
+  *     "BBBKEY"  Password = der api_key des Mandanten
+  *               ueber cApiKeyName geladen und im Rumpf als $APIKEY$ ersetzt.
+  *
+  *   Warum nicht der api_key im Username-Feld von "BBB"? Das ist ein kurzes
+  *   Klartextfeld, in das der Schluessel nicht hineinpasst. Lang genug (247
+  *   Zeichen) und verschluesselt ist nur das Kennwortfeld - also braucht es
+  *   einen zweiten Eintrag.
+  *
+  *   Den Schluessel hier selbst aus dem Keychain zu lesen geht nicht:
+  *   Keychain_GetPassword prueft ProcName(1) gegen eine feste Liste und laesst
+  *   nur RestApi:Execute und wenige andere durch. Der Weg ueber RestApi ist
+  *   deshalb nicht der bequemere, sondern der einzige.
   *
   * AUFRUF
   *
@@ -118,7 +128,8 @@ FUNCTION RUN_SYNC_BBB(lLive, lSummen)
    _Log("")
 
    oRest:cBaseUrl := "https://webapp.buchhaltungsbutler.de/api/v1/"
-   oRest:cKeyName := "BBB"
+   oRest:cKeyName := "BBB"       //Basic-Auth: APICLIENT:APISECRET
+   oRest:cApiKeyName := "BBBKEY" //Mandanten-Schluessel, im Rumpf als $APIKEY$
    oRest:lUseBasicAuth := .T.
 
    //1. Bestand der Gegenseite. Ohne ihn darf nichts gesendet werden - sonst
@@ -244,7 +255,7 @@ STATIC FUNCTION _BbbFetchReceipts(oRest, cDirection, dFrom, hIndex)
 
    DO WHILE .T.
       hBody := {=>}
-      hBody["api_key"] := "$USERNAME$"
+      hBody["api_key"] := "$APIKEY$"
       hBody["list_direction"] := cDirection
       hBody["date_from"] := _IsoDate(dFrom)
       hBody["limit"] := BBB_GET_LIMIT
@@ -600,7 +611,7 @@ STATIC FUNCTION _BbbFetchAccounts(oRest, cType, hIndex)
 
    DO WHILE .T.
       hBody := {=>}
-      hBody["api_key"] := "$USERNAME$"
+      hBody["api_key"] := "$APIKEY$"
       hBody["limit"] := BBB_GET_LIMIT
       hBody["offset"] := nOffset
 
@@ -708,7 +719,7 @@ STATIC FUNCTION _EnsureAccounts(oRest, aNeu, cType, cReceiptType, hBestand, lLiv
 
    FOR EACH aBatch IN aBatches
       hBody := {=>}
-      hBody["api_key"] := "$USERNAME$"
+      hBody["api_key"] := "$APIKEY$"
       hBody[cType] := aBatch
 
       cResponse := oRest:Execute("settings/add-batch/" + cType, "POST", hBody, _BbbHeader(), .T., @nStatus)
@@ -897,7 +908,7 @@ STATIC FUNCTION _BbbSumsReport(oRest, dFrom, hDebitoren, hKreditoren, nOffenDeb,
    _Log("SUMMEN- UND SALDENLISTE")
 
    hBody := {=>}
-   hBody["api_key"] := "$USERNAME$"
+   hBody["api_key"] := "$APIKEY$"
    hBody["date_from"] := _IsoDate(dFrom)
    hBody["date_to"] := _IsoDate(Date())
    hBody["base"] := "date"
@@ -922,7 +933,7 @@ STATIC FUNCTION _BbbSumsReport(oRest, dFrom, hDebitoren, hKreditoren, nOffenDeb,
       hb_idleSleep(6)
 
       hBody := {=>}
-      hBody["api_key"] := "$USERNAME$"
+      hBody["api_key"] := "$APIKEY$"
       hBody["report_id_by_customer"] := Val(cReportId)
 
       cResponse := oRest:Execute("reports/get/sums", "POST", hBody, _BbbHeader(), .T., @nStatus)
@@ -1029,7 +1040,7 @@ STATIC FUNCTION _BbbSend(oRest, aNeu, nGesendet, nFehler)
       NEXT
 
       hBody := {=>}
-      hBody["api_key"] := "$USERNAME$"
+      hBody["api_key"] := "$APIKEY$"
       hBody["receipts"] := aReceipts
 
       _Log("Sende Stapel " + LTrim(Str(nBatch)) + " von " + LTrim(Str(Len(aBatches))) + ;

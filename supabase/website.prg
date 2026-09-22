@@ -482,6 +482,7 @@ STATIC PROCEDURE _ApplyProductStockData(hProduct, oArtikel, nCurWeek, cWaldom)
    LOCAL nX
    LOCAL nOwnStock
    LOCAL nManufacturerStock := 0
+   LOCAL nManufacturerMOQ := 1
    LOCAL nDeliveryTime
 
    nArtLZ := IF(oArtikel:LZ == 0, 12, oArtikel:LZ)
@@ -505,10 +506,14 @@ STATIC PROCEDURE _ApplyProductStockData(hProduct, oArtikel, nCurWeek, cWaldom)
    IF lsto->(dbSeek(cWaldom + Str(oArtikel:Artikelnr,6))) .AND. lsto->Stock > 0 ;
       .AND. bpr->(dbSeek(Str(oArtikel:Artikelnr,6) + cWaldom))      
       nManufacturerStock := lsto->Stock
+      IF wald->(dbSeek(Pad(oArtikel:Matchcode,35)))
+         nManufacturerMOQ := wald->MOQ
+      ENDIF
    ENDIF
 
    hProduct["stock"] := nOwnStock
    hProduct["manufacturer_stock"] := nManufacturerStock
+   hProduct["manufacturer_moq"] := nManufacturerMOQ
    hProduct["delivery_time"] := nDeliveryTime
 RETURN
 

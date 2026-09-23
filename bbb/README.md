@@ -69,10 +69,12 @@ Optional im allgemeinen Wertespeicher:
 ## Aufruf
 
 ```harbour
-RUN_SYNC_BBB()          // Trockenlauf: liest beide Seiten, zeigt und protokolliert,
-                        // was zu senden wäre, sendet nichts
-RUN_SYNC_BBB(.T.)       // Echtlauf: legt die fehlenden Belege an
-RUN_SYNC_BBB(.F., .T.)  // zusätzlich die Summen- und Saldenliste ziehen
+RUN_SYNC_BBB()               // Trockenlauf: liest beide Seiten, zeigt und protokolliert,
+                             // was zu senden wäre, sendet nichts
+RUN_SYNC_BBB(.T.)            // Echtlauf: legt die fehlenden Belege an
+RUN_SYNC_BBB(.F., .T.)       // zusätzlich die Summen- und Saldenliste ziehen
+RUN_SYNC_BBB(.F., .F., .T.)  // zusätzlich zählen, zu wie vielen Belegen ein PDF
+                             // im Archiv liegt - lädt nichts hoch
 ```
 
 Der Trockenlauf ist die Voreinstellung. Ein Beleg in einer Buchhaltung lässt sich
@@ -167,6 +169,58 @@ Im Trockenlauf werden die fehlenden Konten aufgelistet und für die Vorschau als
 vorhanden geführt — sonst zeigte die Liste lauter Belege ohne Personenkonto, die
 im Echtlauf sehr wohl eines bekämen.
 
+## Beleg-PDF: erst einmal nur gezählt
+
+Der dritte Parameter zählt, zu wie vielen der gesammelten Belege ein PDF im
+Trader-Archiv liegt. Er zählt nur — **hochgeladen wird nichts.**
+
+So sieht der Block aus (erfundene Zahlen — der Lauf stand bei Drucklegung noch
+aus):
+
+```
+BELEG-PDF IM ARCHIV (nur gezaehlt - es wird nichts hochgeladen)
+                          Ausgangsbelege   Eingangsbelege
+  Belege gesamt                       12                0
+  davon mit PDF                       11                0
+  ohne PDF im Archiv                   1                0
+  Pfad da, Datei fehlt                 0                0
+  kein Vorgang gefunden                0                0
+
+  Davon fehlt in BuchhaltungsButler:
+  Belege                              12                0
+  davon mit PDF                       11                0
+```
+
+Die zweite Hälfte ist die, auf die es ankommt. Einem Beleg, der in
+BuchhaltungsButler schon liegt, lässt sich nachträglich kein PDF mehr
+anhängen: `receipts/upload` ist der einzige Endpunkt der ganzen Schnittstelle,
+der eine Datei annimmt, und er legt dabei einen neuen Beleg an. Es gibt also
+`receipts/addBatch` (50 Belege je Aufruf, ohne Datei) **oder**
+`receipts/upload` (ein Beleg je Aufruf, mit Datei, höchstens 10 Aufrufe je
+Minute) — nicht beides nacheinander.
+
+Daran hängt die Entscheidung: eine Erstbefüllung von rund 1750
+Ausgangsrechnungen dauert mit PDF gut drei Stunden statt zwei Minuten. Im
+Tagesbetrieb mit zehn bis zwanzig Belegen sind es ein bis zwei Minuten — dort
+kostet es praktisch nichts.
+
+**Warum nur auf Anforderung:** jeder Archivzugriff geht über
+`Hook("get_archive_files")`, und `Hook()` übersetzt die Hook-Datei bei *jedem*
+Aufruf neu (`MBaseRun` → `HB_COMPILEBUF`). Ein Beleg kostet damit einen
+vollständigen Harbour-Übersetzungslauf. Bei zwölf Belegen fällt das nicht auf,
+bei siebzehnhundert sehr wohl, und der nächtliche Abgleich soll das nicht
+jedes Mal bezahlen.
+
+Wo das PDF liegt, ist je Richtung verschieden:
+
+| | Archivschlüssel | woher |
+|---|---|---|
+| Ausgangsrechnung | `{"RE" => re->Rechnr}` | wie in `rechnung_print.prg` |
+| Eingangsrechnung | `{"ER" => reb->ID}` | am **Belegerfassungssatz**, nicht an `ENGRECH`; gefunden über Adressnummer des Lieferanten + Rechnungsnummer, wie in `lexware_import.prg` |
+
+Ein Archiveintrag, dessen Datei nicht lesbar ist, zählt als eigene Zeile und
+nicht als „hat ein PDF" — für einen Upload wäre er wertlos.
+
 ## Was übertragen wird
 
 **Ausgangsrechnungen** aus `ENGLSRE` — gepackt, Betrag ungleich null, Belegdatum
@@ -190,16 +244,22 @@ Satz sieht sie nicht.
 - höchstens 100 Anfragen je Mandant und Minute
 - `receipts/get` liefert höchstens 500 Zeilen je Aufruf (wird geblättert)
 - `receipts/addBatch` nimmt höchstens 50 Belege je Aufruf
+- `receipts/upload` ist der einzige Endpunkt, der eine Datei annimmt: ein
+  Beleg je Aufruf, höchstens 10 Aufrufe je Minute. Eine Datei an einen schon
+  angelegten Beleg zu hängen sieht die Schnittstelle nicht vor.
 
 ## Noch nicht enthalten
 
 - Anschrift, IBAN und USt-Id an den Personenkonten (siehe oben)
 - Zahlungen und der Ausgleich offener Posten (`transactions/*`,
   `postings/add/transaction`)
-- Beleg-PDF (`receipts/upload` statt `receipts/add`; dort gilt eine eigene
-  Grenze von 10 Anfragen je Minute)
+- der Upload der Beleg-PDF selbst (`receipts/upload` statt `receipts/addBatch`;
+  gezählt wird schon, siehe oben)
 
 ## Nicht getestet
+
+Die Zählung der Beleg-PDF ebenfalls nicht: der Archivzugriff läuft über einen
+Hook, der nur auf dem Windows-Rechner und nur gegen die echten Daten existiert.
 
 Gebaut und geprüft wurde auf Linux mit `tools/hbcheck.sh` — das ist der
 Harbour-Frontend-Syntaxlauf, kein Build und keine Ausführung. Weder der

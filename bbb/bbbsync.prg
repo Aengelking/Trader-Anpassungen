@@ -58,10 +58,13 @@
   *
   * AUFRUF
   *
-  *   RUN_SYNC_BBB()          Trockenlauf - liest beide Seiten, zeigt und
-  *                           protokolliert, was zu senden waere, sendet nichts
-  *   RUN_SYNC_BBB(.T.)       Echtlauf - legt die fehlenden Belege an
-  *   RUN_SYNC_BBB(.F., .T.)  zusaetzlich die Summen- und Saldenliste ziehen
+  *   RUN_SYNC_BBB()               Trockenlauf - liest beide Seiten, zeigt und
+  *                                protokolliert, was zu senden waere, sendet
+  *                                nichts
+  *   RUN_SYNC_BBB(.T.)            Echtlauf - legt die fehlenden Belege an
+  *   RUN_SYNC_BBB(.F., .T.)       zusaetzlich die Summen- und Saldenliste
+  *   RUN_SYNC_BBB(.F., .F., .T.)  zusaetzlich zaehlen, zu wie vielen Belegen
+  *                                ein PDF im Archiv liegt (laedt nichts hoch)
   *
   * Der Trockenlauf ist die Voreinstellung. Ein Beleg in einer Buchhaltung
   * laesst sich nicht so leicht zurueckholen wie eine Zeile in einer Liste.
@@ -78,6 +81,12 @@
   * und haelt die Salden der Personenkonten gegen die offenen Posten aus
   * Trader. Sie traegt allerdings erst, wenn die Belege drueben auch verbucht
   * sind - siehe _BbbSumsReport.
+  *
+  * BELEG-PDF
+  *
+  * Der dritte Parameter zaehlt, zu wie vielen der gesammelten Belege ein PDF
+  * im Trader-Archiv liegt. Er zaehlt nur - hochgeladen wird nichts. Siehe
+  * _PdfZaehlung, dort steht auch, warum das nicht bei jedem Lauf mitlaeuft.
   **/
 
 #include 'trader.ch'
@@ -94,7 +103,7 @@
 STATIC snProtokoll := 0
 STATIC scFehlerText := ""
 
-FUNCTION RUN_SYNC_BBB(lLive, lSummen)
+FUNCTION RUN_SYNC_BBB(lLive, lSummen, lPdfs)
    LOCAL oRest := RestApi():New()
    LOCAL dFrom
    LOCAL hBestandAus := {=>}
@@ -110,6 +119,7 @@ FUNCTION RUN_SYNC_BBB(lLive, lSummen)
 
    Default(@lLive, .F.)
    Default(@lSummen, .F.)
+   Default(@lPdfs, .F.)
 
    IF ! LockEntity("BBBS", 0, "%% wird bereits von % durchgefuehrt")
       RETURN .F.
@@ -172,6 +182,12 @@ FUNCTION RUN_SYNC_BBB(lLive, lSummen)
    //   schon im Speicher. Genau der Rueckkanal, dessen Fehlen bei den anderen
    //   geprueften Systemen der Hauptkritikpunkt war.
    _Kontrollrechnung(aAus, aEin, hBestandAus, hBestandEin, aNeu, aKlaerung)
+
+   //4b. Beleg-PDF, nur auf Anforderung. Reine Zaehlung, es wird nichts
+   //    hochgeladen - siehe _PdfZaehlung.
+   IF lPdfs
+      _PdfZaehlung(aAus, aEin, aNeu)
+   ENDIF
 
    //5. Personenkonten. Erst die Konten, dann die Belege - ein Beleg kann sich
    //   nur auf ein Konto beziehen, das es schon gibt.
@@ -877,6 +893,206 @@ RETURN Round(nSumme, 2)
 
 STATIC FUNCTION _Geld(nBetrag)
 RETURN PadL(LTrim(Str(nBetrag, 16, 2)), 17)
+
+STATIC FUNCTION _Stk(nAnzahl)
+RETURN PadL(LTrim(Str(nAnzahl)), 17)
+
+/**
+  * Wie viele Belege haben ein PDF im Archiv?
+  *
+  * Reine Zaehlung. Es wird nichts hochgeladen, nichts geoeffnet und nichts
+  * gesendet - die Frage ist nur, ob sich der Umbau lohnt, bevor er gebaut
+  * wird.
+  *
+  * Denn klein waere er nicht. BuchhaltungsButler kennt keinen Weg, eine Datei
+  * an einen bereits angelegten Beleg zu haengen: entweder receipts/add (50
+  * Belege je Aufruf, ohne Datei) ODER receipts/upload (ein Beleg je Aufruf,
+  * mit Datei, hoechstens 10 Aufrufe je Minute). Eine Erstbefuellung von rund
+  * 1750 Ausgangsrechnungen dauert damit gut drei Stunden statt zwei Minuten;
+  * im Tagesbetrieb mit zehn bis zwanzig Belegen sind es ein bis zwei Minuten.
+  * Ob sich der Unterschied lohnt, haengt daran, wie viele Belege ueberhaupt
+  * ein PDF haben - und genau das steht hier.
+  *
+  * WARUM NUR AUF ANFORDERUNG (dritter Parameter): jeder Archivzugriff laeuft
+  * ueber Hook("get_archive_files"), und Hook() uebersetzt die Hook-Datei bei
+  * JEDEM Aufruf neu (MBaseRun -> HB_COMPILEBUF). Ein Beleg kostet damit einen
+  * vollstaendigen Harbour-Uebersetzungslauf. Bei zwoelf Belegen faellt das
+  * nicht auf, bei siebzehnhundert sehr wohl, und der naechtliche Abgleich
+  * soll das nicht jedes Mal bezahlen.
+  **/
+STATIC FUNCTION _PdfZaehlung(aAus, aEin, aNeu)
+   LOCAL hAus, hEin
+   LOCAL nNeuAus := 0, nNeuEin := 0
+   LOCAL nNeuAusPdf := 0, nNeuEinPdf := 0
+   LOCAL hBeleg
+   LOCAL cStand
+
+   NetUse("engkund", "ku")
+   NetUse("reb", "reb")
+
+   _Log("Beleg-PDF wird gezaehlt - ein Archivzugriff je Beleg, das dauert ...")
+
+   hAus := _PdfZaehlen(aAus, "RE")
+   hEin := _PdfZaehlen(aEin, "ER")
+
+   //Was gesendet wuerde, ist der Teilbestand, der fuer einen Umbau zaehlt:
+   //die Belege, die drueben schon liegen, bekommen ihr PDF ohnehin nicht mehr
+   //nachtraeglich - die API kann eine Datei nicht an einen vorhandenen Beleg
+   //haengen. aNeu enthaelt dieselben Hashes wie aAus/aEin (siehe _Diff), das
+   //Ergebnis der Zaehlung steht also schon daran.
+   FOR EACH hBeleg IN aNeu
+      cStand := IF(HHasKey(hBeleg, "_pdf"), hBeleg["_pdf"], "")
+      IF hBeleg["type"] == "invoice outbound"
+         nNeuAus++
+         IF cStand == "ja"
+            nNeuAusPdf++
+         ENDIF
+      ELSE
+         nNeuEin++
+         IF cStand == "ja"
+            nNeuEinPdf++
+         ENDIF
+      ENDIF
+   NEXT
+
+   _Log("")
+   _Log("BELEG-PDF IM ARCHIV (nur gezaehlt - es wird nichts hochgeladen)")
+   _Log("                          Ausgangsbelege   Eingangsbelege")
+   _Log("  " + PadR("Belege gesamt", 21) + _Stk(hAus["gesamt"]) + _Stk(hEin["gesamt"]))
+   _Log("  " + PadR("davon mit PDF", 21) + _Stk(hAus["mitpdf"]) + _Stk(hEin["mitpdf"]))
+   _Log("  " + PadR("ohne PDF im Archiv", 21) + _Stk(hAus["ohnepdf"]) + _Stk(hEin["ohnepdf"]))
+   _Log("  " + PadR("Pfad da, Datei fehlt", 21) + _Stk(hAus["fehlt"]) + _Stk(hEin["fehlt"]))
+   _Log("  " + PadR("kein Vorgang gefunden", 21) + _Stk(hAus["ohnevorgang"]) + ;
+        _Stk(hEin["ohnevorgang"]))
+   _Log("")
+   _Log("  Davon fehlt in BuchhaltungsButler:")
+   _Log("  " + PadR("Belege", 21) + _Stk(nNeuAus) + _Stk(nNeuEin))
+   _Log("  " + PadR("davon mit PDF", 21) + _Stk(nNeuAusPdf) + _Stk(nNeuEinPdf))
+   _Log("")
+   _Log("  Nur die untere Haelfte zaehlt fuer einen Umbau auf receipts/upload:")
+   _Log("  einem Beleg, der drueben schon liegt, laesst sich nachtraeglich")
+   _Log("  kein PDF mehr anhaengen - die API kennt dafuer keinen Weg.")
+   _Log("")
+   IF hAus["fehlt"] + hEin["fehlt"] > 0
+      _Log("*** " + LTrim(Str(hAus["fehlt"] + hEin["fehlt"])) + " Belege haben einen " + ;
+           "Archiveintrag, dessen Datei nicht lesbar ist.")
+      _Log("")
+   ENDIF
+
+RETURN NIL
+
+/**
+  * Zaehlt eine Belegliste durch und vermerkt das Ergebnis an jedem Beleg.
+  *
+  * Der Vermerk landet unter "_pdf" - ein Feld mit fuehrendem Unterstrich,
+  * also intern; _BbbSend entfernt es vor dem Senden. Er wird gebraucht, weil
+  * dieselben Hashes auch in aNeu haengen und dort noch einmal gezaehlt werden.
+  **/
+STATIC FUNCTION _PdfZaehlen(aBelege, cTyp)
+   LOCAL hZahl := {"gesamt" => 0, "mitpdf" => 0, "ohnepdf" => 0, ;
+                   "fehlt" => 0, "ohnevorgang" => 0}
+   LOCAL hBeleg
+   LOCAL nId
+   LOCAL cPfad
+
+   FOR EACH hBeleg IN aBelege
+      hZahl["gesamt"]++
+
+      nId := IF(cTyp == "RE", Val(hBeleg["invoice_number"]), _PdfRebId(hBeleg))
+      IF nId <= 0
+         hZahl["ohnevorgang"]++
+         hBeleg["_pdf"] := "ohne Vorgang"
+         LOOP
+      ENDIF
+
+      cPfad := _PdfPfad(cTyp, nId)
+      DO CASE
+      CASE Empty(cPfad)
+         hZahl["ohnepdf"]++
+         hBeleg["_pdf"] := "nein"
+      CASE ! File(cPfad)
+         //Ein Eintrag ohne Datei dahinter ist fuer einen Upload wertlos und
+         //taugt auch sonst nichts - er gehoert gezaehlt, nicht als "hat ein
+         //PDF" mitgerechnet.
+         hZahl["fehlt"]++
+         hBeleg["_pdf"] := "Pfad ohne Datei"
+      OTHERWISE
+         hZahl["mitpdf"]++
+         hBeleg["_pdf"] := "ja"
+      ENDCASE
+   NEXT
+
+RETURN hZahl
+
+/**
+  * Pfad des juengsten archivierten PDF zu einem Vorgang, "" wenn keines da
+  * ist.
+  *
+  * Die Archiveintraege haben das Format von Directory(): [1] Name, [2]
+  * Groesse, [3] Datum, [4] Zeit, [6] vollstaendiger Pfad. Verglichen wird
+  * ueber den Pfad, wie in reb_web.prg und rechnung_print.prg - der Dateiname
+  * traegt den Zeitstempel, das juengste steht damit hinten.
+  *
+  * Der Hook fuehrt fremden Quelltext aus dem Datenverzeichnis aus. Ein Fehler
+  * dort darf den Abgleich nicht abbrechen - der Beleg zaehlt dann eben als
+  * "ohne PDF", was fuer eine Schaetzung die richtige Richtung ist.
+  **/
+STATIC FUNCTION _PdfPfad(cTyp, nId)
+   LOCAL aFiles
+   LOCAL aDatei
+   LOCAL cPfad
+   LOCAL cBest := ""
+
+   BEGIN SEQUENCE
+      aFiles := GetArchiveFiles({cTyp => nId})
+   RECOVER
+      aFiles := NIL
+   END SEQUENCE
+
+   IF ValType(aFiles) != "A"
+      RETURN ""
+   ENDIF
+
+   FOR EACH aDatei IN aFiles
+      IF ValType(aDatei) == "A" .AND. Len(aDatei) >= 6 .AND. ValType(aDatei[6]) == "C"
+         cPfad := AllTrim(aDatei[6])
+         IF Lower(Right(cPfad, 4)) == ".pdf" .AND. cPfad > cBest
+            cBest := cPfad
+         ENDIF
+      ENDIF
+   NEXT
+
+RETURN cBest
+
+/**
+  * ER-Vorgangsnummer zu einer Eingangsrechnung.
+  *
+  * Das Archiv haengt nicht an der Rechnung aus ENGRECH, sondern an der
+  * Belegerfassung (reb); deren ID ist die Archivnummer, siehe reb_web.prg.
+  * Der Weg dorthin ist derselbe wie in lexware_import.prg: ueber die
+  * Adressnummer des Lieferanten und die Rechnungsnummer.
+  *
+  * Die Adressnummer aus ENGKUND, nicht rech->Konto: das Kreditorenkonto an
+  * der Rechnung kann davon abweichen (ein Lieferant kann je Waehrung ein
+  * eigenes Konto haben), der Index fuehrt die Adressnummer.
+  *
+  * Die Rechnungsnummer wird auf die Indexbreite gebracht (14, wie in
+  * invoice_web.prg). Ein kuerzerer Schluessel wuerde in Harbour als
+  * Teilschluessel suchen und koennte eine laengere Rechnungsnummer mit
+  * gleichem Anfang treffen.
+  **/
+STATIC FUNCTION _PdfRebId(hBeleg)
+   LOCAL nId := 0
+
+   ku->(dbSetOrder(1))
+   IF ku->(dbSeek(Pad(hBeleg["_matchcode"], 8) + "L"))
+      reb->(dbSetOrder(2))
+      IF reb->(dbSeek(Str(ku->Nummer, 6) + Pad(hBeleg["invoice_number"], 14)))
+         nId := reb->ID
+      ENDIF
+   ENDIF
+
+RETURN nId
 
 /**
   * Summen- und Saldenliste holen und gegen die offenen Posten aus Trader

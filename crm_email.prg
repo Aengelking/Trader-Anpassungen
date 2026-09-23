@@ -21,7 +21,7 @@ weitergeleitet (receive-email matcht �ber diesen Token).
 PROC RUN_CRM_EMAIL(cMsgPath)
 	LOCAL oAccount, cArchive, oArchive, oMsg
 	LOCAL cID := "", cObjectType := "", cTypeChar, nX
-	LOCAL hSel, oItem
+	LOCAL hSel, oItem, cDraft
 
 	oAccount := DV_GetMailAccount()
 	cArchive := SubStr(cMsgPath,1,RAT("\",cMsgPath)-1)
@@ -39,9 +39,16 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 	ENDIF
 
 	
+	// Formaterkennung: die Mail vorab als Entwurf ins CRM laden. Der Picker
+	// bekommt nur die Entwurfs-ID (?draft=) und liest den Mailtext selbst, um
+	// bekannte Lead-Formate (ITW-Download, ITW-Registrierung ...) zu erkennen
+	// und den Lead-Dialog vorzubefuellen. Best-effort: schlaegt der Upload
+	// fehl, oeffnet der Picker wie bisher ohne Vorbefuellung.
+	cDraft := CrmUploadDraft(oMsg, cMsgPath)
+
 	// Open the CRM web picker (select existing or create new) in a webview.
 	// It returns the chosen record's ref number and type ("lead"/"opportunity").
-	hSel := ShowCrmPicker(CrmMailField(oMsg,"SRFrom"), CrmMailField(oMsg,"Subject"))
+	hSel := ShowCrmPicker(CrmMailField(oMsg,"SRFrom"), CrmMailField(oMsg,"Subject"),,,,,,, cDraft)
 
 	IF hSel == NIL
 		Wapi_MessageBox(,"Die Auswahl wurde abgebrochen. Die E-Mail wurde nicht weitergeleitet.","Abbruch",0)
@@ -58,7 +65,7 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 
 	// 1) Upload this e-mail directly to the CRM (real sender + subject + body),
 	//    linked to the chosen record by its ref.
-	IF ! CrmUploadEmail(cObjectType, cID, oMsg, cMsgPath)
+	IF ! CrmUploadEmail(cObjectType, cID, oMsg, cMsgPath, cDraft)
 		Wapi_MessageBox(,"Fehler beim Ablegen der E-Mail im CRM.","Fehler",0)
 		RETURN
 	ENDIF
@@ -94,7 +101,7 @@ RETURN
 // window.crmPickerSelect(String(ref), type), captured by crmPickerSelect().
 // Returns a hash {"ref"=>nRef,"type"=>cType} or NIL if cancelled.
 //---------------------------------------------------------------------------
-STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyName, cValue, cQuote, cName)
+STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyName, cValue, cQuote, cName, cDraft)
 	LOCAL nW, cUrl
 
 	gcCrmNewRef  := ""
@@ -111,6 +118,11 @@ STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyNam
 	ENDIF
 	IF ! Empty(cSubject)
 		cUrl += "subject=" + CrmUrlEncode(cSubject) + "&"
+	ENDIF
+	// Mail-Entwurf (David-Flow): der Picker liest daraus den Mailtext fuer die
+	// Formaterkennung und befuellt den Lead-Dialog vor.
+	IF ! Empty(cDraft)
+		cUrl += "draft=" + CrmUrlEncode(cDraft) + "&"
 	ENDIF
 	// Restrict to a single record kind ("opportunity" / "lead"), e.g. quotes
 	// can only be attached to opportunities.
@@ -238,23 +250,68 @@ RETURN AllTrim(xVal)
 // the chosen Lead/Opportunity by its ref. Sends the REAL sender + subject +
 // HTML body. Returns .T. on success.
 //---------------------------------------------------------------------------
-STATIC FUNCTION CrmUploadEmail(cType, cRef, oMsg, cMsgPath)
+STATIC FUNCTION CrmUploadEmail(cType, cRef, oMsg, cMsgPath, cDraft)
 	LOCAL oApi := CrmEmailApi():New()
 	LOCAL hData := {=>}
 	LOCAL xResp
 
 	hData["type"]       := Lower(cType)                              // "lead" / "opportunity"
 	hData["ref"]        := Val(cRef)
+	// stable dedup key: the same mail filed to the same ref twice -> no duplicate
+	hData["message_id"] := "erp:" + cRef + ":" + cMsgPath
+
+	// Liegt die Mail schon als Entwurf im CRM, reicht die Entwurfs-ID: der
+	// Server uebernimmt Absender, Betreff und Body aus dem Entwurf.
+	IF ! Empty(cDraft)
+		hData["draft_id"] := cDraft
+		xResp := oApi:Execute("POST", "", hData)
+		IF xResp != NIL
+			RETURN .T.
+		ENDIF
+		// Entwurf nicht (mehr) da -> wie bisher mit vollem Inhalt senden
+		hb_HDel(hData, "draft_id")
+	ENDIF
+
 	hData["from_email"] := CrmMailField(oMsg,"SRFrom")              // real sender
 	hData["from_name"]  := hb_strToUtf8(CrmMailField(oMsg,"SRName"))
 	hData["subject"]    := hb_strToUtf8(CrmMailField(oMsg,"Subject"))
 	hData["body_html"]  := hb_strToUtf8(CrmMailField(oMsg,"HTML"))
-	// stable dedup key: the same mail filed to the same ref twice -> no duplicate
-	hData["message_id"] := "erp:" + cRef + ":" + cMsgPath
 
 	xResp := oApi:Execute("POST", "", hData)
 
 RETURN ! (xResp == NIL)
+
+//---------------------------------------------------------------------------
+// Mail als Entwurf ins CRM laden (api-email, draft=true), BEVOR der Picker
+// oeffnet. Liefert die Entwurfs-ID oder "" (dann ohne Formaterkennung).
+//---------------------------------------------------------------------------
+STATIC FUNCTION CrmUploadDraft(oMsg, cMsgPath)
+	LOCAL oApi := CrmEmailApi():New()
+	LOCAL hData := {=>}
+	LOCAL xResp
+	LOCAL bOld
+
+	hData["draft"]      := .T.
+	hData["from_email"] := CrmMailField(oMsg,"SRFrom")
+	hData["from_name"]  := hb_strToUtf8(CrmMailField(oMsg,"SRName"))
+	hData["subject"]    := hb_strToUtf8(CrmMailField(oMsg,"Subject"))
+	hData["body_html"]  := hb_strToUtf8(CrmMailField(oMsg,"HTML"))
+	hData["message_id"] := "draft:" + cMsgPath
+
+	// Ein Fehler hier darf den bisherigen Weg nicht blockieren.
+	bOld := ErrorBlock({|e| Break(e) })
+	BEGIN SEQUENCE
+		xResp := oApi:Execute("POST", "", hData)
+	RECOVER
+		xResp := NIL
+	END SEQUENCE
+	ErrorBlock(bOld)
+
+	IF ValType(xResp) == "H" .AND. HHasKey(xResp,"draft_id") .AND. ValType(xResp["draft_id"]) == "C"
+		RETURN xResp["draft_id"]
+	ENDIF
+
+RETURN ""
 
 CLASS CrmEmailApi FROM RestApi
 	METHOD New

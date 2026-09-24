@@ -28,7 +28,8 @@
  *
  * Config (GetValue, siehe CRM_PackList_Setup):
  *   NEXUSCRM             Keychain-Eintrag mit dem Bearer Token (TRADER_API_KEY)
- *   NEXUSCRM_LABELS_URL  Basis der Etiketten-Schnittstelle (ohne /open)
+ *   NEXUSCRM_URL         Adresse der NexusCRM-API (wie in nexuscrm.prg); die
+ *                        Basis api-labels wird daraus abgeleitet
  *   NEXUSCRM_LABELS_PRINTER  Drucker fuer die Etiketten. Leer = Standarddrucker
  *   NEXUSCRM_LABELS_PRINTCMD (optional) eigener Druckbefehl; {file} und
  *                            {printer} werden ersetzt. Gesetzt, gilt nur er.
@@ -333,9 +334,9 @@ RETURN xAnswer
 
 FUNCTION CRM_PackList_Setup()
    //GetValue("NEXUSCRM", "", "API Key fuer NexusCRM (Bearer Token)")
-   GetValue("NEXUSCRM_LABELS_URL", ;
-      "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-labels", ;
-      "Basis der Etiketten-Schnittstelle im NexusCRM (ohne /open)")
+   GetValue("NEXUSCRM_URL", ;
+      "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-opportunities", ;
+      "URL der NexusCRM API")
    GetValue("NEXUSCRM_LABELS_PRINTER", "", ;
       "Drucker fuer die Frankier-Etiketten (leer = Standarddrucker)")
    GetValue("NEXUSCRM_LABELS_PRINTCMD", "", ;
@@ -346,12 +347,19 @@ RETURN NIL
 // --- Kleinkram -----------------------------------------------------------
 
 STATIC FUNCTION CPL_BaseUrl()
-   LOCAL cUrl := AllTrim(CPL_Str(GetValue("NEXUSCRM_LABELS_URL","https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-labels", ;
-      "Basis der Etiketten-Schnittstelle im NexusCRM (ohne /open)")))
-   DO WHILE Right(cUrl, 1) == "/"
-      cUrl := Left(cUrl, Len(cUrl) - 1)
-   ENDDO
-RETURN cUrl
+RETURN CPL_Endpoint("api-labels")
+
+// Endpunkt im selben Supabase-Projekt wie NEXUSCRM_URL. Die Einstellung zeigt
+// auf eine Function (api-opportunities), nicht auf die Basis - abgeschnitten
+// wird deshalb hinter /functions/v1/. Leer, wenn das Muster fehlt.
+STATIC FUNCTION CPL_Endpoint(cPath)
+   LOCAL cBase := AllTrim(CPL_Str(GetValue("NEXUSCRM_URL", "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-opportunities", "URL der NexusCRM API")))
+   LOCAL nPos  := At("/functions/v1/", cBase)
+
+   IF nPos == 0
+      RETURN ""
+   ENDIF
+RETURN Left(cBase, nPos + Len("/functions/v1/") - 1) + cPath
 
 /* Hashwert mit Standardwert (ohne hb_HGetDef, das nicht registriert sein muss). */
 STATIC FUNCTION CPL_HDef(hHash, cKey, xDef)

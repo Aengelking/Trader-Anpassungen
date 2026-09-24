@@ -41,7 +41,8 @@
  * Config (GetValue, siehe CRM_CompanySync_Setup):
  *   NEXUSCRM              Keychain-Eintrag mit dem Bearer Token (TRADER_API_KEY
  *                         des CRM), eingesetzt fuer $APIKEY$ im Header
- *   NEXUSCRM_COMPANY_URL  Endpunkt der Synchronisation
+ *   NEXUSCRM_URL          Adresse der NexusCRM-API (wie in nexuscrm.prg); der
+ *                         Endpunkt api-companies/sync wird daraus abgeleitet
  *   NEXUSCRM_COMPANY_BATCH    Kunden je Uebertragung (Server-Grenze: 500)
  *   NEXUSCRM_COMPANY_NEWDAYS  Neukunden ohne Umsatz: Tage seit "Kunde seit"
  *   NEXUSCRM_COMPANY_SKIP     Matchcodes, die nie uebertragen werden
@@ -78,16 +79,16 @@ PROCEDURE RUN_CRM_COMPANY_SYNC(cLimit, cDryRun)
 
    CRM_CompanySync_Setup()
 
-   cUrl       := AllTrim(CCS_Str(GetValue("NEXUSCRM_COMPANY_URL")))
+   cUrl       := CCS_Endpoint("api-companies/sync")
    nBatchSize := Int(Val(CCS_Str(GetValue("NEXUSCRM_COMPANY_BATCH"))))
    IF nBatchSize < 1 .OR. nBatchSize > CCS_MAXBATCH
       nBatchSize := 100
    ENDIF
 
    IF Empty(cUrl)
-      CCS_Log(cLogFile, "ERROR", "NEXUSCRM_COMPANY_URL ist nicht gesetzt.")
+      CCS_Log(cLogFile, "ERROR", "NEXUSCRM_URL ist nicht gesetzt oder ohne /functions/v1/.")
       IF ! lBatch
-         Tr_MsgBox("NEXUSCRM_COMPANY_URL ist nicht gesetzt.")
+         Tr_MsgBox("NEXUSCRM_URL ist nicht gesetzt oder ohne /functions/v1/.")
       ENDIF
       RETURN
    ENDIF
@@ -149,9 +150,9 @@ RETURN
 
 // Konfigurationswerte anlegen bzw. lesbar machen.
 FUNCTION CRM_CompanySync_Setup()
-   GetValue("NEXUSCRM_COMPANY_URL", ;
-            "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-companies/sync", ;
-            "URL der NexusCRM Firmen-Synchronisation")
+   GetValue("NEXUSCRM_URL", ;
+            "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-opportunities", ;
+            "URL der NexusCRM API")
    GetValue("NEXUSCRM_COMPANY_BATCH", 100, "Kunden je Uebertragung (max. 500)")
    GetValue("NEXUSCRM_COMPANY_NEWDAYS", 365, ;
             "Neukunden ohne Umsatz: Tage seit 'Kunde seit'")
@@ -667,6 +668,19 @@ RETURN xDef
 
 
 // Sicheres Stringify - die Antwort kann Zahlen als JSON-Strings liefern.
+// Endpunkt im selben Supabase-Projekt wie NEXUSCRM_URL. Die Einstellung zeigt
+// auf eine Function (api-opportunities), nicht auf die Basis - abgeschnitten
+// wird deshalb hinter /functions/v1/. Leer, wenn das Muster fehlt.
+STATIC FUNCTION CCS_Endpoint(cPath)
+   LOCAL cBase := AllTrim(CCS_Str(GetValue("NEXUSCRM_URL", "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-opportunities", "URL der NexusCRM API")))
+   LOCAL nPos  := At("/functions/v1/", cBase)
+
+   IF nPos == 0
+      RETURN ""
+   ENDIF
+RETURN Left(cBase, nPos + Len("/functions/v1/") - 1) + cPath
+
+
 STATIC FUNCTION CCS_Str(xVal)
    DO CASE
    CASE ValType(xVal) == "C"

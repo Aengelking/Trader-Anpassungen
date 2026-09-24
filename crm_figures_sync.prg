@@ -58,7 +58,8 @@
  *
  * Config (GetValue, siehe CRM_FiguresSync_Setup):
  *   NEXUSCRM               Keychain-Eintrag mit dem Bearer Token
- *   NEXUSCRM_FIGURES_URL   Endpunkt der Uebertragung
+ *   NEXUSCRM_URL          Adresse der NexusCRM-API (wie in nexuscrm.prg); der
+ *                         Endpunkt api-companies/figures wird daraus abgeleitet
  *   NEXUSCRM_FIGURES_BATCH Kunden je Uebertragung (Server-Grenze: 250)
  *   NEXUSCRM_FIGURES_ARTICLES  Gekaufte Artikel je Kunde (0 = alle)
  *
@@ -89,16 +90,16 @@ PROCEDURE RUN_CRM_FIGURES_SYNC(cLimit, cDryRun)
 
    CRM_FiguresSync_Setup()
 
-   cUrl       := AllTrim(CFS_Str(GetValue("NEXUSCRM_FIGURES_URL")))
+   cUrl       := CFS_Endpoint("api-companies/figures")
    nBatchSize := Int(Val(CFS_Str(GetValue("NEXUSCRM_FIGURES_BATCH"))))
    IF nBatchSize < 1 .OR. nBatchSize > CFS_MAXBATCH
       nBatchSize := 50
    ENDIF
 
    IF Empty(cUrl)
-      CFS_Log(cLogFile, "ERROR", "NEXUSCRM_FIGURES_URL ist nicht gesetzt.")
+      CFS_Log(cLogFile, "ERROR", "NEXUSCRM_URL ist nicht gesetzt oder ohne /functions/v1/.")
       IF ! lBatch
-         Tr_MsgBox("NEXUSCRM_FIGURES_URL ist nicht gesetzt.")
+         Tr_MsgBox("NEXUSCRM_URL ist nicht gesetzt oder ohne /functions/v1/.")
       ENDIF
       RETURN
    ENDIF
@@ -151,9 +152,9 @@ RETURN
 
 
 FUNCTION CRM_FiguresSync_Setup()
-   GetValue("NEXUSCRM_FIGURES_URL", ;
-            "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-companies/figures", ;
-            "URL der NexusCRM Finanzzahlen-Uebertragung")
+   GetValue("NEXUSCRM_URL", ;
+            "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-opportunities", ;
+            "URL der NexusCRM API")
    GetValue("NEXUSCRM_FIGURES_BATCH", 50, "Kunden je Uebertragung (max. 250)")
    GetValue("NEXUSCRM_FIGURES_ARTICLES", 100, ;
             "Gekaufte Artikel je Kunde, die groessten Mengen zuerst (0 = alle)")
@@ -773,6 +774,19 @@ STATIC FUNCTION CFS_HDef(hHash, cKey, xDef)
       RETURN hHash[cKey]
    ENDIF
 RETURN xDef
+
+
+// Endpunkt im selben Supabase-Projekt wie NEXUSCRM_URL. Die Einstellung zeigt
+// auf eine Function (api-opportunities), nicht auf die Basis - abgeschnitten
+// wird deshalb hinter /functions/v1/. Leer, wenn das Muster fehlt.
+STATIC FUNCTION CFS_Endpoint(cPath)
+   LOCAL cBase := AllTrim(CFS_Str(GetValue("NEXUSCRM_URL", "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-opportunities", "URL der NexusCRM API")))
+   LOCAL nPos  := At("/functions/v1/", cBase)
+
+   IF nPos == 0
+      RETURN ""
+   ENDIF
+RETURN Left(cBase, nPos + Len("/functions/v1/") - 1) + cPath
 
 
 STATIC FUNCTION CFS_Str(xVal)

@@ -205,6 +205,19 @@ STATIC FUNCTION CrmCloseWebview()
 	ENDIF
 RETURN NIL
 
+// Endpunkt im selben Supabase-Projekt wie NEXUSCRM_URL. Die Einstellung zeigt
+// auf eine Function (api-opportunities), nicht auf die Basis - abgeschnitten
+// wird deshalb hinter /functions/v1/. Leer, wenn das Muster fehlt.
+STATIC FUNCTION CrmEndpoint(cPath)
+	LOCAL cBase := AllTrim(GetValue("NEXUSCRM_URL", "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-opportunities", "URL der NexusCRM API"))
+	LOCAL nPos  := At("/functions/v1/", cBase)
+
+	IF nPos == 0
+		RETURN ""
+	ENDIF
+RETURN Left(cBase, nPos + Len("/functions/v1/") - 1) + cPath
+
+
 // UTF-8 aware percent-encoding for query parameters
 STATIC FUNCTION CrmUrlEncode(cStr)
 	LOCAL cOut := "", nI, cCh
@@ -322,7 +335,7 @@ ENDCLASS
 
 METHOD New() CLASS CrmEmailApi
 	// Base URL ends with "/" — RestApi:Execute prepends ::cBaseUrl to the path.
-	::cBaseUrl := "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-email/"
+	::cBaseUrl := CrmEndpoint("api-email/")
 	::Super:New()
 RETURN SELF
 
@@ -496,7 +509,7 @@ ENDCLASS
 
 METHOD New() CLASS CrmQuoteApi
 	// Base URL ends with "/" � RestApi:Execute prepends ::cBaseUrl to the path.
-	::cBaseUrl := "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-quote/"
+	::cBaseUrl := CrmEndpoint("api-quote/")
 	::Super:New()
 RETURN SELF
 

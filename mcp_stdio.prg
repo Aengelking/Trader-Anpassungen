@@ -280,6 +280,7 @@ RETURN x
 FUNCTION MCP_Tools_List(hRequest, xId)
    LOCAL aTools := {}
    LOCAL aFuncNames, cFuncName, cToolName, hTool, hToolInfo
+   LOCAL oUsr := _McpAuthUserObj()   // request user; NIL hides every gated tool
 
    // Dynamically discover all MCP_Tool_* functions
    aFuncNames := GetFunctionsWithPrefix("MCP_TOOL_")
@@ -287,6 +288,11 @@ FUNCTION MCP_Tools_List(hRequest, xId)
    FOR EACH cFuncName IN aFuncNames
       // Convert MCP_TOOL_GET_CUSTOMER to get_customer
       cToolName := Lower(SubStr(cFuncName, 10))  // Remove "MCP_TOOL_"
+
+      // Only advertise tools the caller may actually call (list == callable).
+      IF ! _McpToolAllowedFor(oUsr, cToolName)
+         LOOP
+      ENDIF
 
       // Get schema and description from the tool function itself
       hToolInfo := HB_ExecFromArray(cFuncName, {})
@@ -342,21 +348,32 @@ STATIC FUNCTION _McpAuthUserId()
    ENDIF
 RETURN nU
 
-STATIC FUNCTION _McpAuthHasPerm(cType, cName)
+// Resolve a loaded User object for this request's user id, or NIL. SystemUser()
+// keys on Tr_GetIni(28), which is only pinned to the caller under the serial
+// dispatch - concurrent read tools would see the wrong (or default) user.
+// User:Load(nU) does buy->(dbGoto(nU)) on the thread-local work area, so the
+// per-request check is correct and concurrency-safe.
+STATIC FUNCTION _McpAuthUserObj()
    LOCAL nU := _McpAuthUserId()
-   LOCAL lOk := .F.
-   LOCAL oUsr
+   LOCAL oUsr := NIL
    IF nU <= 0
-      RETURN .F.
+      RETURN NIL
    ENDIF
-   // Build a User for this request's user id directly. SystemUser() keys on
-   // Tr_GetIni(28), which is only pinned to the caller under the serial
-   // dispatch - concurrent read tools would see the wrong (or default) user.
-   // User:Load(nU) does buy->(dbGoto(nU)) on the thread-local work area, so the
-   // per-request check is correct and concurrency-safe.
    BEGIN SEQUENCE WITH {|e| Break(e)}
       oUsr := User():New(.F.)
       oUsr:Load(nU)
+   RECOVER
+      oUsr := NIL                // fail closed on any error resolving the user
+   END SEQUENCE
+RETURN oUsr
+
+STATIC FUNCTION _McpAuthHasPerm(cType, cName)
+   LOCAL oUsr := _McpAuthUserObj()
+   LOCAL lOk := .F.
+   IF oUsr == NIL
+      RETURN .F.
+   ENDIF
+   BEGIN SEQUENCE WITH {|e| Break(e)}
       lOk := oUsr:HasPermission(cType, cName)
    RECOVER
       lOk := .F.                 // fail closed on any error resolving the right
@@ -404,6 +421,64 @@ STATIC FUNCTION _McpToolRequiredPerm(cTool, cType, cName)
       cName := "PURCHASEQUOTE" ; cType := "C"
    ENDCASE
 RETURN ! Empty(cName)
+
+// Global "MCP write" gate. Every mutating tool additionally requires the
+// MCP_WRITE right (checked as type "U"), on top of its per-domain permission
+// above. This is a single master switch: revoke MCP_WRITE from a role and that
+// role can no longer write anything through MCP, while the per-domain rights
+// still decide which domains a write-enabled role may touch. The permission
+// name is auto-created in the perms table on first check (HasPermission creates
+// unknown names and returns .F.), so it becomes grantable in Trader role
+// management without a DB migration. archive_document is otherwise ungated, so
+// this also brings it under an explicit right.
+STATIC FUNCTION _McpToolIsWrite(cTool)
+   LOCAL c := Lower(AllTrim(cTool))
+RETURN _McpInList(c, {"add_delivery_schedule","book_shipping_confirmation",;
+                      "confirm_purchase_order","set_supplier_holiday",;
+                      "add_supplier_quote","create_project","update_project",;
+                      "add_project_article","remove_project_article",;
+                      "archive_document"})
+
+// Would this tool be callable by oUsr right now? Mirrors the tools/call gate so
+// tools/list shows exactly what the caller may use (list == callable):
+//   * write tools need MCP_WRITE (type U), same as the call-time write gate,
+//   * project tools self-gate on PROJECTS (they are not in _McpToolRequiredPerm
+//     because the tool bodies check _McpPjPerm themselves), and
+//   * everything else needs the per-domain permission from _McpToolRequiredPerm.
+// Fails closed: NIL user or any error resolving a right hides the tool.
+STATIC FUNCTION _McpToolAllowedFor(oUsr, cTool)
+   LOCAL c := Lower(AllTrim(cTool))
+   LOCAL cType := "R", cName := ""
+   LOCAL lOk := .F.
+   IF oUsr == NIL
+      RETURN .F.
+   ENDIF
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      lOk := .T.
+      // Global MCP write gate (independent of the domain gate below - a write
+      // tool needs BOTH MCP_WRITE and its domain permission).
+      IF _McpToolIsWrite(c) .AND. ! oUsr:HasPermission("U", "MCP_WRITE")
+         lOk := .F.
+      ENDIF
+      // Per-domain gate. Project tools self-gate on PROJECTS (they are not in
+      // _McpToolRequiredPerm because the tool bodies check _McpPjPerm); every
+      // other gated tool takes its {type,name} from _McpToolRequiredPerm.
+      IF lOk
+         DO CASE
+         CASE _McpInList(c, {"get_project","search_projects"})
+            lOk := oUsr:HasPermission("R", "PROJECTS")
+         CASE c == "create_project"
+            lOk := oUsr:HasPermission("C", "PROJECTS")
+         CASE _McpInList(c, {"update_project","add_project_article","remove_project_article"})
+            lOk := oUsr:HasPermission("U", "PROJECTS")
+         CASE _McpToolRequiredPerm(c, @cType, @cName)
+            lOk := oUsr:HasPermission(cType, cName)
+         ENDCASE
+      ENDIF
+   RECOVER
+      lOk := .F.
+   END SEQUENCE
+RETURN lOk
 
 FUNCTION MCP_Tools_Call(hRequest, xId)
    LOCAL hParams := hRequest["params"]
@@ -487,6 +562,12 @@ FUNCTION MCP_Tools_Call(hRequest, xId)
       // permission (project tools self-gate and are not listed).
       IF _McpToolRequiredPerm(cToolName, @cPType, @cPName) .AND. ! _McpAuthHasPerm(cPType, cPName)
          RETURN CreateErrorResponse("Permission denied: missing " + cPName + " (" + cPType + ") for tool " + cToolName, xId)
+      ENDIF
+
+      // Global MCP write gate: any mutating tool also needs the MCP_WRITE right
+      // (a single per-role master switch on top of the per-domain permission).
+      IF _McpToolIsWrite(cToolName) .AND. ! _McpAuthHasPerm("U", "MCP_WRITE")
+         RETURN CreateErrorResponse("Permission denied: missing MCP_WRITE (U) for tool " + cToolName, xId)
       ENDIF
 
       MCPChatBuffer(.T.)  // fresh chat-message buffer for this call (see MCPChatMessage)

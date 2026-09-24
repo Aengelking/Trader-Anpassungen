@@ -405,6 +405,23 @@ STATIC FUNCTION _McpToolRequiredPerm(cTool, cType, cName)
    ENDCASE
 RETURN ! Empty(cName)
 
+// Global "MCP write" gate. Every mutating tool additionally requires the
+// MCP_WRITE right (checked as type "U"), on top of its per-domain permission
+// above. This is a single master switch: revoke MCP_WRITE from a role and that
+// role can no longer write anything through MCP, while the per-domain rights
+// still decide which domains a write-enabled role may touch. The permission
+// name is auto-created in the perms table on first check (HasPermission creates
+// unknown names and returns .F.), so it becomes grantable in Trader role
+// management without a DB migration. archive_document is otherwise ungated, so
+// this also brings it under an explicit right.
+STATIC FUNCTION _McpToolIsWrite(cTool)
+   LOCAL c := Lower(AllTrim(cTool))
+RETURN _McpInList(c, {"add_delivery_schedule","book_shipping_confirmation",;
+                      "confirm_purchase_order","set_supplier_holiday",;
+                      "add_supplier_quote","create_project","update_project",;
+                      "add_project_article","remove_project_article",;
+                      "archive_document"})
+
 FUNCTION MCP_Tools_Call(hRequest, xId)
    LOCAL hParams := hRequest["params"]
    LOCAL cToolName := hParams["name"]
@@ -487,6 +504,12 @@ FUNCTION MCP_Tools_Call(hRequest, xId)
       // permission (project tools self-gate and are not listed).
       IF _McpToolRequiredPerm(cToolName, @cPType, @cPName) .AND. ! _McpAuthHasPerm(cPType, cPName)
          RETURN CreateErrorResponse("Permission denied: missing " + cPName + " (" + cPType + ") for tool " + cToolName, xId)
+      ENDIF
+
+      // Global MCP write gate: any mutating tool also needs the MCP_WRITE right
+      // (a single per-role master switch on top of the per-domain permission).
+      IF _McpToolIsWrite(cToolName) .AND. ! _McpAuthHasPerm("U", "MCP_WRITE")
+         RETURN CreateErrorResponse("Permission denied: missing MCP_WRITE (U) for tool " + cToolName, xId)
       ENDIF
 
       MCPChatBuffer(.T.)  // fresh chat-message buffer for this call (see MCPChatMessage)

@@ -22,8 +22,10 @@
  * dasselbe Fenster erneut leeren und das erste mitnehmen - deshalb bricht der
  * Lauf ab, wenn mehr Abwesenheiten zusammenkommen als ein Aufruf traegt.
  *
- * Das Fenster beginnt heute: was gestern endete, braucht das CRM nicht. Eine
- * laufende Abwesenheit ragt ins Fenster und geht mit.
+ * Das Fenster beginnt heute: was gestern endete, braucht das CRM fuer die
+ * Verschiebung nicht. Eine laufende Abwesenheit ragt ins Fenster und geht mit.
+ * Wer die Vergangenheit zum Nachsehen mit haben will, setzt
+ * NEXUSCRM_ABSENCE_FROM - dann beginnt Fenster und Timebutler-Abfrage dort.
  *
  * Vertretung: uebertragen wird sie nur, wenn Timebutler sie als "Approved"
  * fuehrt - eine beantragte, aber nicht genehmigte Vertretung ist keine.
@@ -40,6 +42,8 @@
  *                         Endpunkt api-absences/sync wird daraus abgeleitet -
  *                         dasselbe Projekt, also keine eigene Einstellung.
  *   NEXUSCRM_ABSENCE_AHEAD  Jahre im Voraus (0 = nur laufendes Jahr)
+ *   NEXUSCRM_ABSENCE_FROM   Beginn des Fensters als JJJJ-MM-TT (oder TT.MM.JJJJ);
+ *                           leer = heute. Ein Datum in der Zukunft gilt als heute.
  *
  * Protokoll: X:\run\supabase\logs\crm_absence_sync_<Datum>_<Zeit>.log
  *
@@ -78,7 +82,7 @@ PROCEDURE RUN_CRM_ABSENCE_SYNC(cDryRun)
 
    NetUse("buyer", "buy")
 
-   dFrom := Date()
+   dFrom := CAS_WindowFrom()
    dTo   := StoD(LTrim(Str(Year(Date()) + nAhead)) + "1231")
 
    CAS_Log(cLogFile, "INFO", "Fenster " + CAS_IsoDate(dFrom) + " bis " + CAS_IsoDate(dTo) + ;
@@ -100,7 +104,7 @@ PROCEDURE RUN_CRM_ABSENCE_SYNC(cDryRun)
    ENDIF
 
    aAbsences := {}
-   FOR nYear := Year(Date()) TO Year(Date()) + nAhead
+   FOR nYear := Year(dFrom) TO Year(Date()) + nAhead
       aData := oAPI:Execute("absences?year=" + LTrim(Str(nYear)))
       IF ValType(aData) != "A"
          CAS_Log(cLogFile, "ERROR", "Timebutler: Abwesenheiten " + LTrim(Str(nYear)) + ;
@@ -199,6 +203,8 @@ FUNCTION CRM_AbsenceSync_Setup()
       "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-opportunities", ;
       "URL der NexusCRM API")
    GetValue("NEXUSCRM_ABSENCE_AHEAD", 1, "Jahre im Voraus (0 = nur laufendes Jahr)")
+   GetValue("NEXUSCRM_ABSENCE_FROM", "", ;
+      "Abwesenheiten ab diesem Datum (JJJJ-MM-TT), leer = ab heute")
 RETURN NIL
 
 
@@ -357,6 +363,30 @@ STATIC FUNCTION CAS_Str(xVal)
       RETURN DToC(xVal)
    ENDCASE
 RETURN ""
+
+
+// Beginn des Fensters aus NEXUSCRM_ABSENCE_FROM. Leer, unlesbar oder in der
+// Zukunft: heute - ein Fenster, das erst morgen beginnt, liesse heute laufende
+// Abwesenheiten stehen, obwohl Timebutler sie laengst gestrichen hat.
+STATIC FUNCTION CAS_WindowFrom()
+   LOCAL xVal := GetValue("NEXUSCRM_ABSENCE_FROM")
+   LOCAL cVal, dFrom
+
+   IF ValType(xVal) == "D"
+      dFrom := xVal
+   ELSE
+      cVal := AllTrim(CAS_Str(xVal))
+      IF Len(cVal) == 10 .AND. SubStr(cVal, 5, 1) == "-"
+         dFrom := StoD(StrTran(cVal, "-", ""))
+      ELSEIF Len(cVal) == 10 .AND. SubStr(cVal, 3, 1) == "."
+         dFrom := StoD(Right(cVal, 4) + SubStr(cVal, 4, 2) + Left(cVal, 2))
+      ENDIF
+   ENDIF
+
+   IF ValType(dFrom) != "D" .OR. Empty(dFrom) .OR. dFrom > Date()
+      dFrom := Date()
+   ENDIF
+RETURN dFrom
 
 
 STATIC FUNCTION CAS_IsoDate(dDate)

@@ -299,8 +299,12 @@ FUNCTION MCP_Tools_List(hRequest, xId)
 
       hTool := {=>}
       hTool["name"] := cToolName
+      IF ! Empty(_McpToolTitle(cToolName))
+         hTool["title"] := _McpToolTitle(cToolName)   // display label for clients
+      ENDIF
       hTool["description"] := hToolInfo["description"]
       hTool["inputSchema"] := _McpSchemaForClient(hToolInfo["schema"])
+      hTool["annotations"] := _McpToolAnnotations(cToolName)   // read/write hints
 
       // UTF-8 encode the whole entry so umlauts in descriptions/enums are valid
       // UTF-8 (strict clients reject the tools/list response otherwise).
@@ -479,6 +483,82 @@ STATIC FUNCTION _McpToolAllowedFor(oUsr, cTool)
       lOk := .F.
    END SEQUENCE
 RETURN lOk
+
+// Human-readable display title for a tool. MCP clients (Claude) show this
+// instead of the raw name and use it, together with the annotations below, to
+// label and group tools - without it every tool lands in a generic bucket.
+STATIC FUNCTION _McpToolTitle(cTool)
+   LOCAL c := Lower(AllTrim(cTool))
+   LOCAL cT := ""
+   DO CASE
+   // Customers / sales
+   CASE c == "get_customer"                ; cT := "Kunde abrufen"
+   CASE c == "search_customers"            ; cT := "Kunden suchen"
+   CASE c == "get_customer_part_number"    ; cT := "Kunden-Artikelnummer abrufen"
+   CASE c == "get_customer_turnover"       ; cT := "Kundenumsatz abrufen"
+   CASE c == "get_customer_orders"         ; cT := "Kundenauftraege abrufen"
+   CASE c == "get_order_details"           ; cT := "Auftragsdetails abrufen"
+   CASE c == "get_customer_quotes"         ; cT := "Kundenangebote abrufen"
+   CASE c == "get_quote"                   ; cT := "Angebot abrufen"
+   CASE c == "get_customer_open_items"     ; cT := "Offene Posten (Kunde) abrufen"
+   CASE c == "get_customer_invoices"       ; cT := "Kundenrechnungen abrufen"
+   CASE c == "get_invoice"                 ; cT := "Rechnung abrufen"
+   // Suppliers / purchasing
+   CASE c == "get_supplier"                ; cT := "Lieferant abrufen"
+   CASE c == "get_supplier_orders"         ; cT := "Lieferantenbestellungen abrufen"
+   CASE c == "get_purchase_order"          ; cT := "Bestellung abrufen"
+   CASE c == "get_supplier_quote"          ; cT := "Lieferantenangebot abrufen"
+   CASE c == "list_unposted_incoming_invoices" ; cT := "Nicht gebuchte Eingangsrechnungen auflisten"
+   CASE c == "add_delivery_schedule"       ; cT := "Liefertermin hinzufuegen"
+   CASE c == "book_shipping_confirmation"  ; cT := "Versandbestaetigung buchen"
+   CASE c == "confirm_purchase_order"      ; cT := "Bestellung bestaetigen"
+   CASE c == "set_supplier_holiday"        ; cT := "Lieferanten-Betriebsferien setzen"
+   CASE c == "add_supplier_quote"          ; cT := "Lieferantenangebot anlegen"
+   // Articles / stock
+   CASE c == "get_article"                 ; cT := "Artikel abrufen"
+   CASE c == "search_articles"             ; cT := "Artikel suchen"
+   CASE c == "get_article_options"         ; cT := "Artikeloptionen abrufen"
+   CASE c == "get_article_schedule"        ; cT := "Artikeltermine abrufen"
+   CASE c == "get_article_where_used"      ; cT := "Artikelverwendung abrufen"
+   CASE c == "get_article_movements"       ; cT := "Artikelbewegungen abrufen"
+   CASE c == "get_article_suppliers"       ; cT := "Artikellieferanten abrufen"
+   CASE c == "get_article_prices"          ; cT := "Artikelpreise abrufen"
+   CASE c == "get_article_orders"          ; cT := "Artikelbestellungen abrufen"
+   CASE c == "get_bom"                     ; cT := "Stueckliste abrufen"
+   CASE c == "check_stock"                 ; cT := "Bestand pruefen"
+   CASE c == "get_stock_withdrawal"        ; cT := "Materialentnahme abrufen"
+   CASE c == "get_production_order"        ; cT := "Werksauftrag abrufen"
+   // Projects
+   CASE c == "get_project"                 ; cT := "Projekt abrufen"
+   CASE c == "search_projects"             ; cT := "Projekte suchen"
+   CASE c == "create_project"              ; cT := "Projekt anlegen"
+   CASE c == "update_project"              ; cT := "Projekt aktualisieren"
+   CASE c == "add_project_article"         ; cT := "Projektartikel hinzufuegen"
+   CASE c == "remove_project_article"      ; cT := "Projektartikel entfernen"
+   // Archive / users
+   CASE c == "list_archive_documents"      ; cT := "Archivdokumente auflisten"
+   CASE c == "get_archive_document"        ; cT := "Archivdokument abrufen"
+   CASE c == "archive_document"            ; cT := "Dokument archivieren"
+   CASE c == "list_users"                  ; cT := "Benutzer auflisten"
+   CASE c == "get_current_user"            ; cT := "Aktuellen Benutzer abrufen"
+   ENDCASE
+RETURN cT
+
+// MCP tool annotations. readOnlyHint lets the client group read vs. write tools
+// (a mutating tool is anything _McpToolIsWrite flags); destructiveHint marks the
+// one tool that removes data. openWorldHint is .F. - everything acts on the
+// local Trader database only.
+STATIC FUNCTION _McpToolAnnotations(cTool)
+   LOCAL c := Lower(AllTrim(cTool))
+   LOCAL lWrite := _McpToolIsWrite(c)
+   LOCAL hAnn := {=>}
+   hAnn["readOnlyHint"] := ! lWrite
+   hAnn["openWorldHint"] := .F.
+   IF lWrite
+      hAnn["destructiveHint"] := ( c == "remove_project_article" )
+      hAnn["idempotentHint"]  := _McpInList(c, {"update_project","set_supplier_holiday"})
+   ENDIF
+RETURN hAnn
 
 FUNCTION MCP_Tools_Call(hRequest, xId)
    LOCAL hParams := hRequest["params"]

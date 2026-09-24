@@ -42,7 +42,8 @@
  * Config (GetValue, siehe CRM_CreditSync_Setup):
  *   NEXUSCRM              Keychain-Eintrag mit dem Bearer Token (TRADER_API_KEY
  *                         des CRM), eingesetzt fuer $APIKEY$ im Header
- *   NEXUSCRM_CREDIT_URL   Endpunkt der Bonitaets-Uebertragung
+ *   NEXUSCRM_URL          Adresse der NexusCRM-API (wie in nexuscrm.prg); der
+ *                         Endpunkt api-companies/credit wird daraus abgeleitet
  *   NEXUSCRM_CREDIT_BATCH Reports je Uebertragung (Server-Grenze: 100)
  *
  * Protokoll: X:\run\supabase\logs\crm_credit_sync_<Datum>_<Zeit>.log
@@ -72,16 +73,16 @@ PROCEDURE RUN_CRM_CREDIT_SYNC(cLimit, cDryRun)
 
    CRM_CreditSync_Setup()
 
-   cUrl       := AllTrim(CCR_Str(GetValue("NEXUSCRM_CREDIT_URL")))
+   cUrl       := CCR_Endpoint("api-companies/credit")
    nBatchSize := Int(Val(CCR_Str(GetValue("NEXUSCRM_CREDIT_BATCH"))))
    IF nBatchSize < 1 .OR. nBatchSize > CCR_MAXBATCH
       nBatchSize := 25
    ENDIF
 
    IF Empty(cUrl)
-      CCR_Log(cLogFile, "ERROR", "NEXUSCRM_CREDIT_URL ist nicht gesetzt.")
+      CCR_Log(cLogFile, "ERROR", "NEXUSCRM_URL ist nicht gesetzt oder ohne /functions/v1/.")
       IF ! lBatch
-         Tr_MsgBox("NEXUSCRM_CREDIT_URL ist nicht gesetzt.")
+         Tr_MsgBox("NEXUSCRM_URL ist nicht gesetzt oder ohne /functions/v1/.")
       ENDIF
       RETURN
    ENDIF
@@ -135,9 +136,9 @@ RETURN
 
 // Konfigurationswerte anlegen bzw. lesbar machen.
 FUNCTION CRM_CreditSync_Setup()
-   GetValue("NEXUSCRM_CREDIT_URL", ;
-            "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-companies/credit", ;
-            "URL der NexusCRM Bonitaets-Uebertragung")
+   GetValue("NEXUSCRM_URL", ;
+            "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-opportunities", ;
+            "URL der NexusCRM API")
    GetValue("NEXUSCRM_CREDIT_BATCH", 25, "Reports je Uebertragung (max. 100)")
 RETURN NIL
 
@@ -698,6 +699,19 @@ STATIC FUNCTION CCR_HDef(hHash, cKey, xDef)
       RETURN hHash[cKey]
    ENDIF
 RETURN xDef
+
+
+// Endpunkt im selben Supabase-Projekt wie NEXUSCRM_URL. Die Einstellung zeigt
+// auf eine Function (api-opportunities), nicht auf die Basis - abgeschnitten
+// wird deshalb hinter /functions/v1/. Leer, wenn das Muster fehlt.
+STATIC FUNCTION CCR_Endpoint(cPath)
+   LOCAL cBase := AllTrim(CCR_Str(GetValue("NEXUSCRM_URL", "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-opportunities", "URL der NexusCRM API")))
+   LOCAL nPos  := At("/functions/v1/", cBase)
+
+   IF nPos == 0
+      RETURN ""
+   ENDIF
+RETURN Left(cBase, nPos + Len("/functions/v1/") - 1) + cPath
 
 
 STATIC FUNCTION CCR_Str(xVal)

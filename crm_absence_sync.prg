@@ -36,7 +36,9 @@
  *   NEXUSCRM              Keychain-Eintrag mit dem Bearer Token (TRADER_API_KEY
  *                         des CRM), eingesetzt fuer $APIKEY$ im Header
  *   TIMEBUTLER            Keychain-Eintrag fuer die Timebutler-API
- *   NEXUSCRM_ABSENCE_URL  Endpunkt der Synchronisation
+ *   NEXUSCRM_URL          Adresse der NexusCRM-API (wie in nexuscrm.prg). Der
+ *                         Endpunkt api-absences/sync wird daraus abgeleitet -
+ *                         dasselbe Projekt, also keine eigene Einstellung.
  *   NEXUSCRM_ABSENCE_AHEAD  Jahre im Voraus (0 = nur laufendes Jahr)
  *
  * Protokoll: X:\run\supabase\logs\crm_absence_sync_<Datum>_<Zeit>.log
@@ -60,16 +62,16 @@ PROCEDURE RUN_CRM_ABSENCE_SYNC(cDryRun)
 
    CRM_AbsenceSync_Setup()
 
-   cUrl   := AllTrim(CAS_Str(GetValue("NEXUSCRM_ABSENCE_URL")))
+   cUrl   := CAS_Endpoint("api-absences/sync")
    nAhead := Int(Val(CAS_Str(GetValue("NEXUSCRM_ABSENCE_AHEAD"))))
    IF nAhead < 0 .OR. nAhead > 3
       nAhead := 1
    ENDIF
 
    IF Empty(cUrl)
-      CAS_Log(cLogFile, "ERROR", "NEXUSCRM_ABSENCE_URL ist nicht gesetzt.")
+      CAS_Log(cLogFile, "ERROR", "NEXUSCRM_URL ist nicht gesetzt oder ohne /functions/v1/.")
       IF ! lBatch
-         Tr_MsgBox("NEXUSCRM_ABSENCE_URL ist nicht gesetzt.")
+         Tr_MsgBox("NEXUSCRM_URL ist nicht gesetzt oder ohne /functions/v1/.")
       ENDIF
       RETURN
    ENDIF
@@ -193,9 +195,9 @@ RETURN
 
 FUNCTION CRM_AbsenceSync_Setup()
    GetValue("NEXUSCRM", "", "API Key fuer NexusCRM (Bearer Token)")
-   GetValue("NEXUSCRM_ABSENCE_URL", ;
-      "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-absences/sync", ;
-      "URL des Abwesenheits-Abgleichs im NexusCRM")
+   GetValue("NEXUSCRM_URL", ;
+      "https://rxaltcsbhcxlczjjczxs.supabase.co/functions/v1/api-opportunities", ;
+      "URL der NexusCRM API")
    GetValue("NEXUSCRM_ABSENCE_AHEAD", 1, "Jahre im Voraus (0 = nur laufendes Jahr)")
 RETURN NIL
 
@@ -328,6 +330,19 @@ STATIC FUNCTION CAS_HDef(hHash, cKey, xDef)
       RETURN hHash[cKey]
    ENDIF
 RETURN xDef
+
+
+// Endpunkt im selben Supabase-Projekt wie NEXUSCRM_URL. Die Einstellung zeigt
+// auf eine Function (api-opportunities), nicht auf die Basis - abgeschnitten
+// wird deshalb hinter /functions/v1/. Leer, wenn das Muster fehlt.
+STATIC FUNCTION CAS_Endpoint(cPath)
+   LOCAL cBase := AllTrim(CAS_Str(GetValue("NEXUSCRM_URL")))
+   LOCAL nPos  := At("/functions/v1/", cBase)
+
+   IF nPos == 0
+      RETURN ""
+   ENDIF
+RETURN Left(cBase, nPos + Len("/functions/v1/") - 1) + cPath
 
 
 STATIC FUNCTION CAS_Str(xVal)

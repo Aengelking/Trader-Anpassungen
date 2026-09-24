@@ -80,7 +80,7 @@
   * sind - siehe _BbbSumsReport.
   **/
 
-#include 'trader.ch'
+//#include 'trader.ch'
 
 #define CRLF Chr(13)+Chr(10)
 

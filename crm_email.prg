@@ -45,7 +45,7 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 	// und den Lead-Dialog vorzubefuellen. Best-effort: schlaegt der Upload
 	// fehl, oeffnet der Picker wie bisher ohne Vorbefuellung.
 	cDraft := CrmUploadDraft(oMsg, cMsgPath)
-
+	
 	// Open the CRM web picker (select existing or create new) in a webview.
 	// It returns the chosen record's ref number and type ("lead"/"opportunity").
 	hSel := ShowCrmPicker(CrmMailField(oMsg,"SRFrom"), CrmMailField(oMsg,"Subject"),,,,,,, cDraft)
@@ -163,7 +163,7 @@ STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyNam
 		RETURN .T.
 	})*/
 
-	hb_webview_set_title(nW, "CRM - Lead/Opportunity auswï¿½hlen")
+	hb_webview_set_title(nW, "CRM - Lead/Opportunity ausw„hlen")
 
 	//JS -> Harbour callbacks (resolved by name via HB_CALL_FUNC_DIRECT)
 	hb_webview_bind2(nW, "crmPickerSelect", HB_CALL_FUNC_DIRECT)
@@ -290,6 +290,7 @@ STATIC FUNCTION CrmUploadDraft(oMsg, cMsgPath)
 	LOCAL hData := {=>}
 	LOCAL xResp
 	LOCAL bOld
+	LOCAL cResponse,nResponse
 
 	hData["draft"]      := .T.
 	hData["from_email"] := CrmMailField(oMsg,"SRFrom")
@@ -301,9 +302,9 @@ STATIC FUNCTION CrmUploadDraft(oMsg, cMsgPath)
 	// Ein Fehler hier darf den bisherigen Weg nicht blockieren.
 	bOld := ErrorBlock({|e| Break(e) })
 	BEGIN SEQUENCE
-		xResp := oApi:Execute("POST", "", hData)
+		xResp := oApi:Execute("POST", "", hData)		
 	RECOVER
-		xResp := NIL
+		xResp := NIL		
 	END SEQUENCE
 	ErrorBlock(bOld)
 

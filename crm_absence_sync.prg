@@ -405,3 +405,8 @@ STATIC FUNCTION CAS_Log(cLogFile, cLevel, cMessage)
       FClose(nHandle)
    ENDIF
 RETURN NIL
+
+
+// Die Klasse TimeButlerAPI - jedes Run-Script wird einzeln uebersetzt, sie
+// muss hier mit hinein (wie in timebutler_sync.prg).
+#include "x:\run\timebutlerapi.prg"

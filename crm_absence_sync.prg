@@ -27,6 +27,10 @@
  * Wer die Vergangenheit zum Nachsehen mit haben will, setzt
  * NEXUSCRM_ABSENCE_FROM - dann beginnt Fenster und Timebutler-Abfrage dort.
  *
+ * Datenschutz: uebertragen wird nur die Kategorie (away / limited), nie der
+ * Timebutler-Typ - ob jemand krank oder in Reha ist, gehoert nicht ins CRM.
+ * Homeoffice und Lager haben dort keine Wirkung und bleiben ganz weg.
+ *
  * Vertretung: uebertragen wird sie nur, wenn Timebutler sie als "Approved"
  * fuehrt - eine beantragte, aber nicht genehmigte Vertretung ist keine.
  *
@@ -62,7 +66,8 @@ PROCEDURE RUN_CRM_ABSENCE_SYNC(cDryRun)
    LOCAL oAPI, aUsers, aAbsences, aRows
    LOCAL cUrl, nAhead, dFrom, dTo, nYear, nX
    LOCAL aData, hAbsence, hRow
-   LOCAL nSkippedNoMail := 0, nSkippedPast := 0, nSkippedType := 0
+   LOCAL nSkippedNoMail := 0, nSkippedPast := 0, nSkippedType := 0, nSkippedAvail := 0
+   LOCAL cCategory
 
    CRM_AbsenceSync_Setup()
 
@@ -141,6 +146,14 @@ PROCEDURE RUN_CRM_ABSENCE_SYNC(cDryRun)
          LOOP
       ENDIF
 
+      // Einstufen hier, nicht im CRM: der Timebutler-Typ (Krankheit, Reha ...)
+      // ist Gesundheitsdatum und verlaesst den Trader nicht.
+      cCategory := CAS_Category(CAS_Str(CAS_HDef(hAbsence, "Type", "")))
+      IF Empty(cCategory)
+         nSkippedAvail++
+         LOOP
+      ENDIF
+
       hRow := {=>}
       hRow["email"] := CAS_MailOf(hAbsence["Employee number"])
       IF Empty(hRow["email"])
@@ -150,7 +163,7 @@ PROCEDURE RUN_CRM_ABSENCE_SYNC(cDryRun)
 
       hRow["from"]     := CAS_IsoDate(hAbsence["From"])
       hRow["to"]       := CAS_IsoDate(hAbsence["To"])
-      hRow["type"]     := CAS_Str(CAS_HDef(hAbsence, "Type", ""))
+      hRow["category"] := cCategory
       hRow["half_day"] := CAS_HDef(hAbsence, "Half a day", .F.) == .T.
       IF hRow["half_day"]
          hRow["morning"] := CAS_HDef(hAbsence, "Morning", .F.) == .T.
@@ -167,7 +180,8 @@ PROCEDURE RUN_CRM_ABSENCE_SYNC(cDryRun)
 
    CAS_Log(cLogFile, "INFO", "Uebertragen werden " + LTrim(Str(Len(aRows))) + " Abwesenheiten " + ;
            "(ohne E-Mail: " + LTrim(Str(nSkippedNoMail)) + ", ausserhalb des Fensters: " + ;
-           LTrim(Str(nSkippedPast)) + ", unbrauchbar: " + LTrim(Str(nSkippedType)) + ")")
+           LTrim(Str(nSkippedPast)) + ", ohne Wirkung (Homeoffice, Lager): " + ;
+           LTrim(Str(nSkippedAvail)) + ", unbrauchbar: " + LTrim(Str(nSkippedType)) + ")")
 
    IF Len(aRows) > CAS_MAXROWS
       CAS_Log(cLogFile, "ERROR", "Zu viele Abwesenheiten fuer einen Aufruf (" + ;
@@ -363,6 +377,26 @@ STATIC FUNCTION CAS_Str(xVal)
       RETURN DToC(xVal)
    ENDCASE
 RETURN ""
+
+
+// Timebutler-Typ -> Kategorie im CRM. Leer = nicht uebertragen.
+//   away     nicht da: Wiedervorlagen werden verschoben, kein Anwesenheitstag
+//   limited  da, aber nicht am Platz: nur sichtbar
+// Unbekannte Typen (Timebutler kann neue anlegen) gelten als limited - "nicht
+// da" ist die Aussage, die man nicht raten darf. Dieselbe Tabelle steht als
+// Uebergang in engelking-crm/supabase/functions/_shared/absenceSync.ts.
+STATIC FUNCTION CAS_Category(cType)
+   LOCAL aAway := {"Vacation", "Parental leave", "Sickness", "Child ill", ;
+                   "Child ill w/o payment", "Rehab", "Kurzarbeit", "Training school"}
+   LOCAL aNone := {"Home office", "Warehouse"}
+
+   IF AScan(aAway, {|c| c == cType}) > 0
+      RETURN "away"
+   ENDIF
+   IF AScan(aNone, {|c| c == cType}) > 0
+      RETURN ""
+   ENDIF
+RETURN "limited"
 
 
 // Beginn des Fensters aus NEXUSCRM_ABSENCE_FROM. Leer, unlesbar oder in der

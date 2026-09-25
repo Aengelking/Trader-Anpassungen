@@ -88,10 +88,7 @@ LOCAL nOpen := 0, nNotSent := 0
             ? "FEHLER beim Abruf:","HTTP "+LTrim(Str(nResponse)),cResponse
             nErrors++
          ELSE
-            xList := hb_jsonDecode(cBody)
-            IF ValType(xList) == "H" .AND. HHasKey(xList,"data")
-               xList := xList["data"]
-            ENDIF
+            xList := __TiltaList(hb_jsonDecode(cBody))
             IF ValType(xList) == "A"
                FOR nY := 1 TO Len(xList)
                   hFac := xList[nY]

@@ -117,18 +117,9 @@ STATIC FUNCTION __TiltaSvcInfo(cJson,nAdvance,cReq)
       RETURN ""
    ENDIF
 
-   /*  Die Liste steckt je Endpunkt unter "items" oder "data" - beides
-    *  zulassen, sonst ist es das einzelne Objekt selbst.  */
-   DO CASE
-   CASE HHasKey(xData,"items")
-      xList := xData["items"]
-   CASE HHasKey(xData,"data")
-      xList := xData["data"]
-   OTHERWISE
-      xList := {xData}
-   ENDCASE
+   xList := __TiltaList(xData)
    IF ValType(xList) != "A"
-      RETURN ""
+      xList := {xData}                    //Einzelobjekt aus POST /v1/services
    ENDIF
 
    FOR nX := 1 TO Len(xList)
@@ -144,6 +135,28 @@ STATIC FUNCTION __TiltaSvcInfo(cJson,nAdvance,cReq)
       ENDIF
    NEXT
 RETURN ""
+
+/*  Die Liste aus einer Antwort schaelen. Tilta verpackt Listen laut Doku
+ *  (docs.tilta.ai/docs/pagination) in {"items":[...],"total":n,...}; einzelne
+ *  Endpunkte antworten mit "data" oder gleich mit dem blanken Array. Alles
+ *  andere ergibt NIL - dann war es kein Listenergebnis.
+ *
+ *  Das ist kein Schoenheitsfehler: wer hier danebengreift, haelt eine volle
+ *  Liste faelschlich fuer leer und legt Dinge ein zweites Mal an.         */
+STATIC FUNCTION __TiltaList(xData)
+   IF ValType(xData) == "A"
+      RETURN xData
+   ENDIF
+   IF ValType(xData) != "H"
+      RETURN NIL
+   ENDIF
+   IF HHasKey(xData,"items") .AND. ValType(xData["items"]) == "A"
+      RETURN xData["items"]
+   ENDIF
+   IF HHasKey(xData,"data") .AND. ValType(xData["data"]) == "A"
+      RETURN xData["data"]
+   ENDIF
+RETURN NIL
 
 /*  Offene Voraussetzungen als kurzer Text. Die Elemente tragen laut Doku code
  *  und description; defensiv, weil dort auch nur Zeichenketten stehen koennen.

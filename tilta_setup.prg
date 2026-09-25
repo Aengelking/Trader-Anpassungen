@@ -99,10 +99,7 @@ LOCAL nGood
    cBody := __TiltaCall("buyers/"+cBuyer+"/contacts","GET",NIL,@nResponse,@cResponse)
    xList := NIL
    IF nResponse == 200
-      xList := hb_jsonDecode(cBody)
-      IF ValType(xList) == "H" .AND. HHasKey(xList,"data")
-         xList := xList["data"]
-      ENDIF
+      xList := __TiltaList(hb_jsonDecode(cBody))
    ELSEIF nResponse != 404
       Aadd(hRes["log"],"Kontakte konnten nicht gelesen werden: HTTP "+LTrim(Str(nResponse))+" "+cResponse)
    ENDIF
@@ -136,12 +133,18 @@ LOCAL nGood
       TxtBox("Tilta: Ansprechpartner wird angelegt...")
       cBody := __TiltaCall("contacts","POST",hSend,@nResponse,@cResponse)
       TxtClear()
-      IF nResponse < 200 .OR. nResponse >= 300
+      /*  Gibt es den Ansprechpartner schon, ist das kein Fehler, sondern das
+       *  gewuenschte Ergebnis - weiter zur Fazilitaet. Tilta meldet das als
+       *  BUYER_CONTACT_CONFLICT "Buyer contact already exists".  */
+      IF (ValType(cBody) == "C" .AND. "BUYER_CONTACT_CONFLICT" $ cBody) .OR. nResponse == 409
+         Aadd(hRes["log"],"Ansprechpartner ist bei Tilta bereits hinterlegt.")
+      ELSEIF nResponse < 200 .OR. nResponse >= 300
          Aadd(hRes["log"],"Ansprechpartner konnte nicht angelegt werden: HTTP "+LTrim(Str(nResponse))+" "+cResponse+" "+Left(cBody,120))
          RETURN hRes
+      ELSE
+         hRes["changed"] := .T.
+         Aadd(hRes["log"],"Ansprechpartner gemeldet: "+cName+" <"+Trim(hContact["email"])+">")
       ENDIF
-      hRes["changed"] := .T.
-      Aadd(hRes["log"],"Ansprechpartner gemeldet: "+cName+" <"+Trim(hContact["email"])+">")
    ENDIF
 
    /*  3. Fazilitaet. Beantragt wird das intern genehmigte Kreditlimit; als

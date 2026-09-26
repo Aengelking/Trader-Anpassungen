@@ -100,9 +100,12 @@ hierher, den setzt Finova am Belegtag.
 ## Beide Mandanten, eine Tabelle
 
 Finova trägt über `(user_id, source, erp_reference)` ein. Beide Firmen laufen
-unter derselben `user_id`, und die Belegnummern werden **je Firma** vergeben:
-`ER-100-12345` kann es in Automotive und in Elektronik geben, mit
-verschiedenen Lieferanten und verschiedenen Beträgen.
+unter derselben `user_id`, und die Referenz einer Eingangsrechnung lautet
+`ER-<Matchcode>-<Rechnungsnummer>`. `rech->Liefma` ist kein Zahlenfeld, sondern
+ein sprechendes Kürzel (`WHTECH`, `UPS`, `BULGIN`) — und gerade weil es
+sprechend ist, vergeben beide Firmen für denselben Lieferanten unabhängig
+voneinander dasselbe. `ER-WHTECH-14602539` kann es also zweimal geben, mit
+verschiedenen Beträgen.
 
 Stünde in `source` für beide dasselbe, würde der zweite Lauf den Beleg des
 ersten überschreiben — kein Fehler, keine Meldung, die Zeile ist einfach weg.
@@ -111,9 +114,8 @@ Schlüssel. Ist `FIRMNO` leer, bricht der Lauf ab, statt unter einem
 mehrdeutigen Schlüssel zu schreiben.
 
 `FIRMNO` und nicht `FIRMPATH`, weil dieselbe Nummer in Finova an der Firma
-steht (`companies.erp_company_id`). **Dort ist sie nur für Elektronik
-gepflegt** — solange die Automotive-Zeile sie nicht trägt, landen deren
-Belege mit leerem `company_id`. Das ist in Finova nachzutragen, nicht hier.
+steht (`companies.erp_company_id`). Beide Firmen sind dort
+gepflegt: Elektronik als `1`, Automotive als `2`.
 
 ## Währung
 

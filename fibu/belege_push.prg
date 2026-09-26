@@ -91,11 +91,21 @@ FUNCTION RUN_PUSH_BELEGE(lLive)
 
    Head("Belege an Finova senden")
    _Log("Trader -> Finova, " + DToC(Date()) + " " + Time())
-   _Log("Firma: " + _Firma())
+   _Log("Firma: " + _Firma() + "   Quelle: " + _Quelle())
    _Log(IF(lLive, "ECHTLAUF - Belege werden gesendet", "TROCKENLAUF - es wird nichts gesendet"))
    _Log("Belege ab " + DToC(dFrom))
    _Log("Trader wird ausschliesslich gelesen")
    _Log("")
+
+   IF Empty(_Quelle())
+      _Log("*** ABBRUCH: FIRMNO ist leer - das Mandantenkennzeichen fehlt.")
+      _Log("*** Es gehoert in den Schluessel, unter dem Finova eintraegt.")
+      _Log("*** Ohne ihn wuerde dieser Lauf die Belege der anderen Firma")
+      _Log("*** ueberschreiben, sobald eine Belegnummer in beiden vorkommt.")
+      _Finish(cProtokoll)
+      UnLockEntity("FIBU", 0)
+      RETURN .F.
+   ENDIF
 
    IF ! _LoadIni()
       _Log("*** ABBRUCH: lexware.ini nicht lesbar - ohne die Auffangkonten")
@@ -149,6 +159,38 @@ RETURN SToD(LTrim(Str(FIBU_DEFAULT_YEAR)) + "0101")
 STATIC FUNCTION _Firma()
    LOCAL cFirma := AllTrim(GetConfigValue("FIRMPATH"))
 RETURN IF(Empty(cFirma), "default", cFirma)
+
+/**
+  * Die Quelle - und zugleich das Mandantenkennzeichen.
+  *
+  * Finova traegt ueber (user_id, source, erp_reference) ein. Beide Firmen
+  * laufen unter derselben user_id, und die Belegnummern sind je Firma
+  * vergeben: "ER-100-12345" kann es in Automotive und in Elektronik geben,
+  * mit verschiedenen Lieferanten und verschiedenen Betraegen.
+  *
+  * Stuende in source fuer beide dasselbe, wuerde der zweite Lauf den Beleg
+  * des ersten ueberschreiben - kein Fehler, keine Meldung, die Zeile ist
+  * einfach weg. Die Firmennummer im Schluessel haelt sie auseinander.
+  *
+  * FIRMNO und nicht FIRMPATH: dieselbe Nummer steht in Finova an der Firma
+  * (companies.erp_company_id), womit derselbe Wert die Zuordnung traegt.
+  **/
+STATIC FUNCTION _Quelle()
+   LOCAL xNummer := GetConfigValue("FIRMNO")
+   LOCAL cNummer := ""
+
+   DO CASE
+   CASE ValType(xNummer) == "N"
+      cNummer := LTrim(Str(xNummer))
+   CASE ValType(xNummer) == "C"
+      cNummer := AllTrim(xNummer)
+   ENDCASE
+
+   IF Empty(cNummer)
+      RETURN ""
+   ENDIF
+
+RETURN "trader-" + cNummer
 
 /**
   * Die Auffangkonten aus der lexware.ini.
@@ -374,6 +416,7 @@ STATIC FUNCTION _CollectOutbound(dFrom, aUebergangen)
             hBeleg["discount_rate"] := nSkontoRate
          ENDIF
 
+         hBeleg["source"]     := _Quelle()
          hBeleg["company_id"] := GetConfigValue("FIRMNO")
          AAdd(aBelege, hBeleg)
       ENDCASE
@@ -483,6 +526,7 @@ STATIC FUNCTION _CollectInbound(dFrom, aBelege, aUebergangen)
 
          hBeleg["due_date"] := _IsoDate(dFaellig)
 
+         hBeleg["source"]     := _Quelle()
          hBeleg["company_id"] := GetConfigValue("FIRMNO")
          AAdd(aBelege, hBeleg)
       ENDCASE

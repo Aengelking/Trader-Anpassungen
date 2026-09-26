@@ -68,11 +68,13 @@
 
 STATIC snProtokoll := 0
 STATIC shIni := NIL
+STATIC shWaehrungen := {=>}
 
 FUNCTION RUN_PUSH_BELEGE(lLive)
    LOCAL oRest := RestApi():New()
    LOCAL dFrom
    LOCAL aBelege
+   LOCAL aUebergangen := {}
    LOCAL cProtokoll
    LOCAL nGesendet := 0, nFehler := 0
 
@@ -103,13 +105,15 @@ FUNCTION RUN_PUSH_BELEGE(lLive)
       RETURN .F.
    ENDIF
 
-   aBelege := _CollectOutbound(dFrom)
+   aBelege := _CollectOutbound(dFrom, @aUebergangen)
    _Log("Ausgangsrechnungen: " + LTrim(Str(Len(aBelege))))
 
-   _CollectInbound(dFrom, @aBelege)
+   _CollectInbound(dFrom, @aBelege, @aUebergangen)
    _Log("Belege gesamt:      " + LTrim(Str(Len(aBelege))))
    _Log("")
 
+   _LogUebergangen(aUebergangen)
+   _LogZusammenfassung(aBelege)
    _LogUnkontiert(aBelege)
 
    IF Len(aBelege) == 0
@@ -274,13 +278,14 @@ RETURN dRechdat + nWait
   * Soll und Haben wie in LX_BookOutInvoice: Soll ist das Debitorenkonto,
   * Haben das Erloeskonto.
   **/
-STATIC FUNCTION _CollectOutbound(dFrom)
+STATIC FUNCTION _CollectOutbound(dFrom, aUebergangen)
    LOCAL aBelege := {}
    LOCAL hBeleg, hKonten
    LOCAL oRechnung
    LOCAL nScanned := 0
-   LOCAL cName, cKonto
+   LOCAL cName, cKonto, cUstId
    LOCAL nSkontoRate, dSkontoDatum, dFaellig
+   LOCAL nRec
 
    NetUse("englsre", "re")
    NetUse("engkund", "ku")
@@ -295,16 +300,45 @@ STATIC FUNCTION _CollectOutbound(dFrom)
    DO WHILE ! re->(EOF()) .AND. re->Reposnr == 0
       nScanned++
 
-      IF re->Rechdat >= dFrom .AND. re->Packed .AND. re->PosWt != 0
+      //Wer im Zeitraum liegt und trotzdem nicht mitkommt, wird benannt. Die
+      //Filter sind richtig - eine ungepackte Rechnung ist nicht fertig, und
+      //eine Rechnung ueber 0,00 ist keine Buchung, die Datenbank weist sie
+      //ohnehin ab. Aber sie duerfen nicht lautlos verschwinden: sonst klafft
+      //in der Belegnummernfolge eine Luecke, die niemand mehr erklaeren kann,
+      //ohne in Trader nachzusehen.
+      DO CASE
+      CASE re->Rechdat < dFrom
+         //ausserhalb des Zeitraums - kein Uebergehen, sondern der Zuschnitt
+      CASE ! re->Packed
+         AAdd(aUebergangen, {"RE" + StrZero(re->Rechnr, 6), "nicht gepackt"})
+      CASE re->PosWt == 0
+         AAdd(aUebergangen, {"RE" + StrZero(re->Rechnr, 6), "Betrag 0,00"})
+      OTHERWISE
 
          oRechnung := Rechnung():New()
          oRechnung:Load(re->Rechnr)
 
          cName  := Trim(re->Kunde)
          cKonto := ""
+         cUstId := ""
          IF ku->(dbSeek(Pad(re->Kunde, 8) + "K"))
             cName  := IF(! Empty(Trim(ku->Name1)), Trim(ku->Name1), Trim(ku->Kunde))
             cKonto := _KontoStr(ku->Nummer)
+
+            //Die Umsatzsteuer-Identifikation gehoert zu der Adresse, die die
+            //Besteuerung bestimmt - bei abweichendem Lieferland ist das die
+            //Lieferadresse, nicht die Rechnungsadresse.
+            //GotoRechnungsTaxCustomer setzt ku genau darauf. Die Satznummer
+            //wird vorher gemerkt und danach zurueckgestellt, wie in
+            //LX_BookOutInvoice: der Rest der Schleife erwartet ku beim Kunden.
+            nRec := ku->(RecNo())
+            BEGIN SEQUENCE
+               GotoRechnungsTaxCustomer(re->Kunde, re->AbNr, re->DelAd)
+               cUstId := StrTran(AllTrim(ku->VatNr), " ", "")
+            RECOVER
+               cUstId := ""
+            END SEQUENCE
+            ku->(dbGoTo(nRec))
          ENDIF
 
          hKonten  := _VatKonten(re->TaxCode, re->Rechdat)
@@ -319,6 +353,7 @@ STATIC FUNCTION _CollectOutbound(dFrom)
          hBeleg["counterparty_name"]    := hb_StrToUTF8(cName)
          hBeleg["counterparty_ref"]     := Trim(re->Kunde)
          hBeleg["counterparty_account"] := cKonto
+         hBeleg["counterparty_vat_id"]  := cUstId
 
          hBeleg["currency"]     := _CurrencyISO(re->Money)
          hBeleg["gross_amount"] := Round(oRechnung:Brutto, 2)
@@ -341,7 +376,7 @@ STATIC FUNCTION _CollectOutbound(dFrom)
 
          hBeleg["company_id"] := GetConfigValue("FIRMNO")
          AAdd(aBelege, hBeleg)
-      ENDIF
+      ENDCASE
 
       re->(dbSkip())
    ENDDO
@@ -367,10 +402,10 @@ RETURN aBelege
   * Haben das Kreditorenkonto an der Rechnung. An der Rechnung, nicht am
   * Lieferanten - ein Lieferant kann je Waehrung ein eigenes Konto haben.
   **/
-STATIC FUNCTION _CollectInbound(dFrom, aBelege)
+STATIC FUNCTION _CollectInbound(dFrom, aBelege, aUebergangen)
    LOCAL hBeleg, hKonten
    LOCAL nScanned := 0
-   LOCAL cName
+   LOCAL cName, cUstId
    LOCAL nMwst, nVatRate
    LOCAL dFaellig
 
@@ -385,14 +420,28 @@ STATIC FUNCTION _CollectInbound(dFrom, aBelege)
    DO WHILE ! rech->(EOF())
       nScanned++
 
-      IF rech->Booked .AND. rech->Rechdat >= dFrom .AND. rech->GrAmt != 0 .AND. ;
-         ! Empty(rech->Liefma) .AND. ! Empty(rech->Rechnr)
+      //Wie bei den Ausgangsrechnungen: was im Zeitraum liegt und trotzdem
+      //nicht mitkommt, wird benannt. Bei "nicht gebucht" ist das mehr als
+      //Buchfuehrung ueber den Lauf - eine erfasste, aber nicht gebuchte
+      //Eingangsrechnung im abzurechnenden Monat ist liegengebliebene Arbeit.
+      DO CASE
+      CASE rech->Rechdat < dFrom
+         //ausserhalb des Zeitraums
+      CASE ! rech->Booked
+         AAdd(aUebergangen, {_ErRef(), "nicht gebucht"})
+      CASE Empty(rech->Liefma) .OR. Empty(rech->Rechnr)
+         AAdd(aUebergangen, {_ErRef(), "Lieferant oder Belegnummer fehlt"})
+      CASE rech->GrAmt == 0
+         AAdd(aUebergangen, {_ErRef(), "Betrag 0,00"})
+      OTHERWISE
 
          cName    := Trim(rech->Liefma)
+         cUstId   := ""
          nMwst    := 0
          nVatRate := 0
          IF ku->(dbSeek(Pad(rech->Liefma, 8) + "L"))
-            cName := IF(! Empty(Trim(ku->Name1)), Trim(ku->Name1), Trim(ku->Kunde))
+            cName  := IF(! Empty(Trim(ku->Name1)), Trim(ku->Name1), Trim(ku->Kunde))
+            cUstId := StrTran(AllTrim(ku->VatNr), " ", "")
          ENDIF
 
          //Der Steuersatz kommt aus demselben Schluessel wie die Konten.
@@ -417,6 +466,7 @@ STATIC FUNCTION _CollectInbound(dFrom, aBelege)
          hBeleg["counterparty_name"]    := hb_StrToUTF8(cName)
          hBeleg["counterparty_ref"]     := Trim(rech->Liefma)
          hBeleg["counterparty_account"] := _KontoStr(rech->Konto)
+         hBeleg["counterparty_vat_id"]  := cUstId
 
          hBeleg["currency"]     := _CurrencyISO(rech->Money)
          hBeleg["gross_amount"] := Round(rech->GrAmt, 2)
@@ -435,12 +485,65 @@ STATIC FUNCTION _CollectInbound(dFrom, aBelege)
 
          hBeleg["company_id"] := GetConfigValue("FIRMNO")
          AAdd(aBelege, hBeleg)
-      ENDIF
+      ENDCASE
 
       rech->(dbSkip())
    ENDDO
 
    _Log("  ENGRECH gelesen: " + LTrim(Str(nScanned)))
+
+RETURN NIL
+
+/**
+  * Kennung einer Eingangsrechnung fuer das Protokoll. Faellt Lieferant oder
+  * Belegnummer aus, bleibt die Satznummer - ohne sie waere ein Datenfehler
+  * genau der Fall, den man anschliessend nicht wiederfindet.
+  **/
+STATIC FUNCTION _ErRef()
+   IF Empty(rech->Liefma) .OR. Empty(rech->Rechnr)
+      RETURN "ER-Satz " + LTrim(Str(rech->(RecNo())))
+   ENDIF
+RETURN "ER-" + Trim(rech->Liefma) + "-" + Trim(rech->Rechnr)
+
+/**
+  * Was im Zeitraum liegt, aber nicht mitkommt - nach Grund gebuendelt.
+  *
+  * Die Filter sind richtig; sichtbar muessen sie trotzdem sein. Die beiden
+  * Nullbelege aus dem ersten Automotive-Lauf (RE001025 und RE001031) liessen
+  * eine Luecke in der Belegnummernfolge, die sich nur durch einen Blick in
+  * Trader erklaeren liess. Genau das soll das Protokoll abnehmen.
+  **/
+STATIC FUNCTION _LogUebergangen(aUebergangen)
+   LOCAL hGruende := {=>}
+   LOCAL aEintrag, cGrund, cListe
+   LOCAL nZeile
+
+   IF Len(aUebergangen) == 0
+      RETURN NIL
+   ENDIF
+
+   FOR EACH aEintrag IN aUebergangen
+      IF ! HHasKey(hGruende, aEintrag[2])
+         hGruende[aEintrag[2]] := {}
+      ENDIF
+      AAdd(hGruende[aEintrag[2]], aEintrag[1])
+   NEXT
+
+   _Log("IM ZEITRAUM, ABER NICHT UEBERNOMMEN: " + LTrim(Str(Len(aUebergangen))))
+   FOR EACH cGrund IN HGetKeys(hGruende)
+      cListe := ""
+      nZeile := 0
+      FOR EACH aEintrag IN hGruende[cGrund]
+         nZeile++
+         IF nZeile > 20
+            cListe += ", ... und " + LTrim(Str(Len(hGruende[cGrund]) - 20)) + " weitere"
+            EXIT
+         ENDIF
+         cListe += IF(Empty(cListe), "", ", ") + aEintrag
+      NEXT
+      _Log("  " + PadR(cGrund, 34) + LTrim(Str(Len(hGruende[cGrund]))) + "  " + cListe)
+   NEXT
+   _Log("")
 
 RETURN NIL
 
@@ -466,6 +569,80 @@ RETURN ""
   * schon zu zeigen erspart den Umweg: wer den Trockenlauf liest, sieht
   * sofort, was nachzupflegen ist.
   **/
+/**
+  * Die Summen, bevor die Einzelzeilen kommen.
+  *
+  * Der erste Elektronik-Trockenlauf brachte 2686 Belege; die Vorschau zeigt
+  * hoechstens 200 davon, und weil ENGLSRE nach Kunde sortiert gelesen wird,
+  * sind das die Buchstaben A bis C. Sieben Prozent, und die nicht einmal
+  * zufaellig - ueber Fremdwaehrung, Reverse Charge oder den Schweizer Satz
+  * sagte die Liste nichts, obwohl es sie gibt.
+  *
+  * Eine Aufstellung nach Waehrung, Steuerart und Erloes- beziehungsweise
+  * Aufwandskonto deckt dagegen alle Belege ab und ist die Zahl, die sich
+  * gegen die Umsatzsteuer-Voranmeldung halten laesst.
+  *
+  * Summiert wird IMMER je Waehrung. Betraege verschiedener Waehrungen zu
+  * addieren ergaebe eine Zahl, die nichts bedeutet - und der Umrechnungskurs
+  * gehoert hier nicht her, den setzt Finova am Belegtag.
+  **/
+STATIC FUNCTION _LogZusammenfassung(aBelege)
+   LOCAL hWaehrung := {=>}, hArt := {=>}, hKonto := {=>}
+   LOCAL hBeleg
+   LOCAL cArt, cKonto
+
+   IF Len(aBelege) == 0
+      RETURN NIL
+   ENDIF
+
+   FOR EACH hBeleg IN aBelege
+      cArt := IF(Empty(hBeleg["tax_kind"]), "(ohne Schluessel)", AllTrim(hBeleg["tax_kind"]))
+
+      //Bei der Ausgangsrechnung traegt das Habenkonto den Erloes, bei der
+      //Eingangsrechnung das Sollkonto den Aufwand. Das Gegenkonto ist in
+      //beiden Faellen das Personenkonto und sagt ueber die Art nichts.
+      cKonto := IF(hBeleg["doc_type"] == "sales_invoice", ;
+                   hBeleg["account_credit"], hBeleg["account_debit"])
+      IF Empty(cKonto)
+         cKonto := "(ohne Konto)"
+      ENDIF
+
+      _Zaehle(hWaehrung, hBeleg["currency"], hBeleg["gross_amount"])
+      _Zaehle(hArt, PadR(cArt, 18) + hBeleg["currency"], hBeleg["gross_amount"])
+      _Zaehle(hKonto, PadR(cKonto, 18) + hBeleg["currency"], hBeleg["gross_amount"])
+   NEXT
+
+   _Log("ZUSAMMENFASSUNG ueber alle " + LTrim(Str(Len(aBelege))) + " Belege")
+   _LogGruppe("nach Waehrung", hWaehrung)
+   _LogGruppe("nach Steuerart", hArt)
+   _LogGruppe("nach Erloes- bzw. Aufwandskonto", hKonto)
+   _Log("")
+
+RETURN NIL
+
+STATIC FUNCTION _Zaehle(hZiel, cSchluessel, nBetrag)
+   IF ! HHasKey(hZiel, cSchluessel)
+      hZiel[cSchluessel] := {0, 0}
+   ENDIF
+   hZiel[cSchluessel][1]++
+   hZiel[cSchluessel][2] += nBetrag
+RETURN NIL
+
+STATIC FUNCTION _LogGruppe(cTitel, hGruppe)
+   LOCAL aSchluessel := HGetKeys(hGruppe)
+   LOCAL cSchluessel
+
+   ASort(aSchluessel)
+
+   _Log("  " + cTitel)
+   FOR EACH cSchluessel IN aSchluessel
+      _Log("    " + PadR(cSchluessel, 24) + ;
+           PadL(LTrim(Str(hGruppe[cSchluessel][1])), 7) + "  " + ;
+           PadL(LTrim(Str(Round(hGruppe[cSchluessel][2], 2), 16, 2)), 17))
+   NEXT
+
+RETURN NIL
+
 STATIC FUNCTION _LogUnkontiert(aBelege)
    LOCAL hBeleg
    LOCAL cFehlt
@@ -482,6 +659,12 @@ STATIC FUNCTION _LogUnkontiert(aBelege)
       ENDIF
       IF Empty(hBeleg["counterparty_account"])
          cFehlt += "Personenkonto "
+      ENDIF
+      //Bei der innergemeinschaftlichen Lieferung ist die USt-IdNr. des
+      //Erwerbers Pflichtangabe der Zusammenfassenden Meldung. Fuer die
+      //Buchung reicht das Konto, fuer die Meldung nicht.
+      IF Upper(AllTrim(hBeleg["tax_kind"])) == "EG" .AND. Empty(hBeleg["counterparty_vat_id"])
+         cFehlt += "USt-IdNr "
       ENDIF
       IF ! Empty(cFehlt)
          AAdd(aOffen, {hBeleg, cFehlt})
@@ -521,12 +704,19 @@ STATIC FUNCTION _LogVorschau(aBelege)
          _Log("  ... und " + LTrim(Str(Len(aBelege) - 200)) + " weitere")
          EXIT
       ENDIF
-      _Log("  " + PadR(hBeleg["erp_reference"], 26) + PadR(hBeleg["doc_date"], 12) + ;
+      //Faelligkeit und Skonto gehoeren in die Vorschau. Sie sind die einzigen
+      //Angaben, die sich ausserhalb von Trader nicht nachrechnen lassen (bei
+      //ziel1 = -4 stecken sie in einem kundeneigenen Programm) - wenn sie hier
+      //nicht zu sehen sind, sieht sie vor dem Echtlauf ueberhaupt niemand.
+      _Log("  " + PadR(hBeleg["erp_reference"], 22) + PadR(hBeleg["doc_date"], 12) + ;
            PadL(LTrim(Str(hBeleg["gross_amount"], 14, 2)), 14) + " " + hBeleg["currency"] + ;
-           "  " + PadR(Left(hBeleg["counterparty_name"], 24), 26) + ;
+           "  " + PadR(Left(hBeleg["counterparty_name"], 22), 24) + ;
            "S " + PadR(hBeleg["account_debit"], 8) + ;
            "H " + PadR(hBeleg["account_credit"], 8) + ;
-           IF(Empty(hBeleg["tax_kind"]), "", hBeleg["tax_kind"]))
+           "faellig " + PadR(hBeleg["due_date"], 12) + ;
+           PadR(_SkontoText(hBeleg), 24) + ;
+           PadR(hBeleg["tax_kind"], 9) + ;
+           IF(Empty(hBeleg["counterparty_vat_id"]), "", hBeleg["counterparty_vat_id"]))
    NEXT
    _Log("")
 
@@ -535,6 +725,15 @@ RETURN NIL
 /**
   * Senden, in Bloecken.
   **/
+/**
+  * Die Skontokondition als Text, leer wenn keine vereinbart ist.
+  **/
+STATIC FUNCTION _SkontoText(hBeleg)
+   IF ! HHasKey(hBeleg, "discount_date") .OR. Empty(hBeleg["discount_date"])
+      RETURN ""
+   ENDIF
+RETURN "Skonto " + AllTrim(Str(hBeleg["discount_rate"], 6, 2)) + "% bis " + hBeleg["discount_date"]
+
 STATIC FUNCTION _Send(oRest, aBelege, nGesendet, nFehler)
    LOCAL aBatches := _SplitIntoBatches(aBelege, PUSH_BATCH)
    LOCAL aBatch
@@ -634,18 +833,56 @@ STATIC FUNCTION _Text(xWert)
    ENDIF
 RETURN ""
 
+/**
+  * Traders Waehrungskennzeichen als ISO-Kuerzel.
+  *
+  * Das Kuerzel steht in der Waehrungstabelle (cur->Symbol) und ist zugleich
+  * der Feldname in curhist, Traders eigener Kursreihe - es ist also gepflegt
+  * und vollstaendig, solange dort eine Waehrung angelegt ist.
+  *
+  * Vorher stand hier eine feste Liste mit vier Eintraegen. Die war genau bis
+  * zur ersten weiteren Waehrung richtig und danach stillschweigend falsch:
+  * ein unbekanntes Kennzeichen ging als einzelner Buchstabe raus, fand
+  * drueben keinen Kurs, und der Beleg blieb unbewertet. Die Liste bleibt als
+  * Rueckfall, falls die Waehrungstabelle kein Symbol fuehrt.
+  *
+  * Das Ergebnis wird gemerkt: CURRATE durchsucht die Tabelle sequenziell, und
+  * bei ein paar tausend Belegen sind das ein paar tausend Durchlaeufe fuer
+  * eine Handvoll verschiedener Waehrungen.
+  **/
 STATIC FUNCTION _CurrencyISO(cCurrency)
    LOCAL hMap := {"E" => "EUR", "U" => "USD", "P" => "GBP", "Y" => "JPY"}
    LOCAL cCur := Upper(AllTrim(cCurrency))
+   LOCAL xSymbol
 
    IF Empty(cCur)
       cCur := "E"
    ENDIF
-   IF HHasKey(hMap, cCur)
-      RETURN hMap[cCur]
+
+   IF HHasKey(shWaehrungen, cCur)
+      RETURN shWaehrungen[cCur]
    ENDIF
 
-RETURN cCur
+   xSymbol := NIL
+   BEGIN SEQUENCE
+      xSymbol := CURRATE(cCur, "X")
+   RECOVER
+      xSymbol := NIL
+   END SEQUENCE
+
+   DO CASE
+   CASE ValType(xSymbol) == "C" .AND. Len(AllTrim(xSymbol)) == 3
+      shWaehrungen[cCur] := Upper(AllTrim(xSymbol))
+   CASE HHasKey(hMap, cCur)
+      shWaehrungen[cCur] := hMap[cCur]
+   OTHERWISE
+      //Weder Symbol noch Rueckfall: der Rohwert geht raus und der Beleg
+      //landet drueben in der Arbeitsliste, weil sich dazu kein Kurs findet.
+      //Sichtbar falsch ist besser als unsichtbar falsch.
+      shWaehrungen[cCur] := cCur
+   ENDCASE
+
+RETURN shWaehrungen[cCur]
 
 STATIC FUNCTION _IsoDate(dDate)
    IF ValType(dDate) != "D" .OR. Empty(dDate)

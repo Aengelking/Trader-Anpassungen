@@ -60,6 +60,55 @@ Tagesreihe, aber Finova bewertet den Beleg an seinem Belegtag aus der EZB-Reihe
 (`fx_rates`). Zwei Kursquellen hießen, dass dieselbe Rechnung je nach Weg einen
 anderen Euro-Wert bekommt.
 
+## Was nicht mitkommt, steht im Protokoll
+
+Drei Filter greifen: eine Rechnung außerhalb des Zeitraums, eine ungepackte
+(also noch nicht fertige) und eine über **0,00**. Bei Eingangsrechnungen
+zusätzlich: nicht gebucht, oder Lieferant beziehungsweise Belegnummer fehlt.
+
+Die Filter sind richtig — eine Rechnung über 0,00 ist keine Buchung, und die
+Datenbank weist sie ohnehin ab. Aber wer im Zeitraum liegt und trotzdem nicht
+mitkommt, wird **benannt**, mit Belegnummer und Grund. Sonst klafft in der
+Rechnungsnummernfolge eine Lücke, die sich nur durch einen Blick in Trader
+erklären lässt — im ersten Automotive-Lauf waren das RE001025 und RE001031,
+beide über 0,00.
+
+„Nicht gebucht" ist dabei mehr als Buchführung über den Lauf: eine erfasste,
+aber nicht gebuchte Eingangsrechnung im abzurechnenden Monat ist
+liegengebliebene Arbeit.
+
+## Der Trockenlauf fasst zusammen, bevor er auflistet
+
+Die Vorschau zeigt höchstens 200 Zeilen. Bei Elektronik sind das 7 % von 2686
+Belegen — und weil `ENGLSRE` nach Kunde sortiert gelesen wird, die Buchstaben A
+bis C.
+
+In dieser Stichprobe fehlten Fremdwährung, Reverse Charge und der Schweizer
+Satz. Was daraus folgt, sagt sie nicht: Reverse Charge kam bisher nie vor, die
+erste Schweizer Rechnung ist erst geplant, und Fremdwährung gibt es heute nur
+bei Eingangsrechnungen — die stehen weiter hinten. Drei verschiedene Gründe, und
+eine Stichprobe lässt keinen davon erkennen.
+
+Vor der Liste steht deshalb eine Aufstellung über **alle** Belege, nach Währung,
+Steuerart und Erlös- beziehungsweise Aufwandskonto. Das ist die Zahl, die sich
+gegen die Umsatzsteuer-Voranmeldung halten lässt.
+
+Summiert wird immer **je Währung**. Beträge verschiedener Währungen zu addieren
+ergäbe eine Zahl, die nichts bedeutet — und der Umrechnungskurs gehört nicht
+hierher, den setzt Finova am Belegtag.
+
+## Währung
+
+Das ISO-Kürzel kommt aus Traders Währungstabelle (`cur->Symbol`, zugleich der
+Feldname in `curhist`), nicht aus einer Liste im Quelltext. Eine feste Liste
+wäre genau bis zur ersten weiteren Währung richtig und danach stillschweigend
+falsch: das unbekannte Kennzeichen ginge als einzelner Buchstabe hinüber, fände
+keinen Kurs, und der Beleg bliebe unbewertet.
+
+Ausgangsrechnungen in Fremdwährung gibt es heute noch nicht, Eingangsrechnungen
+schon. Der Weg ist für beide derselbe — Trader liefert Betrag und Währung,
+Finova bewertet am Belegtag.
+
 ## Was unkontiert ist, geht trotzdem raus
 
 Eine Eingangsrechnung ohne `rech->Konto` wird **nicht** übergangen. Genau das tut

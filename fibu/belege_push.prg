@@ -660,9 +660,10 @@ STATIC FUNCTION _LogUnkontiert(aBelege)
       IF Empty(hBeleg["counterparty_account"])
          cFehlt += "Personenkonto "
       ENDIF
-      //Bei der innergemeinschaftlichen Lieferung ist die USt-IdNr. des
-      //Erwerbers Pflichtangabe der Zusammenfassenden Meldung. Fuer die
-      //Buchung reicht das Konto, fuer die Meldung nicht.
+      //Bei EG fehlt ohne USt-IdNr. eine Pflichtangabe - in beiden Richtungen,
+      //aber aus verschiedenen Gruenden: bei der Lieferung braucht sie die
+      //Zusammenfassende Meldung, beim Erwerb die Erwerbsbesteuerung und der
+      //Vorsteuerabzug. Fuer die Buchung reicht das Konto, dafuer nicht.
       IF Upper(AllTrim(hBeleg["tax_kind"])) == "EG" .AND. Empty(hBeleg["counterparty_vat_id"])
          cFehlt += "USt-IdNr "
       ENDIF
@@ -714,7 +715,7 @@ STATIC FUNCTION _LogVorschau(aBelege)
            "S " + PadR(hBeleg["account_debit"], 8) + ;
            "H " + PadR(hBeleg["account_credit"], 8) + ;
            "faellig " + PadR(hBeleg["due_date"], 12) + ;
-           PadR(_SkontoText(hBeleg), 24) + ;
+           PadR(_SkontoText(hBeleg), 30) + ;
            PadR(hBeleg["tax_kind"], 9) + ;
            IF(Empty(hBeleg["counterparty_vat_id"]), "", hBeleg["counterparty_vat_id"]))
    NEXT

@@ -279,8 +279,9 @@ STATIC FUNCTION _CollectOutbound(dFrom)
    LOCAL hBeleg, hKonten
    LOCAL oRechnung
    LOCAL nScanned := 0
-   LOCAL cName, cKonto
+   LOCAL cName, cKonto, cUstId
    LOCAL nSkontoRate, dSkontoDatum, dFaellig
+   LOCAL nRec
 
    NetUse("englsre", "re")
    NetUse("engkund", "ku")
@@ -302,9 +303,25 @@ STATIC FUNCTION _CollectOutbound(dFrom)
 
          cName  := Trim(re->Kunde)
          cKonto := ""
+         cUstId := ""
          IF ku->(dbSeek(Pad(re->Kunde, 8) + "K"))
             cName  := IF(! Empty(Trim(ku->Name1)), Trim(ku->Name1), Trim(ku->Kunde))
             cKonto := _KontoStr(ku->Nummer)
+
+            //Die Umsatzsteuer-Identifikation gehoert zu der Adresse, die die
+            //Besteuerung bestimmt - bei abweichendem Lieferland ist das die
+            //Lieferadresse, nicht die Rechnungsadresse.
+            //GotoRechnungsTaxCustomer setzt ku genau darauf. Die Satznummer
+            //wird vorher gemerkt und danach zurueckgestellt, wie in
+            //LX_BookOutInvoice: der Rest der Schleife erwartet ku beim Kunden.
+            nRec := ku->(RecNo())
+            BEGIN SEQUENCE
+               GotoRechnungsTaxCustomer(re->Kunde, re->AbNr, re->DelAd)
+               cUstId := StrTran(AllTrim(ku->VatNr), " ", "")
+            RECOVER
+               cUstId := ""
+            END SEQUENCE
+            ku->(dbGoTo(nRec))
          ENDIF
 
          hKonten  := _VatKonten(re->TaxCode, re->Rechdat)
@@ -319,6 +336,7 @@ STATIC FUNCTION _CollectOutbound(dFrom)
          hBeleg["counterparty_name"]    := hb_StrToUTF8(cName)
          hBeleg["counterparty_ref"]     := Trim(re->Kunde)
          hBeleg["counterparty_account"] := cKonto
+         hBeleg["counterparty_vat_id"]  := cUstId
 
          hBeleg["currency"]     := _CurrencyISO(re->Money)
          hBeleg["gross_amount"] := Round(oRechnung:Brutto, 2)
@@ -370,7 +388,7 @@ RETURN aBelege
 STATIC FUNCTION _CollectInbound(dFrom, aBelege)
    LOCAL hBeleg, hKonten
    LOCAL nScanned := 0
-   LOCAL cName
+   LOCAL cName, cUstId
    LOCAL nMwst, nVatRate
    LOCAL dFaellig
 
@@ -389,10 +407,12 @@ STATIC FUNCTION _CollectInbound(dFrom, aBelege)
          ! Empty(rech->Liefma) .AND. ! Empty(rech->Rechnr)
 
          cName    := Trim(rech->Liefma)
+         cUstId   := ""
          nMwst    := 0
          nVatRate := 0
          IF ku->(dbSeek(Pad(rech->Liefma, 8) + "L"))
-            cName := IF(! Empty(Trim(ku->Name1)), Trim(ku->Name1), Trim(ku->Kunde))
+            cName  := IF(! Empty(Trim(ku->Name1)), Trim(ku->Name1), Trim(ku->Kunde))
+            cUstId := StrTran(AllTrim(ku->VatNr), " ", "")
          ENDIF
 
          //Der Steuersatz kommt aus demselben Schluessel wie die Konten.
@@ -417,6 +437,7 @@ STATIC FUNCTION _CollectInbound(dFrom, aBelege)
          hBeleg["counterparty_name"]    := hb_StrToUTF8(cName)
          hBeleg["counterparty_ref"]     := Trim(rech->Liefma)
          hBeleg["counterparty_account"] := _KontoStr(rech->Konto)
+         hBeleg["counterparty_vat_id"]  := cUstId
 
          hBeleg["currency"]     := _CurrencyISO(rech->Money)
          hBeleg["gross_amount"] := Round(rech->GrAmt, 2)
@@ -483,6 +504,12 @@ STATIC FUNCTION _LogUnkontiert(aBelege)
       IF Empty(hBeleg["counterparty_account"])
          cFehlt += "Personenkonto "
       ENDIF
+      //Bei der innergemeinschaftlichen Lieferung ist die USt-IdNr. des
+      //Erwerbers Pflichtangabe der Zusammenfassenden Meldung. Fuer die
+      //Buchung reicht das Konto, fuer die Meldung nicht.
+      IF Upper(AllTrim(hBeleg["tax_kind"])) == "EG" .AND. Empty(hBeleg["counterparty_vat_id"])
+         cFehlt += "USt-IdNr "
+      ENDIF
       IF ! Empty(cFehlt)
          AAdd(aOffen, {hBeleg, cFehlt})
       ENDIF
@@ -521,12 +548,19 @@ STATIC FUNCTION _LogVorschau(aBelege)
          _Log("  ... und " + LTrim(Str(Len(aBelege) - 200)) + " weitere")
          EXIT
       ENDIF
-      _Log("  " + PadR(hBeleg["erp_reference"], 26) + PadR(hBeleg["doc_date"], 12) + ;
+      //Faelligkeit und Skonto gehoeren in die Vorschau. Sie sind die einzigen
+      //Angaben, die sich ausserhalb von Trader nicht nachrechnen lassen (bei
+      //ziel1 = -4 stecken sie in einem kundeneigenen Programm) - wenn sie hier
+      //nicht zu sehen sind, sieht sie vor dem Echtlauf ueberhaupt niemand.
+      _Log("  " + PadR(hBeleg["erp_reference"], 22) + PadR(hBeleg["doc_date"], 12) + ;
            PadL(LTrim(Str(hBeleg["gross_amount"], 14, 2)), 14) + " " + hBeleg["currency"] + ;
-           "  " + PadR(Left(hBeleg["counterparty_name"], 24), 26) + ;
+           "  " + PadR(Left(hBeleg["counterparty_name"], 22), 24) + ;
            "S " + PadR(hBeleg["account_debit"], 8) + ;
            "H " + PadR(hBeleg["account_credit"], 8) + ;
-           IF(Empty(hBeleg["tax_kind"]), "", hBeleg["tax_kind"]))
+           "faellig " + PadR(hBeleg["due_date"], 12) + ;
+           PadR(_SkontoText(hBeleg), 24) + ;
+           PadR(hBeleg["tax_kind"], 9) + ;
+           IF(Empty(hBeleg["counterparty_vat_id"]), "", hBeleg["counterparty_vat_id"]))
    NEXT
    _Log("")
 
@@ -535,6 +569,15 @@ RETURN NIL
 /**
   * Senden, in Bloecken.
   **/
+/**
+  * Die Skontokondition als Text, leer wenn keine vereinbart ist.
+  **/
+STATIC FUNCTION _SkontoText(hBeleg)
+   IF ! HHasKey(hBeleg, "discount_date") .OR. Empty(hBeleg["discount_date"])
+      RETURN ""
+   ENDIF
+RETURN "Skonto " + AllTrim(Str(hBeleg["discount_rate"], 6, 2)) + "% bis " + hBeleg["discount_date"]
+
 STATIC FUNCTION _Send(oRest, aBelege, nGesendet, nFehler)
    LOCAL aBatches := _SplitIntoBatches(aBelege, PUSH_BATCH)
    LOCAL aBatch

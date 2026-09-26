@@ -79,7 +79,9 @@ IF nEk == 0
    RETURN {}
 ENDIF
 
-IF ! cmpr-> (dbSeek( Str(art->Artikelnr,6) )) .OR. cmpr->Datum < Date()-3
+//Live-Abfrage (Scraping, dauert Sekunden bis Minuten) nur noch, wenn gar keine oder sehr alte Daten da sind.
+//Veraltete Daten (> 3 Tage) werden verwendet; upd_all_compet frischt sie im Batch auf (LastReq wird unten gesetzt).
+IF ! cmpr-> (dbSeek( Str(art->Artikelnr,6) )) .OR. cmpr->Datum < Date()-30
    //IF Tr_Getini(28) == 9; Alert("Here"); ENDIF
    IF ! MBaseRun(Trim(Tr_getini(1))+"\run\prices\updcompet")
       RETURN {}

@@ -8,12 +8,15 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
    LOCAL nS,cID,aOffers
    LOCAL nX
    LOCAL nQty
+   LOCAL lShow
+   LOCAL nY
 
    LOCAL hNimble := {;
       "FARNELL"=>{"URL"=>"https://de.farnell.com/x/x/x/dp/"+Trim(ali->Artlief),"RENDER"=>.T.};
    }
 
-   Default(@lDbg,.F.)
+   Default(@lDbg,.F.)  //lDbg = Cache ignorieren (Force); Alerts nur interaktiv, sonst blockiert der Batch
+   lShow := lDbg .AND. ! GetConfigValue("BATCHMODE")
 
    IF Tr_GetINi(28) == 9 //.AND. ! GetConfigValue("BATCHMODE")
       //Alert("GetPricesCompet for "+cLief)
@@ -31,8 +34,8 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
    
       IF ! Empty(oExtra:BRAI_ENGIN) .AND. (! Empty(oExtra:BRAI_URL) .OR. Trim(cLief) == "CONRAD")
          IF "%artlief%" $ oExtra:BRAI_URL .AND. (! ali->(Found()) .OR. Empty(ali->Artlief))
-            IF lDbg
-               Alert("No Artlief for "+cLief+" "+Trim(ali->Artikelnr)+" "+Trim(art->Matchcode))
+            IF lShow
+               Alert("No Artlief for "+cLief+" "+LTrim(Str(art->Artikelnr))+" "+Trim(art->Matchcode))
             ENDIF
             hPrices := {=>}
          ELSE            
@@ -75,17 +78,17 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
                         FOR nX := 1 TO Len(hData["parsing"]["entities"]["Product"][1]["offers"])
                            IF hData["parsing"]["entities"]["Product"][1]["offers"][nX]["@type"]== "AggregateOffer"
                               aOffers := hData["parsing"]["entities"]["Product"][1]["offers"][nX]["offers"][1]            
-                              FOR nX := 1 TO Len(aOffers)               
-                                 hPrices[aOffers[nX]["eligibleQuantity"]["minValue"]] := Val(aOffers[nX]["price"])
+                              FOR nY := 1 TO Len(aOffers)
+                                 hPrices[aOffers[nY]["eligibleQuantity"]["minValue"]] := Val(aOffers[nY]["price"])
                               NEXT
                            ENDIF
                         NEXT
                      ELSE
-                        hPrices[a1] := hData["parsing"]["entities"]["Product"][1]["offers"]["highPrice"]
+                        hPrices[1] := hData["parsing"]["entities"]["Product"][1]["offers"]["highPrice"]
                      ENDIF
                   ENDIF
                ELSE
-                  IF lDbg
+                  IF lShow
                      Alert("Error;"+ValToPrg(hData))
                   ENDIF               
                ENDIF            
@@ -104,7 +107,7 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
                   
 
                   IF ValType(hData) != "H" .OR. ! HHasKey(hData,"result") .OR. ValType(hData["result"]) != "H" .OR. ! HHasKey(hData["result"],"status")
-                     IF lDbg
+                     IF lShow
                         Alert("No result or status")
                      ENDIF
                      IF ValType(hData) == "H" .AND. HHasKey(hData,"statusCode") .AND. hData["statusCode"] == 403
@@ -145,7 +148,7 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
                         ENDIF                  
                      ENDDO
                      IF cData != NIL .AND. hData["result"]["status"] == "failed"
-                        IF lDbg
+                        IF lShow
                            Alert(ValToPrg(hData["result"]))
                            Alert("Task failed "+hData["result"]["id"])
                         ENDIF
@@ -154,7 +157,7 @@ FUNCTION GetPricesCompet(cLief,lDbg,nError)
                         
                      ENDIF
                   ENDIF
-                  IF lDbg
+                  IF lShow
                      Alert("BrowseAI took: "+Str(Seconds()-nSecs)+"s")
                      Alert(ValToPrg(hData["result"]))
                   ENDIF

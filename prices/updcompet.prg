@@ -11,6 +11,8 @@ LOCAL cMatch,nPe := 1
 LOCAL nY,nX
 LOCAL lDbg := Tr_Getini(28) == 9
 LOCAL lBuerklin := .F.
+LOCAL lFailed := .F.   //mind. ein Konkurrent lieferte keine Preise -> alte Werte nicht loeschen
+LOCAL aWeb
 //LOCAL aEnv := SaveEnv()
 
 MEMVAR c_five
@@ -36,7 +38,7 @@ NetUse("compprice","cmpr")
 NetUse("comprice2","cmp2")
 NetUse("engkund","ku")
 
-IF art->Manufactur == 14
+IF art->Manufactur == 14 .AND. AScan(aCompet,"TME") == 0
    Aadd(aCompet,"TME")
 ENDIF
 aPriceList := Array(Len(aCompet))
@@ -140,10 +142,18 @@ FOR nX := 1 TO Len(aCompet)
       
 
       IF Inkey() == 27  //cancel update
+         art->(dbGoto(nRecno))
+         IF lDisp
+            TxtClear()
+         ENDIF
          RETURN .F.
       ENDIF
       IF ValType(hPrices) != "H" .OR. Len(hPrices) == 0 .OR. HGetValueAt(hPrices,1) == 0
          IF ! aCompet[nX] $ "Schukat TME" .AND. (aCompet[nX] != "Mouser" .OR. ValType(hPrices) != "H" .OR. Len(hPrices) != 2)
+            //Frueher wurde hier mit RETURN .F. abgebrochen: dann wurden auch die Preise der anderen Konkurrenten
+            //verworfen, compprice nie aktualisiert und PriceTabs lieferte {} - bei jedem Aufruf erneut (langsam).
+            //Jetzt: diesen Konkurrenten ueberspringen und mit den uebrigen weitermachen.
+            lFailed := .T.
             IF lDisp
                IF  ValType(hPrices) == "H" //NIL is used for connection errors
                   IF Date() < GetValue("HOLIDAY-AMOS-START") .OR. Date() > GetValue("HOLIDAY-AMOS-END")
@@ -154,10 +164,8 @@ FOR nX := 1 TO Len(aCompet)
                   TxtBox("Preise von "+aCompet[nX]+" konnten nicht geladen werden!","FEHLER")
                   Inkey(5,128)
                   TxtClear()
-                  TxtClear()
                ENDIF
             ENDIF
-            RETURN .F.
          ENDIF
       ELSE
          IF aCompet[nX] == "BUERKLIN"
@@ -173,6 +181,18 @@ FOR nX := 1 TO Len(aCompet)
    //Sinkey(0)
    
 NEXT
+
+//Im Browser erfasste Preise (Website, Erweiterung "Engelking Konkurrenzpreise", siehe prices\capture)
+//kommen als weitere Konkurrenten dazu - ohne Scraping. Nur Erfassungen der letzten 90 Tage.
+aWeb := WebCompetPriceLists(art->Artikelnr, StrTran(Trim(art->Matchcode),"#MT",""), 90)
+IF aWeb == NIL
+   lFailed := .T.  //Website nicht erreichbar: vorhandene Preise behalten
+ELSE
+   FOR nX := 1 TO Len(aWeb)
+      Aadd(aCompet,"WEB "+aWeb[nX][1])
+      Aadd(aPriceList,aWeb[nX][2])
+   NEXT
+ENDIF
 
 IF lDbg
    SAVE SCREEN
@@ -230,7 +250,11 @@ cmpr->(dbSeek( Str(nArtnr,6) ))
 DO WHILE cmpr->Artikelnr == nArtnr
    IF cmpr->Datum < Date()
       cmpr->(Rec_Lock(0))
-      cmpr->(dbDelete())
+      IF lFailed .AND. cmpr->Menge != 99999999
+         cmpr->Datum := Date()  //Abfrage teilweise fehlgeschlagen: alte Preise behalten, naechster Versuch in 3 Tagen
+      ELSE
+         cmpr->(dbDelete())
+      ENDIF
       cmpr->(dbUnLock())
    ENDIF
    cmpr->(dbSkip())
@@ -260,4 +284,7 @@ ELSE
 //   TxtClear()
 ENDIF
 
+RETURN .T.
+
 #include 'x:\run\prices\getprices.prg'
+#include 'x:\run\prices\websiteoffers.prg'

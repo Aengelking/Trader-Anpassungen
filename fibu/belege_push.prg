@@ -56,7 +56,7 @@
   * Protokoll unter \export\belege_<Firma>_<Datum>_<Zeit>.txt
   **/
 
-#include 'trader.ch'
+//#include 'trader.ch'
 
 #define CRLF Chr(13)+Chr(10)
 

@@ -123,7 +123,7 @@ RETURN .T.
 STATIC FUNCTION _CaptureShops()
 RETURN {;
    {"RS",       "RS",       "https://de.rs-online.com/web/c/?searchTerm=%artlief%", "https://de.rs-online.com/web/c/?searchTerm=%mpn%"},;
-   {"BUERKLIN", "Buerklin", "https://www.buerklin.com/de/suche/?search=%artlief%",  "https://www.buerklin.com/de/suche/?search=%mpn%"},;
+   {"BUERKLIN", "Buerklin", "https://www.buerklin.com/de/suche/%artlief%/",         "https://www.buerklin.com/de/suche/%mpn%/"},;
    {"FARNELL",  "Farnell",  "https://de.farnell.com/x/x/x/dp/%artlief%",            "https://de.farnell.com/search?st=%mpn%"},;
    {"MOUSER",   "Mouser",   "https://www.mouser.de/ProductDetail/%artlief%",        "https://www.mouser.de/c/?q=%mpn%"},;
    {"TME",      "TME",      "https://www.tme.eu/de/details/%artlief%/",             "https://www.tme.eu/de/katalog/?search=%mpn%"},;

@@ -60,6 +60,23 @@ Tagesreihe, aber Finova bewertet den Beleg an seinem Belegtag aus der EZB-Reihe
 (`fx_rates`). Zwei Kursquellen hießen, dass dieselbe Rechnung je nach Weg einen
 anderen Euro-Wert bekommt.
 
+## Was nicht mitkommt, steht im Protokoll
+
+Drei Filter greifen: eine Rechnung außerhalb des Zeitraums, eine ungepackte
+(also noch nicht fertige) und eine über **0,00**. Bei Eingangsrechnungen
+zusätzlich: nicht gebucht, oder Lieferant beziehungsweise Belegnummer fehlt.
+
+Die Filter sind richtig — eine Rechnung über 0,00 ist keine Buchung, und die
+Datenbank weist sie ohnehin ab. Aber wer im Zeitraum liegt und trotzdem nicht
+mitkommt, wird **benannt**, mit Belegnummer und Grund. Sonst klafft in der
+Rechnungsnummernfolge eine Lücke, die sich nur durch einen Blick in Trader
+erklären lässt — im ersten Automotive-Lauf waren das RE001025 und RE001031,
+beide über 0,00.
+
+„Nicht gebucht" ist dabei mehr als Buchführung über den Lauf: eine erfasste,
+aber nicht gebuchte Eingangsrechnung im abzurechnenden Monat ist
+liegengebliebene Arbeit.
+
 ## Was unkontiert ist, geht trotzdem raus
 
 Eine Eingangsrechnung ohne `rech->Konto` wird **nicht** übergangen. Genau das tut

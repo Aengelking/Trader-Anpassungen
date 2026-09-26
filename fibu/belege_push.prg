@@ -73,6 +73,7 @@ FUNCTION RUN_PUSH_BELEGE(lLive)
    LOCAL oRest := RestApi():New()
    LOCAL dFrom
    LOCAL aBelege
+   LOCAL aUebergangen := {}
    LOCAL cProtokoll
    LOCAL nGesendet := 0, nFehler := 0
 
@@ -103,13 +104,14 @@ FUNCTION RUN_PUSH_BELEGE(lLive)
       RETURN .F.
    ENDIF
 
-   aBelege := _CollectOutbound(dFrom)
+   aBelege := _CollectOutbound(dFrom, @aUebergangen)
    _Log("Ausgangsrechnungen: " + LTrim(Str(Len(aBelege))))
 
-   _CollectInbound(dFrom, @aBelege)
+   _CollectInbound(dFrom, @aBelege, @aUebergangen)
    _Log("Belege gesamt:      " + LTrim(Str(Len(aBelege))))
    _Log("")
 
+   _LogUebergangen(aUebergangen)
    _LogUnkontiert(aBelege)
 
    IF Len(aBelege) == 0
@@ -274,7 +276,7 @@ RETURN dRechdat + nWait
   * Soll und Haben wie in LX_BookOutInvoice: Soll ist das Debitorenkonto,
   * Haben das Erloeskonto.
   **/
-STATIC FUNCTION _CollectOutbound(dFrom)
+STATIC FUNCTION _CollectOutbound(dFrom, aUebergangen)
    LOCAL aBelege := {}
    LOCAL hBeleg, hKonten
    LOCAL oRechnung
@@ -296,7 +298,20 @@ STATIC FUNCTION _CollectOutbound(dFrom)
    DO WHILE ! re->(EOF()) .AND. re->Reposnr == 0
       nScanned++
 
-      IF re->Rechdat >= dFrom .AND. re->Packed .AND. re->PosWt != 0
+      //Wer im Zeitraum liegt und trotzdem nicht mitkommt, wird benannt. Die
+      //Filter sind richtig - eine ungepackte Rechnung ist nicht fertig, und
+      //eine Rechnung ueber 0,00 ist keine Buchung, die Datenbank weist sie
+      //ohnehin ab. Aber sie duerfen nicht lautlos verschwinden: sonst klafft
+      //in der Belegnummernfolge eine Luecke, die niemand mehr erklaeren kann,
+      //ohne in Trader nachzusehen.
+      DO CASE
+      CASE re->Rechdat < dFrom
+         //ausserhalb des Zeitraums - kein Uebergehen, sondern der Zuschnitt
+      CASE ! re->Packed
+         AAdd(aUebergangen, {"RE" + StrZero(re->Rechnr, 6), "nicht gepackt"})
+      CASE re->PosWt == 0
+         AAdd(aUebergangen, {"RE" + StrZero(re->Rechnr, 6), "Betrag 0,00"})
+      OTHERWISE
 
          oRechnung := Rechnung():New()
          oRechnung:Load(re->Rechnr)
@@ -359,7 +374,7 @@ STATIC FUNCTION _CollectOutbound(dFrom)
 
          hBeleg["company_id"] := GetConfigValue("FIRMNO")
          AAdd(aBelege, hBeleg)
-      ENDIF
+      ENDCASE
 
       re->(dbSkip())
    ENDDO
@@ -385,7 +400,7 @@ RETURN aBelege
   * Haben das Kreditorenkonto an der Rechnung. An der Rechnung, nicht am
   * Lieferanten - ein Lieferant kann je Waehrung ein eigenes Konto haben.
   **/
-STATIC FUNCTION _CollectInbound(dFrom, aBelege)
+STATIC FUNCTION _CollectInbound(dFrom, aBelege, aUebergangen)
    LOCAL hBeleg, hKonten
    LOCAL nScanned := 0
    LOCAL cName, cUstId
@@ -403,8 +418,20 @@ STATIC FUNCTION _CollectInbound(dFrom, aBelege)
    DO WHILE ! rech->(EOF())
       nScanned++
 
-      IF rech->Booked .AND. rech->Rechdat >= dFrom .AND. rech->GrAmt != 0 .AND. ;
-         ! Empty(rech->Liefma) .AND. ! Empty(rech->Rechnr)
+      //Wie bei den Ausgangsrechnungen: was im Zeitraum liegt und trotzdem
+      //nicht mitkommt, wird benannt. Bei "nicht gebucht" ist das mehr als
+      //Buchfuehrung ueber den Lauf - eine erfasste, aber nicht gebuchte
+      //Eingangsrechnung im abzurechnenden Monat ist liegengebliebene Arbeit.
+      DO CASE
+      CASE rech->Rechdat < dFrom
+         //ausserhalb des Zeitraums
+      CASE ! rech->Booked
+         AAdd(aUebergangen, {_ErRef(), "nicht gebucht"})
+      CASE Empty(rech->Liefma) .OR. Empty(rech->Rechnr)
+         AAdd(aUebergangen, {_ErRef(), "Lieferant oder Belegnummer fehlt"})
+      CASE rech->GrAmt == 0
+         AAdd(aUebergangen, {_ErRef(), "Betrag 0,00"})
+      OTHERWISE
 
          cName    := Trim(rech->Liefma)
          cUstId   := ""
@@ -456,12 +483,65 @@ STATIC FUNCTION _CollectInbound(dFrom, aBelege)
 
          hBeleg["company_id"] := GetConfigValue("FIRMNO")
          AAdd(aBelege, hBeleg)
-      ENDIF
+      ENDCASE
 
       rech->(dbSkip())
    ENDDO
 
    _Log("  ENGRECH gelesen: " + LTrim(Str(nScanned)))
+
+RETURN NIL
+
+/**
+  * Kennung einer Eingangsrechnung fuer das Protokoll. Faellt Lieferant oder
+  * Belegnummer aus, bleibt die Satznummer - ohne sie waere ein Datenfehler
+  * genau der Fall, den man anschliessend nicht wiederfindet.
+  **/
+STATIC FUNCTION _ErRef()
+   IF Empty(rech->Liefma) .OR. Empty(rech->Rechnr)
+      RETURN "ER-Satz " + LTrim(Str(rech->(RecNo())))
+   ENDIF
+RETURN "ER-" + Trim(rech->Liefma) + "-" + Trim(rech->Rechnr)
+
+/**
+  * Was im Zeitraum liegt, aber nicht mitkommt - nach Grund gebuendelt.
+  *
+  * Die Filter sind richtig; sichtbar muessen sie trotzdem sein. Die beiden
+  * Nullbelege aus dem ersten Automotive-Lauf (RE001025 und RE001031) liessen
+  * eine Luecke in der Belegnummernfolge, die sich nur durch einen Blick in
+  * Trader erklaeren liess. Genau das soll das Protokoll abnehmen.
+  **/
+STATIC FUNCTION _LogUebergangen(aUebergangen)
+   LOCAL hGruende := {=>}
+   LOCAL aEintrag, cGrund, cListe
+   LOCAL nZeile
+
+   IF Len(aUebergangen) == 0
+      RETURN NIL
+   ENDIF
+
+   FOR EACH aEintrag IN aUebergangen
+      IF ! HHasKey(hGruende, aEintrag[2])
+         hGruende[aEintrag[2]] := {}
+      ENDIF
+      AAdd(hGruende[aEintrag[2]], aEintrag[1])
+   NEXT
+
+   _Log("IM ZEITRAUM, ABER NICHT UEBERNOMMEN: " + LTrim(Str(Len(aUebergangen))))
+   FOR EACH cGrund IN HGetKeys(hGruende)
+      cListe := ""
+      nZeile := 0
+      FOR EACH aEintrag IN hGruende[cGrund]
+         nZeile++
+         IF nZeile > 20
+            cListe += ", ... und " + LTrim(Str(Len(hGruende[cGrund]) - 20)) + " weitere"
+            EXIT
+         ENDIF
+         cListe += IF(Empty(cListe), "", ", ") + aEintrag
+      NEXT
+      _Log("  " + PadR(cGrund, 34) + LTrim(Str(Len(hGruende[cGrund]))) + "  " + cListe)
+   NEXT
+   _Log("")
 
 RETURN NIL
 

@@ -12,7 +12,9 @@
 //    MBaseRun(Trim(Tr_getini(1))+"\run\prices\capture",{nArtnr})   bestimmter Artikel
 //
 // Direkt auf die Produktseite geht es, wenn in artlief die Bestellnummer des Shops steht,
-// sonst auf die Suche nach der Herstellernummer.
+// sonst auf die Suche nach der Herstellernummer. Landet die Erweiterung (ab 0.3.0) auf einer
+// Suchergebnisseite, springt sie selbst zum passenden Produkt; dafuer bekommt sie die
+// Bestellnummer als "&nr=" mit.
 
 FUNCTION RUN_PRICES_CAPTURE( nArtnr )
 LOCAL aShops := _CaptureShops()
@@ -49,11 +51,11 @@ FOR nX := 1 TO Len(aShops)
    cArtlief := IF(ali->(Found()), StrTran(Trim(ali->Artlief)," ",""), "")
    IF ! Empty(cArtlief)
       cUrl := StrTran(aShops[nX][3],"%artlief%",_CaptureUrlEncode(cArtlief))
-      Aadd(aWith, {aShops[nX][2], cUrl})
+      Aadd(aWith, {aShops[nX][2], cUrl, cArtlief})
    ELSE
       cUrl := StrTran(aShops[nX][4],"%mpn%",_CaptureUrlEncode(cMpn))
    ENDIF
-   Aadd(aOpen, {aShops[nX][2], cUrl})
+   Aadd(aOpen, {aShops[nX][2], cUrl, cArtlief})
 NEXT
 
 cMsg := "Konkurrenzpreise fuer "+cMpn+" im Browser erfassen.;;"
@@ -75,7 +77,7 @@ ENDIF
 //Kennung fuer die Erweiterung: Sie oeffnet dann das Panel von selbst und traegt die Artikelnummer ein
 cHash := "#ek="+LTrim(Str(nArtnr))+"&mpn="+_CaptureUrlEncode(cMpn)
 FOR nX := 1 TO Len(aOpen)
-   WAPI_ShellExecute(,"open",aOpen[nX][2]+cHash)
+   WAPI_ShellExecute(,"open",aOpen[nX][2]+cHash+IF(Empty(aOpen[nX][3]),"","&nr="+_CaptureUrlEncode(aOpen[nX][3])))
    Inkey(0.4)  //Tabs in Reihenfolge oeffnen lassen
 NEXT
 
@@ -121,7 +123,7 @@ RETURN .T.
 STATIC FUNCTION _CaptureShops()
 RETURN {;
    {"RS",       "RS",       "https://de.rs-online.com/web/c/?searchTerm=%artlief%", "https://de.rs-online.com/web/c/?searchTerm=%mpn%"},;
-   {"BUERKLIN", "Buerklin", "https://www.buerklin.com/de/search/?text=%artlief%",   "https://www.buerklin.com/de/search/?text=%mpn%"},;
+   {"BUERKLIN", "Buerklin", "https://www.buerklin.com/de/search?q=%artlief%",       "https://www.buerklin.com/de/search?q=%mpn%"},;
    {"FARNELL",  "Farnell",  "https://de.farnell.com/x/x/x/dp/%artlief%",            "https://de.farnell.com/search?st=%mpn%"},;
    {"MOUSER",   "Mouser",   "https://www.mouser.de/ProductDetail/%artlief%",        "https://www.mouser.de/c/?q=%mpn%"},;
    {"TME",      "TME",      "https://www.tme.eu/de/details/%artlief%/",             "https://www.tme.eu/de/katalog/?search=%mpn%"},;

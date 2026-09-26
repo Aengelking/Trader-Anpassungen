@@ -68,6 +68,7 @@
 
 STATIC snProtokoll := 0
 STATIC shIni := NIL
+STATIC shWaehrungen := {=>}
 
 FUNCTION RUN_PUSH_BELEGE(lLive)
    LOCAL oRest := RestApi():New()
@@ -112,6 +113,7 @@ FUNCTION RUN_PUSH_BELEGE(lLive)
    _Log("")
 
    _LogUebergangen(aUebergangen)
+   _LogZusammenfassung(aBelege)
    _LogUnkontiert(aBelege)
 
    IF Len(aBelege) == 0
@@ -567,6 +569,80 @@ RETURN ""
   * schon zu zeigen erspart den Umweg: wer den Trockenlauf liest, sieht
   * sofort, was nachzupflegen ist.
   **/
+/**
+  * Die Summen, bevor die Einzelzeilen kommen.
+  *
+  * Der erste Elektronik-Trockenlauf brachte 2686 Belege; die Vorschau zeigt
+  * hoechstens 200 davon, und weil ENGLSRE nach Kunde sortiert gelesen wird,
+  * sind das die Buchstaben A bis C. Sieben Prozent, und die nicht einmal
+  * zufaellig - ueber Fremdwaehrung, Reverse Charge oder den Schweizer Satz
+  * sagte die Liste nichts, obwohl es sie gibt.
+  *
+  * Eine Aufstellung nach Waehrung, Steuerart und Erloes- beziehungsweise
+  * Aufwandskonto deckt dagegen alle Belege ab und ist die Zahl, die sich
+  * gegen die Umsatzsteuer-Voranmeldung halten laesst.
+  *
+  * Summiert wird IMMER je Waehrung. Betraege verschiedener Waehrungen zu
+  * addieren ergaebe eine Zahl, die nichts bedeutet - und der Umrechnungskurs
+  * gehoert hier nicht her, den setzt Finova am Belegtag.
+  **/
+STATIC FUNCTION _LogZusammenfassung(aBelege)
+   LOCAL hWaehrung := {=>}, hArt := {=>}, hKonto := {=>}
+   LOCAL hBeleg
+   LOCAL cArt, cKonto
+
+   IF Len(aBelege) == 0
+      RETURN NIL
+   ENDIF
+
+   FOR EACH hBeleg IN aBelege
+      cArt := IF(Empty(hBeleg["tax_kind"]), "(ohne Schluessel)", AllTrim(hBeleg["tax_kind"]))
+
+      //Bei der Ausgangsrechnung traegt das Habenkonto den Erloes, bei der
+      //Eingangsrechnung das Sollkonto den Aufwand. Das Gegenkonto ist in
+      //beiden Faellen das Personenkonto und sagt ueber die Art nichts.
+      cKonto := IF(hBeleg["doc_type"] == "sales_invoice", ;
+                   hBeleg["account_credit"], hBeleg["account_debit"])
+      IF Empty(cKonto)
+         cKonto := "(ohne Konto)"
+      ENDIF
+
+      _Zaehle(hWaehrung, hBeleg["currency"], hBeleg["gross_amount"])
+      _Zaehle(hArt, PadR(cArt, 18) + hBeleg["currency"], hBeleg["gross_amount"])
+      _Zaehle(hKonto, PadR(cKonto, 18) + hBeleg["currency"], hBeleg["gross_amount"])
+   NEXT
+
+   _Log("ZUSAMMENFASSUNG ueber alle " + LTrim(Str(Len(aBelege))) + " Belege")
+   _LogGruppe("nach Waehrung", hWaehrung)
+   _LogGruppe("nach Steuerart", hArt)
+   _LogGruppe("nach Erloes- bzw. Aufwandskonto", hKonto)
+   _Log("")
+
+RETURN NIL
+
+STATIC FUNCTION _Zaehle(hZiel, cSchluessel, nBetrag)
+   IF ! HHasKey(hZiel, cSchluessel)
+      hZiel[cSchluessel] := {0, 0}
+   ENDIF
+   hZiel[cSchluessel][1]++
+   hZiel[cSchluessel][2] += nBetrag
+RETURN NIL
+
+STATIC FUNCTION _LogGruppe(cTitel, hGruppe)
+   LOCAL aSchluessel := HGetKeys(hGruppe)
+   LOCAL cSchluessel
+
+   ASort(aSchluessel)
+
+   _Log("  " + cTitel)
+   FOR EACH cSchluessel IN aSchluessel
+      _Log("    " + PadR(cSchluessel, 24) + ;
+           PadL(LTrim(Str(hGruppe[cSchluessel][1])), 7) + "  " + ;
+           PadL(LTrim(Str(Round(hGruppe[cSchluessel][2], 2), 16, 2)), 17))
+   NEXT
+
+RETURN NIL
+
 STATIC FUNCTION _LogUnkontiert(aBelege)
    LOCAL hBeleg
    LOCAL cFehlt
@@ -757,18 +833,56 @@ STATIC FUNCTION _Text(xWert)
    ENDIF
 RETURN ""
 
+/**
+  * Traders Waehrungskennzeichen als ISO-Kuerzel.
+  *
+  * Das Kuerzel steht in der Waehrungstabelle (cur->Symbol) und ist zugleich
+  * der Feldname in curhist, Traders eigener Kursreihe - es ist also gepflegt
+  * und vollstaendig, solange dort eine Waehrung angelegt ist.
+  *
+  * Vorher stand hier eine feste Liste mit vier Eintraegen. Die war genau bis
+  * zur ersten weiteren Waehrung richtig und danach stillschweigend falsch:
+  * ein unbekanntes Kennzeichen ging als einzelner Buchstabe raus, fand
+  * drueben keinen Kurs, und der Beleg blieb unbewertet. Die Liste bleibt als
+  * Rueckfall, falls die Waehrungstabelle kein Symbol fuehrt.
+  *
+  * Das Ergebnis wird gemerkt: CURRATE durchsucht die Tabelle sequenziell, und
+  * bei ein paar tausend Belegen sind das ein paar tausend Durchlaeufe fuer
+  * eine Handvoll verschiedener Waehrungen.
+  **/
 STATIC FUNCTION _CurrencyISO(cCurrency)
    LOCAL hMap := {"E" => "EUR", "U" => "USD", "P" => "GBP", "Y" => "JPY"}
    LOCAL cCur := Upper(AllTrim(cCurrency))
+   LOCAL xSymbol
 
    IF Empty(cCur)
       cCur := "E"
    ENDIF
-   IF HHasKey(hMap, cCur)
-      RETURN hMap[cCur]
+
+   IF HHasKey(shWaehrungen, cCur)
+      RETURN shWaehrungen[cCur]
    ENDIF
 
-RETURN cCur
+   xSymbol := NIL
+   BEGIN SEQUENCE
+      xSymbol := CURRATE(cCur, "X")
+   RECOVER
+      xSymbol := NIL
+   END SEQUENCE
+
+   DO CASE
+   CASE ValType(xSymbol) == "C" .AND. Len(AllTrim(xSymbol)) == 3
+      shWaehrungen[cCur] := Upper(AllTrim(xSymbol))
+   CASE HHasKey(hMap, cCur)
+      shWaehrungen[cCur] := hMap[cCur]
+   OTHERWISE
+      //Weder Symbol noch Rueckfall: der Rohwert geht raus und der Beleg
+      //landet drueben in der Arbeitsliste, weil sich dazu kein Kurs findet.
+      //Sichtbar falsch ist besser als unsichtbar falsch.
+      shWaehrungen[cCur] := cCur
+   ENDCASE
+
+RETURN shWaehrungen[cCur]
 
 STATIC FUNCTION _IsoDate(dDate)
    IF ValType(dDate) != "D" .OR. Empty(dDate)

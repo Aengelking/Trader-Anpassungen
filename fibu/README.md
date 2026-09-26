@@ -10,7 +10,9 @@ Fremdwährungen richtig bewertet.
 |---|---|
 | `vat_dump.prg` | zieht die Kontierungsstammdaten ab (`vat`, `lexware.ini`, `skontoa`) |
 | `kontierung_angleichen.md` | Arbeitsliste: was in beiden Firmen nachzupflegen ist |
-| `belege_push.prg` | sendet die Belege mit ihrem Buchungssatz an Finova |
+| `belege_push.prg` | sendet die in Trader gebuchten Belege mit ihrem Buchungssatz |
+| `reb_push.prg` | sendet die direkt in Lexware gebuchten Eingangsrechnungen |
+| `fibu_common.prg` | gemeinsame Helfer beider Sammler (kein Einstiegspunkt) |
 
 ## Reihenfolge
 
@@ -21,6 +23,48 @@ Fremdwährungen richtig bewertet.
 3. **`RUN_PUSH_BELEGE()`** als Trockenlauf. Das Protokoll listet, was noch nicht
    kontiert ist.
 4. **`RUN_PUSH_BELEGE(.T.)`** erst, wenn diese Liste gelesen wurde.
+
+## Zwei Sammler, eine Tabelle
+
+Die Eingangsrechnungen laufen auf zwei Wegen durchs Haus, und beide enden in
+`documents`:
+
+| | Quelle | Kontierung aus |
+|---|---|---|
+| `belege_push.prg` | `ENGRECH` — in Trader gebucht | Traders `vat`-Tabelle |
+| `reb_push.prg` | `reb` — direkt in Lexware gebucht | dem Lexware-Journal |
+
+Die Trennung ist scharf: `reb_push.prg` liest einmal alle Referenzen aus
+`ENGRECH` ein und **überspringt jede reb-Zeile, die dort schon steht**. Ohne
+das würde derselbe Beleg zweimal gesendet — unter derselben `erp_reference`,
+also auf denselben Schlüssel, und der letzte Lauf gewänne. Traders Kontierung
+ist die genauere; sie darf nicht von der aus Lexware überschrieben werden.
+
+### Warum die Kontierung bei reb aus Lexware kommt
+
+`reb` kennt Beleg, Betrag, Kreditor und Kostenstelle — aber kein
+Rechnungsdatum, keinen Steuersatz und kein Sachkonto. Gebucht sind diese
+Rechnungen trotzdem, nämlich in Lexware. `LX_GetBookingsForID("ER" + <reb-ID>)`
+findet sie über den Belegtext und liefert je Zeile Soll, Haben, Netto, USt und
+das Belegdatum — genau die Form, die `document_lines` erwartet. Eine
+aufgeteilte Rechnung kommt damit mit allen ihren Zeilen herüber statt als eine
+Summe.
+
+Nur das Journal, nicht der Stapel. Eine Stapelbuchung ist ein Entwurf; sie als
+Beleg zu führen hieße, etwas zu buchen, was die Buchhaltung noch nicht gebucht
+hat.
+
+### Was reb-Belegen fehlt
+
+Eine **Fälligkeit** hat `reb` nicht. Sie steht am Lexware-Offenposten, den
+Finova über `erp_items` ohnehin führt. Der Beleg geht ohne sie hinaus und steht
+damit in `documents_unkontiert` — sichtbar statt stillschweigend falsch. Der
+Trockenlauf zeigt, wie viele das sind; danach lässt sich entscheiden, ob die
+Fälligkeit aus dem Offenposten nachgezogen wird.
+
+Die **Kostenstelle** steht in `reb` einmal je Beleg, nicht je Zeile. Alle
+Zeilen eines Belegs bekommen deshalb dieselbe. Lexware führt zwar ein `lKST`
+je Buchung, aber `LX_GetBookingsForID` liest es nicht mit.
 
 ## Warum Trader den Buchungssatz bildet
 

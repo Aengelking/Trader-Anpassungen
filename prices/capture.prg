@@ -19,7 +19,7 @@
 FUNCTION RUN_PRICES_CAPTURE( nArtnr )
 LOCAL aShops := _CaptureShops()
 LOCAL aOpen := {}, aWith := {}
-LOCAL cMpn, cArtlief, cUrl, cMsg, cHash
+LOCAL cMpn, cArtlief, cUrl, cMsg, cHash, aMsg
 LOCAL nX, nChoice, nOrd, nRecno
 LOCAL aWeb, nNew
 
@@ -58,14 +58,15 @@ FOR nX := 1 TO Len(aShops)
    Aadd(aOpen, {aShops[nX][2], cUrl, cArtlief})
 NEXT
 
-cMsg := "Konkurrenzpreise fuer "+cMpn+" im Browser erfassen.;;"
+//Tr_msgbox erwartet die Zeilen als Array
+aMsg := {"Konkurrenzpreise fuer "+cMpn+" im Browser erfassen.", ""}
 IF Len(aWith) > 0
-   cMsg += "Mit Bestellnummer: "+_CaptureNames(aWith)+";"
-   cMsg += "Ohne (Suche): "+_CaptureNames(aOpen,aWith)
-   nChoice := Tr_msgbox(cMsg,,{"Nur mit Bestellnr.","Alle Shops","Abbrechen"})
+   Aadd(aMsg, "Mit Bestellnummer: "+_CaptureNames(aWith))
+   Aadd(aMsg, "Ohne (Suche): "+_CaptureNames(aOpen,aWith))
+   nChoice := Tr_msgbox(aMsg,,{"Nur mit Bestellnr.","Alle Shops","Abbrechen"})
 ELSE
-   cMsg += "Keine Bestellnummern hinterlegt - es wird nach der Herstellernummer gesucht."
-   nChoice := Tr_msgbox(cMsg,,{"Alle Shops","Abbrechen"})
+   Aadd(aMsg, "Keine Bestellnummern hinterlegt - es wird nach der Herstellernummer gesucht.")
+   nChoice := Tr_msgbox(aMsg,,{"Alle Shops","Abbrechen"})
    nChoice := IF(nChoice == 1, 2, 3)
 ENDIF
 IF nChoice == 1
@@ -81,7 +82,8 @@ FOR nX := 1 TO Len(aOpen)
    Inkey(0.4)  //Tabs in Reihenfolge oeffnen lassen
 NEXT
 
-IF Tr_msgbox("Die Seiten sind im Browser geoeffnet.;Dort die Preise pruefen und uebernehmen.;;Danach 'Fertig' waehlen - Trader holt die Preise ab.",,{"Fertig","Abbrechen"}) != 1
+IF Tr_msgbox({"Die Seiten sind im Browser geoeffnet.", "Dort die Preise pruefen und uebernehmen.", "", ;
+              "Danach 'Fertig' waehlen - Trader holt die Preise ab."},,{"Fertig","Abbrechen"}) != 1
    RETURN .F.
 ENDIF
 

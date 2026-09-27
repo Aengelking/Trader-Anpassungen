@@ -52,17 +52,25 @@ STATIC FUNCTION WebCompetNotFound(hResp, nMaxAge)
    NEXT
 RETURN aCodes
 
-// Staffel eines Angebots als Hash {Menge=>Stueckpreis}
-STATIC FUNCTION WebCompetPrices(hOffer)
+// Staffel eines Angebots als Hash {Menge=>Preis}. Die Website speichert Stueckpreise; mit
+// nPack > 1 (Artikel wird je Packung gefuehrt) auf Packungen umgerechnet: Preis * nPack,
+// Menge in Packungen (aufgerundet: ab 25 Stueck = ab 3 Packungen a 10).
+STATIC FUNCTION WebCompetPrices(hOffer, nPack)
    LOCAL hPrices := {=>}
    LOCAL aBreaks := IF(HHasKey(hOffer,"price_breaks"), hOffer["price_breaks"], NIL)
-   LOCAL nX
+   LOCAL nX, nQty
 
+   IF ValType(nPack) != "N" .OR. nPack < 1
+      nPack := 1
+   ENDIF
    IF ValType(aBreaks) == "A"
       FOR nX := 1 TO Len(aBreaks)
          IF ValType(aBreaks[nX]) == "H" .AND. ValType(aBreaks[nX]["qty"]) == "N" .AND. ValType(aBreaks[nX]["price"]) == "N" ;
             .AND. aBreaks[nX]["qty"] > 0 .AND. aBreaks[nX]["price"] > 0
-            hPrices[aBreaks[nX]["qty"]] := aBreaks[nX]["price"]
+            nQty := Ceiling(aBreaks[nX]["qty"]/nPack)
+            IF ! HHasKey(hPrices,nQty) .OR. hPrices[nQty] > aBreaks[nX]["price"]*nPack
+               hPrices[nQty] := aBreaks[nX]["price"]*nPack
+            ENDIF
          ENDIF
       NEXT
    ENDIF
@@ -77,17 +85,31 @@ RETURN StoD(StrTran(Left(hOffer["captured_at"],10),"-",""))
 
 // Staffeln aller Angebote, die hoechstens nMaxAge Tage alt sind: {{cShop,hPrices,dErfasst},...}
 // NIL wenn die Website nicht erreichbar war.
+// Preise gelten fuer die Einheit des aktuellen Artikels (art): Stueck, oder bei Einheit PACK
+// (z.B. SA3348, 10 Stueck) je Packung. Die Packungsgroesse kommt aus den Angeboten (pack_size,
+// die Erweiterung erkennt sie auf den Shopseiten); die groesste gilt.
 STATIC FUNCTION WebCompetPriceLists(nArtnr, cMpn, nMaxAge)
    LOCAL aOffers := WebCompetOffers(nArtnr, cMpn)
    LOCAL aLists := {}
    LOCAL hPrices, nX
+   LOCAL nPack := 1
 
    IF aOffers == NIL
       RETURN NIL
    ENDIF
+   IF Trim(art->Me) == "PACK"
+      FOR nX := 1 TO Len(aOffers)
+         IF ValType(aOffers[nX]) == "H" .AND. HHasKey(aOffers[nX],"pack_size") .AND. ValType(aOffers[nX]["pack_size"]) == "N"
+            nPack := Max(nPack, aOffers[nX]["pack_size"])
+         ENDIF
+      NEXT
+      IF nPack == 1
+         RETURN aLists  //Packungsgroesse unbekannt: Stueckpreise waeren hier falsch, lieber keine
+      ENDIF
+   ENDIF
    FOR nX := 1 TO Len(aOffers)
       IF ValType(aOffers[nX]) == "H" .AND. WebCompetDate(aOffers[nX]) >= Date()-nMaxAge
-         hPrices := WebCompetPrices(aOffers[nX])
+         hPrices := WebCompetPrices(aOffers[nX], nPack)
          IF Len(hPrices) > 0
             Aadd(aLists, {hb_UTF8ToStr(aOffers[nX]["distributor"]), hPrices, WebCompetDate(aOffers[nX])})
          ENDIF

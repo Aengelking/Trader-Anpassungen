@@ -114,7 +114,7 @@ FOR nX := 1 TO Len(aWeb)
    IF aWeb[nX][3] >= Date()
       nNew++
    ENDIF
-   cMsg += ";"+Pad(aWeb[nX][1],10)+DtoC(aWeb[nX][3])+"  ab "+LTrim(Str(HGetKeyAt(aWeb[nX][2],1)))+" St.: "+LTrim(Transform(HGetValueAt(aWeb[nX][2],1),"@E 99999.99999"))+" EUR"
+   cMsg += ";"+Pad(aWeb[nX][1],10)+DtoC(aWeb[nX][3])+"  ab "+LTrim(Str(HGetKeyAt(aWeb[nX][2],1)))+" "+Trim(art->Me)+": "+LTrim(Transform(HGetValueAt(aWeb[nX][2],1),"@E 99999.99999"))+" EUR"
 NEXT
 IF Len(aWeb) == 0
    Alert("Keine erfassten Preise fuer "+cMpn+" gefunden")

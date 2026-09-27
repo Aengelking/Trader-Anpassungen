@@ -7,10 +7,12 @@
 //
 // Wird per #include eingebunden (prices/updcompet.prg, prices/capture.prg).
 
-// Angebote zum Artikel als Array von Hashes (Felder wie in competitor_offers:
-// distributor, part_number, url, price_breaks, captured_at, captured_by ...),
-// NIL wenn die Website nicht erreichbar war.
-STATIC FUNCTION WebCompetOffers(nArtnr, cMpn)
+// Antwort der Website als Hash {"offers"=>{...}, "not_found"=>{...}}, NIL wenn nicht erreichbar.
+//   offers:    erfasste Angebote (Felder wie in competitor_offers: distributor, part_number,
+//              url, price_breaks, captured_at, captured_by, distributor_key ...)
+//   not_found: Shops, deren Suche nichts fand (distributor, distributor_key, checked_at)
+// distributor_key ist der Shopname nur mit A-Z/0-9 (Buerklin -> BUERKLIN) = Trader-Kuerzel.
+STATIC FUNCTION WebCompetResponse(nArtnr, cMpn)
    LOCAL oRest := RestApi():New()
    LOCAL cResp, hResp
 
@@ -24,7 +26,31 @@ STATIC FUNCTION WebCompetOffers(nArtnr, cMpn)
    IF ValType(hResp) != "H" .OR. ! HHasKey(hResp,"offers") .OR. ValType(hResp["offers"]) != "A"
       RETURN NIL
    ENDIF
-RETURN hResp["offers"]
+   IF ! HHasKey(hResp,"not_found") .OR. ValType(hResp["not_found"]) != "A"
+      hResp["not_found"] := {}
+   ENDIF
+RETURN hResp
+
+// Angebote zum Artikel als Array von Hashes, NIL wenn die Website nicht erreichbar war.
+STATIC FUNCTION WebCompetOffers(nArtnr, cMpn)
+   LOCAL hResp := WebCompetResponse(nArtnr, cMpn)
+RETURN IF(hResp == NIL, NIL, hResp["offers"])
+
+// Trader-Kuerzel der Shops, deren Suche nach cMpn in den letzten nMaxAge Tagen nichts fand
+STATIC FUNCTION WebCompetNotFound(hResp, nMaxAge)
+   LOCAL aCodes := {}, nX, hRow
+   IF hResp == NIL
+      RETURN aCodes
+   ENDIF
+   FOR nX := 1 TO Len(hResp["not_found"])
+      hRow := hResp["not_found"][nX]
+      IF ValType(hRow) == "H" .AND. HHasKey(hRow,"distributor_key") .AND. HHasKey(hRow,"checked_at") ;
+         .AND. ValType(hRow["distributor_key"]) == "C" .AND. ValType(hRow["checked_at"]) == "C" ;
+         .AND. StoD(StrTran(Left(hRow["checked_at"],10),"-","")) >= Date()-nMaxAge
+         Aadd(aCodes, hRow["distributor_key"])
+      ENDIF
+   NEXT
+RETURN aCodes
 
 // Staffel eines Angebots als Hash {Menge=>Stueckpreis}
 STATIC FUNCTION WebCompetPrices(hOffer)

@@ -11,6 +11,9 @@
 //    MBaseRun(Trim(Tr_getini(1))+"\run\prices\capture")            aktueller Artikel (art)
 //    MBaseRun(Trim(Tr_getini(1))+"\run\prices\capture",{nArtnr})   bestimmter Artikel
 //
+// Shops, deren Suche nach der Herstellernummer in den letzten 90 Tagen nichts fand
+// (Website: competitor_not_found), werden ausgelassen.
+//
 // Direkt auf die Produktseite geht es, wenn in artlief die Bestellnummer des Shops steht,
 // sonst auf die Suche nach der Herstellernummer. Landet die Erweiterung (ab 0.3.0) auf einer
 // Suchergebnisseite, springt sie selbst zum passenden Produkt; dafuer bekommt sie die
@@ -21,7 +24,7 @@ LOCAL aShops := _CaptureShops()
 LOCAL aOpen := {}, aWith := {}
 LOCAL cMpn, cArtlief, cUrl, cMsg, cHash, aMsg
 LOCAL nX, nChoice, nOrd, nRecno
-LOCAL aWeb, nNew
+LOCAL aWeb, nNew, aSkip, cSkipped := ""
 
 IF Select("art") == 0
    NetUse("artikel","art")
@@ -46,7 +49,14 @@ ENDIF
 nArtnr := art->Artikelnr
 cMpn := StrTran(Trim(art->Matchcode),"#MT","")
 
+//Shops, deren Suche das Produkt in den letzten 90 Tagen nicht fand, auslassen
+aSkip := WebCompetNotFound(WebCompetResponse(nArtnr, cMpn), 90)
+
 FOR nX := 1 TO Len(aShops)
+   IF AScan(aSkip, aShops[nX][1]) > 0
+      cSkipped += IF(Empty(cSkipped),"",", ")+aShops[nX][2]
+      LOOP
+   ENDIF
    ali->(dbSeek( Pad(aShops[nX][1],8)+Str(nArtnr,6) ))
    cArtlief := IF(ali->(Found()), StrTran(Trim(ali->Artlief)," ",""), "")
    IF ! Empty(cArtlief)
@@ -60,6 +70,9 @@ NEXT
 
 //Tr_msgbox erwartet die Zeilen als Array
 aMsg := {"Konkurrenzpreise fuer "+cMpn+" im Browser erfassen.", ""}
+IF ! Empty(cSkipped)
+   Aadd(aMsg, "Ausgelassen (Suche fand nichts, 90 Tage): "+cSkipped)
+ENDIF
 IF Len(aWith) > 0
    Aadd(aMsg, "Mit Bestellnummer: "+_CaptureNames(aWith))
    Aadd(aMsg, "Ohne (Suche): "+_CaptureNames(aOpen,aWith))
@@ -122,12 +135,14 @@ RETURN .T.
 
 // {Trader-Kuerzel, Anzeigename, URL mit Bestellnummer, URL mit Herstellernummer (Suche)}
 // Die Seiten muessen zu den Shops der Browser-Erweiterung passen (manifest.json).
+// Mouser ueber die Suche: /ProductDetail/177-PX0911%2F05%2FP leitet Mouser auf /de/ um und
+// macht dabei aus %2F wieder "/" (Seite nicht gefunden); die Suche springt zum Produkt.
 STATIC FUNCTION _CaptureShops()
 RETURN {;
    {"RS",       "RS",       "https://de.rs-online.com/web/c/?searchTerm=%artlief%", "https://de.rs-online.com/web/c/?searchTerm=%mpn%"},;
    {"BUERKLIN", "Buerklin", "https://www.buerklin.com/de/suche/%artlief%/",         "https://www.buerklin.com/de/suche/%mpn%/"},;
    {"FARNELL",  "Farnell",  "https://de.farnell.com/x/x/x/dp/%artlief%",            "https://de.farnell.com/search?st=%mpn%"},;
-   {"MOUSER",   "Mouser",   "https://www.mouser.de/ProductDetail/%artlief%",        "https://www.mouser.de/c/?q=%mpn%"},;
+   {"MOUSER",   "Mouser",   "https://www.mouser.de/c/?q=%artlief%",                 "https://www.mouser.de/c/?q=%mpn%"},;
    {"TME",      "TME",      "https://www.tme.eu/de/details/%artlief%/",             "https://www.tme.eu/de/katalog/?search=%mpn%"},;
    {"DIGIKEY",  "DigiKey",  "https://www.digikey.de/de/products/result?keywords=%artlief%", "https://www.digikey.de/de/products/result?keywords=%mpn%"},;
    {"CONRAD",   "Conrad",   "https://www.conrad.de/de/search.html?search=%artlief%", "https://www.conrad.de/de/search.html?search=%mpn%"},;

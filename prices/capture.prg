@@ -27,7 +27,7 @@ LOCAL aShops := _CaptureShops()
 LOCAL aOpen := {}, aWith := {}
 LOCAL cMpn, cArtlief, cUrl, cMsg, cHash, aMsg
 LOCAL nX, nChoice, nOrd, nRecno
-LOCAL aWeb, nNew, aSkip, cSkipped := "", cBatch
+LOCAL aWeb, nNew, aSkip, cSkipped := "", cBatch, cMf := ""
 
 IF Select("art") == 0
    NetUse("artikel","art")
@@ -93,6 +93,20 @@ ENDIF
 
 //Kennung fuer die Erweiterung: Sie oeffnet dann das Panel von selbst und traegt die Artikelnummer ein
 cHash := "#ek="+LTrim(Str(nArtnr))+"&mpn="+_CaptureUrlEncode(cMpn)
+//Hersteller (Kurzname|Firmenname): Die Erweiterung prueft ihn gegen die Marke der Shopseite,
+//damit bei gleicher Nummer kein fremdes Produkt gespeichert wird (57-111 ITW <> Pontec 57111)
+NetUse("manufact","manu")
+NetUse("engkund","ku")
+IF manu->(dbSeek( Str(art->Manufactur,5) ))
+   cMf := Trim(manu->Short)
+   ku->(dbSetOrder( 8 ))
+   IF ku->(dbSeek( Str(manu->Address,6) ))
+      cMf += "|"+Trim(ku->Name1)
+   ENDIF
+ENDIF
+IF ! Empty(cMf)
+   cHash += "&mf="+_CaptureUrlEncode(cMf)
+ENDIF
 IF CAPTURE_BACKGROUND
    //Ein Tab mit allen Shops ("batch"): Die Erweiterung (ab 0.4.0) oeffnet sie in einem minimierten
    //Fenster, speichert eindeutige Preise selbst, schliesst Shops ohne Treffer und holt nur die

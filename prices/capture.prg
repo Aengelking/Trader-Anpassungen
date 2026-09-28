@@ -19,12 +19,15 @@
 // Suchergebnisseite, springt sie selbst zum passenden Produkt; dafuer bekommt sie die
 // Bestellnummer als "&nr=" mit.
 
+//.T.: Shops im Hintergrund erfassen (Browser-Erweiterung ab 0.4.0); .F.: je Shop ein Tab wie bisher
+#define CAPTURE_BACKGROUND .T.
+
 FUNCTION RUN_PRICES_CAPTURE( nArtnr )
 LOCAL aShops := _CaptureShops()
 LOCAL aOpen := {}, aWith := {}
 LOCAL cMpn, cArtlief, cUrl, cMsg, cHash, aMsg
 LOCAL nX, nChoice, nOrd, nRecno
-LOCAL aWeb, nNew, aSkip, cSkipped := ""
+LOCAL aWeb, nNew, aSkip, cSkipped := "", cBatch
 
 IF Select("art") == 0
    NetUse("artikel","art")
@@ -90,13 +93,29 @@ ENDIF
 
 //Kennung fuer die Erweiterung: Sie oeffnet dann das Panel von selbst und traegt die Artikelnummer ein
 cHash := "#ek="+LTrim(Str(nArtnr))+"&mpn="+_CaptureUrlEncode(cMpn)
-FOR nX := 1 TO Len(aOpen)
-   WAPI_ShellExecute(,"open",aOpen[nX][2]+cHash+IF(Empty(aOpen[nX][3]),"","&nr="+_CaptureUrlEncode(aOpen[nX][3])))
-   Inkey(0.4)  //Tabs in Reihenfolge oeffnen lassen
-NEXT
+IF CAPTURE_BACKGROUND
+   //Ein Tab mit allen Shops ("batch"): Die Erweiterung (ab 0.4.0) oeffnet sie in einem minimierten
+   //Fenster, speichert eindeutige Preise selbst, schliesst Shops ohne Treffer und holt nur die
+   //Tabs nach vorne, die geprueft werden muessen. Den Stand zeigt ihre Statusseite.
+   cBatch := ""
+   FOR nX := 1 TO Len(aOpen)
+      cBatch += aOpen[nX][2]+Chr(9)+aOpen[nX][3]+Chr(9)+aOpen[nX][1]+Chr(10)
+   NEXT
+   cBatch := StrTran(StrTran(StrTran(hb_base64Encode(hb_StrToUTF8(cBatch)),"+","-"),"/","_"),"=","")
+   WAPI_ShellExecute(,"open",aOpen[1][2]+cHash+"&batch="+cBatch)
+   aMsg := {"Die Shops werden im Hintergrund geoeffnet (minimiertes Browserfenster).", ;
+            "Die Statusseite der Erweiterung zeigt den Stand; nur Shops zum Pruefen kommen nach vorne.", "", ;
+            "Wenn dort 'erledigt' steht, hier 'Fertig' waehlen - Trader holt die Preise ab."}
+ELSE
+   FOR nX := 1 TO Len(aOpen)
+      WAPI_ShellExecute(,"open",aOpen[nX][2]+cHash+IF(Empty(aOpen[nX][3]),"","&nr="+_CaptureUrlEncode(aOpen[nX][3])))
+      Inkey(0.4)  //Tabs in Reihenfolge oeffnen lassen
+   NEXT
+   aMsg := {"Die Seiten sind im Browser geoeffnet.", "Dort die Preise pruefen und uebernehmen.", "", ;
+            "Danach 'Fertig' waehlen - Trader holt die Preise ab."}
+ENDIF
 
-IF Tr_msgbox({"Die Seiten sind im Browser geoeffnet.", "Dort die Preise pruefen und uebernehmen.", "", ;
-              "Danach 'Fertig' waehlen - Trader holt die Preise ab."},,{"Fertig","Abbrechen"}) != 1
+IF Tr_msgbox(aMsg,,{"Fertig","Abbrechen"}) != 1
    RETURN .F.
 ENDIF
 

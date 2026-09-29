@@ -738,21 +738,16 @@ DO WHILE nKey != 27
 ENDDO
 
 STATIC Function GetCompPrices(nR,nC2,aPrices,cMeTr)
-   LOCAL aCompet,nT
+   LOCAL nT
    LOCAL aBrakes,nY,nP,nLen,nMaxLen,nX,hPrices,hPriceList
    LOCAL aEnv := SaveEnv()
-   LOCAL lDebug := .F. //Tr_Getini(28) == 9
+   LOCAL aWeb
 
    MEMVAR c_five
 
-   NetUse("comprice2","cmp2")
-
-   IF lDebug
-      aCompet := {"ARROW"}
-   ELSE
-      aCompet := {"RS","Farnell","Ettinger","Schukat","Arrow",HB_AnsiToOem("BUERKLIN"),"TME","CONRAD"} //,"Reichelt","Conrad","TME","Mouser"
-   ENDIF
-
+   //Konkurrenzpreise aus der Website-Datenbank (im Browser erfasst, siehe run\prices\capture und
+   //run\prices\websiteoffers.prg) statt der frueheren Live-Abfrage je Konkurrent (GetPricesCompet).
+   //Netto-Stueckpreise der letzten 90 Tage; bei Einheit PACK je Packung umgerechnet.
    nR := 1
    nT :=  20
    @ nT,nC2 CLEAR TO nT+12,nC2+36
@@ -761,45 +756,28 @@ STATIC Function GetCompPrices(nR,nC2,aPrices,cMeTr)
    aBrakes := {}
    hPriceList := {=>}
 
-   FOR nX := 1 TO Len(aCompet)
-
-      ku->(dbSetOrder( 1 ))
-      ku->(dbSeek( Pad(Upper(aCompet[nX]),8)+"L" ))
-      ali->(dbSeek(Pad(Upper(aCompet[nX]),8)+Str(art->Artikelnr,6)))
-      IF aCompet[nX] $ "TME Schukat" .OR. (ali->(Found()) .AND. ! Empty(ali->artlief))
-         @ nT+nR,nC2 SAY aCompet[nX]
-         /*IF lDebug .OR. (! cmp2->(dbSeek( Str(art->Artikelnr,6)+Str(ku->Nummer,6) )) .AND. cmp2->Datum < Date())
-            hPrices := MBaseRun(Trim(Tr_Getini(1))+"\run\prices\"+HB_OemToAnsi(aCompet[nX]),{art->Artikelnr,ali->Artlief,art->Matchcode})
-            IF ValType(hPrices) == "H" .AND. Len(hPrices) != 0
-               IF ! cmp2->(dbSeek( Str(art->Artikelnr,6)+Str(ku->Nummer,6) ))
-                  cmp2->(Add_Rec(0))
-                  cmp2->Artikelnr := art->Artikelnr
-                  cmp2->Lieferant := ku->Nummer
-               ELSE
-                  cmp2->(Rec_Lock())
-               ENDIF
-               cmp2->Datum := Date()
-               cmp2->Daten := HB_Serialize(hPrices)
-               cmp2->(dbUnLock())
-            ENDIF
-         ELSE
-            hPrices := HB_DeSerialize(cmp2->Daten)
-         ENDIF*/
-         hPrices := GetPricesCompet(aCompet[nX],lDebug)
-         @ nT+nR,nC2+9 SAY Space(24)
-         IF ValType(hPrices) != "H" .OR. Len(hPrices) == 0
-            @ nT+nR,nC2+9 SAY "FEHLER!"
-         ELSE
-            @ nT+nR,nC2+9 SAY LTrim(Transform(HGetKeyAt(hPrices,1),cMeTr))+" - "+LTrim(Str(HGetValueAt(hPrices,1),12,2))+" | "+LTrim(Transform(HGetKeyAt(hPrices,Len(hPrices)),cMeTr))+" - "+LTrim(Str(HGetValueAt(hPrices,Len(hPrices)),12,2))
-            FOR nY := 1 TO Len(hPrices)
-               IF AScan(aBrakes,HGetKeyAt(hPrices,nY)) == 0
-                  Aadd(aBrakes,HGetKeyAt(hPrices,nY))
-               ENDIF
-            NEXT
-            hPriceList[aCompet[nX]] := hPrices
+   aWeb := WebCompetPriceLists(art->Artikelnr, StrTran(Trim(art->Matchcode),"#MT",""), 90)
+   IF aWeb == NIL
+      @ nT,nC2 CLEAR TO nT+12,nC2+36
+      @ nT,nC2 SAY "Website nicht erreichbar"
+      RestEnv(aEnv,.F.)
+      RETURN NIL
+   ENDIF
+   IF Len(aWeb) == 0
+      @ nT,nC2 CLEAR TO nT+12,nC2+36
+      @ nT,nC2 SAY "Keine erfassten Konkurrenzpreise"
+      @ nT+1,nC2 SAY "(letzte 90 Tage)"
+      RestEnv(aEnv,.F.)
+      RETURN NIL
+   ENDIF
+   FOR nX := 1 TO Len(aWeb)
+      hPrices := aWeb[nX][2]
+      FOR nY := 1 TO Len(hPrices)
+         IF AScan(aBrakes,HGetKeyAt(hPrices,nY)) == 0
+            Aadd(aBrakes,HGetKeyAt(hPrices,nY))
          ENDIF
-         nR++
-      ENDIF
+      NEXT
+      hPriceList[aWeb[nX][1]] := hPrices
    NEXT
    ASort(aBrakes)
     //Inkey(0,128)
@@ -982,4 +960,5 @@ RETURN Str(nMin,5,2)+" min"
 
 
 #include 'x:\run\prices\getprices.prg'
+#include 'x:\run\prices\websiteoffers.prg'
 #include 'x:\run\shopware.prg'

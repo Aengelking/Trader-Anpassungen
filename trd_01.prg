@@ -17,6 +17,8 @@ LOCAL oExtra,aFiles
 LOCAL lBig := MaxCol() > 180
 LOCAL nActiveBrowse := 1,aBrowse := {},oBrowse,bChangeBrowse
 LOCAL hStatus
+LOCAL hPtCache                                       //Speicher-Cache Staffel 60 (Zuruecksetzen)
+LOCAL nWebView                                        //embedded browser used to display drawings
 
 MEMVAR MSB,c_five,nR
 
@@ -521,7 +523,7 @@ ENDIF
 
 //Add the buttons depending on permissions
 nButtonRow := 36
-IF SystemUser():hasRole(14).OR.SystemUser():HasRole(15) .AND. art->Type == "WARE"//Einkauf oder Projektmanagemtn            
+IF (SystemUser():hasRole(14).OR.SystemUser():HasRole(15) .AND. art->Type == "WARE") .OR. art->Table == 60 //Einkauf oder Projektmanagemtn, Staffel 60 (Kalkulation) immer            
    oButton := HBPushButton():New(++nButtonRow,nC3,"Preisstaffel zu&rcksetzen")
    oButton:sBlock := {|| 
       TxtBox("Preiscache wird zurckgesetzt...")
@@ -531,9 +533,20 @@ IF SystemUser():hasRole(14).OR.SystemUser():HasRole(15) .AND. art->Type == "WARE
          ptc->LastDate := Stod("")
          ptc->(dbUnLock())
          ptc->(dbSkip())
+      ENDIF      
+      //Speicher-Cache der Staffel-60-Kalkulation (Hook on_get_prices) fuer diesen Artikel leeren
+      IF __mvExist("PRICETAB60_CACHE") .AND. ValType(__mvGet("PRICETAB60_CACHE")) == "H"
+         hPtCache := __mvGet("PRICETAB60_CACHE")
+         FOR nX := Len(hPtCache) TO 1 STEP -1
+            IF Left(HB_HKeyAt(hPtCache,nX),6) == Str(art->Artikelnr,6)
+               HB_HDelAt(hPtCache,nX)
+            ENDIF
+         NEXT
+      ENDIF
+      IF ValType(bGetPrices) == "B"
          Eval(bGetPrices)
       ENDIF
-      TxtClear()
+      TxtClear()      
       RETURN .T.
    }
    Aadd(aButtons,oButton)
@@ -626,7 +639,8 @@ DO WHILE nKey != 27
          //Eval(bAfterKey)
          //SInkey(0,bAfterKey)
       ELSEIF Upper(Chr(nKey)) == "Z" .AND. ! Empty(art->Zeichnung) .AND. ! Empty(cDrawingFile)
-         WAPI_ShellExecute(,"open",cDrawingFile)
+         //nWebView := ShowDrawing(nWebView,cDrawingFile,t("Zeichnung")+" "+Trim(art->Zeichnung)+IF(!Empty(art->ZeichIndex)," Ind. "+Trim(art->ZeichIndex),""))
+         Wapi_ShellExecute(,"open",cDrawingFile)
       ELSEIF Upper(Chr(nKey)) == "A" .AND. art->Bezug == 5 .AND. ! Empty(art->Anweisung) .AND. ! Empty(cAWFile)
          NetUse("aw","aw")
          IF (aw->(dbSeek( Str(Val(art->Anweisung),6) )) .AND. aw->Genehmig) .OR. Tr_MsgBox(t("Diese Anweisung ist NICHT freigegeben. Die Fertigung sollte nur nach Rcksprache erfolgen."),"!!! ACHTUNG !!!",{"abbrechen",t("trotzdem ”ffnen")}) == 2
@@ -637,9 +651,10 @@ DO WHILE nKey != 27
                WAPI_ShellExecute(,"open",cAWFile)
             ENDIF
          ENDIF
-      ELSEIF (Upper(Chr(nKey)) == "P" .AND. art->Bezug != 5  .AND. ! Empty(art->Anweisung) .AND. ! Empty(cAWFile)) .OR.;
-            (Upper(Chr(nKey)) == "S" .AND. oExtra:SDS .AND. ! Empty(cAwFile))
-         //Alert(cAWFile)
+      ELSEIF Upper(Chr(nKey)) == "P" .AND. art->Bezug != 5  .AND. ! Empty(art->Anweisung) .AND. ! Empty(cAWFile)
+         //nWebView := ShowDrawing(nWebView,cAWFile,t("Produktionszeichnung")+" "+Trim(art->Anweisung)+IF(!Empty(art->AWIndex)," Ind. "+Trim(art->AWIndex),""))
+         Wapi_ShellExecute(,"open",cAWFile)
+      ELSEIF Upper(Chr(nKey)) == "S" .AND. oExtra:SDS .AND. ! Empty(cAwFile)
          WAPI_ShellExecute(,"open",cAWFile)
       ELSEIF Upper(Chr(nKey)) == "U"
          TxtBox("D/S Preis wird neu berechnet...")
@@ -736,6 +751,14 @@ DO WHILE nKey != 27
       oBrowse:Display()
    ENDIF
 ENDDO
+
+//the mask is left - close the drawing window (if it is still open)
+IF nWebView != NIL
+   hb_webview_destroy(nWebView)
+   nWebView := NIL
+ENDIF
+
+RETURN
 
 STATIC Function GetCompPrices(nR,nC2,aPrices,cMeTr)
    LOCAL aCompet,nT
@@ -979,6 +1002,50 @@ IF nMin > 60
    RETURN Str(nMin/60,5,2)+" h"
 ENDIF
 RETURN Str(nMin,5,2)+" min"
+
+//Display a drawing in an embedded webview window instead of handing it over to the
+//shell. Everything the browser cannot render (ZIP, DWG, ...) still goes to the
+//associated application. The window is reused as long as the user keeps it open,
+//so the handle is returned to the caller.
+STATIC FUNCTION ShowDrawing(nWebView,cFile,cTitle)
+LOCAL cExt
+
+IF Empty(cFile)
+   RETURN nWebView
+ENDIF
+
+cExt := "|"+Upper(SubStr(cFile,RAt(".",cFile)))+"|"
+IF ! (cExt $ "|.PDF|.PNG|.JPG|.JPEG|.GIF|.BMP|.SVG|.WEBP|.TXT|.HTM|.HTML|")
+   WAPI_ShellExecute(,"open",cFile)
+   RETURN nWebView
+ENDIF
+
+IF nWebView == NIL .OR. ! WAPI_ISWINDOW( hb_webview_get_window(nWebView) )
+   //there is no window yet or the user has closed it
+   nWebView := hb_webview_create( .T. )
+ENDIF
+
+hb_webview_navigate(nWebView,"about:blank")   //drop the drawing shown before
+hb_webview_navigate(nWebView,DrawingUrl(cFile))
+hb_webview_set_title(nWebView,cTitle)
+
+RETURN nWebView
+
+//Build a file:// URL the webview understands - UNC paths included
+STATIC FUNCTION DrawingUrl(cFile)
+LOCAL cUrl := StrTran(hb_strToUtf8(cFile),"\","/")
+
+cUrl := StrTran(cUrl,"%","%25")
+cUrl := StrTran(cUrl,"#","%23")
+cUrl := StrTran(cUrl,"?","%3F")
+cUrl := StrTran(cUrl," ","%20")
+
+IF Left(cUrl,2) == "//"    //UNC: \\server\share\... -> file://server/share/...
+   RETURN "file:"+cUrl
+ENDIF
+
+RETURN "file:///"+cUrl
+
 
 
 #include 'x:\run\prices\getprices.prg'

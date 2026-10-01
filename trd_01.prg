@@ -255,9 +255,23 @@ ENDIF
 
 @ 19,nC2-1 SAY Replicate(Chr(196),nC3-1-nC2)
 IF art->Bezug != 5
-   @ 20,nC2 SAY "Preise abfragen mit >P<"
+   @ 20,nC2 SAY "Preise abfragen >P<  neu erfassen >N<"
    oButton := HBPushButton():New(19,nC2,"&Preise abfragen")
    oButton:sBlock := {|| GetCompPrices(nR,nC2,aPrices,cMeTr)  }
+   Aadd(aButtons,oButton)
+   //Neue Konkurrenzpreise im Browser erfassen (run\prices\capture: Shops oeffnen, Browser-Erweiterung
+   //speichert, Trader holt ab und rechnet compprice/Staffel neu), danach Anzeige aktualisieren
+   oButton := HBPushButton():New(19,nC2+19,"&Neu erfassen")
+   oButton:sBlock := {||
+      LOCAL cScr := SaveScreen(0,0,MaxRow(),MaxCol())
+      MBaseRun(Trim(Tr_getini(1))+"\run\prices\capture",{art->Artikelnr})
+      RestScreen(0,0,MaxRow(),MaxCol(),cScr)
+      IF bGetPrices != NIL
+         Eval(bGetPrices)  //Staffel neu (capture hat den Preis-Cache verworfen)
+      ENDIF
+      GetCompPrices(nR,nC2,aPrices,cMeTr)
+      RETURN NIL
+   }
    Aadd(aButtons,oButton)
 ELSE
    NetUse("werkauf","wer")

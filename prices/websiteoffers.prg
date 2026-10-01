@@ -116,3 +116,27 @@ STATIC FUNCTION WebCompetPriceLists(nArtnr, cMpn, nMaxAge)
       ENDIF
    NEXT
 RETURN aLists
+
+// Stand eines Auftrags der unbeaufsichtigten Erfassung (prices\capture mit lAuto, Erweiterung ab 0.5.0).
+// NIL: Website nicht erreichbar; {=>}: noch nicht fertig; sonst {"finished_at"=>..., "results"=>{{shop,state,detail},...}}
+// state: "gespeichert", "nicht im Sortiment", "pruefen" (mit Umlaut, UTF-8), "geschlossen"
+STATIC FUNCTION WebCompetJob(cJobId)
+   LOCAL oRest := RestApi():New()
+   LOCAL cResp, hResp
+
+   oRest:cBaseUrl := "https://kooxwelqbqplbryoxbya.supabase.co/"
+   oRest:cApiKeyName := "WEBSITE"
+   cResp := oRest:Execute("functions/v1/erp-competitor-offers", "POST", ;
+      {"job_id"=>cJobId}, {"Authorization: Bearer $APIKEY$"}, .T.)
+
+   hResp := IF(Empty(cResp), NIL, HB_JsonDecode(cResp))
+   IF ValType(hResp) != "H" .OR. ! HHasKey(hResp,"job")
+      RETURN NIL
+   ENDIF
+   IF ValType(hResp["job"]) != "H"
+      RETURN {=>}
+   ENDIF
+   IF ! HHasKey(hResp["job"],"results") .OR. ValType(hResp["job"]["results"]) != "A"
+      hResp["job"]["results"] := {}
+   ENDIF
+RETURN hResp["job"]

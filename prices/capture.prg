@@ -18,16 +18,26 @@
 // sonst auf die Suche nach der Herstellernummer. Landet die Erweiterung (ab 0.3.0) auf einer
 // Suchergebnisseite, springt sie selbst zum passenden Produkt; dafuer bekommt sie die
 // Bestellnummer als "&nr=" mit.
+//
+// Unbeaufsichtigt (run\prices\capture_batch, geplante Aufgabe):
+//    MBaseRun(Trim(Tr_getini(1))+"\run\prices\capture",{nArtnr,.T.,cJobId})
+// Ohne Dialoge, alle Shops, Browser-Erweiterung ab 0.5.0 im Auto-Modus: Sie schliesst nach
+// Abschluss alle Tabs und meldet das Ergebnis je Shop unter cJobId an die Website
+// (abfragen mit WebCompetJob). Rueckgabe .T., sobald die Shops geoeffnet sind; .F. wenn
+// nichts zu oeffnen war (Artikel fehlt, alle Shops ausgelassen).
 
 //.T.: Shops im Hintergrund erfassen (Browser-Erweiterung ab 0.4.0); .F.: je Shop ein Tab wie bisher
 #define CAPTURE_BACKGROUND .T.
 
-FUNCTION RUN_PRICES_CAPTURE( nArtnr )
+FUNCTION RUN_PRICES_CAPTURE( nArtnr, lAuto, cJobId )
 LOCAL aShops := _CaptureShops()
 LOCAL aOpen := {}, aWith := {}
 LOCAL cMpn, cArtlief, cUrl, cMsg, cHash, aMsg
 LOCAL nX, nChoice, nOrd, nRecno
 LOCAL aWeb, nNew, aSkip, cSkipped := "", cBatch, cMf := ""
+
+Default(@lAuto,.F.)
+Default(@cJobId,"")
 
 IF Select("art") == 0
    NetUse("artikel","art")
@@ -40,13 +50,17 @@ IF ValType(nArtnr) == "N" .AND. nArtnr > 0
    IF ! art->(dbSeek( Str(nArtnr,6) ))
       art->(dbSetOrder( nOrd ))
       art->(dbGoto( nRecno ))
-      Alert("Artikel "+LTrim(Str(nArtnr))+" nicht gefunden")
+      IF ! lAuto
+         Alert("Artikel "+LTrim(Str(nArtnr))+" nicht gefunden")
+      ENDIF
       RETURN .F.
    ENDIF
    art->(dbSetOrder( nOrd ))
 ENDIF
 IF art->(EOF()) .OR. art->Artikelnr == 0
-   Alert("Kein Artikel ausgewaehlt")
+   IF ! lAuto
+      Alert("Kein Artikel ausgewaehlt")
+   ENDIF
    RETURN .F.
 ENDIF
 nArtnr := art->Artikelnr
@@ -71,7 +85,17 @@ FOR nX := 1 TO Len(aShops)
    Aadd(aOpen, {aShops[nX][2], cUrl, cArtlief})
 NEXT
 
+IF Len(aOpen) == 0
+   IF ! lAuto
+      Alert("Alle Shops ausgelassen (Suche fand nichts, 90 Tage): "+cSkipped)
+   ENDIF
+   RETURN .F.
+ENDIF
+
 //Tr_msgbox erwartet die Zeilen als Array
+IF lAuto
+   nChoice := 2  //unbeaufsichtigt: alle Shops
+ELSE
 aMsg := {"Konkurrenzpreise fuer "+cMpn+" im Browser erfassen.", ""}
 IF ! Empty(cSkipped)
    Aadd(aMsg, "Ausgelassen (Suche fand nichts, 90 Tage): "+cSkipped)
@@ -90,6 +114,7 @@ IF nChoice == 1
 ELSEIF nChoice != 2
    RETURN .F.
 ENDIF
+ENDIF
 
 //Kennung fuer die Erweiterung: Sie oeffnet dann das Panel von selbst und traegt die Artikelnummer ein
 cHash := "#ek="+LTrim(Str(nArtnr))+"&mpn="+_CaptureUrlEncode(cMpn)
@@ -107,7 +132,11 @@ ENDIF
 IF ! Empty(cMf)
    cHash += "&mf="+_CaptureUrlEncode(cMf)
 ENDIF
-IF CAPTURE_BACKGROUND
+IF lAuto
+   //Auftrag fuer die Erweiterung: Tabs nach Abschluss schliessen, Ergebnis unter der Kennung melden
+   cHash += "&job="+_CaptureUrlEncode(cJobId)+"&auto=1"
+ENDIF
+IF CAPTURE_BACKGROUND .OR. lAuto
    //Ein Tab mit allen Shops ("batch"): Die Erweiterung (ab 0.4.0) oeffnet sie in einem minimierten
    //Fenster, speichert eindeutige Preise selbst, schliesst Shops ohne Treffer und holt nur die
    //Tabs nach vorne, die geprueft werden muessen. Den Stand zeigt ihre Statusseite.
@@ -117,6 +146,9 @@ IF CAPTURE_BACKGROUND
    NEXT
    cBatch := StrTran(StrTran(StrTran(hb_base64Encode(hb_StrToUTF8(cBatch)),"+","-"),"/","_"),"=","")
    WAPI_ShellExecute(,"open",aOpen[1][2]+cHash+"&batch="+cBatch)
+   IF lAuto
+      RETURN .T.  //Abholen und Auswerten uebernimmt capture_batch
+   ENDIF
    aMsg := {"Die Shops werden im Hintergrund geoeffnet (minimiertes Browserfenster).", ;
             "Die Statusseite der Erweiterung zeigt den Stand; nur Shops zum Pruefen kommen nach vorne.", "", ;
             "Wenn dort 'erledigt' steht, hier 'Fertig' waehlen - Trader holt die Preise ab."}

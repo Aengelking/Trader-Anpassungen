@@ -15,6 +15,8 @@
 // - Liefern 3 Artikel hintereinander kein einziges klares Ergebnis (nur "pruefen" oder keine
 //   Rueckmeldung), bricht der Lauf ab - das deutet auf eine Sperre durch die Shops hin.
 //   Es wird nichts versucht, den Bot-Schutz der Shops zu umgehen.
+// - Nur ein Lauf je Rechner (Sperrdatei in %TEMP%): Ein zweiter Lauf wuerde im selben Browser
+//   die Auftraege des ersten abbrechen.
 // - Am Ende geht eine Zusammenfassung mit den zu pruefenden Shops per Mail raus.
 //
 // Voraussetzung: angemeldete Windows-Sitzung, Chrome als Standardbrowser mit der Erweiterung
@@ -34,11 +36,25 @@ LOCAL nArtnr, cMpn, hResp, cJob, hJob, hRow
 LOCAL nX, nY, lGood, cShops, cState
 LOCAL nDone := 0, nFresh := 0, nNone := 0, nSaved := 0, nBad := 0, nNoWeb := 0
 LOCAL cAbort := "", cBody, dStart, nStart
+LOCAL cLock := GetEnv("TEMP")+"\ek_capture_batch.lck", nLock
 
 Default(@nMax,50)
 Default(@aManu,{1,3})   //BULGIN, ITW
 
 Head("Konkurrenzpreise im Browser erfassen (max. "+LTrim(Str(nMax))+" Artikel)")
+
+//Sperre: Die Datei bleibt bis zum Ende exklusiv geoeffnet (gibt Windows auch bei Absturz frei)
+IF ! File(cLock)
+   FClose(FCreate(cLock))
+ENDIF
+nLock := FOpen(cLock, 2+16)  //FO_READWRITE + FO_EXCLUSIVE
+IF nLock < 0
+   ? "Laeuft bereits (anderes Trader-Fenster) - abgebrochen"
+   IF ! GetConfigValue("BATCHMODE")
+      Inkey(5,128)
+   ENDIF
+   RETURN .F.
+ENDIF
 
 NetUse("artikel","art")
 NetUse("ptcache","ptc")
@@ -163,6 +179,7 @@ ENDIF
 SendMail({{"amos.engelking@engelking.de","Amos"}}, ;
    "Konkurrenzpreise: "+LTrim(Str(nDone))+" Artikel erfasst"+IF(Empty(cAbort),""," - ABGEBROCHEN"), cBody)
 
+FClose(nLock)
 ? "done"
 IF ! GetConfigValue("BATCHMODE")
    Inkey(0,128)

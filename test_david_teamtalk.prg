@@ -22,6 +22,9 @@ Aufruf wie die anderen Kontextaktionen (david_context.prg, "TEAMTALKTEST"):
 Optional weitere Teilnehmer (Komma-getrennt) als zweiter Parameter, z. B.
    {cMsgPath, "anliegen@engelking.de,kollege@engelking.de"}
 Aufraeumen (Token wieder entfernen): dritter Parameter "ZURUECK".
+Ausweichweg (falls der ChatManager nicht geht): dritter Parameter
+"KOPIE:<Archivpfad>" kopiert die getaggte Mail in dieses Archiv, z. B. in
+den Posteingang des Agenten - dort kann er den TeamTalk per WebAPI starten.
 
 Ergebnis: Meldung am Bildschirm und %TEMP%\david_teamtalk_test.log.
 Danach in David pruefen:
@@ -33,6 +36,7 @@ Danach in David pruefen:
 PROC RUN_TEST_DAVID_TEAMTALK(cMsgPath, cTeilnehmer, cModus)
 	LOCAL oAccount, cArchive, oArchive, oMsg, oItem
 	LOCAL oManager, oAddresses, oThread, oErr, cAdr
+	LOCAL oApi, oApiAccount
 	LOCAL aLog := {}
 
 	IF Empty(cTeilnehmer)
@@ -83,10 +87,50 @@ PROC RUN_TEST_DAVID_TEAMTALK(cMsgPath, cTeilnehmer, cModus)
 		END
 	ENDIF
 
-	// 2) Teilnehmerliste
+	// Ausweichweg testen: getaggte Mail in ein Archiv kopieren, das der
+	// Agent per WebAPI sieht (z. B. sein Posteingang oder ein Sammelarchiv
+	// "Anliegen"). Dort kann er den TeamTalk selbst starten.
+	IF Upper(Left(AllTrim(hb_CStr(cModus)), 6)) == "KOPIE:"
+		TtKopie(oAccount, oItem, AllTrim(SubStr(AllTrim(cModus), 7)), aLog)
+		TtAusgabe(aLog)
+		RETURN
+	ENDIF
+
+	// 2) ChatManager erzeugen. Der erste Lauf scheiterte hier mit E_FAIL
+	//    (TOLEAUTO:NEW). Deshalb zuerst Versionen protokollieren und dann
+	//    mehrere Wege versuchen - u. a. wie im Doku-Beispiel erst die
+	//    David-API anmelden und deren Account fuer StartChat nehmen.
+	TtVersionen(oAccount, aLog)
+	oManager := TtManager("DVOBJAPILib.ChatManager", aLog)
+	IF oManager == NIL
+		oManager := TtManager("DVOBJAPILib.ChatManager.1", aLog)
+	ENDIF
+	IF oManager == NIL
+		BEGIN SEQUENCE WITH {|e| Break(e)}
+			oApi := CreateObject("DVOBJAPILib.DvISEAPI")
+			oApiAccount := oApi:GetAccount()
+			AAdd(aLog, "2 API:     DvISEAPI:GetAccount ok")
+		RECOVER USING oErr
+			AAdd(aLog, "2 API:     DvISEAPI FEHLER " + TtFehler(oErr))
+		END
+		IF oApiAccount != NIL
+			oManager := TtManager("DVOBJAPILib.ChatManager", aLog)
+			IF oManager != NIL
+				oAccount := oApiAccount
+			ENDIF
+		ENDIF
+	ENDIF
+	IF oManager == NIL
+		AAdd(aLog, "")
+		AAdd(aLog, "ChatManager nicht verfuegbar - TeamTalk per COM geht so nicht.")
+		AAdd(aLog, "Ausweichweg testen: dritter Parameter KOPIE:<Archivpfad>")
+		TtAusgabe(aLog)
+		RETURN
+	ENDIF
+
+	// Teilnehmerliste
 	oAddresses := NIL
 	BEGIN SEQUENCE WITH {|e| Break(e)}
-		oManager := CreateObject("DVOBJAPILib.ChatManager")
 		oAddresses := oAccount:CreateAddressList()
 		FOR EACH cAdr IN hb_ATokens(cTeilnehmer, ",")
 			cAdr := AllTrim(cAdr)
@@ -160,6 +204,48 @@ STATIC FUNCTION TtMailItem(oArchive, oMsg, aLog)
 	ENDIF
 RETURN oItem
 
+STATIC PROCEDURE TtVersionen(oAccount, aLog)
+	LOCAL oApi, oErr
+	BEGIN SEQUENCE WITH {|e| Break(e)}
+		AAdd(aLog, "Server:    " + hb_CStr(oAccount:ServerVersion))
+	RECOVER USING oErr
+		AAdd(aLog, "Server:    Version nicht lesbar " + TtFehler(oErr))
+	END
+	BEGIN SEQUENCE WITH {|e| Break(e)}
+		oApi := CreateObject("DVOBJAPILib.DvISEAPI")
+		AAdd(aLog, "DvApi32:   " + hb_CStr(oApi:Majorversion) + "." + hb_CStr(oApi:Minorversion))
+	RECOVER USING oErr
+		AAdd(aLog, "DvApi32:   Version nicht lesbar " + TtFehler(oErr))
+	END
+RETURN
+
+STATIC FUNCTION TtManager(cProgId, aLog)
+	LOCAL oManager := NIL, oErr
+	BEGIN SEQUENCE WITH {|e| Break(e)}
+		oManager := CreateObject(cProgId)
+		AAdd(aLog, "2 Manager: ok mit " + cProgId)
+	RECOVER USING oErr
+		AAdd(aLog, "2 Manager: FEHLER mit " + cProgId + " " + TtFehler(oErr))
+		oManager := NIL
+	END
+RETURN oManager
+
+STATIC PROCEDURE TtKopie(oAccount, oItem, cZiel, aLog)
+	LOCAL oZiel, oErr
+	IF oItem == NIL .OR. Empty(cZiel)
+		AAdd(aLog, "Kopie:     kein MailItem oder kein Zielarchiv")
+		RETURN
+	ENDIF
+	BEGIN SEQUENCE WITH {|e| Break(e)}
+		oZiel := oAccount:GetArchive(cZiel)
+		AAdd(aLog, "Kopie:     Zielarchiv " + hb_CStr(oZiel:DisplayName))
+		oItem:Copy(oZiel)
+		AAdd(aLog, "Kopie:     ok - jetzt probe.py im Agenten-Container pruefen")
+	RECOVER USING oErr
+		AAdd(aLog, "Kopie:     FEHLER " + TtFehler(oErr))
+	END
+RETURN
+
 STATIC FUNCTION TtStart(oManager, oAccount, oAddresses, oTopic, cArt, aLog)
 	LOCAL oThread, oErr
 	BEGIN SEQUENCE WITH {|e| Break(e)}
@@ -172,11 +258,16 @@ STATIC FUNCTION TtStart(oManager, oAccount, oAddresses, oTopic, cArt, aLog)
 RETURN oThread
 
 STATIC FUNCTION TtFehler(oErr)
+	LOCAL cText
 	IF ValType(oErr) != "O"
 		RETURN hb_CStr(oErr)
 	ENDIF
-RETURN hb_CStr(oErr:Description) + " / " + hb_CStr(oErr:Operation) + ;
-	" (" + hb_CStr(oErr:SubCode) + "/" + hb_CStr(oErr:OsCode) + ")"
+	cText := hb_CStr(oErr:Description) + " / " + hb_CStr(oErr:Operation) + ;
+		" (" + hb_CStr(oErr:SubCode) + "/" + hb_CStr(oErr:OsCode) + ")"
+	IF hb_IsFunction("WIN_OLEERRORTEXT")
+		cText += " " + hb_CStr(Eval(&("{|| win_oleErrorText()}")))
+	ENDIF
+RETURN cText
 
 STATIC PROCEDURE TtAusgabe(aLog)
 	LOCAL cText := "", cZeile

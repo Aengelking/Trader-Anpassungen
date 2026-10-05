@@ -10,7 +10,8 @@
 //              Mail mit JobID 0 TeamTalk-faehig machen: nacheinander
 //              1 Save, 2 Teilnehmer als Cc + Save, 3 SRTo + Save
 //              (wie im Doku-Beispiel), 4 Move in Entwuerfe und zurueck.
-//              Nach jedem Schritt JobID neu lesen und StartChat versuchen,
+//              Nach jedem Schritt bis zu 60 s auf die JobID warten (der
+//              Server vergibt sie verzoegert), dann StartChat versuchen,
 //              Abbruch beim ersten Erfolg. NUR AN EINER TESTMAIL.
 //   DavidTeamTalk.exe --ausgang "<Mailpfad>"
 //              Mail mit JobID 0 in den Postausgang verschieben, dort
@@ -416,8 +417,22 @@ static class Programm
             }
             if (neu == null) { Console.WriteLine($"FEHLER  {schritt}: Mail nach dem Schritt nicht wiedergefunden"); return false; }
             mail = neu;
-            Info($"{schritt}: JobID", () => Convert.ToString(mail.Fields.Item("JobID").Value));
+            // Der Server vergibt die JobID offenbar verzoegert: bis zu 60 s
+            // alle 3 s neu laden, bis sie nicht mehr 0 ist.
+            string job = Lesen(() => Convert.ToString(mail.Fields.Item("JobID").Value));
+            var uhr = System.Diagnostics.Stopwatch.StartNew();
+            while (job == "0" && uhr.Elapsed.TotalSeconds < 60)
+            {
+                Thread.Sleep(3000);
+                string datei = Lesen(() => Convert.ToString(mail.Fields.Item("FileName").Value));
+                if (!Path.HasExtension(datei)) datei += ".001";
+                try { neu = arch.GetArchiveEntryByID(datei); } catch { neu = null; }
+                if (neu != null) mail = neu;
+                job = Lesen(() => Convert.ToString(mail.Fields.Item("JobID").Value));
+            }
+            Console.WriteLine($"        {schritt}: JobID {job} (nach {uhr.Elapsed.TotalSeconds:0} s)");
             Info($"{schritt}: Datei", () => Convert.ToString(mail.Fields.Item("FileName").Value));
+            Info($"{schritt}: SRTo", () => Convert.ToString(mail.Fields.Item("SRTo").Value));
             ChatThread th = Schritt($"{schritt}: StartChat", () => cm.StartChat(acc, acc.CreateAddressList(), (object)mail));
             if (th == null) return false;
             Senden($"{schritt}", () => th);

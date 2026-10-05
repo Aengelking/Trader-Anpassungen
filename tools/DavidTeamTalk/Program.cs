@@ -633,20 +633,37 @@ static class Programm
         Info("Betreff", () => betreff);
         Info("JobID vorher", () => Convert.ToString(mail.Fields.Item("JobID").Value));
 
-        // Neuester Eintrag mit dem Betreff im Archiv (nach Move neuer Dateiname)
+        // Die verschobene Mail ist der Eintrag, der nach dem Move neu im Archiv
+        // liegt (Dateiname und Message-ID aendern sich beim Verschieben).
+        HashSet<string> vorher = new();
+        HashSet<string> Dateien(Archive a)
+        {
+            var r = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                dynamic items = a.GetArchiveEntries("Default");
+                for (int i = 0; i < (int)items.Count; i++)
+                    r.Add(Lesen(() => Convert.ToString(items.Item(i).Fields.Item("FileName").Value)));
+            }
+            catch { }
+            return r;
+        }
         object Suchen(Archive a)
         {
+            object neu = null;
             try
             {
                 dynamic items = a.GetArchiveEntries("Default");
                 for (int i = (int)items.Count - 1; i >= 0; i--)
                 {
                     dynamic it = items.Item(i);
-                    if (Gleich(it, msgId, betreff)) return (object)it;
+                    if (vorher.Contains(Lesen(() => Convert.ToString(it.Fields.Item("FileName").Value)))) continue;
+                    if (Convert.ToString(it.Subject) == betreff) return (object)it;
+                    neu ??= (object)it;
                 }
             }
             catch { }
-            return null;
+            return neu;
         }
         // Bis zu 60 s auf die JobID warten, dann StartChat
         dynamic Pruefen(string schritt, Archive a)
@@ -663,14 +680,17 @@ static class Programm
             }
             Console.WriteLine($"        {schritt}: JobID {job} (nach {uhr.Elapsed.TotalSeconds:0} s)");
             Info($"{schritt}: Datei", () => Convert.ToString(e.Fields.Item("FileName").Value));
+            Info($"{schritt}: Betreff", () => Convert.ToString(e.Subject));
             dynamic th = Schritt($"{schritt}: StartChat", () => (object)cm.StartChat(acc, acc.CreateAddressList(), (object)e));
             if (th != null) Senden(schritt, () => (ChatThread)th);
             return e;
         }
 
+        vorher = Dateien(ziel);
         if (Schritt("Move Ziel", () => { mail.Move(ziel, true); return (object)"ok"; }) == null) return 1;
         dynamic imZiel = Pruefen("im Ziel", ziel);
         if (!zurueck || imZiel == null) return 0;
+        vorher = Dateien(quelle);
         if (Schritt("Move zurueck", () => { imZiel.Move(quelle, true); return (object)"ok"; }) == null)
         {
             Console.WriteLine("        Mail liegt noch im Ziel - bitte von Hand zurueckschieben!");

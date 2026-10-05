@@ -37,13 +37,28 @@ static class Programm
         {
             Console.WriteLine("Aufruf: DavidTeamTalk.exe \"<Mailpfad>\" [teilnehmer ...]");
             Console.WriteLine("        DavidTeamTalk.exe --doku [empfaenger]");
+            Console.WriteLine("        DavidTeamTalk.exe --vergleich \"<Mailpfad>\"");
             return 2;
         }
-        if (args[0] == "--vergleich" && args.Length > 1)
+        for (int i = 0; i < args.Length; i++)
+            Console.WriteLine($"Argument {i}: {args[i]}");
+        if (args[0] == "--vergleich")
+        {
+            if (args.Length < 2 || !args[1].Contains('\\'))
+            {
+                Console.WriteLine("Aufruf: DavidTeamTalk.exe --vergleich \"<Mailpfad>\"");
+                return 2;
+            }
             return Vergleich(args[1]);
+        }
         if (args[0] == "--doku")
             return Doku(args.Length > 1 ? args[1] : "inga@engelking.de");
         string pfad = args[0];
+        if (!pfad.Contains('\\'))
+        {
+            Console.WriteLine($"Kein Mailpfad: {pfad}");
+            return 2;
+        }
         string[] teilnehmer = args.Length > 1 ? args[1..] : new[] { "inga@engelking.de" };
 
         Console.WriteLine($"Prozess: {(Environment.Is64BitProcess ? "64" : "32")} Bit, Apartment {Thread.CurrentThread.GetApartmentState()}");

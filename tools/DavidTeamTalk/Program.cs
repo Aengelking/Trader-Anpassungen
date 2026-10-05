@@ -4,6 +4,8 @@
 // Aufruf:
 //   DavidTeamTalk.exe "<Mailpfad>" [teilnehmer@engelking.de ...]
 //   DavidTeamTalk.exe --doku [empfaenger]   (die beiden Beispiele der Doku)
+//   DavidTeamTalk.exe --ohnejobid ["<Archivpfad>"]
+//              Mails mit JobID 0 auflisten (Standard: eigener Posteingang)
 //   DavidTeamTalk.exe --jobid "<Mailpfad>" [teilnehmer]
 //              Mail mit JobID 0 TeamTalk-faehig machen: nacheinander
 //              1 Save, 2 Teilnehmer als Cc + Save, 3 SRTo + Save
@@ -48,6 +50,8 @@ static class Programm
         }
         for (int i = 0; i < args.Length; i++)
             Console.WriteLine($"Argument {i}: {args[i]}");
+        if (args[0] == "--ohnejobid")
+            return OhneJobId(args.Length > 1 ? args[1] : null);
         if (args[0] == "--jobid")
         {
             if (args.Length < 2 || !args[1].Contains('\\'))
@@ -452,6 +456,39 @@ static class Programm
         }
         Console.WriteLine("Keiner der Schritte hat eine JobID gebracht.");
         return 1;
+    }
+
+    // Mails ohne JobID (StartChat scheitert an ihnen) im Archiv auflisten.
+    static int OhneJobId(string archivPfad)
+    {
+        var api = new DavidAPI();
+        Account acc = Schritt("GetAccount", () => api.GetAccount());
+        if (acc == null) return 1;
+        Archive arch = archivPfad == null
+            ? Schritt("GetSpecialArchive PersonalIn", () => acc.GetSpecialArchive(DvArchiveTypes.DvArchivePersonalIn))
+            : Schritt("GetArchive", () => acc.GetArchive(archivPfad.TrimEnd('\\')));
+        if (arch == null) return 1;
+        dynamic items = Schritt("GetArchiveEntries", () => (object)arch.GetArchiveEntries("Default"));
+        if (items == null) return 1;
+        int n = 0, treffer = 0;
+        try { n = (int)items.Count; } catch { }
+        Console.WriteLine($"        {n} Eintraege, ohne JobID:");
+        for (int i = n - 1; i >= 0; i--)
+        {
+            try
+            {
+                dynamic it = items.Item(i);
+                if (Convert.ToString(it.Fields.Item("JobID").Value) != "0") continue;
+                treffer++;
+                Console.WriteLine($"        {Convert.ToString(it.Fields.Item("FileName").Value)}  "
+                    + $"{Convert.ToString(it.Fields.Item("StatusTime").Value)}  "
+                    + $"{Kurz(Convert.ToString(it.Fields.Item("SRFrom").Value) ?? "", 30),-30}  "
+                    + $"{Kurz(Convert.ToString(it.Subject) ?? "", 60)}");
+            }
+            catch { }
+        }
+        Console.WriteLine($"        {treffer} Mails ohne JobID");
+        return 0;
     }
 
     static void Senden(string name, Func<ChatThread> start)

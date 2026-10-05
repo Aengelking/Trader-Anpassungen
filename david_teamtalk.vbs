@@ -14,7 +14,7 @@
 '   /mail     Archivpfad der Mail, z. B. \\ek-server3\david\archive\user\10004000\in\I44DE928.001
 '   /archiv   Archiv fuer /betreff, z. B. \\ek-server3\david\archive\user\10004000\in
 '   /betreff  Mail im Archiv ueber einen eindeutigen Teil des Betreffs suchen
-'   /an       Teilnehmer, Komma-getrennt (Standard: anliegen@engelking.de)
+'   /an       Teilnehmer, Komma-getrennt (Standard: inga@engelking.de)
 '   /text     erste Nachricht im TeamTalk
 '   /test     Varianten nacheinander pruefen (siehe TeamTalkTest unten)
 '
@@ -33,7 +33,7 @@ mailPfad = args("mail")
 archivPfad = args("archiv")
 betreff = args("betreff")
 an = args("an")
-If an = "" Then an = "anliegen@engelking.de"
+If an = "" Then an = "inga@engelking.de"
 text = args("text")
 If text = "" Then text = "Test Anliegen eroeffnen [#EK-ATEST]. Bitte ignorieren."
 If mailPfad <> "" Then archivPfad = Left(mailPfad, InStrRev(mailPfad, "\") - 1)

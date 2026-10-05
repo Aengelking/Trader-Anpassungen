@@ -8,7 +8,7 @@
 //   Mailpfad   wie ihn David uebergibt, z. B.
 //              \\ek-server3\david\archive\user\10004000\in\I44DF0D5
 //              (ohne Endung wird zusaetzlich .001 versucht)
-//   Teilnehmer Standard: anliegen@engelking.de
+//   Teilnehmer Standard: inga@engelking.de
 //
 // Ergebnis bisher: Teilnehmer als Address-Objekt aus dem Adressbuch gehen
 // (TeamChat startet), StartChat mit der empfangenen Mail als Bezug scheitert
@@ -36,9 +36,9 @@ static class Programm
             return 2;
         }
         if (args[0] == "--doku")
-            return Doku(args.Length > 1 ? args[1] : "anliegen@engelking.de");
+            return Doku(args.Length > 1 ? args[1] : "inga@engelking.de");
         string pfad = args[0];
-        string[] teilnehmer = args.Length > 1 ? args[1..] : new[] { "anliegen@engelking.de" };
+        string[] teilnehmer = args.Length > 1 ? args[1..] : new[] { "inga@engelking.de" };
 
         Console.WriteLine($"Prozess: {(Environment.Is64BitProcess ? "64" : "32")} Bit, Apartment {Thread.CurrentThread.GetApartmentState()}");
 
@@ -127,7 +127,7 @@ static class Programm
     //  - "Create a TeamChat" (IChatThread-Beispiel): erste Adresse aus dem lokalen
     //    Adressbuch als Address-Objekt, StartChat ohne Topic.
     // ACHTUNG: Der Eintrag liegt im Postausgang - David koennte ihn an den
-    // Empfaenger senden. Deshalb Standard-Empfaenger anliegen@engelking.de.
+    // Empfaenger senden. Deshalb Standard-Empfaenger inga@engelking.de.
     static int Doku(string empfaenger)
     {
         Console.WriteLine($"Prozess: {(Environment.Is64BitProcess ? "64" : "32")} Bit, Apartment {Thread.CurrentThread.GetApartmentState()}");

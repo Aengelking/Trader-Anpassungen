@@ -1,7 +1,7 @@
 #define DV_ADDRESS_EMAIL  0     // DvAddressTypes.DvAddressEMail
 #define DV_TEXT_PLAIN     1     // DvTextTypes.DvTextPlain
 #define TEST_TAG          "[#EK-ATEST]"
-#define AGENT_ADRESSE     "anliegen@engelking.de"
+#define AGENT_ADRESSE     "inga@engelking.de"
 
 /**
 Test: Kann eine David-Aktion an einer Mail einen TeamTalk starten?
@@ -20,7 +20,7 @@ TeamTalk ergibt, prueft dieser Test an einer Testmail.
 Aufruf wie die anderen Kontextaktionen (david_context.prg, "TEAMTALKTEST"):
    MBaseRun(Trim(tr_getini(1))+"\run\test_david_teamtalk",{cMsgPath})
 Optional weitere Teilnehmer (Komma-getrennt) als zweiter Parameter, z. B.
-   {cMsgPath, "anliegen@engelking.de,kollege@engelking.de"}
+   {cMsgPath, "inga@engelking.de,kollege@engelking.de"}
 Aufraeumen (Token wieder entfernen): dritter Parameter "ZURUECK".
 Dritter Parameter "VBS" (Kontextaktion TEAMTALKVBS): protokolliert den von
 David uebergebenen Pfad samt Dateien gleichen Namens und gibt ihn

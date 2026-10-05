@@ -10,17 +10,15 @@
 //              (ohne Endung wird zusaetzlich .001 versucht)
 //   Teilnehmer Standard: anliegen@engelking.de
 //
-// Versuche, jeweils mit HRESULT im Fehlerfall:
-//   1. Account ueber GetAccount, sonst Logon("AUTH")
-//   2. Mail ueber GetArchiveEntryByID
-//   3. ChatManager erzeugen
-//   4. TeamChat ohne Mail          StartChat(Account, Teilnehmer)
-//   5. TeamTalk an der Mail        StartChat(Account, Teilnehmer, Mail)
+// Die Doku-Beispiele funktionieren, unsere Aufrufe mit Teilnehmern als
+// E-Mail-Text (Addresses.Add("x@y", "x@y", 0)) scheiterten mit 80004005.
+// In den Beispielen ist die Liste leer oder enthaelt ein Address-Objekt aus
+// einem Adressbuch. Deshalb hier mit der empfangenen Mail:
+//   A. TeamTalk an der Mail, leere Teilnehmerliste
+//   B. Teilnehmer als Address-Objekt aus dem Adressbuch (Global, Lokal,
+//      Persoenlich - Suche ueber EMail), TeamChat ohne Mail
+//   C. dasselbe als TeamTalk an der Mail
 // Bei Erfolg wird eine Testnachricht gesendet und der Thread geschlossen.
-//
-// Hintergrund: Aus Harbour und VBScript scheiterte StartChat mit E_FAIL
-// (80004005), auch im Tobit-Client (common.vbs). Dieser Test klaert, ob es
-// am Aufrufweg liegt oder an der Schnittstelle selbst.
 
 using System.Runtime.InteropServices;
 using DvApi32;
@@ -64,16 +62,27 @@ static class Programm
             (IChatManager)Activator.CreateInstance(Type.GetTypeFromProgID("DVOBJAPILib.ChatManager", true)));
         if (cm == null) return 1;
 
-        Addresses adr = acc.CreateAddressList();
-        foreach (string t in teilnehmer)
-            Schritt("Adresse " + t, () => (object)adr.Add(t, t, 0));   // 0 = DvAddressEMail
-
-        // 4. TeamChat ohne Mail
-        Senden("TeamChat ohne Mail", () => cm.StartChat(acc, adr));
-
-        // 5. TeamTalk an der Mail
+        // A. TeamTalk an der Mail mit leerer Liste (wie Doku-Beispiel 1)
         if (mail != null)
-            Senden("TeamTalk an Mail", () => cm.StartChat(acc, adr, mail));
+            Senden("A TeamTalk leer", () => cm.StartChat(acc, acc.CreateAddressList(), mail));
+
+        // Teilnehmer als Address-Objekte aus den Adressbuechern
+        Addresses adr = acc.CreateAddressList();
+        int gefunden = 0;
+        foreach (string t in teilnehmer)
+        {
+            object a = AdresseSuchen(acc, t);
+            if (a == null) { Console.WriteLine($"FEHLER  Adresse {t}: in keinem Adressbuch gefunden"); continue; }
+            if (Schritt("Addresses.Add(Address) " + t, () => { adr.Add(a); return (object)"ok"; }) != null) gefunden++;
+        }
+        if (gefunden == 0) return 1;
+
+        // B. TeamChat ohne Mail (wie Doku-Beispiel 2)
+        Senden("B TeamChat Adressbuch", () => cm.StartChat(acc, adr));
+
+        // C. TeamTalk an der Mail mit Adressbuch-Teilnehmern
+        if (mail != null)
+            Senden("C TeamTalk Adressbuch", () => cm.StartChat(acc, adr, mail));
 
         return 0;
     }
@@ -130,6 +139,48 @@ static class Programm
             Senden("Doku TeamChat", () => cm.StartChat(acc, adr));
         }
         return 0;
+    }
+
+    // Address-Objekt fuer eine E-Mail-Adresse suchen. Die Adressbuecher haben
+    // nur Item(i)/Count, daher alle Eintraege durchgehen und EMail vergleichen.
+    static object AdresseSuchen(Account acc, string email)
+    {
+        var buecher = new (string Name, Func<object> Holen)[]
+        {
+            ("GlobalAddressBook", () => acc.GlobalAddressBook),
+            ("LocalAddressBook", () => acc.LocalAddressBook),
+            ("PersonalAddressBook", () => acc.PersonalAddressBook),
+        };
+        foreach (var (name, holen) in buecher)
+        {
+            object o = Schritt(name, holen);
+            if (o == null) continue;
+            dynamic buch = o;
+            int anzahl;
+            try { anzahl = (int)buch.Count; }
+            catch (Exception e) { Console.WriteLine($"FEHLER  {name}.Count: {e.HResult:X8}"); continue; }
+            Console.WriteLine($"        {name}: {anzahl} Eintraege");
+            for (int i = 0; i < anzahl; i++)
+            {
+                dynamic a;
+                string mail;
+                try { a = buch.Item(i); mail = (string)a.EMail; }
+                catch { continue; }
+                if (i < 3) Console.WriteLine($"          [{i}] {Lesen(() => (string)a.DisplayName)} <{mail}>");
+                if (string.Equals(mail?.Trim(), email, StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine($"OK      {email} in {name}[{i}]: {Lesen(() => (string)a.DisplayName)}, "
+                        + $"UID {Lesen(() => Convert.ToString(a.UID))}, Typ {Lesen(() => Convert.ToString(a.Type))}");
+                    return (object)a;
+                }
+            }
+        }
+        return null;
+    }
+
+    static string Lesen(Func<string> f)
+    {
+        try { return f(); } catch (Exception e) { return $"?({e.HResult:X8})"; }
     }
 
     static void Senden(string name, Func<ChatThread> start)

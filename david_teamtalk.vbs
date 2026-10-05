@@ -38,8 +38,12 @@ Set api = CreateObject("DVOBJAPILib.DvISEAPI")
 Pruefe "DvISEAPI"
 Set acc = api.GetAccount()
 Pruefe "GetAccount"
+WScript.Echo "Angemeldet als: " & acc.User.Name & " (" & acc.User.ID & ")"
+Err.Clear
 Set arch = acc.GetArchive(archivPfad)
 Pruefe "GetArchive"
+WScript.Echo "Archiv: " & arch.DisplayName & " / " & arch.FullPath & " / " & arch.MailItems.Count & " Mails"
+Err.Clear
 If mailPfad <> "" Then
   Set msg = MailNachPfad(arch, mailPfad)
 Else

@@ -4,6 +4,10 @@
 // Aufruf:
 //   DavidTeamTalk.exe "<Mailpfad>" [teilnehmer@engelking.de ...]
 //   DavidTeamTalk.exe --doku [empfaenger]   (die beiden Beispiele der Doku)
+//   DavidTeamTalk.exe --vergleich "<Mailpfad>"
+//              Felder der empfangenen Mail und des Doku-Eintrags im
+//              Postausgang nebeneinander, GetChatHistory an beiden, StartChat
+//              am NEU GELADENEN Doku-Eintrag (frisch erzeugt vs. geladen)
 //
 //   Mailpfad   wie ihn David uebergibt, z. B.
 //              \\ek-server3\david\archive\user\10004000\in\I44DF0D5
@@ -35,6 +39,8 @@ static class Programm
             Console.WriteLine("        DavidTeamTalk.exe --doku [empfaenger]");
             return 2;
         }
+        if (args[0] == "--vergleich" && args.Length > 1)
+            return Vergleich(args[1]);
         if (args[0] == "--doku")
             return Doku(args.Length > 1 ? args[1] : "inga@engelking.de");
         string pfad = args[0];
@@ -221,6 +227,93 @@ static class Programm
     {
         Senden(name + " leer", () => cm.StartChat(acc, acc.CreateAddressList(), mail));
         Senden(name + " Teilnehmer", () => cm.StartChat(acc, adr, mail));
+    }
+
+    // Was unterscheidet die empfangene Mail vom Doku-Eintrag, an dem StartChat
+    // funktioniert hat? 1. alle Felder beider Eintraege, 2. GetChatHistory an
+    // beiden (nimmt die API die Mail als Bezug ueberhaupt an?), 3. StartChat am
+    // Doku-Eintrag, diesmal aus dem Postausgang GELADEN statt frisch erzeugt.
+    static int Vergleich(string pfad)
+    {
+        var api = new DavidAPI();
+        Account acc = Schritt("GetAccount", () => api.GetAccount());
+        if (acc == null) return 1;
+        IChatManager cm = Schritt("ChatManager", () =>
+            (IChatManager)Activator.CreateInstance(Type.GetTypeFromProgID("DVOBJAPILib.ChatManager", true)));
+        if (cm == null) return 1;
+
+        Archive arch = Schritt("GetArchive", () => acc.GetArchive(pfad[..pfad.LastIndexOf('\\')]));
+        object mail = arch == null ? null : Schritt("GetArchiveEntryByID",
+            () => (object)arch.GetArchiveEntryByID(Path.HasExtension(pfad) ? pfad : pfad + ".001"));
+
+        // Doku-Eintrag im Postausgang: Empfaenger inga@ oder anliegen@, sonst der letzte
+        object doku = null;
+        Archive ausgang = Schritt("GetSpecialArchive PersonalOut",
+            () => acc.GetSpecialArchive(DvArchiveTypes.DvArchivePersonalOut));
+        if (ausgang != null)
+        {
+            dynamic items = Schritt("Postausgang GetArchiveEntries", () => (object)ausgang.GetArchiveEntries("Default"));
+            int n = 0;
+            try { n = (int)items.Count; } catch { }
+            Console.WriteLine($"        Postausgang: {n} Eintraege");
+            for (int i = 0; i < n; i++)
+            {
+                try
+                {
+                    dynamic it = items.Item(i);
+                    string an = Convert.ToString(it.Fields.Item("SRTo").Value) ?? "";
+                    if (an.Contains("inga@", StringComparison.OrdinalIgnoreCase)
+                        || an.Contains("anliegen@", StringComparison.OrdinalIgnoreCase))
+                        doku = (object)it;
+                    if (doku == null && i == n - 1) doku = (object)it;
+                }
+                catch { }
+            }
+        }
+
+        if (mail != null) Felder("EMPFANGENE MAIL", mail);
+        if (doku != null) Felder("DOKU-EINTRAG (Postausgang)", doku);
+
+        Addresses leer = acc.CreateAddressList();
+        if (mail != null)
+            Info("GetChatHistory Mail", () => $"{((dynamic)cm.GetChatHistory(mail, leer)).Count} Nachrichten");
+        if (doku != null)
+        {
+            Info("GetChatHistory Doku", () => $"{((dynamic)cm.GetChatHistory(doku, acc.CreateAddressList())).Count} Nachrichten");
+            Senden("Doku-Eintrag geladen", () => cm.StartChat(acc, acc.CreateAddressList(), doku));
+        }
+        return 0;
+    }
+
+    static void Felder(string titel, object eintrag)
+    {
+        Console.WriteLine($"---- {titel}");
+        Info("_ID / Typ / Archiv", () =>
+        {
+            dynamic e = eintrag;
+            return $"{Convert.ToString(e._ID)} / {Convert.ToString(e.Type)} / {(string)e.Parent.FullPath}";
+        });
+        Info("Betreff", () => (string)((dynamic)eintrag).Subject);
+        try
+        {
+            dynamic felder = ((dynamic)eintrag).Fields;
+            int n = (int)felder.Count;
+            for (int i = 0; i < n; i++)
+            {
+                string zeile;
+                try
+                {
+                    dynamic f = felder.Item(i);
+                    string wert = Convert.ToString(f.Value) ?? "";
+                    wert = wert.Replace("\r", " ").Replace("\n", " ");
+                    if (wert.Length > 80) wert = wert[..80] + "...";
+                    zeile = $"{(string)f.Name} = {wert}";
+                }
+                catch (Exception e) { zeile = $"[{i}] nicht lesbar ({e.HResult:X8})"; }
+                Console.WriteLine($"        {zeile}");
+            }
+        }
+        catch (Exception e) { Console.WriteLine($"FEHLER  Fields: {e.HResult:X8} {e.Message}"); }
     }
 
     static void Senden(string name, Func<ChatThread> start)

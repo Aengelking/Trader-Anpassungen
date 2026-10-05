@@ -4,10 +4,10 @@
 // Aufruf:
 //   DavidTeamTalk.exe "<Mailpfad>" [teilnehmer@engelking.de ...]
 //   DavidTeamTalk.exe --doku [empfaenger]   (die beiden Beispiele der Doku)
-//   DavidTeamTalk.exe --vergleich "<Mailpfad>"
-//              Felder der empfangenen Mail und des Doku-Eintrags im
-//              Postausgang nebeneinander, GetChatHistory an beiden, StartChat
-//              am NEU GELADENEN Doku-Eintrag (frisch erzeugt vs. geladen)
+//   DavidTeamTalk.exe --vergleich "<Mailpfad>" ["<Mailpfad>" ...]
+//              je Mail die Felder, die vom Doku-Eintrag im Postausgang
+//              abweichen (dort klappt StartChat, auch geladen), dazu
+//              GetChatHistory und StartChat mit leerer Liste
 //
 //   Mailpfad   wie ihn David uebergibt, z. B.
 //              \\ek-server3\david\archive\user\10004000\in\I44DF0D5
@@ -37,19 +37,19 @@ static class Programm
         {
             Console.WriteLine("Aufruf: DavidTeamTalk.exe \"<Mailpfad>\" [teilnehmer ...]");
             Console.WriteLine("        DavidTeamTalk.exe --doku [empfaenger]");
-            Console.WriteLine("        DavidTeamTalk.exe --vergleich \"<Mailpfad>\"");
+            Console.WriteLine("        DavidTeamTalk.exe --vergleich \"<Mailpfad>\" [...]");
             return 2;
         }
         for (int i = 0; i < args.Length; i++)
             Console.WriteLine($"Argument {i}: {args[i]}");
         if (args[0] == "--vergleich")
         {
-            if (args.Length < 2 || !args[1].Contains('\\'))
+            if (args.Length < 2 || !args[1..].All(a => a.Contains('\\')))
             {
-                Console.WriteLine("Aufruf: DavidTeamTalk.exe --vergleich \"<Mailpfad>\"");
+                Console.WriteLine("Aufruf: DavidTeamTalk.exe --vergleich \"<Mailpfad>\" [\"<Mailpfad>\" ...]");
                 return 2;
             }
-            return Vergleich(args[1]);
+            return Vergleich(args[1..]);
         }
         if (args[0] == "--doku")
             return Doku(args.Length > 1 ? args[1] : "inga@engelking.de");
@@ -244,11 +244,12 @@ static class Programm
         Senden(name + " Teilnehmer", () => cm.StartChat(acc, adr, mail));
     }
 
-    // Was unterscheidet die empfangene Mail vom Doku-Eintrag, an dem StartChat
-    // funktioniert hat? 1. alle Felder beider Eintraege, 2. GetChatHistory an
-    // beiden (nimmt die API die Mail als Bezug ueberhaupt an?), 3. StartChat am
-    // Doku-Eintrag, diesmal aus dem Postausgang GELADEN statt frisch erzeugt.
-    static int Vergleich(string pfad)
+    // Was unterscheidet empfangene Mails vom Doku-Eintrag, an dem StartChat
+    // funktioniert (auch geladen aus dem Postausgang)? Fuer jede Mail: die
+    // Felder, die vom Doku-Eintrag abweichen, GetChatHistory und StartChat mit
+    // leerer Liste. Mehrere Mails auf einmal, z. B. externe Kundenmail,
+    // interne Mail eines Kollegen, Mail mit von Hand gestartetem TeamTalk.
+    static int Vergleich(string[] pfade)
     {
         var api = new DavidAPI();
         Account acc = Schritt("GetAccount", () => api.GetAccount());
@@ -257,11 +258,7 @@ static class Programm
             (IChatManager)Activator.CreateInstance(Type.GetTypeFromProgID("DVOBJAPILib.ChatManager", true)));
         if (cm == null) return 1;
 
-        Archive arch = Schritt("GetArchive", () => acc.GetArchive(pfad[..pfad.LastIndexOf('\\')]));
-        object mail = arch == null ? null : Schritt("GetArchiveEntryByID",
-            () => (object)arch.GetArchiveEntryByID(Path.HasExtension(pfad) ? pfad : pfad + ".001"));
-
-        // Doku-Eintrag im Postausgang: Empfaenger inga@ oder anliegen@, sonst der letzte
+        // Doku-Eintrag im Postausgang: Empfaenger inga@ oder anliegen@
         object doku = null;
         Archive ausgang = Schritt("GetSpecialArchive PersonalOut",
             () => acc.GetSpecialArchive(DvArchiveTypes.DvArchivePersonalOut));
@@ -270,8 +267,7 @@ static class Programm
             dynamic items = Schritt("Postausgang GetArchiveEntries", () => (object)ausgang.GetArchiveEntries("Default"));
             int n = 0;
             try { n = (int)items.Count; } catch { }
-            Console.WriteLine($"        Postausgang: {n} Eintraege");
-            for (int i = 0; i < n; i++)
+            for (int i = n - 1; i >= 0 && doku == null; i--)
             {
                 try
                 {
@@ -280,55 +276,64 @@ static class Programm
                     if (an.Contains("inga@", StringComparison.OrdinalIgnoreCase)
                         || an.Contains("anliegen@", StringComparison.OrdinalIgnoreCase))
                         doku = (object)it;
-                    if (doku == null && i == n - 1) doku = (object)it;
                 }
                 catch { }
             }
         }
+        if (doku == null) { Console.WriteLine("FEHLER  Doku-Eintrag im Postausgang nicht gefunden (erst --doku laufen lassen)"); return 1; }
+        var dokuFelder = Felder(doku);
+        Console.WriteLine($"        Doku-Eintrag: {dokuFelder.GetValueOrDefault("FileName")}");
 
-        if (mail != null) Felder("EMPFANGENE MAIL", mail);
-        if (doku != null) Felder("DOKU-EINTRAG (Postausgang)", doku);
-
-        Addresses leer = acc.CreateAddressList();
-        if (mail != null)
-            Info("GetChatHistory Mail", () => $"{((dynamic)cm.GetChatHistory(mail, leer)).Count} Nachrichten");
-        if (doku != null)
+        foreach (string pfad in pfade)
         {
-            Info("GetChatHistory Doku", () => $"{((dynamic)cm.GetChatHistory(doku, acc.CreateAddressList())).Count} Nachrichten");
-            Senden("Doku-Eintrag geladen", () => cm.StartChat(acc, acc.CreateAddressList(), doku));
+            Console.WriteLine();
+            Console.WriteLine($"==== {pfad}");
+            Archive arch = Schritt("GetArchive", () => acc.GetArchive(pfad[..pfad.LastIndexOf('\\')]));
+            object mail = arch == null ? null : Schritt("GetArchiveEntryByID",
+                () => (object)arch.GetArchiveEntryByID(Path.HasExtension(pfad) ? pfad : pfad + ".001"));
+            if (mail == null) continue;
+            Info("Betreff", () => (string)((dynamic)mail).Subject);
+            var felder = Felder(mail);
+            Console.WriteLine($"        {"Feld",-22} {"Mail",-40} Doku-Eintrag");
+            foreach (var (name, wert) in felder)
+            {
+                string d = dokuFelder.GetValueOrDefault(name) ?? "";
+                if (wert != d && !Unwichtig(name))
+                    Console.WriteLine($"        {name,-22} {Kurz(wert, 40),-40} {Kurz(d, 40)}");
+            }
+            Info("GetChatHistory", () => $"{((dynamic)cm.GetChatHistory(mail, acc.CreateAddressList())).Count} Nachrichten");
+            Senden("Mail", () => cm.StartChat(acc, acc.CreateAddressList(), mail));
         }
         return 0;
     }
 
-    static void Felder(string titel, object eintrag)
+    // Felder, die sich bei jeder Mail unterscheiden und nichts erklaeren
+    static bool Unwichtig(string name) => name is "QID" or "RecNo" or "FileName" or "Subject" or "LongSubject"
+        or "HTML" or "HTMLDisplayContent" or "SMTPHeader" or "Size" or "StatusTime" or "LastChangedTime"
+        or "SendTimeMsg" or "ExStatusTime" or "MessageID" or "CharsetHtml";
+
+    static string Kurz(string s, int n) => s.Length > n ? s[..(n - 3)] + "..." : s;
+
+    static Dictionary<string, string> Felder(object eintrag)
     {
-        Console.WriteLine($"---- {titel}");
-        Info("_ID / Typ / Archiv", () =>
-        {
-            dynamic e = eintrag;
-            return $"{Convert.ToString(e._ID)} / {Convert.ToString(e.Type)} / {(string)e.Parent.FullPath}";
-        });
-        Info("Betreff", () => (string)((dynamic)eintrag).Subject);
+        var r = new Dictionary<string, string>();
         try
         {
             dynamic felder = ((dynamic)eintrag).Fields;
             int n = (int)felder.Count;
             for (int i = 0; i < n; i++)
             {
-                string zeile;
                 try
                 {
                     dynamic f = felder.Item(i);
                     string wert = Convert.ToString(f.Value) ?? "";
-                    wert = wert.Replace("\r", " ").Replace("\n", " ");
-                    if (wert.Length > 80) wert = wert[..80] + "...";
-                    zeile = $"{(string)f.Name} = {wert}";
+                    r.TryAdd((string)f.Name, wert.Replace("\r", " ").Replace("\n", " "));
                 }
-                catch (Exception e) { zeile = $"[{i}] nicht lesbar ({e.HResult:X8})"; }
-                Console.WriteLine($"        {zeile}");
+                catch { }
             }
         }
         catch (Exception e) { Console.WriteLine($"FEHLER  Fields: {e.HResult:X8} {e.Message}"); }
+        return r;
     }
 
     static void Senden(string name, Func<ChatThread> start)

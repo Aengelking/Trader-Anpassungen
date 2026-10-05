@@ -44,6 +44,7 @@ Set arch = acc.GetArchive(archivPfad)
 Pruefe "GetArchive"
 WScript.Echo "Archiv: " & arch.DisplayName & " / " & arch.FullPath & " / " & arch.MailItems.Count & " Mails"
 Err.Clear
+Set msg = Nothing
 If mailPfad <> "" Then
   Set msg = MailNachPfad(arch, mailPfad)
 Else
@@ -76,12 +77,17 @@ WScript.Quit 0
 ' kann sich nach einem Speichern (z. B. geaendertem Betreff) aendern.
 Function MailNachPfad(arch, pfad)
   Dim fso, ordner, stamm, f, kandidat, sa
+  On Error Resume Next   ' gilt in VBScript nur je Prozedur
   Set MailNachPfad = Nothing
   Err.Clear
+  Set kandidat = Nothing
   Set kandidat = arch.GetArchiveEntryById(pfad)
-  If Err.Number = 0 Then
-    Set MailNachPfad = kandidat
-    Exit Function
+  If Err.Number = 0 And IsObject(kandidat) Then
+    If Not kandidat Is Nothing Then
+      Set MailNachPfad = kandidat
+      Exit Function
+    End If
+    WScript.Echo "GetArchiveEntryById: kein Objekt zurueck"
   End If
   WScript.Echo "GetArchiveEntryById: " & Hex(Err.Number) & " " & Err.Description
   Err.Clear
@@ -99,6 +105,12 @@ Function MailNachPfad(arch, pfad)
     End If
     WScript.Echo "ItemFromID(" & sa & "): " & Hex(Err.Number) & " " & Err.Description
   Next
+  Err.Clear
+  Set kandidat = MailNachEintragsId(arch, pfad)
+  If Not kandidat Is Nothing Then
+    Set MailNachPfad = kandidat
+    Exit Function
+  End If
   Err.Clear
   Set fso = CreateObject("Scripting.FileSystemObject")
   WScript.Echo "Datei vorhanden: " & fso.FileExists(pfad)
@@ -124,9 +136,44 @@ Function MailNachPfad(arch, pfad)
   Err.Clear
 End Function
 
+' Mail ueber die Eintrags-ID der MailItems finden (wie crm_email.prg ueber
+' _ID): Die _ID wird mit Dateiname bzw. Pfad der Mail verglichen. Die ersten
+' Werte werden ausgegeben, damit das Format sichtbar ist.
+Function MailNachEintragsId(arch, pfad)
+  Dim items, i, it, id, datei, n
+  On Error Resume Next
+  Set MailNachEintragsId = Nothing
+  datei = LCase(Mid(pfad, InStrRev(pfad, "\") + 1))
+  Set items = arch.MailItems
+  If Err.Number <> 0 Then
+    WScript.Echo "MailItems: " & Hex(Err.Number) & " " & Err.Description
+    Exit Function
+  End If
+  n = 0
+  For i = 0 To items.Count - 1
+    Err.Clear
+    Set it = items.Item(i)
+    id = ""
+    id = CStr(it.[_ID])
+    If Err.Number = 0 Then
+      If n < 3 Then WScript.Echo "  _ID[" & i & "] = " & id
+      n = n + 1
+      If LCase(id) = LCase(pfad) Or LCase(id) = datei Or InStr(1, id, datei, vbTextCompare) > 0 Then
+        WScript.Echo "Gefunden ueber _ID: " & id
+        Set MailNachEintragsId = it
+        Exit Function
+      End If
+    ElseIf i = 0 Then
+      WScript.Echo "  _ID nicht lesbar: " & Hex(Err.Number) & " " & Err.Description
+    End If
+  Next
+  WScript.Echo "Keine _ID passt zu " & datei & " (" & n & " Eintraege gelesen)"
+End Function
+
 ' Mail im Archiv ueber einen Teil des Betreffs suchen (genau ein Treffer).
 Function MailNachBetreff(arch, teil)
   Dim items, i, it, treffer, n
+  On Error Resume Next
   Set MailNachBetreff = Nothing
   Err.Clear
   Set items = arch.MailItems

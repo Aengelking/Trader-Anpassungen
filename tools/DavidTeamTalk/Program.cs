@@ -4,6 +4,12 @@
 // Aufruf:
 //   DavidTeamTalk.exe "<Mailpfad>" [teilnehmer@engelking.de ...]
 //   DavidTeamTalk.exe --doku [empfaenger]   (die beiden Beispiele der Doku)
+//   DavidTeamTalk.exe --jobid "<Mailpfad>" [teilnehmer]
+//              Mail mit JobID 0 TeamTalk-faehig machen: nacheinander
+//              1 Save, 2 Teilnehmer als Cc + Save, 3 SRTo + Save
+//              (wie im Doku-Beispiel), 4 Move in Entwuerfe und zurueck.
+//              Nach jedem Schritt JobID neu lesen und StartChat versuchen,
+//              Abbruch beim ersten Erfolg. NUR AN EINER TESTMAIL.
 //   DavidTeamTalk.exe --vergleich "<Mailpfad>" ["<Mailpfad>" ...]
 //              je Mail die Felder, die vom Doku-Eintrag im Postausgang
 //              abweichen (dort klappt StartChat, auch geladen), dazu
@@ -42,6 +48,15 @@ static class Programm
         }
         for (int i = 0; i < args.Length; i++)
             Console.WriteLine($"Argument {i}: {args[i]}");
+        if (args[0] == "--jobid")
+        {
+            if (args.Length < 2 || !args[1].Contains('\\'))
+            {
+                Console.WriteLine("Aufruf: DavidTeamTalk.exe --jobid \"<Mailpfad>\" [teilnehmer]");
+                return 2;
+            }
+            return JobId(args[1], args.Length > 2 ? args[2] : "inga@engelking.de");
+        }
         if (args[0] == "--vergleich")
         {
             if (args.Length < 2 || !args[1..].All(a => a.Contains('\\')))
@@ -334,6 +349,109 @@ static class Programm
         }
         catch (Exception e) { Console.WriteLine($"FEHLER  Fields: {e.HResult:X8} {e.Message}"); }
         return r;
+    }
+
+    // Bekommt eine empfangene Mail mit JobID 0 eine JobID, wenn wir sie
+    // veraendern und speichern? Der Doku-Eintrag hatte nach SRTo + Save eine.
+    static int JobId(string pfad, string teilnehmer)
+    {
+        var api = new DavidAPI();
+        Account acc = Schritt("GetAccount", () => api.GetAccount());
+        if (acc == null) return 1;
+        IChatManager cm = Schritt("ChatManager", () =>
+            (IChatManager)Activator.CreateInstance(Type.GetTypeFromProgID("DVOBJAPILib.ChatManager", true)));
+        if (cm == null) return 1;
+        string voll = Path.HasExtension(pfad) ? pfad : pfad + ".001";
+        Archive arch = Schritt("GetArchive", () => acc.GetArchive(pfad[..pfad.LastIndexOf('\\')]));
+        if (arch == null) return 1;
+        dynamic mail = Schritt("GetArchiveEntryByID", () => (object)arch.GetArchiveEntryByID(voll));
+        if (mail == null) return 1;
+        Info("Betreff", () => (string)mail.Subject);
+        string id = Lesen(() => Convert.ToString(mail._ID));
+        string betreff = Lesen(() => Convert.ToString(mail.Subject));
+        Info("JobID vorher", () => Convert.ToString(mail.Fields.Item("JobID").Value));
+        if (Lesen(() => Convert.ToString(mail.Fields.Item("JobID").Value)) != "0")
+        {
+            Console.WriteLine("ABBRUCH Die Mail hat schon eine JobID - bitte eine Testmail mit JobID 0 nehmen.");
+            return 1;
+        }
+        object adresse = AdresseSuchen(acc, teilnehmer);
+
+        // Nach jedem Schritt: Mail neu laden (ueber _ID, falls sich der
+        // Dateiname geaendert hat), JobID ausgeben, StartChat mit leerer Liste.
+        bool Pruefen(string schritt)
+        {
+            object neu = null;
+            try { neu = arch.GetArchiveEntryByID(voll); } catch { }
+            if (neu == null)
+            {
+                try
+                {
+                    dynamic items = arch.GetArchiveEntries("Default");
+                    for (int i = (int)items.Count - 1; i >= 0 && neu == null; i--)
+                    {
+                        dynamic it = items.Item(i);
+                        if (Convert.ToString(it._ID) == id || Convert.ToString(it.Subject) == betreff) neu = (object)it;
+                    }
+                }
+                catch { }
+            }
+            if (neu == null) { Console.WriteLine($"FEHLER  {schritt}: Mail nach dem Schritt nicht wiedergefunden"); return false; }
+            mail = neu;
+            Info($"{schritt}: JobID", () => Convert.ToString(mail.Fields.Item("JobID").Value));
+            Info($"{schritt}: Datei", () => Convert.ToString(mail.Fields.Item("FileName").Value));
+            ChatThread th = Schritt($"{schritt}: StartChat", () => cm.StartChat(acc, acc.CreateAddressList(), (object)mail));
+            if (th == null) return false;
+            Senden($"{schritt}", () => th);
+            return true;
+        }
+
+        // 1. nur speichern
+        if (Schritt("1 Save", () => { mail.Save(); return (object)"ok"; }) != null && Pruefen("1 Save")) return 0;
+
+        // 2. Teilnehmer als Cc (Address-Objekt) und speichern
+        if (adresse != null)
+        {
+            if (Schritt("2 RecipientsCc.Add", () => { mail.Fields.Item("RecipientsCc").Value.Add(adresse); return (object)"ok"; }) != null
+                && Schritt("2 Save", () => { mail.Save(); return (object)"ok"; }) != null
+                && Pruefen("2 Cc + Save")) return 0;
+        }
+
+        // 3. SRTo setzen und speichern, wie im Doku-Beispiel
+        if (Schritt("3 SRTo", () => { mail.Fields.Item("SRTo").Value = teilnehmer; return (object)"ok"; }) != null
+            && Schritt("3 Save", () => { mail.Save(); return (object)"ok"; }) != null
+            && Pruefen("3 SRTo + Save")) return 0;
+
+        // 4. in die Entwuerfe verschieben und zurueck
+        Archive entwuerfe = Schritt("GetSpecialArchive PersonalDrafts",
+            () => acc.GetSpecialArchive(DvArchiveTypes.DvArchivePersonalDrafts));
+        if (entwuerfe != null
+            && Schritt("4 Move Entwuerfe", () => { mail.Move(entwuerfe, true); return (object)"ok"; }) != null)
+        {
+            // In den Entwuerfen neu suchen (neue Datei), dann zurueck
+            object dort = null;
+            try
+            {
+                dynamic items = entwuerfe.GetArchiveEntries("Default");
+                for (int i = (int)items.Count - 1; i >= 0 && dort == null; i--)
+                {
+                    dynamic it = items.Item(i);
+                    if (Convert.ToString(it.Subject) == betreff) dort = (object)it;
+                }
+            }
+            catch { }
+            if (dort == null) { Console.WriteLine("FEHLER  4: Mail in den Entwuerfen nicht gefunden - bitte von Hand zurueckschieben!"); return 1; }
+            Info("4 in Entwuerfen: JobID", () => Convert.ToString(((dynamic)dort).Fields.Item("JobID").Value));
+            if (Schritt("4 Move zurueck", () => { ((dynamic)dort).Move(arch, true); return (object)"ok"; }) == null)
+            {
+                Console.WriteLine("        Mail liegt noch in den Entwuerfen - bitte von Hand zurueckschieben!");
+                return 1;
+            }
+            Console.WriteLine("        Mail ist zurueck im Eingang.");
+            if (Pruefen("4 Move hin und zurueck")) return 0;
+        }
+        Console.WriteLine("Keiner der Schritte hat eine JobID gebracht.");
+        return 1;
     }
 
     static void Senden(string name, Func<ChatThread> start)

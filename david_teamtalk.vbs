@@ -16,12 +16,18 @@
 '   /betreff  Mail im Archiv ueber einen eindeutigen Teil des Betreffs suchen
 '   /an       Teilnehmer, Komma-getrennt (Standard: anliegen@engelking.de)
 '   /text     erste Nachricht im TeamTalk
+'   /test     Varianten nacheinander pruefen (siehe TeamTalkTest unten)
+'
+' Teilnehmer werden als Address-Objekt aus dem lokalen bzw. globalen
+' Adressbuch eingetragen (Suche ueber EMail). Als E-Mail-Text eingetragene
+' Teilnehmer liessen StartChat mit 80004005 scheitern, Adressbuch-Objekte
+' funktionieren (DavidTeamTalk.exe, TeamChat).
 '
 ' Ausgabe: "OK <ThreadID>" oder "FEHLER <Schritt>: <Code> <Text>",
 ' Exitcode 0 bzw. 1 - fuer hb_processRun in der aufrufenden Aktion.
 Option Explicit
 Dim args, mailPfad, archivPfad, betreff, an, text
-Dim api, acc, arch, msg, cm, addrs, th, a
+Dim api, acc, arch, msg, cm, addrs, th, a, adr
 Set args = WScript.Arguments.Named
 mailPfad = args("mail")
 archivPfad = args("archiv")
@@ -54,11 +60,14 @@ If msg Is Nothing Then Fehler "Mail", "nicht gefunden"
 WScript.Echo "Mail: " & msg.Subject
 Set cm = CreateObject("DVOBJAPILib.ChatManager")
 Pruefe "ChatManager"
+If args.Exists("test") Then TeamTalkTest
 Set addrs = acc.CreateAddressList()
 Pruefe "CreateAddressList"
 For Each a In Split(an, ",")
   If Trim(a) <> "" Then
-    addrs.Add Trim(a), Trim(a), 0   ' 0 = DvAddressEMail
+    Set adr = AdresseSuchen(acc, Trim(a))
+    If adr Is Nothing Then Fehler "Adresse " & Trim(a), "in keinem Adressbuch gefunden"
+    addrs.Add adr
     Pruefe "Add " & Trim(a)
   End If
 Next
@@ -199,6 +208,143 @@ Function MailNachBetreff(arch, teil)
   Else
     WScript.Echo n & " Treffer fuer '" & teil & "' - bitte eindeutiger"
   End If
+End Function
+
+' Address-Objekt zu einer E-Mail-Adresse aus dem lokalen, globalen oder
+' persoenlichen Adressbuch. Die Adressbuecher kennen nur Item(i)/Count.
+Function AdresseSuchen(acc, email)
+  Dim buch, name, i, it
+  On Error Resume Next
+  Set AdresseSuchen = Nothing
+  For Each name In Array("LocalAddressBook", "GlobalAddressBook", "PersonalAddressBook")
+    Err.Clear
+    Set buch = Nothing
+    Set buch = Eval("acc." & name)
+    If Err.Number = 0 And Not buch Is Nothing Then
+      For i = 0 To buch.Count - 1
+        Err.Clear
+        Set it = buch.Item(i)
+        If Err.Number = 0 Then
+          If LCase(Trim(it.EMail)) = LCase(email) Then
+            WScript.Echo "Adresse " & email & ": " & name & "[" & i & "] " & it.DisplayName
+            Set AdresseSuchen = it
+            Exit Function
+          End If
+        End If
+      Next
+    End If
+  Next
+  Err.Clear
+End Function
+
+' Probiert StartChat an der Mail in mehreren Varianten, jeweils mit leerer
+' Teilnehmerliste (wie das Doku-Beispiel, das funktioniert) und danach mit
+' den Teilnehmern aus /an. Jede erfolgreiche Variante sendet die
+' Testnachricht in ihren Thread. Unterschiede zum Doku-Beispiel:
+'   1 Mail wie bisher (GetArchive(Pfad).GetArchiveEntryById)
+'   2 Archiv ueber GetSpecialArchive(DvArchivePersonalIn) statt GetArchive
+'   3 Mail vorher speichern (Save), wie im Doku-Beispiel
+'   4 Mail ueber GetArchiveEntries("Default").Item(i), Abgleich ueber _ID
+Sub TeamTalkTest()
+  Dim m, eingang, items, i, it, id, voll, a, adr
+  On Error Resume Next
+  id = ""
+  id = CStr(msg.[_ID])
+  WScript.Echo "Mail _ID: " & id & ", Typ " & msg.Type & ", Archiv " & msg.Parent.FullPath
+  Err.Clear
+  Set voll = acc.CreateAddressList()
+  For Each a In Split(an, ",")
+    If Trim(a) <> "" Then
+      Set adr = AdresseSuchen(acc, Trim(a))
+      If Not adr Is Nothing Then voll.Add adr Else WScript.Echo "Adresse " & Trim(a) & ": nicht gefunden"
+    End If
+  Next
+  Err.Clear
+
+  Variante "1 GetArchive", msg, voll
+
+  Set eingang = acc.GetSpecialArchive(101)          ' DvArchivePersonalIn
+  If Err.Number <> 0 Then
+    WScript.Echo "FEHLER GetSpecialArchive(101): " & Hex(Err.Number) & " " & Err.Description
+    Err.Clear
+  Else
+    WScript.Echo "Posteingang: " & eingang.FullPath
+    Set m = Nothing
+    Set m = eingang.GetArchiveEntryById(mailPfadVoll(mailPfad))
+    If Err.Number <> 0 Or m Is Nothing Then
+      WScript.Echo "FEHLER Posteingang GetArchiveEntryById: " & Hex(Err.Number) & " " & Err.Description
+      Err.Clear
+    Else
+      Variante "2 GetSpecialArchive", m, voll
+    End If
+  End If
+
+  msg.Save
+  If Err.Number <> 0 Then
+    WScript.Echo "FEHLER Save: " & Hex(Err.Number) & " " & Err.Description
+    Err.Clear
+  Else
+    Variante "3 nach Save", msg, voll
+  End If
+
+  Set items = arch.GetArchiveEntries("Default")
+  If Err.Number <> 0 Then
+    WScript.Echo "FEHLER GetArchiveEntries: " & Hex(Err.Number) & " " & Err.Description
+    Err.Clear
+  Else
+    Set m = Nothing
+    For i = 0 To items.Count - 1
+      Err.Clear
+      Set it = items.Item(i)
+      If Err.Number = 0 Then
+        If CStr(it.[_ID]) = id Then
+          Set m = it
+          Exit For
+        End If
+      End If
+    Next
+    Err.Clear
+    If m Is Nothing Then
+      WScript.Echo "FEHLER GetArchiveEntries: _ID " & id & " nicht unter " & items.Count & " Eintraegen"
+    Else
+      Variante "4 GetArchiveEntries", m, voll
+    End If
+  End If
+  WScript.Quit 0
+End Sub
+
+' Pfad mit Endung (.001), wie GetArchiveEntryById ihn ausserhalb des Clients braucht.
+Function mailPfadVoll(p)
+  If InStr(Mid(p, InStrRev(p, "\") + 1), ".") = 0 Then mailPfadVoll = p & ".001" Else mailPfadVoll = p
+End Function
+
+Sub Variante(name, m, voll)
+  Dim t, liste, nr
+  On Error Resume Next
+  For nr = 1 To 2
+    If nr = 1 Then
+      Set liste = acc.CreateAddressList()
+    Else
+      Set liste = voll
+    End If
+    Err.Clear
+    Set t = Nothing
+    Set t = cm.StartChat(acc, liste, m)
+    If Err.Number <> 0 Or t Is Nothing Then
+      WScript.Echo "FEHLER " & name & IIf(nr = 1, " leer", " Teilnehmer") & ": " & Hex(Err.Number) & " " & Err.Description
+    Else
+      WScript.Echo "OK     " & name & IIf(nr = 1, " leer", " Teilnehmer") & ": Thread " & t.ID & ", LiveComment " & t.InstantComment
+      t.SendMessage text & " (" & name & ")", 1
+      If Err.Number <> 0 Then WScript.Echo "       SendMessage: " & Hex(Err.Number) & " " & Err.Description
+      Err.Clear
+      t.CloseThread
+    End If
+    Err.Clear
+  Next
+End Sub
+
+Function IIf(b, x, y)
+  If b Then IIf = x Else IIf = y
 End Function
 
 Sub Pruefe(schritt)

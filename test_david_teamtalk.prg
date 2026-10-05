@@ -241,7 +241,7 @@ STATIC PROCEDURE TtVbs(cMsgPath, cTeilnehmer, aLog)
 		AAdd(aLog, "VBS:       " + cVbs + " nicht gefunden")
 		RETURN
 	ENDIF
-	cCmd := 'C:\Windows\SysWOW64\cscript.exe //nologo "' + cVbs + '" /mail:"' + cMsgPath + '" /an:"' + cTeilnehmer + '"'
+	cCmd := 'C:\Windows\SysWOW64\cscript.exe //nologo "' + cVbs + '" /mail:"' + cMsgPath + '" /an:"' + cTeilnehmer + '" /test'
 	AAdd(aLog, "VBS:       " + cCmd)
 	BEGIN SEQUENCE WITH {|e| Break(e)}
 		nRet := hb_processRun(cCmd, , @cOut, @cErr)

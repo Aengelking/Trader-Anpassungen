@@ -10,14 +10,15 @@
 //              (ohne Endung wird zusaetzlich .001 versucht)
 //   Teilnehmer Standard: anliegen@engelking.de
 //
-// Die Doku-Beispiele funktionieren, unsere Aufrufe mit Teilnehmern als
-// E-Mail-Text (Addresses.Add("x@y", "x@y", 0)) scheiterten mit 80004005.
-// In den Beispielen ist die Liste leer oder enthaelt ein Address-Objekt aus
-// einem Adressbuch. Deshalb hier mit der empfangenen Mail:
-//   A. TeamTalk an der Mail, leere Teilnehmerliste
-//   B. Teilnehmer als Address-Objekt aus dem Adressbuch (Global, Lokal,
-//      Persoenlich - Suche ueber EMail), TeamChat ohne Mail
-//   C. dasselbe als TeamTalk an der Mail
+// Ergebnis bisher: Teilnehmer als Address-Objekt aus dem Adressbuch gehen
+// (TeamChat startet), StartChat mit der empfangenen Mail als Bezug scheitert
+// aber auch mit leerer Liste (80004005). Das Doku-Beispiel nimmt einen neuen,
+// gespeicherten Eintrag aus GetSpecialArchive. Deshalb hier an der Mail:
+//   1 Mail ueber GetArchive(Pfad).GetArchiveEntryByID (bisher)
+//   2 Archiv ueber GetSpecialArchive(DvArchivePersonalIn)
+//   3 Mail vorher speichern (Save), wie im Doku-Beispiel
+//   4 Mail ueber GetArchiveEntries("Default").Item(i), Abgleich ueber _ID
+// jeweils mit leerer Liste und mit den Teilnehmern aus dem Adressbuch.
 // Bei Erfolg wird eine Testnachricht gesendet und der Thread geschlossen.
 
 using System.Runtime.InteropServices;
@@ -41,14 +42,14 @@ static class Programm
 
         Console.WriteLine($"Prozess: {(Environment.Is64BitProcess ? "64" : "32")} Bit, Apartment {Thread.CurrentThread.GetApartmentState()}");
 
-        // 1. Account
+        // Account
         var api = new DavidAPI();
         Account acc = Schritt("GetAccount", () => api.GetAccount());
         acc ??= Schritt("Logon AUTH", () => api.Logon("", "", "", "", "", "AUTH"));
         if (acc == null) return 1;
         Info("Angemeldet als", () => $"{acc.User.Name} ({acc.User.ID})");
 
-        // 2. Mail
+        // Mail
         string archivPfad = pfad[..pfad.LastIndexOf('\\')];
         Archive arch = Schritt("GetArchive", () => acc.GetArchive(archivPfad));
         if (arch == null) return 1;
@@ -57,32 +58,64 @@ static class Programm
             mail = Schritt("GetArchiveEntryByID .001", () => (object)arch.GetArchiveEntryByID(pfad + ".001"));
         if (mail != null) Info("Mail", () => (string)((dynamic)mail).Subject);
 
-        // 3. ChatManager
+        // ChatManager
         IChatManager cm = Schritt("ChatManager", () =>
             (IChatManager)Activator.CreateInstance(Type.GetTypeFromProgID("DVOBJAPILib.ChatManager", true)));
         if (cm == null) return 1;
 
-        // A. TeamTalk an der Mail mit leerer Liste (wie Doku-Beispiel 1)
-        if (mail != null)
-            Senden("A TeamTalk leer", () => cm.StartChat(acc, acc.CreateAddressList(), mail));
+        if (mail == null) return 1;
+        Info("Mail _ID", () => Convert.ToString(((dynamic)mail)._ID));
+        Info("Mail Typ", () => Convert.ToString(((dynamic)mail).Type));
+        Info("Mail Archiv", () => (string)((dynamic)mail).Parent.FullPath);
 
         // Teilnehmer als Address-Objekte aus den Adressbuechern
         Addresses adr = acc.CreateAddressList();
-        int gefunden = 0;
         foreach (string t in teilnehmer)
         {
             object a = AdresseSuchen(acc, t);
             if (a == null) { Console.WriteLine($"FEHLER  Adresse {t}: in keinem Adressbuch gefunden"); continue; }
-            if (Schritt("Addresses.Add(Address) " + t, () => { adr.Add(a); return (object)"ok"; }) != null) gefunden++;
+            Schritt("Addresses.Add(Address) " + t, () => { adr.Add(a); return (object)"ok"; });
         }
-        if (gefunden == 0) return 1;
 
-        // B. TeamChat ohne Mail (wie Doku-Beispiel 2)
-        Senden("B TeamChat Adressbuch", () => cm.StartChat(acc, adr));
+        // 1. wie bisher
+        Variante(cm, acc, adr, "1 GetArchive", mail);
 
-        // C. TeamTalk an der Mail mit Adressbuch-Teilnehmern
-        if (mail != null)
-            Senden("C TeamTalk Adressbuch", () => cm.StartChat(acc, adr, mail));
+        // 2. Archiv ueber GetSpecialArchive(PersonalIn)
+        string vollPfad = Path.HasExtension(pfad) ? pfad : pfad + ".001";
+        Archive eingang = Schritt("GetSpecialArchive PersonalIn",
+            () => acc.GetSpecialArchive(DvArchiveTypes.DvArchivePersonalIn));
+        if (eingang != null)
+        {
+            Info("Posteingang", () => (string)((dynamic)eingang).FullPath);
+            object m2 = Schritt("Posteingang GetArchiveEntryByID", () => (object)eingang.GetArchiveEntryByID(vollPfad));
+            if (m2 != null) Variante(cm, acc, adr, "2 GetSpecialArchive", m2);
+        }
+
+        // 3. nach Save
+        if (Schritt("Save", () => { ((dynamic)mail).Save(); return (object)"ok"; }) != null)
+            Variante(cm, acc, adr, "3 nach Save", mail);
+
+        // 4. ueber GetArchiveEntries, Abgleich ueber _ID
+        string id = Lesen(() => Convert.ToString(((dynamic)mail)._ID));
+        object liste = Schritt("GetArchiveEntries Default", () => (object)arch.GetArchiveEntries("Default"));
+        if (liste != null)
+        {
+            dynamic items = liste;
+            object m4 = null;
+            int anzahl = 0;
+            try { anzahl = (int)items.Count; } catch { }
+            for (int i = 0; i < anzahl && m4 == null; i++)
+            {
+                try
+                {
+                    dynamic it = items.Item(i);
+                    if (Convert.ToString(it._ID) == id) m4 = (object)it;
+                }
+                catch { }
+            }
+            if (m4 == null) Console.WriteLine($"FEHLER  GetArchiveEntries: _ID {id} nicht unter {anzahl} Eintraegen");
+            else Variante(cm, acc, adr, "4 GetArchiveEntries", m4);
+        }
 
         return 0;
     }
@@ -181,6 +214,13 @@ static class Programm
     static string Lesen(Func<string> f)
     {
         try { return f(); } catch (Exception e) { return $"?({e.HResult:X8})"; }
+    }
+
+    // StartChat an der Mail einmal mit leerer Liste, einmal mit Teilnehmern.
+    static void Variante(IChatManager cm, Account acc, Addresses adr, string name, object mail)
+    {
+        Senden(name + " leer", () => cm.StartChat(acc, acc.CreateAddressList(), mail));
+        Senden(name + " Teilnehmer", () => cm.StartChat(acc, adr, mail));
     }
 
     static void Senden(string name, Func<ChatThread> start)

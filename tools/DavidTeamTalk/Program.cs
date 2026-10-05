@@ -3,6 +3,7 @@
 //
 // Aufruf:
 //   DavidTeamTalk.exe "<Mailpfad>" [teilnehmer@engelking.de ...]
+//   DavidTeamTalk.exe --doku [empfaenger]   (die beiden Beispiele der Doku)
 //
 //   Mailpfad   wie ihn David uebergibt, z. B.
 //              \\ek-server3\david\archive\user\10004000\in\I44DF0D5
@@ -32,8 +33,11 @@ static class Programm
         if (args.Length == 0)
         {
             Console.WriteLine("Aufruf: DavidTeamTalk.exe \"<Mailpfad>\" [teilnehmer ...]");
+            Console.WriteLine("        DavidTeamTalk.exe --doku [empfaenger]");
             return 2;
         }
+        if (args[0] == "--doku")
+            return Doku(args.Length > 1 ? args[1] : "anliegen@engelking.de");
         string pfad = args[0];
         string[] teilnehmer = args.Length > 1 ? args[1..] : new[] { "anliegen@engelking.de" };
 
@@ -71,6 +75,60 @@ static class Programm
         if (mail != null)
             Senden("TeamTalk an Mail", () => cm.StartChat(acc, adr, mail));
 
+        return 0;
+    }
+
+    // Die beiden C#-Beispiele der DvAPI32-Doku, so nah wie moeglich am Original:
+    //  - "Create and read a LiveComment" (HowToDo/CS/CSCreateAndReadLiveComment):
+    //    neuen Eintrag im Postausgang anlegen, SRTo setzen, Save, dann StartChat
+    //    mit LEERER Adressliste und dem Eintrag als Topic, danach GetChatHistory.
+    //  - "Create a TeamChat" (IChatThread-Beispiel): erste Adresse aus dem lokalen
+    //    Adressbuch als Address-Objekt, StartChat ohne Topic.
+    // ACHTUNG: Der Eintrag liegt im Postausgang - David koennte ihn an den
+    // Empfaenger senden. Deshalb Standard-Empfaenger anliegen@engelking.de.
+    static int Doku(string empfaenger)
+    {
+        Console.WriteLine($"Prozess: {(Environment.Is64BitProcess ? "64" : "32")} Bit, Apartment {Thread.CurrentThread.GetApartmentState()}");
+        var api = new DavidAPI();
+        Account acc = Schritt("GetAccount", () => api.GetAccount());
+        if (acc == null) return 1;
+        Info("Angemeldet als", () => $"{acc.User.Name} ({acc.User.ID})");
+        IChatManager cm = Schritt("ChatManager", () =>
+            (IChatManager)Activator.CreateInstance(Type.GetTypeFromProgID("DVOBJAPILib.ChatManager", true)));
+        if (cm == null) return 1;
+
+        // Beispiel 1: LiveComment an neuem Eintrag
+        Addresses leer = acc.CreateAddressList();
+        Archive ausgang = Schritt("GetSpecialArchive PersonalOut",
+            () => acc.GetSpecialArchive(DvArchiveTypes.DvArchivePersonalOut));
+        object eintrag = ausgang == null ? null : Schritt("CreateArchiveEntry EMail",
+            () => (object)ausgang.CreateArchiveEntry(DvItemTypes.DvEMailItem));
+        if (eintrag != null)
+        {
+            Schritt("SRTo + Save", () =>
+            {
+                dynamic e = eintrag;
+                e.Fields.Item("SRTo").Value = empfaenger;
+                e.Save();
+                return (object)"ok";
+            });
+            Senden("Doku LiveComment", () => cm.StartChat(acc, leer, eintrag));
+            Info("GetChatHistory", () =>
+            {
+                dynamic verlauf = cm.GetChatHistory(eintrag, leer);
+                return $"{verlauf.Count} Nachrichten, {leer.Count} Teilnehmer";
+            });
+        }
+
+        // Beispiel 2: TeamChat mit Adresse aus dem lokalen Adressbuch
+        Addresses adr = acc.CreateAddressList();
+        object adresse = Schritt("LocalAddressBook.Item(0)", () => (object)acc.LocalAddressBook.Item(0));
+        if (adresse != null)
+        {
+            Info("Adresse", () => (string)((dynamic)adresse).DisplayName);
+            Schritt("Addresses.Add(Address)", () => (object)adr.Add(adresse));
+            Senden("Doku TeamChat", () => cm.StartChat(acc, adr));
+        }
         return 0;
     }
 

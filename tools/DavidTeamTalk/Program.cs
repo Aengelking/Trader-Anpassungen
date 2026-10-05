@@ -404,6 +404,7 @@ static class Programm
         Info("Betreff", () => (string)mail.Subject);
         string id = Lesen(() => Convert.ToString(mail._ID));
         string betreff = Lesen(() => Convert.ToString(mail.Subject));
+        string msgId = Lesen(() => Convert.ToString(mail.Fields.Item("MessageID").Value));
         Info("JobID vorher", () => Convert.ToString(mail.Fields.Item("JobID").Value));
         if (Lesen(() => Convert.ToString(mail.Fields.Item("JobID").Value)) != "0")
         {
@@ -426,7 +427,7 @@ static class Programm
                     for (int i = (int)items.Count - 1; i >= 0 && neu == null; i--)
                     {
                         dynamic it = items.Item(i);
-                        if (Convert.ToString(it._ID) == id || Convert.ToString(it.Subject) == betreff) neu = (object)it;
+                        if (Convert.ToString(it._ID) == id || Gleich(it, msgId, betreff)) neu = (object)it;
                     }
                 }
                 catch { }
@@ -485,7 +486,7 @@ static class Programm
                 for (int i = (int)items.Count - 1; i >= 0 && dort == null; i--)
                 {
                     dynamic it = items.Item(i);
-                    if (Convert.ToString(it.Subject) == betreff) dort = (object)it;
+                    if (Gleich(it, msgId, betreff)) dort = (object)it;
                 }
             }
             catch { }
@@ -552,6 +553,7 @@ static class Programm
             () => (object)eingang.GetArchiveEntryByID(Path.HasExtension(pfad) ? pfad : pfad + ".001"));
         if (mail == null) return 1;
         string betreff = Lesen(() => Convert.ToString(mail.Subject));
+        string msgId = Lesen(() => Convert.ToString(mail.Fields.Item("MessageID").Value));
         Info("Betreff", () => betreff);
         Info("JobID vorher", () => Convert.ToString(mail.Fields.Item("JobID").Value));
         Info("SRTo vorher", () => Convert.ToString(mail.Fields.Item("SRTo").Value));
@@ -573,7 +575,7 @@ static class Programm
                 for (int i = (int)items.Count - 1; i >= 0; i--)
                 {
                     dynamic it = items.Item(i);
-                    if (Convert.ToString(it.Subject) == betreff) return (object)it;
+                    if (Gleich(it, msgId, betreff)) return (object)it;
                 }
             }
             catch { }
@@ -626,6 +628,8 @@ static class Programm
             () => (object)quelle.GetArchiveEntryByID(Path.HasExtension(pfad) ? pfad : pfad + ".001"));
         if (mail == null) return 1;
         string betreff = Lesen(() => Convert.ToString(mail.Subject));
+        string msgId = Lesen(() => Convert.ToString(mail.Fields.Item("MessageID").Value));
+        Info("Message-ID", () => msgId);
         Info("Betreff", () => betreff);
         Info("JobID vorher", () => Convert.ToString(mail.Fields.Item("JobID").Value));
 
@@ -638,7 +642,7 @@ static class Programm
                 for (int i = (int)items.Count - 1; i >= 0; i--)
                 {
                     dynamic it = items.Item(i);
-                    if (Convert.ToString(it.Subject) == betreff) return (object)it;
+                    if (Gleich(it, msgId, betreff)) return (object)it;
                 }
             }
             catch { }
@@ -674,6 +678,15 @@ static class Programm
         }
         Pruefen("zurueck in der Quelle", quelle);
         return 0;
+    }
+
+    // Dieselbe Mail? Ueber die Message-ID (eindeutig), nur ohne sie ueber den
+    // Betreff - wiederkehrende Betreffs (Newsletter) treffen sonst alte Mails.
+    static bool Gleich(dynamic it, string msgId, string betreff)
+    {
+        if (!string.IsNullOrEmpty(msgId))
+            return Lesen(() => Convert.ToString(it.Fields.Item("MessageID").Value)) == msgId;
+        return Convert.ToString(it.Subject) == betreff;
     }
 
     static void Senden(string name, Func<ChatThread> start)

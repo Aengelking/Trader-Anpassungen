@@ -22,6 +22,9 @@ Aufruf wie die anderen Kontextaktionen (david_context.prg, "TEAMTALKTEST"):
 Optional weitere Teilnehmer (Komma-getrennt) als zweiter Parameter, z. B.
    {cMsgPath, "anliegen@engelking.de,kollege@engelking.de"}
 Aufraeumen (Token wieder entfernen): dritter Parameter "ZURUECK".
+Dritter Parameter "VBS" (Kontextaktion TEAMTALKVBS): protokolliert den von
+David uebergebenen Pfad samt Dateien gleichen Namens und gibt ihn
+unveraendert an david_teamtalk.vbs weiter - ohne Token.
 Ausweichweg (falls der ChatManager nicht geht): dritter Parameter
 "KOPIE:<Archivpfad>" kopiert die getaggte Mail in dieses Archiv, z. B. in
 den Posteingang des Agenten - dort kann er den TeamTalk per WebAPI starten.
@@ -59,6 +62,15 @@ PROC RUN_TEST_DAVID_TEAMTALK(cMsgPath, cTeilnehmer, cModus)
 
 	AAdd(aLog, "Mail:      " + cMsgPath)
 	AAdd(aLog, "Betreff:   " + oMsg:Subject)
+	TtPfadInfo(cMsgPath, oMsg, aLog)
+
+	// Modus VBS: den von David uebergebenen Pfad unveraendert an
+	// david_teamtalk.vbs geben (ohne Token) und dessen Ausgabe protokollieren.
+	IF Upper(AllTrim(hb_CStr(cModus))) == "VBS"
+		TtVbs(cMsgPath, cTeilnehmer, aLog)
+		TtAusgabe(aLog)
+		RETURN
+	ENDIF
 
 	// 1) Token an den Betreff des Originals (wie crm_email.prg, ueber MailItems)
 	oItem := TtMailItem(oArchive, oMsg, aLog)
@@ -203,6 +215,45 @@ STATIC FUNCTION TtMailItem(oArchive, oMsg, aLog)
 		AAdd(aLog, "MailItem:  nicht gefunden - Token wird nicht gesetzt")
 	ENDIF
 RETURN oItem
+
+// Was genau kommt aus dem David-Kontext an? Pfad, Datei, Endung, _ID.
+STATIC PROCEDURE TtPfadInfo(cMsgPath, oMsg, aLog)
+	LOCAL oErr, aDateien, aDatei, cStamm
+	AAdd(aLog, "Pfad-Info: Datei vorhanden " + IF(File(cMsgPath), "ja", "nein") + ;
+		", Endung " + SubStr(cMsgPath, RAT(".", cMsgPath)))
+	BEGIN SEQUENCE WITH {|e| Break(e)}
+		AAdd(aLog, "           _ID " + hb_CStr(oMsg:_ID) + ", Typ " + hb_CStr(oMsg:Type))
+	RECOVER USING oErr
+		AAdd(aLog, "           _ID nicht lesbar " + TtFehler(oErr))
+	END
+	// Alle Dateien mit gleichem Stamm (I44DEBA0.*) auflisten
+	cStamm := SubStr(cMsgPath, 1, RAT(".", cMsgPath))
+	aDateien := Directory(cStamm + "*")
+	FOR EACH aDatei IN aDateien
+		AAdd(aLog, "           Datei " + aDatei[1] + " (" + hb_ntos(aDatei[2]) + " Bytes)")
+	NEXT
+RETURN
+
+STATIC PROCEDURE TtVbs(cMsgPath, cTeilnehmer, aLog)
+	LOCAL cVbs := Trim(tr_getini(1)) + "\run\david_teamtalk.vbs"
+	LOCAL cCmd, cOut := "", cErr := "", nRet, oErr
+	IF ! File(cVbs)
+		AAdd(aLog, "VBS:       " + cVbs + " nicht gefunden")
+		RETURN
+	ENDIF
+	cCmd := 'C:\Windows\SysWOW64\cscript.exe //nologo "' + cVbs + '" /mail:"' + cMsgPath + '" /an:"' + cTeilnehmer + '"'
+	AAdd(aLog, "VBS:       " + cCmd)
+	BEGIN SEQUENCE WITH {|e| Break(e)}
+		nRet := hb_processRun(cCmd, , @cOut, @cErr)
+		AAdd(aLog, "VBS:       Exitcode " + hb_ntos(nRet))
+		AAdd(aLog, cOut)
+		IF ! Empty(cErr)
+			AAdd(aLog, "VBS stderr: " + cErr)
+		ENDIF
+	RECOVER USING oErr
+		AAdd(aLog, "VBS:       FEHLER " + TtFehler(oErr))
+	END
+RETURN
 
 STATIC PROCEDURE TtVersionen(oAccount, aLog)
 	LOCAL oApi, oErr

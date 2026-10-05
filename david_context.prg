@@ -127,4 +127,7 @@ PROCEDURE RUN_DAVID_CONTEXT( cFunction,cMsgPath )
       CASE "TEAMTALKTEST"
          MBaseRun(Trim(tr_getini(1))+"\run\test_david_teamtalk",{cMsgPath})
          EXIT
+      CASE "TEAMTALKVBS"
+         MBaseRun(Trim(tr_getini(1))+"\run\test_david_teamtalk",{cMsgPath,"","VBS"})
+         EXIT
    END

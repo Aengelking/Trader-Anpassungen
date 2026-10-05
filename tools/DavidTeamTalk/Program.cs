@@ -12,6 +12,11 @@
 //              (wie im Doku-Beispiel), 4 Move in Entwuerfe und zurueck.
 //              Nach jedem Schritt JobID neu lesen und StartChat versuchen,
 //              Abbruch beim ersten Erfolg. NUR AN EINER TESTMAIL.
+//   DavidTeamTalk.exe --ausgang "<Mailpfad>"
+//              Mail mit JobID 0 in den Postausgang verschieben, dort
+//              speichern (der Doku-Eintrag bekam im Ausgang eine JobID),
+//              StartChat versuchen, zurueck in den Eingang, erneut pruefen.
+//              NUR AN EINER TESTMAIL - im Ausgang koennte David sie senden.
 //   DavidTeamTalk.exe --vergleich "<Mailpfad>" ["<Mailpfad>" ...]
 //              je Mail die Felder, die vom Doku-Eintrag im Postausgang
 //              abweichen (dort klappt StartChat, auch geladen), dazu
@@ -50,6 +55,15 @@ static class Programm
         }
         for (int i = 0; i < args.Length; i++)
             Console.WriteLine($"Argument {i}: {args[i]}");
+        if (args[0] == "--ausgang")
+        {
+            if (args.Length < 2 || !args[1].Contains('\\'))
+            {
+                Console.WriteLine("Aufruf: DavidTeamTalk.exe --ausgang \"<Mailpfad>\"");
+                return 2;
+            }
+            return Ausgang(args[1]);
+        }
         if (args[0] == "--ohnejobid")
             return OhneJobId(args.Length > 1 ? args[1] : null);
         if (args[0] == "--jobid")
@@ -488,6 +502,77 @@ static class Programm
             catch { }
         }
         Console.WriteLine($"        {treffer} Mails ohne JobID");
+        return 0;
+    }
+
+    // Bekommt die Mail im Postausgang eine JobID, und behaelt sie sie nach dem
+    // Zurueckschieben?
+    static int Ausgang(string pfad)
+    {
+        var api = new DavidAPI();
+        Account acc = Schritt("GetAccount", () => api.GetAccount());
+        if (acc == null) return 1;
+        IChatManager cm = Schritt("ChatManager", () =>
+            (IChatManager)Activator.CreateInstance(Type.GetTypeFromProgID("DVOBJAPILib.ChatManager", true)));
+        if (cm == null) return 1;
+        Archive eingang = Schritt("GetArchive", () => acc.GetArchive(pfad[..pfad.LastIndexOf('\\')]));
+        if (eingang == null) return 1;
+        dynamic mail = Schritt("GetArchiveEntryByID",
+            () => (object)eingang.GetArchiveEntryByID(Path.HasExtension(pfad) ? pfad : pfad + ".001"));
+        if (mail == null) return 1;
+        string betreff = Lesen(() => Convert.ToString(mail.Subject));
+        Info("Betreff", () => betreff);
+        Info("JobID vorher", () => Convert.ToString(mail.Fields.Item("JobID").Value));
+        Info("SRTo vorher", () => Convert.ToString(mail.Fields.Item("SRTo").Value));
+        if (Lesen(() => Convert.ToString(mail.Fields.Item("JobID").Value)) != "0")
+        {
+            Console.WriteLine("ABBRUCH Die Mail hat schon eine JobID - bitte eine Testmail mit JobID 0 nehmen.");
+            return 1;
+        }
+        Archive ausgang = Schritt("GetSpecialArchive PersonalOut",
+            () => acc.GetSpecialArchive(DvArchiveTypes.DvArchivePersonalOut));
+        if (ausgang == null) return 1;
+
+        // Neuester Eintrag mit dem Betreff im Archiv (nach Move neuer Dateiname)
+        object Suchen(Archive a)
+        {
+            try
+            {
+                dynamic items = a.GetArchiveEntries("Default");
+                for (int i = (int)items.Count - 1; i >= 0; i--)
+                {
+                    dynamic it = items.Item(i);
+                    if (Convert.ToString(it.Subject) == betreff) return (object)it;
+                }
+            }
+            catch { }
+            return null;
+        }
+        void Zeigen(string schritt, dynamic e)
+        {
+            Info($"{schritt}: JobID", () => Convert.ToString(e.Fields.Item("JobID").Value));
+            Info($"{schritt}: Status", () => Convert.ToString(e.Fields.Item("Status").Value));
+            Info($"{schritt}: Datei", () => Convert.ToString(e.Fields.Item("FileName").Value));
+        }
+
+        if (Schritt("Move Postausgang", () => { mail.Move(ausgang, true); return (object)"ok"; }) == null) return 1;
+        dynamic imAusgang = Suchen(ausgang);
+        if (imAusgang == null) { Console.WriteLine("FEHLER  Mail im Postausgang nicht gefunden - bitte von Hand zurueckschieben!"); return 1; }
+        Zeigen("im Ausgang", imAusgang);
+        Schritt("Save im Ausgang", () => { imAusgang.Save(); return (object)"ok"; });
+        imAusgang = Suchen(ausgang) ?? imAusgang;
+        Zeigen("nach Save", imAusgang);
+        Senden("im Ausgang", () => cm.StartChat(acc, acc.CreateAddressList(), (object)imAusgang));
+
+        if (Schritt("Move zurueck", () => { imAusgang.Move(eingang, true); return (object)"ok"; }) == null)
+        {
+            Console.WriteLine("        Mail liegt noch im Postausgang - bitte von Hand zurueckschieben!");
+            return 1;
+        }
+        dynamic zurueck = Suchen(eingang);
+        if (zurueck == null) { Console.WriteLine("FEHLER  Mail im Eingang nicht wiedergefunden - bitte pruefen!"); return 1; }
+        Zeigen("zurueck im Eingang", zurueck);
+        Senden("zurueck im Eingang", () => cm.StartChat(acc, acc.CreateAddressList(), (object)zurueck));
         return 0;
     }
 

@@ -17,7 +17,10 @@
 '
 '   /mail  Archivpfad der Mail wie aus dem David-Kontext, z. B.
 '          \\ek-server3\david\archive\user\10004000\in\I44DE928
-'          (ohne Endung wird .001 angehaengt - ausserhalb des Clients noetig)
+'          (ausserhalb des Clients braucht GetArchiveEntryById die Endung:
+'          versucht wird der Pfad, dann .001, dann jede Datei mit gleichem
+'          Stamm - nach dem Speichern, z. B. geaendertem Betreff, kann David
+'          die Datei umbenennen, etwa in .$00)
 '   /an    Teilnehmer, Komma-getrennt (Standard: inga@engelking.de)
 '   /text  erste Nachricht im TeamTalk
 '
@@ -32,7 +35,6 @@ an = args("an")
 If an = "" Then an = "inga@engelking.de"
 text = args("text")
 If mailPfad = "" Then Fehler "Aufruf", "/mail angeben"
-If InStr(Mid(mailPfad, InStrRev(mailPfad, "\") + 1), ".") = 0 Then mailPfad = mailPfad & ".001"
 
 On Error Resume Next
 Set api = CreateObject("DVOBJAPILib.DvISEAPI")
@@ -41,8 +43,8 @@ Set acc = api.GetAccount()
 Pruefe "GetAccount"
 Set arch = acc.GetArchive(Left(mailPfad, InStrRev(mailPfad, "\") - 1))
 Pruefe "GetArchive"
-Set msg = arch.GetArchiveEntryById(mailPfad)
-Pruefe "Mail " & mailPfad
+Set msg = MailLaden(arch, mailPfad)
+If msg Is Nothing Then Fehler "Mail " & mailPfad, "nicht gefunden (auch nicht als .001 oder mit anderer Endung)"
 job = 0
 job = CLng(msg.Fields.Item("JobID").Value)
 Err.Clear
@@ -92,6 +94,35 @@ Function AdresseSuchen(acc, email)
           End If
         End If
       Next
+    End If
+  Next
+  Err.Clear
+End Function
+
+' Mail ueber den Pfad laden: so wie angegeben, mit .001, dann jede Datei mit
+' gleichem Namensstamm (I44DE928.*) im Ordner.
+Function MailLaden(arch, pfad)
+  Dim fso, ordner, stamm, f, versuch
+  On Error Resume Next
+  Set MailLaden = Nothing
+  For Each versuch In Array(pfad, pfad & ".001")
+    Err.Clear
+    Set MailLaden = arch.GetArchiveEntryById(versuch)
+    If Err.Number = 0 And Not MailLaden Is Nothing Then Exit Function
+    Set MailLaden = Nothing
+  Next
+  Err.Clear
+  Set fso = CreateObject("Scripting.FileSystemObject")
+  stamm = LCase(fso.GetBaseName(pfad))
+  If InStr(Mid(pfad, InStrRev(pfad, "\") + 1), ".") = 0 Then stamm = LCase(Mid(pfad, InStrRev(pfad, "\") + 1))
+  Set ordner = fso.GetFolder(fso.GetParentFolderName(pfad))
+  If Err.Number <> 0 Then Exit Function
+  For Each f In ordner.Files
+    If LCase(fso.GetBaseName(f.Name)) = stamm Then
+      Err.Clear
+      Set MailLaden = arch.GetArchiveEntryById(f.Path)
+      If Err.Number = 0 And Not MailLaden Is Nothing Then Exit Function
+      Set MailLaden = Nothing
     End If
   Next
   Err.Clear

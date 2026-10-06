@@ -56,14 +56,14 @@ For Each a In Split(an, ",")
   If Trim(a) <> "" Then
     Set adr = AdresseSuchen(acc, Trim(a))
     If adr Is Nothing Then Fehler "Teilnehmer " & Trim(a), "in keinem Adressbuch gefunden"
-    addrs.Add adr
+    addrs.Add Wert(adr)
     Pruefe "Teilnehmer " & Trim(a)
   End If
 Next
 
 Set cm = CreateObject("DVOBJAPILib.ChatManager")
 Pruefe "ChatManager"
-Set th = cm.StartChat(acc, addrs, msg)
+Set th = cm.StartChat(acc, addrs, Wert(msg))
 Pruefe "StartChat"
 If text <> "" Then
   th.SendMessage text, 1              ' 1 = DvTextPlain
@@ -101,13 +101,15 @@ End Function
 
 ' Mail ueber den Pfad laden: so wie angegeben, mit .001, dann jede Datei mit
 ' gleichem Namensstamm (I44DE928.*) im Ordner.
+' CStr(...): VBScript uebergibt Variablen ByRef (VT_BYREF); GetArchiveEntryById
+' scheitert daran mit 80004005 - als Wert uebergeben klappt es.
 Function MailLaden(arch, pfad)
   Dim fso, ordner, stamm, f, versuch
   On Error Resume Next
   Set MailLaden = Nothing
   For Each versuch In Array(pfad, pfad & ".001")
     Err.Clear
-    Set MailLaden = arch.GetArchiveEntryById(versuch)
+    Set MailLaden = arch.GetArchiveEntryById(CStr(versuch))
     If Err.Number = 0 And Not MailLaden Is Nothing Then Exit Function
     Set MailLaden = Nothing
   Next
@@ -120,12 +122,19 @@ Function MailLaden(arch, pfad)
   For Each f In ordner.Files
     If LCase(fso.GetBaseName(f.Name)) = stamm Then
       Err.Clear
-      Set MailLaden = arch.GetArchiveEntryById(f.Path)
+      Set MailLaden = arch.GetArchiveEntryById(CStr(f.Path))
       If Err.Number = 0 And Not MailLaden Is Nothing Then Exit Function
       Set MailLaden = Nothing
     End If
   Next
   Err.Clear
+End Function
+
+'' Objekt als Wert uebergeben: An VARIANT-Parameter (Addresses.Add, Bezug von
+' StartChat) gibt VBScript eine Variable sonst als Verweis (VT_BYREF) weiter,
+' den DvApi32 nicht aufloest. Ein Funktionsergebnis kommt als Wert an.
+Function Wert(o)
+  Set Wert = o
 End Function
 
 Sub Pruefe(schritt)

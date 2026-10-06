@@ -78,7 +78,7 @@ Sub OnTrader(oInfoCenter, oReader )
          oInfoCenter.MsgBox "Anliegen können nur aus E-Mails eröffnet werden.", 0
          Exit Sub
       end if
-      if Not AnliegenBereit(oInfoCenter, oArchive, oMsgItem.Fields.Item("FileName").Value) then Exit Sub
+      if Not AnliegenBereit(oInfoCenter, oArchive, oMsgItem) then Exit Sub
   end if
 
   'create unique file name
@@ -150,48 +150,62 @@ End Function
 ' Anliegen eroeffnen braucht eine Mail im persoenlichen Postfach mit JobID:
 ' Der TeamTalk mit dem Agenten (IChatManager.StartChat) scheitert an Mails
 ' ohne JobID. Die JobID vergibt David, sobald man in das TeamTalk-Feld der
-' Mail klickt. Deshalb hier pruefen und ggf. um diesen Klick bitten.
-Function AnliegenBereit(oInfoCenter, oArchive, datei)
+' Mail klickt. Die Meldung des Clients sperrt das Fenster, deshalb nur ein
+' Hinweis: schliessen, ins TeamTalk-Feld klicken, Aktion erneut waehlen.
+Function AnliegenBereit(oInfoCenter, oArchive, oMsgItem)
    AnliegenBereit = False
+   datei = oMsgItem.Fields.Item("FileName").Value
    if InStr(1, datei, "\archive\user\", vbTextCompare) = 0 then
       oInfoCenter.MsgBox "Anliegen können nur aus dem persönlichen Postfach eröffnet werden." & vbCrLf & _
          "Bitte die Mail zuerst in dein Postfach verschieben.", 0
       Exit Function
    end if
-   Do
-      if JobId(oArchive, datei) <> 0 then
-         AnliegenBereit = True
-         Exit Function
-      end if
-      antwort = oInfoCenter.MsgBox("Diese Mail hat noch keinen TeamTalk." & vbCrLf & vbCrLf & _
-         "Bitte einmal in das TeamTalk-Feld der Mail klicken (nichts schreiben)" & vbCrLf & _
-         "und dann 'Wiederholen' wählen." & vbCrLf & vbCrLf & _
-         "Falls sich das Feld gerade nicht anklicken lässt: 'Abbrechen'," & vbCrLf & _
-         "in das TeamTalk-Feld klicken und 'Anliegen eröffnen' erneut wählen.", 5)
-      if antwort <> 4 then Exit Function        ' 4 = Wiederholen
-      ' David braucht einen Moment, bis die JobID am Eintrag steht
-      for versuch = 1 to 5
-         if JobId(oArchive, datei) <> 0 then
-            AnliegenBereit = True
-            Exit Function
-         end if
-         Warten 1
-      next
-   Loop
+   info = ""
+   job = JobId(oArchive, oMsgItem, datei, info)
+   if job <> 0 then
+      AnliegenBereit = True
+      Exit Function
+   end if
+   oInfoCenter.MsgBox "Diese Mail hat noch keinen TeamTalk." & vbCrLf & vbCrLf & _
+      "Bitte diese Meldung schließen, einmal in das TeamTalk-Feld der Mail" & vbCrLf & _
+      "klicken (nichts schreiben) und 'Anliegen eröffnen' erneut wählen." & vbCrLf & vbCrLf & _
+      "(" & info & ")", 0
 End Function
 
-' JobID frisch aus dem Archiv lesen (das Objekt der Auswahl ist nicht aktuell)
-Function JobId(oArchive, datei)
+' JobID lesen: erst am Objekt der Auswahl, dann frisch aus dem Archiv (die
+' Auswahl kann veraltet sein). info sammelt, was gelesen wurde - fuer die
+' Fehlersuche, falls die Meldung trotz JobID kommt.
+Function JobId(oArchive, oMsgItem, datei, info)
    On Error Resume Next
    JobId = 0
+   wert = Empty
+   Err.Clear
+   wert = oMsgItem.Fields.Item("JobID").Value
+   if Err.Number <> 0 then
+      info = "Auswahl: Fehler " & Hex(Err.Number) & " " & Err.Description
+   else
+      info = "Auswahl: " & TypeName(wert) & " '" & CStr(wert) & "'"
+      if IsNumeric(wert) then JobId = CLng(wert)
+   end if
+   if JobId <> 0 then Exit Function
+   Err.Clear
+   Set oFrisch = Nothing
    Set oFrisch = oArchive.GetArchiveEntryById(datei)
-   if Err.Number = 0 then JobId = CLng(oFrisch.Fields.Item("JobID").Value)
+   if Err.Number <> 0 or oFrisch Is Nothing then
+      info = info & "; Archiv: Fehler " & Hex(Err.Number) & " " & Err.Description
+   else
+      Err.Clear
+      wert = Empty
+      wert = oFrisch.Fields.Item("JobID").Value
+      if Err.Number <> 0 then
+         info = info & "; Archiv: Fehler " & Hex(Err.Number) & " " & Err.Description
+      else
+         info = info & "; Archiv: " & TypeName(wert) & " '" & CStr(wert) & "'"
+         if IsNumeric(wert) then JobId = CLng(wert)
+      end if
+   end if
    Err.Clear
 End Function
-
-Sub Warten(sekunden)
-   CreateObject("WScript.Shell").Run "cmd /c ping -n " & (sekunden + 1) & " 127.0.0.1 >nul", 0, True
-End Sub
 
 Sub OnAddFile(oInfoCenter,oContext)
 	On Error Resume Next

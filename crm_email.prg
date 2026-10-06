@@ -18,10 +18,16 @@ einen neuen Eintrag an; die gewï¿½hlte Ref-Nr wird als [#EK-L<ref>] bzw.
 weitergeleitet (receive-email matcht ï¿½ber diesen Token).
 **/
 
-PROC RUN_CRM_EMAIL(cMsgPath)
+PROC RUN_CRM_EMAIL(cMsgPath, cMode)
 	LOCAL oAccount, cArchive, oArchive, oMsg
-	LOCAL cID := "", cObjectType := "", cTypeChar, nX
-	LOCAL hSel, oItem, cDraft
+	LOCAL cID := "", cObjectType := "", cTypeChar
+	LOCAL hSel, cDraft
+
+	// Rechtsklick -> "Anliegen eroeffnen" (david_context CASE "ISSUE")
+	IF ValType(cMode) == "C" .AND. Lower(cMode) == "issue"
+		CrmIssueEmail(cMsgPath)
+		RETURN
+	ENDIF
 
 	oAccount := DV_GetMailAccount()
 	cArchive := SubStr(cMsgPath,1,RAT("\",cMsgPath)-1)
@@ -76,14 +82,30 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 	//    e-mail is already stored, so a tagging error must not abort.
 	//    (Needs the MailItem interface, hence the lookup by _ID.)
 	cTypeChar := IF(Lower(cObjectType) == "lead", "L", "O")
+	CrmTagSubject(oArchive, oMsg, "[#EK-" + cTypeChar + cID + "]", .T.)
+
+	Wapi_MessageBox(,"Die E-Mail wurde im CRM abgelegt (" + cObjectType + " " + cID + ").","CRM",0)
+
+RETURN
+
+//---------------------------------------------------------------------------
+// Token an den Betreff der ORIGINAL-Mail haengen. Braucht das MailItem-
+// Interface, daher die Suche ueber _ID. lEinmal: nicht taggen, wenn schon
+// irgendein CRM-Token im Betreff steht (Lead/Opportunity: eine Zuordnung je
+// Mail); sonst nur, wenn genau dieser Token fehlt. Best-effort.
+//---------------------------------------------------------------------------
+STATIC FUNCTION CrmTagSubject(oArchive, oMsg, cToken, lEinmal)
+	LOCAL nX, oItem, lOk := .F.
+
 	FOR nX := 0 TO oArchive:MailItems:Count
 		IF oArchive:MailItems:Item(nX):_ID == oMsg:_ID
 			BEGIN SEQUENCE
 				oItem := oArchive:MailItems:Item(nX)
-				IF ! ( "[#EK-" $ oItem:Subject )        // do not tag twice
-					oItem:Subject := oItem:Subject + " [#EK-" + cTypeChar + cID + "]"
+				IF IF(lEinmal, ! ( "[#EK-" $ oItem:Subject ), ! ( cToken $ oItem:Subject ))
+					oItem:Subject := oItem:Subject + " " + cToken
 					oItem:Save()
 				ENDIF
+				lOk := .T.
 			RECOVER
 				//non-fatal
 			END
@@ -91,9 +113,97 @@ PROC RUN_CRM_EMAIL(cMsgPath)
 		ENDIF
 	NEXT
 
-	Wapi_MessageBox(,"Die E-Mail wurde im CRM abgelegt (" + cObjectType + " " + cID + ").","CRM",0)
+RETURN lOk
 
+//---------------------------------------------------------------------------
+// Anliegen eroeffnen (Rechtsklick in David, docs/kundenanliegen.md im CRM).
+// Das David-Skript (common.vbs) laesst nur Mails im persoenlichen Postfach
+// mit JobID durch - ohne JobID scheitert der TeamTalk.
+//  1. Mail als Entwurf ins CRM, Picker /picker/issue: offenes Anliegen
+//     waehlen oder neu anlegen -> Anliegen-Nummer
+//  2. Mail ueber api-email am Anliegen ablegen (type issue)
+//  3. TeamTalk an der Mail mit dem Anliegen-Agenten starten; die erste
+//     Nachricht traegt [#EK-A<n>], daran erkennt der Agent das Anliegen
+//     (den Betreff-Tag sieht nur die eigene Kopie der Mail)
+//  4. [#EK-A<n>] an den Betreff haengen: Antworten landen am Anliegen
+// Der TeamTalk kommt vor dem Betreff, weil sich die Mail beim Speichern
+// aendern kann.
+//---------------------------------------------------------------------------
+STATIC PROCEDURE CrmIssueEmail(cMsgPath)
+	LOCAL oAccount, oArchive, oMsg, hSel, cDraft, cNr, cToken
+	LOCAL cAgent, cErgebnis := ""
+	LOCAL aText := {}
+
+	oAccount := DV_GetMailAccount()
+	oArchive := oAccount:GetArchive(SubStr(cMsgPath, 1, RAT("\", cMsgPath) - 1))
+	oMsg := oArchive:GetArchiveEntryById(cMsgPath)
+
+	IF oMsg:Type != 2
+		Wapi_MessageBox(,"Anliegen k”nnen nur aus E-Mails er”ffnet werden.","Anliegen",0)
+		RETURN
+	ENDIF
+	IF hb_regexMatch(".*\[#EK-A[0-9]+\].*", oMsg:Subject)
+		Wapi_MessageBox(,"Fr diese E-Mail ist bereits ein Anliegen er”ffnet.","Anliegen",0)
+		RETURN
+	ENDIF
+
+	cDraft := CrmUploadDraft(oMsg, cMsgPath)
+	hSel := ShowCrmPicker(CrmMailField(oMsg,"SRFrom"), CrmMailField(oMsg,"Subject"),,,,,,, cDraft, "picker/issue")
+	IF hSel == NIL
+		Wapi_MessageBox(,"Abgebrochen. Es wurde kein Anliegen er”ffnet.","Anliegen",0)
+		RETURN
+	ENDIF
+	cNr := LTrim(Str(Int(hSel["ref"])))
+	cToken := "[#EK-A" + cNr + "]"
+
+	IF ! CrmUploadEmail("issue", cNr, oMsg, cMsgPath, cDraft)
+		AAdd(aText, "Die E-Mail konnte nicht am Anliegen abgelegt werden.")
+	ENDIF
+
+	cAgent := AllTrim(GetValue("ISSUE_AGENT_DAVID", "inga@engelking.de", "David-Adresse des Anliegen-Agenten"))
+	IF ! CrmIssueTeamTalk(cMsgPath, cAgent, "Anliegen A-" + cNr + " angelegt " + cToken, @cErgebnis)
+		AAdd(aText, "Der TeamTalk mit " + cAgent + " konnte nicht gestartet werden:")
+		AAdd(aText, cErgebnis)
+		AAdd(aText, "Bitte " + cAgent + " von Hand in den TeamTalk aufnehmen und " + cToken + " schreiben.")
+	ENDIF
+
+	IF ! CrmTagSubject(oArchive, oMsg, cToken, .F.)
+		AAdd(aText, "Der Betreff konnte nicht erg„nzt werden. Bitte " + cToken + " von Hand anh„ngen.")
+	ENDIF
+
+	IF Empty(aText)
+		Wapi_MessageBox(,"Anliegen A-" + cNr + " ist er”ffnet." + hb_eol() + cAgent + " ist im TeamTalk.","Anliegen",0)
+	ELSE
+		hb_AIns(aText, 1, "Anliegen A-" + cNr + " ist im CRM angelegt, aber:", .T.)
+		Tr_MsgBox(aText)
+	ENDIF
 RETURN
+
+//---------------------------------------------------------------------------
+// TeamTalk an der Mail mit dem Agenten starten. Harbour kann den
+// ChatManager nicht erzeugen (CreateObject -> E_FAIL), VBScript schon:
+// david_teamtalk.vbs (32 Bit) liefert "OK <ThreadID>" oder "FEHLER ...".
+//---------------------------------------------------------------------------
+STATIC FUNCTION CrmIssueTeamTalk(cMsgPath, cAgent, cText, cErgebnis)
+	LOCAL cVbs := Trim(tr_getini(1)) + "\run\david_teamtalk.vbs"
+	LOCAL cOut := "", cErr := "", nRet := -1
+	LOCAL bOld
+
+	IF ! File(cVbs)
+		cErgebnis := cVbs + " nicht gefunden"
+		RETURN .F.
+	ENDIF
+	bOld := ErrorBlock({|e| Break(e) })
+	BEGIN SEQUENCE
+		nRet := hb_processRun('C:\Windows\SysWOW64\cscript.exe //nologo "' + cVbs + '" /mail:"' + cMsgPath + ;
+			'" /an:"' + cAgent + '" /text:"' + StrTran(cText, '"', "'") + '"', , @cOut, @cErr)
+	RECOVER
+		cErr := "cscript nicht startbar"
+	END SEQUENCE
+	ErrorBlock(bOld)
+
+	cErgebnis := AllTrim(StrTran(StrTran(cOut + " " + cErr, Chr(13), " "), Chr(10), " "))
+RETURN nRet == 0 .AND. "OK " $ cOut
 
 //---------------------------------------------------------------------------
 // Open the CRM web picker (/picker) in a modal webview. The user selects an
@@ -101,13 +211,15 @@ RETURN
 // window.crmPickerSelect(String(ref), type), captured by crmPickerSelect().
 // Returns a hash {"ref"=>nRef,"type"=>cType} or NIL if cancelled.
 //---------------------------------------------------------------------------
-STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyName, cValue, cQuote, cName, cDraft)
+STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyName, cValue, cQuote, cName, cDraft, cPage)
 	LOCAL nW, cUrl
 
 	gcCrmNewRef  := ""
 	gcCrmNewType := ""
 
-	cUrl := "https://engelking-crm.lovable.app/picker?"
+	// cPage: "picker" (Lead/Opportunity) oder "picker/issue" (Anliegen)
+	Default(@cPage, "picker")
+	cUrl := "https://engelking-crm.lovable.app/" + cPage + "?"
 	IF ! Empty(cEmail)
 		cUrl += "email=" + CrmUrlEncode(cEmail) + "&"
 	ENDIF
@@ -163,7 +275,7 @@ STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyNam
 		RETURN .T.
 	})*/
 
-	hb_webview_set_title(nW, "CRM - Lead/Opportunity ausw„hlen")
+	hb_webview_set_title(nW, IF(cPage == "picker/issue", "CRM - Anliegen er”ffnen", "CRM - Lead/Opportunity ausw„hlen"))
 
 	//JS -> Harbour callbacks (resolved by name via HB_CALL_FUNC_DIRECT)
 	hb_webview_bind2(nW, "crmPickerSelect", HB_CALL_FUNC_DIRECT)
@@ -268,10 +380,12 @@ STATIC FUNCTION CrmUploadEmail(cType, cRef, oMsg, cMsgPath, cDraft)
 	LOCAL hData := {=>}
 	LOCAL xResp
 
-	hData["type"]       := Lower(cType)                              // "lead" / "opportunity"
+	hData["type"]       := Lower(cType)                              // "lead" / "opportunity" / "issue"
 	hData["ref"]        := Val(cRef)
 	// stable dedup key: the same mail filed to the same ref twice -> no duplicate
-	hData["message_id"] := "erp:" + cRef + ":" + cMsgPath
+	// Anliegen mit eigenem Praefix: Anliegen 12 und Opportunity 12 an derselben
+	// Mail sind verschiedene Ablagen.
+	hData["message_id"] := "erp:" + IF(Lower(cType) == "issue", "A", "") + cRef + ":" + cMsgPath
 
 	// Liegt die Mail schon als Entwurf im CRM, reicht die Entwurfs-ID: der
 	// Server uebernimmt Absender, Betreff und Body aus dem Entwurf.

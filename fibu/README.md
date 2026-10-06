@@ -11,7 +11,8 @@ Fremdwährungen richtig bewertet.
 | `vat_dump.prg` | zieht die Kontierungsstammdaten ab (`vat`, `lexware.ini`, `skontoa`) |
 | `kontierung_angleichen.md` | Arbeitsliste: was in beiden Firmen nachzupflegen ist |
 | `belege_push.prg` | sendet die in Trader gebuchten Belege mit ihrem Buchungssatz |
-| `reb_push.prg` | sendet die direkt in Lexware gebuchten Eingangsrechnungen |
+| `reb_push.prg` | sendet die Belege aus dem Rechnungseingangsbuch |
+| `reb_dump.prg` | Diagnose: die rohen Lexware-Buchungen zu einem reb-Beleg |
 | `fibu_common.prg` | gemeinsame Helfer beider Sammler (kein Einstiegspunkt) |
 
 ## Reihenfolge
@@ -32,7 +33,7 @@ Die Eingangsrechnungen laufen auf zwei Wegen durchs Haus, und beide enden in
 | | Quelle | Kontierung aus |
 |---|---|---|
 | `belege_push.prg` | `ENGRECH` — in Trader gebucht | Traders `vat`-Tabelle |
-| `reb_push.prg` | `reb` — direkt in Lexware gebucht | dem Lexware-Journal |
+| `reb_push.prg` | `reb` — nicht in Trader gebucht | noch niemandem |
 
 Die Trennung ist scharf: `reb_push.prg` liest einmal alle Referenzen aus
 `ENGRECH` ein und **überspringt jede reb-Zeile, die dort schon steht**. Ohne
@@ -40,31 +41,58 @@ das würde derselbe Beleg zweimal gesendet — unter derselben `erp_reference`,
 also auf denselben Schlüssel, und der letzte Lauf gewänne. Traders Kontierung
 ist die genauere; sie darf nicht von der aus Lexware überschrieben werden.
 
-### Warum die Kontierung bei reb aus Lexware kommt
+### reb_push liefert den Beleg, nicht die Buchung
 
-`reb` kennt Beleg, Betrag, Kreditor und Kostenstelle — aber kein
-Rechnungsdatum, keinen Steuersatz und kein Sachkonto. Gebucht sind diese
-Rechnungen trotzdem, nämlich in Lexware. `LX_GetBookingsForID("ER" + <reb-ID>)`
-findet sie über den Belegtext und liefert je Zeile Soll, Haben, Netto, USt und
-das Belegdatum — genau die Form, die `document_lines` erwartet. Eine
-aufgeteilte Rechnung kommt damit mit allen ihren Zeilen herüber statt als eine
-Summe.
+Die erste Fassung hat versucht, die Kontierung aus dem Lexware-Journal
+zurückzurechnen. Der Trockenlauf vom 26.09. und die Diagnose vom 28.09.
+(`reb_dump.prg`) haben gezeigt, warum das nicht trägt: **im Journal steht
+nicht die Kontierung einer Rechnung, sondern ihre Geschichte.**
 
-Nur das Journal, nicht der Stapel. Eine Stapelbuchung ist ein Entwurf; sie als
-Beleg zu führen hieße, etwas zu buchen, was die Buchhaltung noch nicht gebucht
-hat.
+Nebeneinander liegen dort Eingangsbuchung, Storno, Umbuchung, Zahlung,
+Währungsdifferenz und die Auflösung eines Zwischenkontos. Conrad,
+reb-ID 260000002:
 
-### Was reb-Belegen fehlt
+```
+  1121   76157 / 1200    135.05      die ZAHLUNG
+ 21328    4760 / 70280   113.49+USt  Rechnung, falscher Kreditor
+ 21345    4760 / 70280  -113.49-USt  <Storno>
+ 21346    4760 / 76157   113.49+USt  Rechnung, richtig
+```
 
-Eine **Fälligkeit** hat `reb` nicht. Sie steht am Lexware-Offenposten, den
-Finova über `erp_items` ohnehin führt. Der Beleg geht ohne sie hinaus und steht
-damit in `documents_unkontiert` — sichtbar statt stillschweigend falsch. Der
-Trockenlauf zeigt, wie viele das sind; danach lässt sich entscheiden, ob die
-Fälligkeit aus dem Offenposten nachgezogen wird.
+Die alte Fassung las die Zahlung als Gutschrift, drehte ihr Vorzeichen und kam
+mit der richtigen Buchung zusammen auf genau 0,00 — der Beleg fiel als
+„Betrag 0,00" heraus. Er ist echt.
 
-Die **Kostenstelle** steht in `reb` einmal je Beleg, nicht je Zeile. Alle
-Zeilen eines Belegs bekommen deshalb dieselbe. Lexware führt zwar ein `lKST`
-je Buchung, aber `LX_GetBookingsForID` liest es nicht mit.
+Und selbst die saubere Splitbuchung führt nicht immer zum Aufwandskonto: bei
+Plusnet, Moss und Telekom bucht die Eingangsbuchung gegen ein Zwischenkonto,
+und der eigentliche Aufwand steht in einer zweiten Buchung, die es auflöst.
+
+Das ließe sich regeln — über Buchungsnummern, Bankkonten, Zwischenkonten,
+Stornotexte. Nur wäre das die Buchungspraxis mehrerer Jahre, nachgebaut in
+einem Run-Skript, dessen erklärter Zweck eine Übergangslösung ist.
+
+Deshalb liest `reb_push.prg` **gar nicht mehr in Lexware**. Es ist ein reiner
+Trader-Leser: `reb`, `rebprot`, `engkund`, `engrech`.
+
+### Was reb-Belegen fehlt — mit Absicht
+
+Sachkonto, Steuersatz und Fälligkeit. Alle reb-Belege stehen deshalb in
+`documents_unkontiert`. Das ist kein Mangel, sondern der Zustand: Beleg da,
+Buchung folgt — aus dem Beleg selbst.
+
+Für die Bankbuchung reicht es: um „Bank an Kreditor" zu buchen, braucht es den
+Beleg, den Kreditor und den Betrag, nicht das Aufwandskonto. Das gehört zur
+Rechnungsbuchung, nicht zur Zahlung.
+
+Das **Datum** ist das Eingangsdatum aus `rebprot` (Typ `RECV`), nicht das
+Rechnungsdatum — `reb` führt keines. In der Praxis liegen beide wenige Tage
+auseinander; für eine Periodenabgrenzung ist das zu ungenau. Das richtige
+Datum kommt mit der Kontierung aus dem Beleg.
+
+Steht in `reb->Konto` eine `0`, kennt das Buch kein Kreditorenkonto. Es wird
+dann **nicht geraten** — `rech->Konto` steht an der Rechnung, nicht am
+Lieferanten, ein Lieferant kann je Währung ein eigenes haben. Der Beleg geht
+ohne Personenkonto hinaus, und das Protokoll zählt diese Fälle eigens.
 
 ## Warum Trader den Buchungssatz bildet
 

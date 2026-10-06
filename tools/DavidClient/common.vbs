@@ -71,14 +71,16 @@ Sub OnTrader(oInfoCenter, oReader )
       Exit Sub
   end if
 
-  ' Anliegen eroeffnen: erst an Trader uebergeben, wenn die Mail eine JobID hat
-  ' (ohne JobID scheitert der TeamTalk mit dem Agenten, siehe AnliegenBereit)
+  ' Anliegen eroeffnen: laeuft ganz im CRM (Picker im Browser). Das CRM nimmt
+  ' mit der David-Anmeldung des Benutzers Inga in den TeamTalk auf, schreibt
+  ' die Anliegen-Nummer hinein und ergaenzt den Betreff (docs/kundenanliegen.md).
   if oInfoCenter.CurrentCommandEvent.Param = "issue" then
       if oMsgItem.Type <> DvEmailItem then
          oInfoCenter.MsgBox "Anliegen können nur aus E-Mails eröffnet werden.", 0
          Exit Sub
       end if
-      if Not AnliegenBereit(oInfoCenter, oArchive, oMsgItem) then Exit Sub
+      AnliegenImCrm oInfoCenter, oMsgItem
+      Exit Sub
   end if
 
   'create unique file name
@@ -147,64 +149,40 @@ Function TraderExe(fso)
    if Not fso.FileExists("C:\Program Files (x86)\Trader\bin\trader.exe") then TraderExe = "x:\prg\start.exe"
 End Function
 
-' Anliegen eroeffnen braucht eine Mail im persoenlichen Postfach mit JobID:
-' Der TeamTalk mit dem Agenten (IChatManager.StartChat) scheitert an Mails
-' ohne JobID. Die JobID vergibt David, sobald man in das TeamTalk-Feld der
-' Mail klickt. Die Meldung des Clients sperrt das Fenster, deshalb nur ein
-' Hinweis: schliessen, ins TeamTalk-Feld klicken, Aktion erneut waehlen.
-Function AnliegenBereit(oInfoCenter, oArchive, oMsgItem)
-   AnliegenBereit = False
+' Anliegen eroeffnen: Picker im CRM mit Archivpfad, Absender und Betreff
+' oeffnen. Nur Mails im persoenlichen Postfach: dort arbeitet das CRM mit der
+' David-Anmeldung des Benutzers.
+Sub AnliegenImCrm(oInfoCenter, oMsgItem)
    datei = oMsgItem.Fields.Item("FileName").Value
    if InStr(1, datei, "\archive\user\", vbTextCompare) = 0 then
       oInfoCenter.MsgBox "Anliegen können nur aus dem persönlichen Postfach eröffnet werden." & vbCrLf & _
          "Bitte die Mail zuerst in dein Postfach verschieben.", 0
-      Exit Function
+      Exit Sub
    end if
-   info = ""
-   job = JobId(oArchive, oMsgItem, datei, info)
-   if job <> 0 then
-      AnliegenBereit = True
-      Exit Function
-   end if
-   oInfoCenter.MsgBox "Diese Mail hat noch keinen TeamTalk." & vbCrLf & vbCrLf & _
-      "Bitte diese Meldung schließen, einmal in das TeamTalk-Feld der Mail" & vbCrLf & _
-      "klicken (nichts schreiben) und 'Anliegen eröffnen' erneut wählen." & vbCrLf & vbCrLf & _
-      "(" & info & ")", 0
-End Function
+   url = "https://nexus.engelking.it/picker/issue?mail=" & UrlKodieren(datei) & _
+      "&email=" & UrlKodieren(oMsgItem.Fields.Item("SRFrom").Value) & _
+      "&subject=" & UrlKodieren(oMsgItem.Subject)
+   CreateObject("WScript.Shell").Run url
+End Sub
 
-' JobID lesen: erst am Objekt der Auswahl, dann frisch aus dem Archiv (die
-' Auswahl kann veraltet sein). info sammelt, was gelesen wurde - fuer die
-' Fehlersuche, falls die Meldung trotz JobID kommt.
-Function JobId(oArchive, oMsgItem, datei, info)
-   On Error Resume Next
-   JobId = 0
-   wert = Empty
-   Err.Clear
-   wert = oMsgItem.Fields.Item("JobID").Value
-   if Err.Number <> 0 then
-      info = "Auswahl: Fehler " & Hex(Err.Number) & " " & Err.Description
-   else
-      info = "Auswahl: " & TypeName(wert) & " '" & CStr(wert) & "'"
-      if IsNumeric(wert) then JobId = CLng(wert)
-   end if
-   if JobId <> 0 then Exit Function
-   Err.Clear
-   Set oFrisch = Nothing
-   Set oFrisch = oArchive.GetArchiveEntryById(datei)
-   if Err.Number <> 0 or oFrisch Is Nothing then
-      info = info & "; Archiv: Fehler " & Hex(Err.Number) & " " & Err.Description
-   else
-      Err.Clear
-      wert = Empty
-      wert = oFrisch.Fields.Item("JobID").Value
-      if Err.Number <> 0 then
-         info = info & "; Archiv: Fehler " & Hex(Err.Number) & " " & Err.Description
-      else
-         info = info & "; Archiv: " & TypeName(wert) & " '" & CStr(wert) & "'"
-         if IsNumeric(wert) then JobId = CLng(wert)
-      end if
-   end if
-   Err.Clear
+' Prozent-Kodierung als UTF-8 (Umlaute im Betreff).
+Function UrlKodieren(text)
+   Dim i, c, r
+   r = ""
+   For i = 1 To Len(text & "")
+      c = AscW(Mid(text, i, 1))
+      If c < 0 Then c = c + 65536
+      If (c >= 48 And c <= 57) Or (c >= 65 And c <= 90) Or (c >= 97 And c <= 122) Or c = 45 Or c = 46 Or c = 95 Or c = 126 Then
+         r = r & ChrW(c)
+      ElseIf c < 128 Then
+         r = r & "%" & Right("0" & Hex(c), 2)
+      ElseIf c < 2048 Then
+         r = r & "%" & Hex(192 + (c \ 64)) & "%" & Hex(128 + (c Mod 64))
+      Else
+         r = r & "%" & Hex(224 + (c \ 4096)) & "%" & Hex(128 + ((c \ 64) Mod 64)) & "%" & Hex(128 + (c Mod 64))
+      End If
+   Next
+   UrlKodieren = r
 End Function
 
 Sub OnAddFile(oInfoCenter,oContext)

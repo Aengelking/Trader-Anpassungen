@@ -41,7 +41,7 @@
   * wird am Ende geoeffnet.
   **/
 
-#include 'trader.ch'
+//#include 'trader.ch'
 
 #define CRLF Chr(13)+Chr(10)
 

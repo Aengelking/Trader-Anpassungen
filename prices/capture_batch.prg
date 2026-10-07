@@ -10,7 +10,8 @@
 //    MBaseRun(Trim(Tr_getini(1))+"\run\prices\capture_batch")             BULGIN (1), ITW (3), max. 50
 //    MBaseRun(Trim(Tr_getini(1))+"\run\prices\capture_batch",{20,{1}})    nur BULGIN, max. 20
 //
-// - Artikel mit einem erfassten Angebot juenger als 30 Tage werden ausgelassen.
+// - Artikel mit einem erfassten Angebot juenger als 30 Tage werden ausgelassen, ebenso Artikel,
+//   die in den letzten 30 Tagen schon erfasst wurden (auch wenn dabei kein Preis herauskam).
 // - Ein Artikel nach dem anderen, danach 60 Sekunden Pause.
 // - Liefern 3 Artikel hintereinander kein einziges klares Ergebnis (nur "pruefen" oder keine
 //   Rueckmeldung), bricht der Lauf ab - das deutet auf eine Sperre durch die Shops hin.
@@ -24,7 +25,7 @@
 
 #define CRLF Chr(13)+Chr(10)
 
-#define BATCH_MAXAGE   30    //Tage: juengere Angebote -> Artikel auslassen
+#define BATCH_MAXAGE   30    //Tage: juengere Angebote oder Erfassung -> Artikel auslassen
 #define BATCH_PAUSE    60    //Sekunden zwischen zwei Artikeln
 #define BATCH_POLL     15    //Sekunden zwischen zwei Abfragen des Auftrags
 #define BATCH_WAIT     420   //Sekunden: so lange auf die Erweiterung warten
@@ -165,7 +166,7 @@ NEXT
 
 cBody := "Artikel mit Bestand: "+LTrim(Str(Len(aCand)))+CRLF
 cBody += "Erfasst: "+LTrim(Str(nDone))+" Artikel, "+LTrim(Str(nSaved))+" Shop-Preise gespeichert"+CRLF
-cBody += "Ausgelassen: "+LTrim(Str(nFresh))+" (Preise juenger als "+LTrim(Str(BATCH_MAXAGE))+" Tage), "+ ;
+cBody += "Ausgelassen: "+LTrim(Str(nFresh))+" (Preise oder Erfassung juenger als "+LTrim(Str(BATCH_MAXAGE))+" Tage), "+ ;
          LTrim(Str(nNone))+" (kein Shop fuehrt den Artikel)"+CRLF
 IF ! Empty(cAbort)
    cBody += CRLF+"ABGEBROCHEN: "+cAbort+CRLF
@@ -186,9 +187,19 @@ IF ! GetConfigValue("BATCHMODE")
 ENDIF
 RETURN Empty(cAbort)
 
-// Gibt es ein erfasstes Angebot, das hoechstens nMaxAge Tage alt ist?
+// Gibt es ein erfasstes Angebot oder einen Erfassungsauftrag, der hoechstens nMaxAge Tage alt ist?
+// Ohne den Auftrag kaemen Artikel, bei denen kein Shop einen Preis hat, jede Nacht wieder dran.
 STATIC FUNCTION _BatchFresh(hResp, nMaxAge)
-   LOCAL nX
+   LOCAL nX, hRow
+   IF HHasKey(hResp,"last_jobs") .AND. ValType(hResp["last_jobs"]) == "A"
+      FOR nX := 1 TO Len(hResp["last_jobs"])
+         hRow := hResp["last_jobs"][nX]
+         IF ValType(hRow) == "H" .AND. HHasKey(hRow,"finished_at") .AND. ValType(hRow["finished_at"]) == "C" ;
+            .AND. StoD(StrTran(Left(hRow["finished_at"],10),"-","")) >= Date()-nMaxAge
+            RETURN .T.
+         ENDIF
+      NEXT
+   ENDIF
    FOR nX := 1 TO Len(hResp["offers"])
       IF ValType(hResp["offers"][nX]) == "H" .AND. WebCompetDate(hResp["offers"][nX]) >= Date()-nMaxAge
          RETURN .T.

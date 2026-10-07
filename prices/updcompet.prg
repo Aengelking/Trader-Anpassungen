@@ -9,7 +9,7 @@ LOCAL nArtnr := art->Artikelnr
 LOCAL nPole,aMatch,cInlet
 LOCAL cMatch,nPe := 1
 LOCAL nY,nX
-LOCAL lDbg := Tr_Getini(28) == 9
+LOCAL lDbg := .F. //Tr_Getini(28) == 9
 LOCAL lBuerklin := .F.
 LOCAL lFailed := .F.   //mind. ein Konkurrent lieferte keine Preise -> alte Werte nicht loeschen
 LOCAL aWeb

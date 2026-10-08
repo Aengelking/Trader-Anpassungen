@@ -11,35 +11,57 @@
   * Gelesen werden reb, rebprot, engkund und engrech. Kein Rec_Lock, kein
   * Kennzeichen, kein Status.
   *
-  * WARUM DIE KONTIERUNG AUS LEXWARE KOMMT UND NICHT AUS reb
+  * ER LIEFERT DEN BELEG, NICHT DIE BUCHUNG
   *
-  * reb kennt Beleg, Betrag, Kreditor und Kostenstelle - aber kein
-  * Rechnungsdatum, keinen Steuersatz und kein Sachkonto. Als Beleg fuer eine
-  * Buchhaltung ist das zu wenig.
+  * Die erste Fassung hat versucht, die Kontierung aus dem Lexware-Journal
+  * zurueckzurechnen (LX_GetBookingsForID). Der Trockenlauf vom 26.09. und die
+  * Diagnose vom 28.09. haben gezeigt, warum das nicht traegt: im Journal
+  * steht nicht die Kontierung einer Rechnung, sondern ihre GESCHICHTE.
   *
-  * Gebucht sind diese Rechnungen aber laengst, naemlich in Lexware, und dort
-  * stehen sie vollstaendig. LX_GetBookingsForID("ER" + <reb-ID>) findet sie
-  * ueber den Belegtext und liefert je Buchungszeile Soll, Haben, Netto, USt
-  * und das Belegdatum. Genau die Form, die document_lines erwartet - und
-  * damit kommt auch eine aufgeteilte Rechnung mit allen ihren Zeilen hinueber
-  * statt als eine Summe.
+  * Nebeneinander liegen dort die Eingangsbuchung, ihr Storno, die
+  * Umbuchung, die Zahlung, die Waehrungsdifferenz und die Aufloesung eines
+  * Zwischenkontos. Ein Beispiel aus der Diagnose - Conrad, reb-ID 260000002:
   *
-  * Nur das Journal, nicht der Stapel: eine Stapelbuchung ist ein Entwurf.
-  * Sie hier mitzunehmen hiesse, einen Beleg zu fuehren, den die Buchhaltung
-  * noch gar nicht gebucht hat.
+  *     1121   76157 / 1200    135.05      die ZAHLUNG
+  *    21328    4760 / 70280   113.49+USt  Rechnung, falscher Kreditor
+  *    21345    4760 / 70280  -113.49-USt  <Storno>
+  *    21346    4760 / 76157   113.49+USt  Rechnung, richtig
+  *
+  * Die alte Fassung las die Zahlung als Gutschrift, drehte ihr Vorzeichen und
+  * kam mit der richtigen Buchung zusammen auf genau 0,00 - der Beleg fiel als
+  * "Betrag 0,00" heraus. Er ist echt.
+  *
+  * Und selbst die saubere Splitbuchung fuehrt nicht immer zum Aufwandskonto:
+  * bei Plusnet, Moss und Telekom bucht die Eingangsbuchung gegen ein
+  * Zwischenkonto, und der eigentliche Aufwand steht in einer zweiten Buchung,
+  * die es wieder aufloest.
+  *
+  * Das liesse sich alles regeln - ueber Buchungsnummern, Bankkonten,
+  * Zwischenkonten, Stornotexte. Nur waere das die Buchungspraxis mehrerer
+  * Jahre, nachgebaut in einem Run-Skript, dessen erklaerter Zweck eine
+  * Uebergangsloesung ist. Jede dieser Regeln ist eine Stelle, an der man
+  * falsch liegen kann, und keine davon faellt laut auf.
+  *
+  * Deshalb liefert dieser Sammler den Beleg: Nummer, Datum, Lieferant,
+  * Betrag, Kostenstelle. Die Kontierung kommt spaeter aus dem Beleg selbst.
+  *
+  * FUER DIE BANKBUCHUNG REICHT DAS
+  *
+  * Um "Bank an Kreditor" zu buchen, braucht es den Beleg, den Kreditor und
+  * den Betrag - nicht das Aufwandskonto. Das gehoert zur Rechnungsbuchung,
+  * nicht zur Zahlung.
   *
   * WAS ENGRECH SCHON HAT, BLEIBT HIER LIEGEN
   *
-  * Eine gebuchte reb-Zeile hat einen ENGRECH-Satz, und den sammelt
+  * Eine in Trader gebuchte Rechnung hat einen ENGRECH-Satz, und den sammelt
   * belege_push.prg - mit Traders eigener Kontierung aus der vat-Tabelle.
-  * Dieselbe Rechnung von hier aus noch einmal zu senden hiesse, den besser
-  * kontierten Beleg mit dem schlechter kontierten zu ueberschreiben: gleiche
+  * Dieselbe Rechnung von hier aus noch einmal zu senden hiesse, den
+  * kontierten Beleg mit dem unkontierten zu ueberschreiben: gleiche
   * erp_reference, gleicher Schluessel, der letzte Lauf gewinnt.
   *
   * Deshalb wird ENGRECH einmal komplett in eine Hashtabelle gelesen und jede
   * reb-Zeile dagegen geprueft. Ein Seek je Zeile ginge auch, aber ENGRECH
-  * hat keinen Index auf (Liefma, Rechnr) - beide bestehenden Sammler lesen
-  * es in Satznummernfolge.
+  * hat keinen Index auf (Liefma, Rechnr).
   *
   * DIE REFERENZ IST DIESELBE WIE IM LIQUIDITAETSABGLEICH
   *
@@ -50,11 +72,16 @@
   *
   * WAS FEHLT UND WARUM ES TROTZDEM RAUSGEHT
   *
-  * Eine Faelligkeit hat reb nicht. Sie steht am Lexware-Offenposten, den
-  * Finova ueber erp_items ohnehin fuehrt. Der Beleg geht ohne hinaus und
-  * steht damit in documents_unkontiert - sichtbar statt stillschweigend
-  * falsch. Der Trockenlauf zeigt, wie viele das sind; danach laesst sich
-  * entscheiden, ob die Faelligkeit aus dem Offenposten nachgezogen wird.
+  * Sachkonto und Steuersatz hat reb nicht, und die Faelligkeit auch nicht -
+  * die steht am Lexware-Offenposten, den Finova ueber erp_items ohnehin
+  * fuehrt. Die Belege gehen ohne hinaus und stehen damit vollzaehlig in
+  * documents_unkontiert. Das ist kein Mangel, sondern der Zustand: Beleg da,
+  * Buchung folgt.
+  *
+  * Das DATUM ist das Eingangsdatum aus dem Protokoll (rebprot, Typ RECV),
+  * nicht das Rechnungsdatum - reb fuehrt keines. In der Praxis liegen beide
+  * wenige Tage auseinander; fuer eine Periodenabgrenzung ist das zu ungenau.
+  * Das richtige Datum kommt mit der Kontierung aus dem Beleg.
   *
   * Aufruf: RUN_PUSH_REB()     Trockenlauf, sendet nichts
   *         RUN_PUSH_REB(.T.)  Echtlauf
@@ -97,6 +124,10 @@ FUNCTION RUN_PUSH_REB(lLive)
    _Log("Belege ab " + DToC(dFrom))
    _Log("Trader wird ausschliesslich gelesen")
    _Log("")
+   _Log("Dieser Sammler liefert den Beleg, nicht die Buchung. Sachkonto,")
+   _Log("Steuersatz und Faelligkeit fehlen absichtlich - sie kommen aus dem")
+   _Log("Beleg selbst. Alle Belege stehen deshalb in documents_unkontiert.")
+   _Log("")
 
    IF Empty(_Quelle())
       _Log("*** ABBRUCH: FIRMNO ist leer - das Mandantenkennzeichen fehlt.")
@@ -112,7 +143,6 @@ FUNCTION RUN_PUSH_REB(lLive)
 
    _LogUebergangen(aUebergangen)
    _LogZusammenfassung(aBelege)
-   _LogOhneKonto(aBelege)
 
    IF Len(aBelege) == 0
       _Log("Nichts zu senden.")
@@ -213,25 +243,45 @@ STATIC FUNCTION _RebRef(cMatchcode)
 RETURN "ER-" + Trim(cMatchcode) + "-" + cBeleg
 
 /**
-  * Hat die Zeile eine Stornierung im Protokoll?
+  * Das Protokoll zu einer reb-Zeile: Eingangsdatum und ob storniert.
   *
-  * rebprot in Ordnung 2 ist nach ID + Type sortiert; check_reb_betrag.prg
-  * prueft genauso.
+  * rebprot in Ordnung 2 ist nach ID + Type sortiert. Beide Angaben kommen aus
+  * demselben Bereich, deshalb ein Durchlauf statt zweier Seeks.
+  *
+  * RECV ist der Eingang ins Buch. Er ist NICHT das Rechnungsdatum - reb
+  * fuehrt keines -, aber er ist das einzige verlaessliche Datum, das Trader
+  * zu diesem Beleg hat.
   **/
-STATIC FUNCTION _IstStorniert(nId)
-   LOCAL nRec, lStorno
+STATIC FUNCTION _RebProtokoll(nId, dEingang, lStorno)
+   LOCAL nRec
+
+   dEingang := CToD("")
+   lStorno  := .F.
 
    NetUse("rebprot", "rebp")
    nRec := rebp->(RecNo())
+
    BEGIN SEQUENCE
       rebp->(dbSetOrder(2))
-      lStorno := rebp->(dbSeek(Str(nId, 9) + "STORN"))
+      IF rebp->(dbSeek(Str(nId, 9), .T.))
+         DO WHILE ! rebp->(Eof()) .AND. rebp->Id == nId
+            DO CASE
+            CASE Trim(rebp->Type) == "STORN"
+               lStorno := .T.
+            CASE Trim(rebp->Type) == "RECV" .AND. Empty(dEingang)
+               dEingang := SToD(rebp->DateTime)
+            ENDCASE
+            rebp->(dbSkip())
+         ENDDO
+      ENDIF
    RECOVER
-      lStorno := .F.
+      dEingang := CToD("")
+      lStorno  := .F.
    END SEQUENCE
+
    rebp->(dbGoTo(nRec))
 
-RETURN lStorno
+RETURN NIL
 
 /**
   * Die Belege aus dem Rechnungseingangsbuch.
@@ -241,7 +291,7 @@ STATIC FUNCTION _CollectReb(dFrom, aUebergangen)
    LOCAL hEngrech := _EngrechRefs()
    LOCAL nJahr, nBis := Year(Date())
    LOCAL cJahr, cMatchcode, cRef
-   LOCAL aBookings, hBeleg
+   LOCAL dEingang, lStorno
    LOCAL nScanned := 0
 
    _Log("ENGRECH kennt bereits " + LTrim(Str(Len(hEngrech))) + " Belegreferenzen.")
@@ -261,40 +311,32 @@ STATIC FUNCTION _CollectReb(dFrom, aUebergangen)
          nScanned++
          cMatchcode := _Matchcode(reb->Liefnr)
          cRef       := _RebRef(cMatchcode)
+         _RebProtokoll(reb->ID, @dEingang, @lStorno)
 
          DO CASE
          CASE Empty(cRef)
             AAdd(aUebergangen, {"REB" + LTrim(Str(reb->ID)), "keine Belegnummer"})
 
-         CASE _IstStorniert(reb->ID)
+         CASE lStorno
             AAdd(aUebergangen, {cRef, "storniert"})
 
          CASE HHasKey(hEngrech, cRef)
             //Gehoert belege_push.prg. Nicht gemeldet - das ist der Normalfall
             //fuer jede in Trader gebuchte Rechnung und waere reines Rauschen.
 
+         CASE Round(reb->Betrag, 2) == 0
+            AAdd(aUebergangen, {cRef, "Betrag 0,00"})
+
+         CASE Empty(dEingang)
+            //Ohne Datum kein Beleg: doc_date ist in Finova Pflicht, und ein
+            //erfundenes Datum waere schlechter als eine gemeldete Luecke.
+            AAdd(aUebergangen, {cRef, "kein Eingangsdatum im Protokoll"})
+
+         CASE dEingang < dFrom
+            //Vor dem Stichtag. Nicht gemeldet, das ist keine Auslassung.
+
          OTHERWISE
-            aBookings := _Buchungen(reb->ID)
-
-            DO CASE
-            CASE Len(aBookings) == 0 .AND. reb->Status == 9
-               //Als verbucht gekennzeichnet, aber in Lexware nichts zu
-               //finden. Das ist keine Auslassung, sondern ein Widerspruch.
-               AAdd(aUebergangen, {cRef, "als verbucht markiert, in Lexware nicht gefunden"})
-
-            CASE Len(aBookings) == 0
-               AAdd(aUebergangen, {cRef, "noch nicht gebucht"})
-
-            OTHERWISE
-               hBeleg := _BelegAusBuchungen(cRef, cMatchcode, aBookings)
-               IF hBeleg == NIL
-                  AAdd(aUebergangen, {cRef, "keine Zeile beruehrt den Kreditor " + LTrim(Str(reb->Konto))})
-               ELSEIF hBeleg["gross_amount"] == 0
-                  AAdd(aUebergangen, {cRef, "Betrag 0,00"})
-               ELSE
-                  AAdd(aBelege, hBeleg)
-               ENDIF
-            ENDCASE
+            AAdd(aBelege, _BelegAusReb(cRef, cMatchcode, dEingang))
          ENDCASE
 
          reb->(dbSkip())
@@ -308,127 +350,72 @@ STATIC FUNCTION _CollectReb(dFrom, aUebergangen)
 RETURN aBelege
 
 /**
-  * Die Lexware-Buchungszeilen zu einer reb-ID.
+  * Der Beleg, aus reb allein.
   *
-  * .F. = nur das Journal, kein Stapel. Eine Stapelbuchung ist ein Entwurf;
-  * sie als Beleg zu fuehren hiesse, etwas zu buchen, was die Buchhaltung
-  * noch nicht gebucht hat.
+  * Eine Buchungszeile ueber den vollen Betrag, ohne Sachkonto. Die
+  * Kostenstelle kommt mit, weil reb sie fuehrt und sie spaeter die
+  * Aufteilung traegt.
   **/
-STATIC FUNCTION _Buchungen(nId)
-   LOCAL aBookings
+STATIC FUNCTION _BelegAusReb(cRef, cMatchcode, dEingang)
+   LOCAL hBeleg, hZeile
 
-   BEGIN SEQUENCE
-      aBookings := LX_GetBookingsForID("ER" + Str(nId, 9), .F.)
-   RECOVER
-      aBookings := {}
-   END SEQUENCE
-
-   IF ValType(aBookings) != "A"
-      aBookings := {}
-   ENDIF
-
-RETURN aBookings
-
-/**
-  * Aus den Buchungszeilen einen Beleg mit seinen Zeilen bauen.
-  *
-  * Eine Seite jeder Zeile ist der Kreditor, die andere das Sachkonto. Welche,
-  * haengt an der Richtung: bei der Rechnung steht der Kreditor im Haben, bei
-  * der Gutschrift im Soll. check_reb_betrag.prg rechnet denselben Saldo als
-  * Haben minus Soll.
-  *
-  * Zeilen, die den Kreditor gar nicht beruehren, gehoeren nicht zu dieser
-  * Rechnung - eine Umbuchung etwa. Sie werden gezaehlt, nicht uebernommen.
-  **/
-STATIC FUNCTION _BelegAusBuchungen(cRef, cMatchcode, aBookings)
-   LOCAL hBeleg, aZeilen := {}
-   LOCAL hBuchung, hZeile
-   LOCAL nKreditor := reb->Konto
-   LOCAL nBrutto, nSumme := 0
-   LOCAL dBeleg := CToD("")
-   LOCAL nFremd := 0
-   LOCAL cKonto
-
-   FOR EACH hBuchung IN aBookings
-      nBrutto := Round(hBuchung["NETTO"] + hBuchung["UST"], 2)
-
-      DO CASE
-      CASE hBuchung["HABEN"] == nKreditor
-         cKonto := LTrim(Str(hBuchung["SOLL"]))
-      CASE hBuchung["SOLL"] == nKreditor
-         //Gutschrift: der Kreditor wird entlastet, der Betrag dreht sich.
-         cKonto  := LTrim(Str(hBuchung["HABEN"]))
-         nBrutto := -nBrutto
-      OTHERWISE
-         nFremd++
-         LOOP
-      ENDCASE
-
-      IF nBrutto == 0
-         //Eine Zeile ueber 0,00 weist die Datenbank ab. Sie traegt auch
-         //nichts bei, also faellt sie still weg - der Belegbetrag bleibt.
-         LOOP
-      ENDIF
-
-      hZeile := {=>}
-      hZeile["line_no"]     := Len(aZeilen) + 1
-      hZeile["amount"]      := nBrutto
-      hZeile["account"]     := cKonto
-      hZeile["vat_amount"]  := Round(IF(nBrutto < 0, -hBuchung["UST"], hBuchung["UST"]), 2)
-      hZeile["vat_rate"]    := _SteuerSatz(hBuchung["NETTO"], hBuchung["UST"])
-      hZeile["cost_center"] := Trim(reb->KS)
-      hZeile["description"] := hb_StrToUTF8(Trim(hBuchung["TEXT"]))
-      AAdd(aZeilen, hZeile)
-
-      nSumme += nBrutto
-      IF Empty(dBeleg) .AND. ValType(hBuchung["DATUM"]) == "D"
-         dBeleg := hBuchung["DATUM"]
-      ENDIF
-   NEXT
-
-   IF Len(aZeilen) == 0
-      RETURN NIL
-   ENDIF
-   IF Empty(dBeleg)
-      dBeleg := Date()
-   ENDIF
+   hZeile := {=>}
+   hZeile["line_no"]     := 1
+   hZeile["amount"]      := Round(reb->Betrag, 2)
+   hZeile["account"]     := ""
+   hZeile["cost_center"] := Trim(reb->KS)
 
    hBeleg := {=>}
    hBeleg["erp_reference"] := cRef
    hBeleg["doc_type"]      := "purchase_invoice"
    hBeleg["doc_number"]    := Trim(IF(Empty(reb->Beleg_Kurz), reb->Beleg, reb->Beleg_Kurz))
-   hBeleg["doc_date"]      := _IsoDate(dBeleg)
+   hBeleg["doc_date"]      := _IsoDate(dEingang)
 
    hBeleg["counterparty_name"]    := hb_StrToUTF8(Trim(reb->Name))
    hBeleg["counterparty_ref"]     := cMatchcode
-   hBeleg["counterparty_account"] := LTrim(Str(nKreditor))
+   //Steht hier eine 0, kennt reb kein Kreditorenkonto - dann kommt es ueber
+   //den Lieferanten, und zwar je Rechnung verschieden (rech->Konto steht an
+   //der Rechnung, nicht am Lieferanten). Hier zu raten hiesse, ein falsches
+   //Personenkonto plausibel aussehen zu lassen.
+   hBeleg["counterparty_account"] := IF(reb->Konto == 0, "", LTrim(Str(reb->Konto)))
 
-   //Das Lexware-Journal fuehrt die Firmenwaehrung. Eine Rechnung in
-   //Fremdwaehrung steht dort bereits umgerechnet - der Belegbetrag ist also
-   //Euro, und ein Kurs gehoert nicht daran.
+   //Das Rechnungseingangsbuch fuehrt den Betrag in Firmenwaehrung.
    hBeleg["currency"]     := "EUR"
-   hBeleg["gross_amount"] := Round(nSumme, 2)
-   hBeleg["lines"]        := aZeilen
+   hBeleg["gross_amount"] := Round(reb->Betrag, 2)
+   hBeleg["lines"]        := {hZeile}
 
    hBeleg["source"]     := _Quelle()
    hBeleg["company_id"] := GetConfigValue("FIRMNO")
 
-   //Zaehlwert fuer die Vorschau, geht nicht mit hinaus.
-   hBeleg["_fremd"] := nFremd
+   //Nur fuer Protokoll und Vorschau, geht nicht mit hinaus.
+   hBeleg["_status"] := reb->Status
+   hBeleg["_id"]     := reb->ID
 
 RETURN hBeleg
 
 /**
-  * Der Steuersatz einer Buchungszeile, aus Netto und USt zurueckgerechnet.
-  *
-  * Lexware fuehrt den Schluessel, nicht den Satz. Gerundet wird auf zwei
-  * Stellen, damit 7,00 und 19,00 herauskommen und nicht 6,9998.
+  * Zaehlwerte der Vorschau entfernen, bevor der Beleg hinausgeht.
   **/
-STATIC FUNCTION _SteuerSatz(nNetto, nUst)
-   IF nNetto == 0
-      RETURN 0
-   ENDIF
-RETURN Round(nUst / nNetto * 100, 2)
+STATIC FUNCTION _OhneHilfsfelder(aBelege)
+   LOCAL hBeleg, cFeld
+
+   FOR EACH hBeleg IN aBelege
+      FOR EACH cFeld IN {"_status", "_id"}
+         IF HHasKey(hBeleg, cFeld)
+            HDel(hBeleg, cFeld)
+         ENDIF
+      NEXT
+   NEXT
+
+RETURN NIL
+
+STATIC FUNCTION _StatusText(nStatus)
+   DO CASE
+   CASE nStatus == 9 ; RETURN "verbucht"
+   CASE nStatus == 8 ; RETURN "genehmigt"
+   CASE nStatus >= 4 ; RETURN "Freigabe"
+   ENDCASE
+RETURN "offen"
 
 /**
   * Was im Zeitraum liegt und trotzdem nicht mitkommt.
@@ -455,7 +442,7 @@ STATIC FUNCTION _LogUebergangen(aUebergangen)
    ASort(aGruende)
 
    FOR EACH cGrund IN aGruende
-      _Log("  " + PadR(cGrund, 46) + PadL(LTrim(Str(Len(hGruppen[cGrund]))), 5) + ;
+      _Log("  " + PadR(cGrund, 34) + PadL(LTrim(Str(Len(hGruppen[cGrund]))), 5) + ;
            "  " + _Kuerze(hGruppen[cGrund]))
    NEXT
    _Log("")
@@ -478,70 +465,42 @@ RETURN cText
 /**
   * Die Aufstellung ueber alle Belege, vor der Liste.
   *
-  * Nach Sachkonto, weil das die Zahl ist, die sich gegen die Buchhaltung
-  * halten laesst - und nach Kostenstelle, weil genau dafuer die Aufteilung
-  * gemacht wird.
+  * Nach Kostenstelle, weil das die einzige Zuordnung ist, die reb mitbringt -
+  * und nach Buchungsstand, weil eine erfasste, aber nicht verbuchte Rechnung
+  * liegengebliebene Arbeit ist und keine Buchhaltungsfrage.
+  *
+  * Ohne Personenkonto wird eigens gezaehlt: dort steht in reb eine 0, und die
+  * Bankbuchung braucht den Kreditor.
   **/
 STATIC FUNCTION _LogZusammenfassung(aBelege)
-   LOCAL hKonten := {=>}, hKosten := {=>}
-   LOCAL hBeleg, hZeile
-   LOCAL nZeilen := 0, nGesplittet := 0
+   LOCAL hKosten := {=>}, hStatus := {=>}
+   LOCAL hBeleg
+   LOCAL nOhneKonto := 0
 
    IF Len(aBelege) == 0
       RETURN NIL
    ENDIF
 
    FOR EACH hBeleg IN aBelege
-      nZeilen += Len(hBeleg["lines"])
-      IF Len(hBeleg["lines"]) > 1
-         nGesplittet++
+      _Zaehle(hKosten, PadR(IF(Empty(hBeleg["lines"][1]["cost_center"]), "(ohne)", ;
+                              hBeleg["lines"][1]["cost_center"]), 12), hBeleg["gross_amount"])
+      _Zaehle(hStatus, PadR(_StatusText(hBeleg["_status"]), 12), hBeleg["gross_amount"])
+      IF Empty(hBeleg["counterparty_account"])
+         nOhneKonto++
       ENDIF
-      FOR EACH hZeile IN hBeleg["lines"]
-         _Zaehle(hKonten, PadR(hZeile["account"], 12), hZeile["amount"])
-         _Zaehle(hKosten, PadR(IF(Empty(hZeile["cost_center"]), "(ohne)", ;
-                                  hZeile["cost_center"]), 12), hZeile["amount"])
-      NEXT
    NEXT
 
    _Log("ZUSAMMENFASSUNG ueber alle " + LTrim(Str(Len(aBelege))) + " Belege")
-   _Log("  " + LTrim(Str(nZeilen)) + " Buchungszeilen, davon " + ;
-        LTrim(Str(nGesplittet)) + " Belege mit mehr als einer Zeile")
-   _LogGruppe("nach Sachkonto", hKonten)
    _LogGruppe("nach Kostenstelle", hKosten)
+   _LogGruppe("nach Buchungsstand", hStatus)
    _Log("")
 
-RETURN NIL
-
-/**
-  * Belege, deren Zeilen kein Sachkonto tragen.
-  *
-  * Sollte es nicht geben - die Kontierung kommt aus Lexware. Wenn doch, ist
-  * eine Buchung dort unvollstaendig, und das gehoert benannt statt gezaehlt.
-  **/
-STATIC FUNCTION _LogOhneKonto(aBelege)
-   LOCAL hBeleg, hZeile
-   LOCAL aFehlend := {}
-
-   FOR EACH hBeleg IN aBelege
-      FOR EACH hZeile IN hBeleg["lines"]
-         IF Empty(hZeile["account"]) .OR. hZeile["account"] == "0"
-            AAdd(aFehlend, hBeleg["erp_reference"])
-            EXIT
-         ENDIF
-      NEXT
-   NEXT
-
-   IF Len(aFehlend) == 0
-      _Log("Alle Belege sind kontiert.")
+   IF nOhneKonto > 0
+      _Log("OHNE PERSONENKONTO: " + LTrim(Str(nOhneKonto)))
+      _Log("  reb fuehrt dort kein Kreditorenkonto. Sie gehen trotzdem mit und")
+      _Log("  stehen in documents_unkontiert; die Bankbuchung braucht es aber.")
       _Log("")
-      RETURN NIL
    ENDIF
-
-   _Log("OHNE SACHKONTO: " + LTrim(Str(Len(aFehlend))))
-   _Log("  " + _Kuerze(aFehlend))
-   _Log("  Sie gehen trotzdem hinueber und stehen in Finova unter")
-   _Log("  documents_unkontiert.")
-   _Log("")
 
 RETURN NIL
 
@@ -549,7 +508,7 @@ RETURN NIL
   * Die Vorschau. Hoechstens 200 Belege - die Aufstellung oben gilt fuer alle.
   **/
 STATIC FUNCTION _LogVorschau(aBelege)
-   LOCAL hBeleg, hZeile
+   LOCAL hBeleg
    LOCAL nX, nMax := Min(200, Len(aBelege))
 
    _Log("VORSCHAU (" + LTrim(Str(nMax)) + " von " + LTrim(Str(Len(aBelege))) + ")")
@@ -560,41 +519,13 @@ STATIC FUNCTION _LogVorschau(aBelege)
            PadR(hBeleg["doc_date"], 12) + ;
            PadL(Str(hBeleg["gross_amount"], 12, 2), 13) + "  " + ;
            PadR(Left(hb_UTF8ToStr(hBeleg["counterparty_name"]), 24), 25) + ;
-           "Kreditor " + hBeleg["counterparty_account"])
-
-      IF Len(hBeleg["lines"]) > 1 .OR. hBeleg["_fremd"] > 0
-         FOR EACH hZeile IN hBeleg["lines"]
-            _Log("      Zeile " + LTrim(Str(hZeile["line_no"])) + ": " + ;
-                 PadR(hZeile["account"], 10) + ;
-                 PadL(Str(hZeile["amount"], 12, 2), 13) + ;
-                 "  " + Str(hZeile["vat_rate"], 5, 2) + "%" + ;
-                 IF(Empty(hZeile["cost_center"]), "", "  KS " + hZeile["cost_center"]))
-         NEXT
-         IF hBeleg["_fremd"] > 0
-            _Log("      (" + LTrim(Str(hBeleg["_fremd"])) + " Buchungszeilen beruehren den Kreditor nicht)")
-         ENDIF
-      ENDIF
+           PadR(IF(Empty(hBeleg["counterparty_account"]), "(kein Konto)", ;
+                   "Kreditor " + hBeleg["counterparty_account"]), 16) + ;
+           PadR(_StatusText(hBeleg["_status"]), 10) + ;
+           IF(Empty(hBeleg["lines"][1]["cost_center"]), "", ;
+              "KS " + hBeleg["lines"][1]["cost_center"]))
    NEXT
    _Log("")
-
-RETURN NIL
-
-/**
-  * Zaehlwerte der Vorschau entfernen, bevor der Beleg hinausgeht.
-  *
-  * `_fremd` sagt, wie viele Buchungszeilen den Kreditor nicht beruehren -
-  * das gehoert ins Protokoll, nicht in die Belegtabelle. erp-push wuerde es
-  * zwar ohnehin nicht lesen, aber ein Feld mitzuschicken, das niemand
-  * erwartet, laedt zum Missverstaendnis ein.
-  **/
-STATIC FUNCTION _OhneHilfsfelder(aBelege)
-   LOCAL hBeleg
-
-   FOR EACH hBeleg IN aBelege
-      IF HHasKey(hBeleg, "_fremd")
-         HDel(hBeleg, "_fremd")
-      ENDIF
-   NEXT
 
 RETURN NIL
 

@@ -14,6 +14,10 @@
      koennen nicht angegeben werden (Vorgabe Buchhaltung)
    - BT-159 (Artikelherkunftsland): der PDF24-Export enthaelt kein
      entsprechendes Item-Feld, wird von PDF24 aktuell nicht unterstuetzt
+   Nachgepatcht:
+   - BT-8 (DueDateTypeCode): kennt PDF24 nicht, Conrad verlangt ihn aber.
+     Wird nach dem PDF24-Lauf direkt im eingebetteten XML ergaenzt
+     (SetDueDateTypeCode), siehe dort.
 */
 
 PROC CreateXRechung(nRechnr,cFile)
@@ -130,7 +134,7 @@ PROC CreateXRechung(nRechnr,cFile)
    hData["dueDate"] :=  _DtoC(re->Rechdat+sk->(GetSkontoWait(re->skonto,re->rechdat)))
    hData["deliveryDate"] := _DtoC(IF(ups->(dbSeek( Str(re->Rechnr,10) )),ups->Datum,re->Rechdat))
    IF lOneAufnr
-      hData["purchaseOrderReference"] := re->AufNr
+      hData["purchaseOrderReference"] := Trim(re->AufNr)
    ENDIF
    /*"billingPeriodStartDate": "",
    "billingPeriodEndDate": "",
@@ -152,7 +156,7 @@ PROC CreateXRechung(nRechnr,cFile)
       "vatId"=>"DE189714518",;  //automotive anpassen
       "weeeId"=>"DE43356265",;  //automotive anpassen
       "electronicAddress"=>"buchhaltung@engelking.de",; //automotive anpassen    
-      "id"=>oRechnung:oLeistungsAdresse:Kundennr,;
+      "id"=>Trim(oRechnung:oLeistungsAdresse:Kundennr),;
       "electronicAddressTypeCode"=>"EM",;
       "address"=>{;
          "line1"=>"Albstr. 16",;
@@ -387,8 +391,99 @@ PROC CreateXRechung(nRechnr,cFile)
       Throw(oErr)
    ENDIF
 
+   //BT-8 ergaenzen (Conrad: "Value added tax point date code")
+   IF ! SetDueDateTypeCode(cFile)
+      oErr := ErrorNew()
+      oErr:SubSystem   := "TRADER"
+      oErr:Description := "BT-8 (DueDateTypeCode) konnte nicht in die X-Rechnung eingefuegt werden: "+cFile
+      oErr:Args        := {nRechnr,cFile}
+      Throw(oErr)
+   ENDIF
+
    STATIC Func _DtoC(dDate)
    RETURN Str(Year(dDate),4)+"-"+StrZero(Month(dDate),2)+"-"+StrZero(Day(dDate),2)   
+
+/*
+   Fuegt <ram:DueDateTypeCode>5</ram:DueDateTypeCode> (5 = Rechnungsdatum)
+   in jeden ApplicableTradeTax-Block der ApplicableHeaderTradeSettlement ein,
+   direkt vor RateApplicablePercent (Reihenfolge laut CII-Schema).
+   PDF24 bettet das XML unkomprimiert ein und /Params traegt keine
+   Pruefsumme. Damit Stream-/Length, /Params /Size und die xref-Offsets
+   gueltig bleiben, wird die Laenge des XML exakt beibehalten: fuer die
+   eingefuegten Bytes werden Einrueckungs-Tabs entfernt.
+*/
+STATIC FUNC SetDueDateTypeCode(cFile)
+   LOCAL cTag := "<ram:DueDateTypeCode>5</ram:DueDateTypeCode>"
+   LOCAL cEndTag := "</rsm:CrossIndustryInvoice>"
+   LOCAL cPdf,cXml,cNew,cIns,cIndent,cEol
+   LOCAL nStart,nEnd,nPos,nEndTax,nRate,nLine,nDiff
+   LOCAL lFound := .F.,lRemoved
+
+   cPdf := hb_MemoRead(cFile)
+   nStart := At("<rsm:CrossIndustryInvoice",cPdf)
+   IF nStart == 0
+      RETURN .F.
+   ENDIF
+   nEnd := hb_At(cEndTag,cPdf,nStart)
+   IF nEnd == 0
+      RETURN .F.
+   ENDIF
+   nEnd += Len(cEndTag)-1
+   cXml := SubStr(cPdf,nStart,nEnd-nStart+1)
+   IF "DueDateTypeCode" $ cXml
+      RETURN .T. //schon vorhanden (z.B. kuenftige PDF24-Version)
+   ENDIF
+
+   cNew := cXml
+   nPos := At("<ram:ApplicableHeaderTradeSettlement>",cNew)
+   IF nPos == 0
+      RETURN .F.
+   ENDIF
+   //nach dem Kopf-Settlement kommen nur noch Kopf-Steuerbloecke (je Steuersatz einer)
+   DO WHILE (nPos := hb_At("<ram:ApplicableTradeTax>",cNew,nPos)) > 0
+      nEndTax := hb_At("</ram:ApplicableTradeTax>",cNew,nPos)
+      IF nEndTax == 0
+         RETURN .F.
+      ENDIF
+      nRate := hb_At("<ram:RateApplicablePercent>",cNew,nPos)
+      IF nRate == 0 .OR. nRate > nEndTax
+         nRate := nEndTax
+      ENDIF
+      //Einrueckung und Zeilenende der Zielzeile uebernehmen
+      nLine := RAt(Chr(10),Left(cNew,nRate-1))
+      cIndent := SubStr(cNew,nLine+1,nRate-nLine-1)
+      IF nLine > 0 .AND. Empty(cIndent)
+         cEol := IF(SubStr(cNew,nLine-1,1) == Chr(13),Chr(13)+Chr(10),Chr(10))
+         cIns := cTag+cEol+cIndent
+      ELSE
+         cIns := cTag
+      ENDIF
+      cNew := Left(cNew,nRate-1)+cIns+SubStr(cNew,nRate)
+      nPos := nEndTax+Len(cIns)
+      lFound := .T.
+   ENDDO
+   IF ! lFound
+      RETURN .F.
+   ENDIF
+
+   //Laenge ausgleichen: fuehrende Tabs entfernen (Whitespace zwischen Elementen)
+   nDiff := Len(cNew)-Len(cXml)
+   DO WHILE nDiff > 0
+      lRemoved := .F.
+      nPos := 1
+      DO WHILE nDiff > 0 .AND. (nPos := hb_At(Chr(10)+Chr(9),cNew,nPos)) > 0
+         cNew := Left(cNew,nPos)+SubStr(cNew,nPos+2)
+         nDiff--
+         lRemoved := .T.
+         nPos++
+      ENDDO
+      IF ! lRemoved
+         RETURN .F.
+      ENDIF
+   ENDDO
+
+   cPdf := Left(cPdf,nStart-1)+cNew+SubStr(cPdf,nStart+Len(cXml))
+   RETURN hb_MemoWrit(cFile,cPdf)
       
 
 

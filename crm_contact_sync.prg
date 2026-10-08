@@ -9,31 +9,33 @@
  * Position ergaenzt. Die Firmenadresse selbst kommt aus crm_company_sync - der
  * Firmen-Abgleich muss deshalb zuerst gelaufen sein.
  *
- * Auswahl wie im CleverReach-Export: Ansprechpartner mit E-Mail-Adresse, nicht
- * auf der Sperrliste. Inaktive Ansprechpartner werden im CRM mit
- * Werbewiderspruch angelegt.
+ * Auswahl exakt wie in export_contacts_cleverreach.prg, damit das CRM nicht mehr
+ * Ansprechpartner bekommt als CleverReach:
+ *   - Kunden mit Auftrag (VkPr != 0), Musterversand oder Angebot seit 01.01.2021,
+ *   - davon alle Ansprechpartner mit Anrede (allgemeine Adressen ohne Anrede
+ *     fallen weg), mit E-Mail-Adresse, aktiv und nicht auf der Sperrliste.
+ * Inaktive Ansprechpartner werden nicht uebertragen.
  *
  * Aufruf (Run-Script):
- *   trader:-R&crm_contact_sync                    aktive Kunden
+ *   trader:-R&crm_contact_sync                    alle Kunden nach obigem Filter
  *   trader:-R&crm_contact_sync&{"0","J"}          Testlauf, nichts wird geschrieben
- *   trader:-R&crm_contact_sync&{"0","N","J"}      alle Kunden (nicht nur aktive)
  *   trader:-R&crm_contact_sync&{"50"}             nur die ersten 50 Kunden
  *
- * Config: wie crm_company_sync (NEXUSCRM, NEXUSCRM_URL, NEXUSCRM_COMPANY_SKIP,
- * NEXUSCRM_COMPANY_NEWDAYS). Mehrfirmenbetrieb: FIRMNO muss gesetzt sein.
+ * Config: wie crm_company_sync (NEXUSCRM, NEXUSCRM_URL, NEXUSCRM_COMPANY_SKIP).
+ * Mehrfirmenbetrieb: FIRMNO muss gesetzt sein.
  *
  * Protokoll: X:\run\supabase\logs\crm_contact_sync_<Datum>_<Zeit>.log
  */
 
 #define CCT_BATCH   100
+#define CCT_SINCE   "20210101"                  // wie cStart im CleverReach-Export
 #define CCT_LOGDIR  "X:\run\supabase\logs\"
 
 STATIC s_cFirm := ""
 
 
-PROCEDURE RUN_CRM_CONTACT_SYNC(cLimit, cDryRun, cAll)
+PROCEDURE RUN_CRM_CONTACT_SYNC(cLimit, cDryRun)
    LOCAL lDry     := CCT_IsYes(cDryRun)
-   LOCAL lAll     := CCT_IsYes(cAll)
    LOCAL nLimit   := Val(CCT_Str(cLimit))
    LOCAL lBatch   := GetConfigValue("BATCHMODE")
    LOCAL cLogFile := CCT_LogFile()
@@ -62,10 +64,9 @@ PROCEDURE RUN_CRM_CONTACT_SYNC(cLimit, cDryRun, cAll)
    IF ! lBatch
       Head("NexusCRM - Ansprechpartner abgleichen" + IF(lDry, " (Testlauf)", ""))
    ENDIF
-   CCT_Log(cLogFile, "INFO", "Start" + IF(lDry, " als Testlauf", "") + ", Firma " + s_cFirm + ;
-           IF(lAll, ", alle Kunden", ", aktive Kunden"))
+   CCT_Log(cLogFile, "INFO", "Start" + IF(lDry, " als Testlauf", "") + ", Firma " + s_cFirm)
 
-   aContacts := CCT_Collect(nLimit, lAll, lBatch, cLogFile)
+   aContacts := CCT_Collect(nLimit, lBatch, cLogFile)
 
    nX := 1
    DO WHILE nX <= Len(aContacts)
@@ -81,81 +82,103 @@ PROCEDURE RUN_CRM_CONTACT_SYNC(cLimit, cDryRun, cAll)
 RETURN
 
 
-// Ansprechpartner aller (aktiven) Kunden einsammeln.
-STATIC FUNCTION CCT_Collect(nLimit, lAll, lBatch, cLogFile)
-   LOCAL aOut    := {}
-   LOCAL aSkip   := CCT_SkipList()
-   LOCAL nNewDays := Int(Val(CCT_Str(GetValue("NEXUSCRM_COMPANY_NEWDAYS"))))
-   LOCAL dNew    := Date() - IF(nNewDays < 0, 0, nNewDays)
-   LOCAL nCust := 0, nSkipped := 0, nNoMail := 0, nBlack := 0
-   LOCAL cEmail, hC, nDept
+// Kunden mit Auftrag, Muster oder Angebot seit CCT_SINCE - dieselben
+// Schleifen wie am Anfang von export_contacts_cleverreach.prg.
+STATIC FUNCTION CCT_Customers()
+   LOCAL hCust  := {=>}
+   LOCAL dStart := StoD(CCT_SINCE)
+   LOCAL cWeek  := CalWeek(dStart)
 
-   NetUse("engkund", "ku")
+   NetUse("engauf", "auf", .F., 0)
+   auf->(dbSetOrder(10))
+   auf->(dbSetFilter({|| auf->VkPr != 0}, "VkPr != 0"))
+   auf->(dbSeek(cWeek))
+   DO WHILE ! auf->(EOF()) .AND. auf->DTERM >= Val(cWeek) .AND. Left(Str(auf->Dterm, 4), 2) <= "52"
+      hCust[auf->Kundma] := .T.
+      auf->(dbSkip())
+   ENDDO
+   auf->(dbClearFilter())
+
+   NetUse("lagerne", "lne", .F., 0)
+   lne->(dbSetFilter({|| lne->Versand .AND. lne->Datum >= dStart .AND. lne->Gruppe == "K"}, ;
+         "Versand .AND. Datum >= StoD('" + CCT_SINCE + "') .AND. Gruppe == 'K'"))
+   lne->(dbGoTop())
+   DO WHILE ! lne->(EOF())
+      hCust[lne->Kunde] := .T.
+      lne->(dbSkip())
+   ENDDO
+   lne->(dbClearFilter())
+
+   NetUse("angebot", "ang")
+   ang->(dbSetFilter({|| ang->Besda >= dStart}, "Besda >= StoD('" + CCT_SINCE + "')"))
+   ang->(dbGoTop())
+   DO WHILE ! ang->(EOF())
+      hCust[ang->Kundma] := .T.
+      ang->(dbSkip())
+   ENDDO
+   ang->(dbClearFilter())
+RETURN hCust
+
+
+// Ansprechpartner dieser Kunden einsammeln (Filter wie im CleverReach-Export).
+STATIC FUNCTION CCT_Collect(nLimit, lBatch, cLogFile)
+   LOCAL aOut  := {}
+   LOCAL aSkip := CCT_SkipList()
+   LOCAL hCust := CCT_Customers()
+   LOCAL nCust := 0, nNoCust := 0, nNoMail := 0, nBlack := 0, nInactive := 0, nGeneral := 0
+   LOCAL cKunde, cEmail, hC, nDept, nX
+
+   NetUse("engkund", "ku", .F., 0)
    NetUse("contacts", "conts")
-   ku->(dbSetOrder(2))                          // Group + Matchcode
+   ku->(dbSetOrder(1))
    conts->(dbSetOrder(2))                       // Address + Number
    nDept := conts->(FieldPos("DEPARTMENT"))
-   ku->(dbSeek("K"))
 
-   DO WHILE ! ku->(EOF()) .AND. ku->Group == "K"
-      IF CCT_UseCustomer(lAll, dNew, aSkip)
-         nCust++
-         conts->(dbSeek(Str(ku->Nummer, 6)))
-         DO WHILE ! conts->(EOF()) .AND. conts->Address == ku->Nummer
-            cEmail := Lower(AllTrim(conts->Email))
-            IF Empty(cEmail) .OR. ! "@" $ cEmail
-               nNoMail++
-            ELSEIF IsBlacklisted(cEmail, "C")
-               nBlack++
-            ELSE
-               hC := {=>}
-               hC["erp_customer_number"] := LTrim(Str(ku->Nummer))
-               hC["erp_contact_number"]  := LTrim(Str(conts->Number))
-               hC["name"]                := hb_strToUtf8(AllTrim(conts->Name))
-               hC["email"]               := cEmail
-               hC["phone"]               := hb_strToUtf8(AllTrim(conts->Telephone))
-               hC["position"]            := IF(nDept > 0, hb_strToUtf8(AllTrim(CCT_Str(conts->(FieldGet(nDept))))), "")
-               hC["active"]              := conts->Active
-               AAdd(aOut, hC)
-            ENDIF
-            conts->(dbSkip())
-         ENDDO
-         IF nLimit > 0 .AND. nCust >= nLimit
-            EXIT
-         ENDIF
-      ELSE
-         nSkipped++
+   FOR nX := 1 TO Len(hCust)
+      cKunde := HGetKeyAt(hCust, nX)
+      IF Trim(cKunde) $ "SELF TEST" .OR. AScan(aSkip, {|c| c == Upper(AllTrim(cKunde))}) > 0
+         LOOP
       ENDIF
-      ku->(dbSkip())
-   ENDDO
+      IF ! ku->(dbSeek(cKunde + "K"))
+         nNoCust++
+         LOOP
+      ENDIF
+      nCust++
+
+      conts->(dbSeek(Str(ku->Nummer, 6)))
+      DO WHILE ! conts->(EOF()) .AND. conts->Address == ku->Nummer
+         cEmail := Lower(AllTrim(conts->Email))
+         IF conts->Anrede == 0
+            nGeneral++                          // allgemeine Adresse
+         ELSEIF ! conts->Active
+            nInactive++
+         ELSEIF Empty(cEmail) .OR. ! "@" $ cEmail
+            nNoMail++
+         ELSEIF IsBlacklisted(cEmail, "C")
+            nBlack++
+         ELSE
+            hC := {=>}
+            hC["erp_customer_number"] := LTrim(Str(ku->Nummer))
+            hC["erp_contact_number"]  := LTrim(Str(conts->Number))
+            hC["name"]                := hb_strToUtf8(AllTrim(conts->Name))
+            hC["email"]               := cEmail
+            hC["phone"]               := hb_strToUtf8(AllTrim(conts->Telephone))
+            hC["position"]            := IF(nDept > 0, hb_strToUtf8(AllTrim(CCT_Str(conts->(FieldGet(nDept))))), "")
+            hC["active"]              := .T.
+            AAdd(aOut, hC)
+         ENDIF
+         conts->(dbSkip())
+      ENDDO
+      IF nLimit > 0 .AND. nCust >= nLimit
+         EXIT
+      ENDIF
+   NEXT
 
    CCT_Log(cLogFile, "INFO", LTrim(Str(nCust)) + " Kunden, " + LTrim(Str(Len(aOut))) + ;
-           " Ansprechpartner mit E-Mail, " + LTrim(Str(nNoMail)) + " ohne E-Mail, " + ;
-           LTrim(Str(nBlack)) + " auf der Sperrliste, " + LTrim(Str(nSkipped)) + " Kunden uebersprungen")
+           " Ansprechpartner uebertragen; nicht uebertragen: " + LTrim(Str(nInactive)) + " inaktiv, " + ;
+           LTrim(Str(nGeneral)) + " allgemeine Adressen, " + LTrim(Str(nNoMail)) + " ohne E-Mail, " + ;
+           LTrim(Str(nBlack)) + " Sperrliste, " + LTrim(Str(nNoCust)) + " Kunden nicht in engkund")
 RETURN aOut
-
-
-// Gleiche Kundenauswahl wie crm_company_sync (CCS_IsActive); mit lAll alle
-// nicht gesperrten und nicht zusammengefuehrten Kunden.
-STATIC FUNCTION CCT_UseCustomer(lAll, dNew, aSkip)
-   LOCAL cMatch := Upper(AllTrim(ku->Kunde))
-   LOCAL nPos   := ku->(FieldPos("KSperren"))
-   LOCAL xLocked := IF(nPos > 0, ku->(FieldGet(nPos)), "")
-
-   IF Empty(cMatch) .OR. Empty(AllTrim(ku->Name1)) .OR. AScan(aSkip, {|c| c == cMatch}) > 0
-      RETURN .F.
-   ENDIF
-   IF (ValType(xLocked) == "C" .AND. Upper(AllTrim(xLocked)) == "Y") .OR. ;
-      (ValType(xLocked) == "L" .AND. xLocked)
-      RETURN .F.
-   ENDIF
-   IF "[SIEHE:" $ Upper(ku->Name1)
-      RETURN .F.
-   ENDIF
-   IF lAll .OR. ku->Turnover + ku->Turnoverol > 0
-      RETURN .T.
-   ENDIF
-RETURN ValType(ku->K_Seit) == "D" .AND. ! Empty(ku->K_Seit) .AND. ku->K_Seit >= dNew
 
 
 STATIC FUNCTION CCT_Push(cUrl, aBatch, lDry, hTotals, aErrors, cLogFile)

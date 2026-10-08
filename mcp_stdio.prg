@@ -397,12 +397,12 @@ STATIC FUNCTION _McpToolRequiredPerm(cTool, cType, cName)
    CASE _McpInList(c, {"get_article","search_articles","get_article_options","get_article_schedule",;
                        "get_article_where_used","get_article_movements","get_article_suppliers",;
                        "get_article_prices","get_article_orders","get_bom","check_stock",;
-                       "get_stock_withdrawal"})
+                       "get_stock_withdrawal","get_article_stock_locations"})
       cName := "ART" ; cType := "R"
    CASE _McpInList(c, {"get_customer","search_customers","get_customer_part_number",;
                        "get_customer_turnover"})
       cName := "ADR_CUSTOMER" ; cType := "R"
-   CASE c == "get_supplier"
+   CASE _McpInList(c, {"get_supplier","get_supplier_locations"})
       cName := "ADR_SUPPLIER" ; cType := "R"
    CASE _McpInList(c, {"get_customer_orders","get_order_details"})
       cName := "SALESORDER" ; cType := "R"
@@ -505,6 +505,7 @@ STATIC FUNCTION _McpToolTitle(cTool)
    CASE c == "get_invoice"                 ; cT := "Rechnung abrufen"
    // Suppliers / purchasing
    CASE c == "get_supplier"                ; cT := "Lieferant abrufen"
+   CASE c == "get_supplier_locations"      ; cT := "Lieferanten-Lagerorte abrufen"
    CASE c == "get_supplier_orders"         ; cT := "Lieferantenbestellungen abrufen"
    CASE c == "get_purchase_order"          ; cT := "Bestellung abrufen"
    CASE c == "get_supplier_quote"          ; cT := "Lieferantenangebot abrufen"
@@ -526,6 +527,7 @@ STATIC FUNCTION _McpToolTitle(cTool)
    CASE c == "get_article_orders"          ; cT := "Artikelbestellungen abrufen"
    CASE c == "get_bom"                     ; cT := "Stueckliste abrufen"
    CASE c == "check_stock"                 ; cT := "Bestand pruefen"
+   CASE c == "get_article_stock_locations" ; cT := "Lagerortsbestaende abrufen"
    CASE c == "get_stock_withdrawal"        ; cT := "Materialentnahme abrufen"
    CASE c == "get_production_order"        ; cT := "Werksauftrag abrufen"
    // Projects
@@ -1036,7 +1038,192 @@ FUNCTION MCP_Tool_Check_Stock(hArgs)
       hResult["status"] := "error"
       hResult["message"] := "No matchcode provided"
    ENDIF
-   
+
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Article_Stock_Locations(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL lFound := .F.
+   LOCAL aLoc := {}, hLoc
+   LOCAL nTotal := 0
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "matchcode"=>{"type"=>"string","description"=>"Artikel Matchcode"},;
+            "partno"=>{"type"=>"number","description"=>"Artikelnummer"};
+         },;
+         "anyOf"=>{{"matchcode", "partno"}};
+      }
+      hResult["description"] := "List the stock of an article broken down by storage location (Lagerortsbestaende). " + ;
+                                "Each row is a Lagerort code with the quantity on hand (and batch, if any); locations " + ;
+                                "in an external/consignment warehouse are flagged. The article master totals " + ;
+                                "(total stock, reserved, available) are included for reconciliation"
+      RETURN hResult
+   ENDIF
+
+   NetUse("artikel", "art")
+   NetUse("lager", "lag")
+   NetUse("lagerort", "lago")
+
+   IF HHasKey(hArgs, "matchcode") .AND. ! Empty(hArgs["matchcode"])
+      art->(DbSetOrder(1))
+      lFound := art->(DbSeek(AllTrim(HB_UTF8ToStr(hArgs["matchcode"]))))  // matchcode is case-sensitive - do NOT upper
+   ELSEIF HHasKey(hArgs, "partno") .AND. ! Empty(hArgs["partno"])
+      art->(DbSetOrder(2))
+      lFound := art->(DbSeek(Str(IIF(HB_IsNumeric(hArgs["partno"]), hArgs["partno"], Val(AllTrim(hArgs["partno"]))), 6)))
+   ENDIF
+
+   IF ! lFound
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Article not found"
+      RETURN hResult
+   ENDIF
+
+   hResult["matchcode"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+   hResult["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+   hResult["unit"] := HB_StrToUTF8(AllTrim(art->Me))
+   hResult["total_stock"] := art->Bestand
+   hResult["reserved"] := art->Reserviert
+   hResult["available"] := LagGetStock(art->Artikelnr, 2)   // usable own stock (same figure as check_stock)
+
+   // All storage-location rows for this article: lager order 1 is Artikelnr.
+   lago->(DbSetOrder(1))  // Lagerort - to look up the location master (Fremd / Address)
+   lag->(DbSetOrder(1))   // Artikelnr
+   IF lag->(DbSeek(art->Artikelnr))
+      DO WHILE ! lag->(Eof()) .AND. lag->Artikelnr == art->Artikelnr
+         hLoc := {=>}
+         hLoc["location"] := HB_StrToUTF8(AllTrim(lag->Lagerort))
+         hLoc["quantity"] := lag->Lagermenge
+         IF ! Empty(lag->Batch)
+            hLoc["batch"] := HB_StrToUTF8(AllTrim(lag->Batch))
+         ENDIF
+         hLoc["external"] := .F.
+         IF lago->(DbSeek(lag->Lagerort))
+            hLoc["external"] := lago->Fremd                     // external / consignment warehouse
+            IF lago->Address > 0
+               hLoc["address_number"] := lago->Address          // owning address (supplier/customer no.)
+            ENDIF
+         ENDIF
+         nTotal += lag->Lagermenge
+         AAdd(aLoc, hLoc)
+         lag->(DbSkip())
+      ENDDO
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["locations"] := aLoc
+   hResult["location_count"] := Len(aLoc)
+   hResult["located_quantity"] := nTotal
+   hResult["status"] := IIF(Len(aLoc) > 0, "found", "no_stock")
+   IF Len(aLoc) == 0
+      hResult["message"] := "No storage-location stock recorded for this article"
+   ENDIF
+RETURN hResult
+
+FUNCTION MCP_Tool_Get_Supplier_Locations(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oLief
+   LOCAL aLoc := {}, hLoc, aArts, hArt
+   LOCAL nSup, nLocQty
+   LOCAL lWithStock := .T.
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "supplier"=>{"type"=>"string","description"=>"Supplier matchcode"},;
+            "supplier_number"=>{"type"=>"number","description"=>"Supplier number"},;
+            "include_articles"=>{"type"=>"boolean","description"=>"Include the per-article stock in each location (default true)"};
+         },;
+         "anyOf"=>{{"supplier", "supplier_number"}};
+      }
+      hResult["description"] := "List the storage locations (Lagerorte) that belong to a supplier - typically an " + ;
+                                "external / consignment warehouse (lagerort.Address = supplier number). Each location " + ;
+                                "carries its total quantity and, unless include_articles is false, the per-article " + ;
+                                "stock in it. The supplier-side counterpart of get_article_stock_locations"
+      RETURN hResult
+   ENDIF
+
+   IF HHasKey(hArgs, "include_articles") .AND. HB_IsLogical(hArgs["include_articles"])
+      lWithStock := hArgs["include_articles"]
+   ENDIF
+
+   NetUse("engkund", "ku")
+   NetUse("lagerort", "lago")
+   NetUse("lager", "lag")
+   NetUse("artikel", "art")
+
+   oLief := ResolveSupplier(hArgs)   // group "L" address, by supplier / supplier_number
+   IF oLief == NIL
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Supplier not found"
+      RETURN hResult
+   ENDIF
+   nSup := oLief:nummer
+
+   hResult["supplier_number"] := nSup
+   hResult["supplier_name"] := HB_StrToUTF8(AllTrim(oLief:cName))
+
+   // Locations of this supplier: lagerort order 3 is Address; for each, walk its
+   // stock rows via lager order 2 (Lagerort). Article lookup uses art order 2.
+   lago->(DbSetOrder(3))  // Address
+   lag->(DbSetOrder(2))   // Lagerort
+   art->(DbSetOrder(2))   // Str(Artikelnr,6)
+
+   IF lago->(DbSeek(Str(nSup, 6)))
+      DO WHILE ! lago->(Eof()) .AND. lago->Address == nSup
+         hLoc := {=>}
+         hLoc["location"] := HB_StrToUTF8(AllTrim(lago->Lagerort))
+         hLoc["external"] := lago->Fremd
+         nLocQty := 0
+         aArts := {}
+         IF lag->(DbSeek(lago->Lagerort))
+            DO WHILE ! lag->(Eof()) .AND. lag->Lagerort == lago->Lagerort
+               nLocQty += lag->Lagermenge
+               IF lWithStock
+                  hArt := {=>}
+                  hArt["part_number"] := lag->Artikelnr
+                  IF art->(DbSeek(Str(lag->Artikelnr, 6)))
+                     hArt["matchcode"] := HB_StrToUTF8(AllTrim(art->Matchcode))
+                     hArt["description"] := HB_StrToUTF8(AllTrim(art->Artikel))
+                     hArt["unit"] := HB_StrToUTF8(AllTrim(art->Me))
+                  ENDIF
+                  hArt["quantity"] := lag->Lagermenge
+                  IF ! Empty(lag->Batch)
+                     hArt["batch"] := HB_StrToUTF8(AllTrim(lag->Batch))
+                  ENDIF
+                  AAdd(aArts, hArt)
+               ENDIF
+               lag->(DbSkip())
+            ENDDO
+         ENDIF
+         hLoc["total_quantity"] := nLocQty
+         hLoc["article_count"] := Len(aArts)
+         IF lWithStock
+            hLoc["articles"] := aArts
+         ENDIF
+         AAdd(aLoc, hLoc)
+         lago->(DbSkip())
+      ENDDO
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["locations"] := aLoc
+   hResult["location_count"] := Len(aLoc)
+   hResult["status"] := IIF(Len(aLoc) > 0, "found", "not_found")
+   IF Len(aLoc) == 0
+      hResult["message"] := "No storage locations recorded for this supplier"
+   ENDIF
 RETURN hResult
 
 FUNCTION MCP_Tool_Search_Articles(hArgs)

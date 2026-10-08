@@ -202,7 +202,7 @@ RETURN
 STATIC FUNCTION TtMailItem(oArchive, oMsg, aLog)
 	LOCAL nX, oErr, oItem := NIL
 	BEGIN SEQUENCE WITH {|e| Break(e)}
-		FOR nX := 0 TO oArchive:MailItems:Count
+		FOR nX := 0 TO oArchive:MailItems:Count - 1
 			IF oArchive:MailItems:Item(nX):_ID == oMsg:_ID
 				oItem := oArchive:MailItems:Item(nX)
 				EXIT

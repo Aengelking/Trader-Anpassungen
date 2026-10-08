@@ -82,7 +82,7 @@ PROC RUN_CRM_EMAIL(cMsgPath, cMode)
 	//    e-mail is already stored, so a tagging error must not abort.
 	//    (Needs the MailItem interface, hence the lookup by _ID.)
 	cTypeChar := IF(Lower(cObjectType) == "lead", "L", "O")
-	CrmTagSubject(oArchive, oMsg, "[#EK-" + cTypeChar + cID + "]", .T.)
+	CrmTagSubject(oArchive, oMsg, "[#EK-" + cTypeChar + cID + "]", .T., cMsgPath)
 
 	Wapi_MessageBox(,"Die E-Mail wurde im CRM abgelegt (" + cObjectType + " " + cID + ").","CRM",0)
 
@@ -90,30 +90,58 @@ RETURN
 
 //---------------------------------------------------------------------------
 // Token an den Betreff der ORIGINAL-Mail haengen. Braucht das MailItem-
-// Interface, daher die Suche ueber _ID. lEinmal: nicht taggen, wenn schon
-// irgendein CRM-Token im Betreff steht (Lead/Opportunity: eine Zuordnung je
-// Mail); sonst nur, wenn genau dieser Token fehlt. Best-effort.
+// Interface, daher die Suche in MailItems (0-basiert, 0 .. Count-1; Item(Count)
+// gibt es nicht: WINOLE/1007 Index out of range): ueber _ID, sonst ueber den
+// Dateinamen (cMsgPath) - nach dem TeamTalk kann sich die _ID aendern.
+// lEinmal: nicht taggen, wenn schon irgendein CRM-Token im Betreff steht
+// (Lead/Opportunity: eine Zuordnung je Mail); sonst nur, wenn genau dieser
+// Token fehlt. Best-effort: Fehler (auch der COM-Zugriff) geben
+// .F. zurueck statt abzubrechen.
 //---------------------------------------------------------------------------
-STATIC FUNCTION CrmTagSubject(oArchive, oMsg, cToken, lEinmal)
-	LOCAL nX, oItem, lOk := .F.
+STATIC FUNCTION CrmTagSubject(oArchive, oMsg, cToken, lEinmal, cMsgPath)
+	LOCAL nX, nPass, nCount, oItem, cId, cFile, lOk := .F.
+	LOCAL bOld := ErrorBlock({|e| Break(e) })
 
-	FOR nX := 0 TO oArchive:MailItems:Count
-		IF oArchive:MailItems:Item(nX):_ID == oMsg:_ID
-			BEGIN SEQUENCE
+	BEGIN SEQUENCE
+		cId    := oMsg:_ID
+		cFile  := IF(Empty(cMsgPath), "", Lower(SubStr(cMsgPath, RAT("\", cMsgPath) + 1)))
+		nCount := oArchive:MailItems:Count
+		// 1. Durchlauf ueber _ID (schnell), 2. ueber den Dateinamen
+		FOR nPass := 1 TO IF(Empty(cFile), 1, 2)
+			FOR nX := 0 TO nCount - 1
 				oItem := oArchive:MailItems:Item(nX)
-				IF IF(lEinmal, ! ( "[#EK-" $ oItem:Subject ), ! ( cToken $ oItem:Subject ))
-					oItem:Subject := oItem:Subject + " " + cToken
-					oItem:Save()
+				IF IF(nPass == 1, oItem:_ID == cId, CrmItemFile(oItem) == cFile)
+					IF IF(lEinmal, ! ( "[#EK-" $ oItem:Subject ), ! ( cToken $ oItem:Subject ))
+						oItem:Subject := oItem:Subject + " " + cToken
+						oItem:Save()
+					ENDIF
+					lOk := .T.
+					EXIT
 				ENDIF
-				lOk := .T.
-			RECOVER
-				//non-fatal
-			END
-			EXIT
-		ENDIF
-	NEXT
+			NEXT
+			IF lOk
+				EXIT
+			ENDIF
+		NEXT
+	RECOVER
+		lOk := .F.
+	END
+	ErrorBlock(bOld)
 
 RETURN lOk
+
+// Dateiname eines MailItems (ohne Pfad, klein), "" wenn nicht lesbar.
+STATIC FUNCTION CrmItemFile(oItem)
+	LOCAL cFile := ""
+	LOCAL bOld := ErrorBlock({|e| Break(e) })
+	BEGIN SEQUENCE
+		cFile := oItem:Fields:Item("FileName"):Value
+		cFile := Lower(SubStr(cFile, RAT("\", cFile) + 1))
+	RECOVER
+		cFile := ""
+	END
+	ErrorBlock(bOld)
+RETURN cFile
 
 //---------------------------------------------------------------------------
 // Anliegen eroeffnen (Rechtsklick in David, docs/kundenanliegen.md im CRM).
@@ -167,7 +195,7 @@ STATIC PROCEDURE CrmIssueEmail(cMsgPath)
 		AAdd(aText, "Bitte " + cAgent + " von Hand in den TeamTalk aufnehmen und " + cToken + " schreiben.")
 	ENDIF
 
-	IF ! CrmTagSubject(oArchive, oMsg, cToken, .F.)
+	IF ! CrmTagSubject(oArchive, oMsg, cToken, .F., cMsgPath)
 		AAdd(aText, "Der Betreff konnte nicht erg„nzt werden. Bitte " + cToken + " von Hand anh„ngen.")
 	ENDIF
 

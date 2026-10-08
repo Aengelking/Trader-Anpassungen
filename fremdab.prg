@@ -76,12 +76,13 @@ IF HHasKey(hFremdRahmen,oAufPos:Auftrag:Kunde:Nummer)
 
       ELSEIF cTyp == "DEL"
          nDiffQty := oAufPos:VkQty*-1
+      ELSEIF cTyp == "UNDO"
+         //take back what the EDIT call of this save has already booked (db value is still the old qty)
+         nDiffQty := oAufPos:GetField("VkQty",.T.)-oAufPos:VkQty
       ELSEIF cTyp == "STATUS"
+         //called before the status changes: closing gives the open rest back to the frame, reopening takes it again
          nDiffQty := oAufPos:VkQty-oAufPos:GelQty
-         IF Tr_Getini(28) == 9
-            //Alert(Str(oAufPos:BeStat)+Str(auf->BeStat))
-         ENDIF
-         IF oAufPos:BeStat > 3 
+         IF ! oAufPos:lErledigt
             nDiffQty *= -1
          ENDIF
       ENDIF
@@ -89,7 +90,7 @@ IF HHasKey(hFremdRahmen,oAufPos:Auftrag:Kunde:Nummer)
       NetUse("fremdab","frab")
       IF frab->(dbSeek( Str(oContrPos:Auftrag:AbNr,6)+Str(oContrPos:ItmNr,3) ))
          frab->(Rec_Lock())
-      ELSEIF cTyp == "DEL" .OR. (cTyp == "STATUS" .AND. oAufPos:beStat < 3)
+      ELSEIF cTyp == "DEL" .OR. cTyp == "UNDO" .OR. (cTyp == "STATUS" .AND. ! oAufPos:lErledigt)
          RETURN NIL
       ELSE
          frab->(Add_Rec())
@@ -99,8 +100,14 @@ IF HHasKey(hFremdRahmen,oAufPos:Auftrag:Kunde:Nummer)
       frab->Qty +=  nDiffQty  //only add the difference
       frab->(dbUnlock())
 
-      oContrPos:VkQty    -= nDiffQty
-      oContrPos:ContrQty -= nDiffQty //take it away from the contract quantity
+      //Assigning VkQty on a frame position also overwrites ContrQty (see AufPos:_VkQty), and assigning
+      //ContrQty adjusts VkQty by the same difference (AufPos:_ContrQty). So only one of them may be changed,
+      //otherwise the frame quantity is reduced twice.
+      IF oContrPos:ContrQty == 0 //old frame without a contract quantity
+         oContrPos:VkQty    -= nDiffQty
+      ELSE
+         oContrPos:ContrQty -= nDiffQty //take it away from the contract quantity, VkQty follows
+      ENDIF
       oContrPos:Save()
       
    ELSE

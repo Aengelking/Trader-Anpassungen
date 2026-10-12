@@ -33,6 +33,11 @@
 
 STATIC s_cFirm := ""
 
+// Zwischenspeicher der Sperrliste - blacklist.prg (unten eingebunden) erwartet
+// sie im einbindenden Modul.
+STATIC s_hBlackEmail
+STATIC s_hBlackDomain
+
 
 PROCEDURE RUN_CRM_CONTACT_SYNC(cLimit, cDryRun)
    LOCAL lDry     := CCT_IsYes(cDryRun)
@@ -355,3 +360,6 @@ STATIC FUNCTION CCT_FirmNo()
       RETURN ""
    ENDIF
 RETURN LTrim(Str(nFirm))
+
+
+#include 'x:\run\blacklist.prg'

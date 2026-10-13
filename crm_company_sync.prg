@@ -26,6 +26,10 @@
  * Firma haelt das CRM in companies.erp_customer_number. Die zurueckgemeldete
  * company_id steht nur im Protokoll, damit ein Lauf nachvollziehbar bleibt.
  *
+ * Die Kundennotizen (Memo ku->Info) gehen als `erp_notes` mit; das CRM zeigt sie
+ * bei jedem Lead der Firma an und ueberschreibt sie bei jedem Lauf (der Trader
+ * fuehrt). Leere Notizen loeschen im CRM nichts.
+ *
  * Mehrfirmenbetrieb: Kundennummern gelten nur innerhalb ihrer Trader-Firma.
  * Der Lauf schickt deshalb die Firmennummer aus der Konfiguration (FIRMNO) als
  * `erp_company` mit und laeuft je Firma einmal - Firma umschalten, Lauf
@@ -301,6 +305,7 @@ STATIC FUNCTION CCS_Payload()
    hCust["website"]             := hb_strToUtf8(CCS_Website())
    hCust["industry"]            := hb_strToUtf8(CCS_Industry())
    hCust["description"]         := hb_strToUtf8(CCS_Description())
+   hCust["erp_notes"]           := hb_strToUtf8(CCS_Notes())
    IF ! Empty(cSince)
       hCust["customer_since"] := cSince
    ENDIF
@@ -329,6 +334,25 @@ STATIC FUNCTION CCS_Description()
       RETURN AllTrim(kuinfo->Info)
    ENDIF
 RETURN ""
+
+
+// Notizen aus dem Kundenstamm (Memo ku->Info, "F9/F5"). Das CRM zeigt sie am
+// Lead an (Pain Point #53). Obergrenze, damit ein ausgeufertes Memo das Paket
+// nicht sprengt; Zeilenumbrueche bleiben erhalten.
+#define CCS_NOTES_MAX  4000
+
+STATIC FUNCTION CCS_Notes()
+   LOCAL cNotes := ""
+
+   BEGIN SEQUENCE
+      cNotes := AllTrim(StrTran(CCS_Str(ku->Info), Chr(13) + Chr(10), Chr(10)))
+   RECOVER
+      cNotes := ""
+   END SEQUENCE
+   IF Len(cNotes) > CCS_NOTES_MAX
+      cNotes := Left(cNotes, CCS_NOTES_MAX) + "..."
+   ENDIF
+RETURN cNotes
 
 
 // Website aus den Zusatzdaten des Kunden - nur wenn das Feld angelegt ist.

@@ -416,7 +416,7 @@ STATIC FUNCTION _McpToolRequiredPerm(cTool, cType, cName)
       cName := "PURCHASEORDER" ; cType := "R"
    CASE c == "get_supplier_quote"
       cName := "PURCHASEQUOTE" ; cType := "R"
-   CASE c == "list_unposted_incoming_invoices"
+   CASE _McpInList(c, {"list_unposted_incoming_invoices","find_incoming_invoice"})
       cName := "PURCHASEINVOICE" ; cType := "R"
    CASE _McpInList(c, {"add_delivery_schedule","book_shipping_confirmation",;
                        "confirm_purchase_order","set_supplier_holiday"})
@@ -510,6 +510,7 @@ STATIC FUNCTION _McpToolTitle(cTool)
    CASE c == "get_purchase_order"          ; cT := "Bestellung abrufen"
    CASE c == "get_supplier_quote"          ; cT := "Lieferantenangebot abrufen"
    CASE c == "list_unposted_incoming_invoices" ; cT := "Nicht gebuchte Eingangsrechnungen auflisten"
+   CASE c == "find_incoming_invoice"       ; cT := "Eingangsrechnung suchen"
    CASE c == "add_delivery_schedule"       ; cT := "Liefertermin hinzufuegen"
    CASE c == "book_shipping_confirmation"  ; cT := "Versandbestaetigung buchen"
    CASE c == "confirm_purchase_order"      ; cT := "Bestellung bestaetigen"
@@ -7281,6 +7282,113 @@ FUNCTION MCP_Tool_List_Unposted_Incoming_Invoices(hArgs)
    IF Len(aInv) == 0
       hResult["message"] := "No unposted invoices in the incoming-invoice journal" + ;
          IIF(nLief > 0, " for supplier " + AllTrim(Str(nLief)), "")
+   ENDIF
+RETURN hResult
+
+FUNCTION MCP_Tool_Find_Incoming_Invoice(hArgs)
+   LOCAL hResult := {=>}
+   LOCAL oLief
+   LOCAL nLief, cBeleg
+   LOCAL aInv := {}, hInv
+   LOCAL nOldSelect := Select()
+
+   // Return schema and description when called without arguments
+   IF hArgs == NIL .OR. ValType(hArgs) != "H" .OR. Len(hArgs) == 0
+      hResult["schema"] := {;
+         "type"=>"object",;
+         "properties"=>{;
+            "supplier_number"=>{"type"=>"number","description"=>"Supplier number (Liefnr)"},;
+            "supplier"=>{"type"=>"string","description"=>"Supplier matchcode (alternative to supplier_number)"},;
+            "document_no"=>{"type"=>"string","description"=>"The supplier's invoice / document number (Beleg) to look up"};
+         },;
+         "required"=>{"document_no"},;
+         "anyOf"=>{{"supplier", "supplier_number"}};
+      }
+      hResult["description"] := "Look up entries in the incoming-invoice journal (Rechnungseingangsbuch, reb) by " + ;
+                               "supplier plus the supplier's invoice/document number (Beleg), returning the journal " + ;
+                               "number (id) and booking state. Unlike list_unposted_incoming_invoices this also finds " + ;
+                               "already-booked invoices (Status 9). Several rows may match (e.g. revisions of the same " + ;
+                               "document), so a list is returned"
+      RETURN hResult
+   ENDIF
+
+   IF ! HHasKey(hArgs, "document_no") .OR. Empty(hArgs["document_no"])
+      RETURN "Parameter 'document_no' (the supplier invoice number) is required"
+   ENDIF
+   cBeleg := Upper(AllTrim(HB_UTF8ToStr(hArgs["document_no"])))
+
+   NetUse("engkund", "ku")
+   NetUse("reb", "reb")
+   NetUse("rebprot", "rebp")
+   NetUse("rebnotes", "rebn")
+
+   oLief := ResolveSupplier(hArgs)   // group "L" address, by supplier / supplier_number
+   IF oLief == NIL
+      DbSelectArea(nOldSelect)
+      hResult["status"] := "not_found"
+      hResult["message"] := "Supplier not found"
+      RETURN hResult
+   ENDIF
+   nLief := oLief:nummer
+
+   hResult["supplier_number"] := nLief
+   hResult["supplier_name"] := HB_StrToUTF8(AllTrim(oLief:cName))
+   hResult["document_no"] := HB_StrToUTF8(AllTrim(hArgs["document_no"]))
+
+   // reb order 6 = Str(Liefnr,6) + Beleg. Seek the supplier (soft, so a missing
+   // exact key still lands on the first row of that Liefnr), then match the
+   // document number case-insensitively so every revision/booked row is caught.
+   reb->(DbSetOrder(6))
+   IF reb->(DbSeek(Str(nLief, 6), .T.))
+      DO WHILE ! reb->(Eof()) .AND. reb->Liefnr == nLief
+         IF Upper(AllTrim(reb->Beleg)) == cBeleg
+            hInv := {=>}
+            hInv["id"] := reb->ID                              // the journal number (Rechnungseingangsbuch-Nr.)
+            hInv["document_no"] := HB_StrToUTF8(AllTrim(reb->Beleg))
+            hInv["supplier_number"] := reb->Liefnr
+            IF ! Empty(reb->Name)
+               hInv["supplier_name"] := HB_StrToUTF8(AllTrim(reb->Name))
+            ENDIF
+            IF HB_IsNumeric(reb->Konto) .AND. reb->Konto != 0
+               hInv["account"] := reb->Konto
+            ENDIF
+            IF HB_IsNumeric(reb->KS)
+               IF reb->KS != 0
+                  hInv["cost_center"] := reb->KS
+               ENDIF
+            ELSEIF ValType(reb->KS) == "C" .AND. ! Empty(reb->KS)
+               hInv["cost_center"] := HB_StrToUTF8(AllTrim(reb->KS))
+            ENDIF
+            hInv["amount"] := reb->Betrag
+            hInv["revision"] := reb->Rev
+            hInv["status"] := reb->Status
+            hInv["status_text"] := IIF(reb->Status == 9, "booked", IIF(reb->Status == 8, "approved", "open"))
+            IF ValType(reb->Stapel) == "L"
+               hInv["in_batch"] := reb->Stapel
+            ENDIF
+            // Received date from the RECV protocol entry (rebp index 2 = ID+Type)
+            rebp->(DbSetOrder(2))
+            IF rebp->(DbSeek(Str(reb->ID, 9) + "RECV")) .AND. ! Empty(rebp->DateTime)
+               hInv["received_date"] := SToD(Left(rebp->DateTime, 8))
+            ENDIF
+            // Free-text comment (rebnotes, keyed by ID)
+            IF rebn->(DbSeek(Str(reb->ID, 9))) .AND. ! Empty(rebn->Notes)
+               hInv["comment"] := HB_StrToUTF8(AllTrim(rebn->Notes))
+            ENDIF
+            AAdd(aInv, hInv)
+         ENDIF
+         reb->(DbSkip())
+      ENDDO
+   ENDIF
+
+   DbSelectArea(nOldSelect)
+
+   hResult["invoices"] := aInv
+   hResult["count"] := Len(aInv)
+   hResult["status"] := IIF(Len(aInv) > 0, "found", "not_found")
+   IF Len(aInv) == 0
+      hResult["message"] := "No incoming-invoice entry for supplier " + AllTrim(Str(nLief)) + ;
+         " with document number " + HB_StrToUTF8(AllTrim(hArgs["document_no"]))
    ENDIF
 RETURN hResult
 

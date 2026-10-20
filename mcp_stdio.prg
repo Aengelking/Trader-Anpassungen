@@ -3449,12 +3449,49 @@ FUNCTION MCP_Tool_Get_Article_Prices(hArgs)
    hResult["status"] := "found"
 RETURN hResult
 
+// Purchase-order position(s) a supplier invoice line was booked against, from
+// rechpos (alias rpos). An 'RE' (invoice) engabg row does NOT carry the PO
+// position - the invoice->PO link lives in rechpos, keyed Liefma + Beleg
+// (= supplier invoice number). Mirrors reports/rech_abgr.prg: seek the supplier,
+// match the invoice number (trimmed, so field-width differences do not matter)
+// and the article, and skip rows with Besnr == 0 (freight/service lines, or
+// pure account/cost-centre bookings, have no PO position). Returns an array of
+// { order_no, order_pos, quantity } - usually one entry, several when the same
+// article was booked across more than one PO position.
+STATIC FUNCTION _McpRePoPositions(cLiefma, cBeleg, cMatch)
+   LOCAL aPos := {}
+   LOCAL cLiefT := AllTrim(cLiefma), cBelT := AllTrim(cBeleg), cMatT := AllTrim(cMatch)
+   IF Empty(cLiefT) .OR. Empty(cBelT)
+      RETURN aPos
+   ENDIF
+   NetUse("rechpos", "rpos")
+   rpos->(DbSetOrder(1))   // Liefma + Beleg (+ Belegpos)
+   IF rpos->(DbSeek(cLiefma, .T.))   // soft seek: land on the supplier's first invoice line
+      DO WHILE ! rpos->(Eof()) .AND. AllTrim(rpos->Liefma) == cLiefT
+         IF AllTrim(rpos->Beleg) == cBelT .AND. HB_IsNumeric(rpos->Besnr) .AND. rpos->Besnr != 0 ;
+            .AND. ( Empty(cMatT) .OR. AllTrim(rpos->Matchcode) == cMatT )
+            AAdd(aPos, {"order_no"=>rpos->Besnr, "order_pos"=>rpos->Posnr, "quantity"=>rpos->Menge})
+         ENDIF
+         rpos->(DbSkip())
+      ENDDO
+   ENDIF
+RETURN aPos
+
+// Cached wrapper so repeated RE rows for the same invoice line are resolved once.
+STATIC FUNCTION _McpRePoCached(hCache, cLiefma, cBeleg, cMatch)
+   LOCAL cKey := AllTrim(cLiefma) + "|" + AllTrim(cBeleg) + "|" + AllTrim(cMatch)
+   IF ! HHasKey(hCache, cKey)
+      hCache[cKey] := _McpRePoPositions(cLiefma, cBeleg, cMatch)
+   ENDIF
+RETURN hCache[cKey]
+
 FUNCTION MCP_Tool_Get_Article_Movements(hArgs)
    LOCAL hResult := {=>}
    LOCAL lFound := .F.
    LOCAL cMatch, cBuArt := ""
-   LOCAL aMoves := {}, hMove
+   LOCAL aMoves := {}, hMove, aPoPos
    LOCAL nLimit := 100, nCount := 0
+   LOCAL hRePoCache := {=>}
    LOCAL nOldSelect := Select()
 
    // Return schema and description when called without arguments
@@ -3472,7 +3509,9 @@ FUNCTION MCP_Tool_Get_Article_Movements(hArgs)
       hResult["description"] := "Get the stock movement history (Bewegungskonto) of an article from engabg, newest " + ;
                                "first: goods receipts, issues, invoices, corrections and transfers. Each entry has " + ;
                                "date, booking type (BuArt), quantity, resulting stock, price and the linked " + ;
-                               "document/order/supplier/customer"
+                               "document/order/supplier/customer. For invoice bookings (BuArt 'RE') the purchase-order " + ;
+                               "position the invoice was booked against is resolved from the invoice allocation " + ;
+                               "(rechpos) and reported as order_no/order_pos (order_positions when it spans several)"
       RETURN hResult
    ENDIF
 
@@ -3510,6 +3549,7 @@ FUNCTION MCP_Tool_Get_Article_Movements(hArgs)
    hResult["current_stock"] := art->Bestand
 
    NetUse("engabg", "abg")
+   NetUse("rechpos", "rpos")   // invoice->PO-position link for 'RE' rows (see _McpRePoPositions)
    abg->(DbSetOrder(3))  // Matchcode + Descend(RecNo()) -> newest first per article
 
    IF abg->(DbSeek(cMatch))
@@ -3534,6 +3574,17 @@ FUNCTION MCP_Tool_Get_Article_Movements(hArgs)
          IF HB_IsNumeric(abg->Besnr) .AND. abg->Besnr > 0
             hMove["order_no"] := abg->Besnr
             hMove["order_pos"] := abg->BesPos
+         ELSEIF Upper(AllTrim(abg->BuArt)) == "RE" .AND. ! Empty(abg->Liefma) .AND. ! Empty(abg->Beleg)
+            // Invoice row: the PO position is not on the engabg row - resolve it
+            // from the invoice allocation (rechpos), keyed supplier + invoice no.
+            aPoPos := _McpRePoCached(hRePoCache, abg->Liefma, abg->Beleg, abg->Matchcode)
+            IF Len(aPoPos) >= 1
+               hMove["order_no"] := aPoPos[1]["order_no"]
+               hMove["order_pos"] := aPoPos[1]["order_pos"]
+               IF Len(aPoPos) > 1
+                  hMove["order_positions"] := aPoPos   // invoice spans several PO positions
+               ENDIF
+            ENDIF
          ENDIF
          IF ! Empty(abg->Beleg)
             hMove["document"] := HB_StrToUTF8(AllTrim(abg->Beleg))

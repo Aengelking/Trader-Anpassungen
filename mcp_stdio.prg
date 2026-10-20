@@ -3063,11 +3063,48 @@ STATIC FUNCTION BesWeekDate(nWeek)
    ENDIF
 RETURN dDate
 
+// Booked supplier-invoice lines for one purchase-order position, from rechpos
+// (alias rpos) order 2 = Str(Besnr,6)+Str(Posnr,3) - the same lookup checkzo.prg
+// uses to derive the not-yet-invoiced quantity. Returns an array of
+// { invoice_no, invoice_line, supplier, date, quantity, unit_price, price_unit,
+// discount }; empty when nothing has been booked onto the position yet.
+STATIC FUNCTION _McpPoPosInvoices(nBesnr, nPos)
+   LOCAL aInv := {}, hInv
+   NetUse("rechpos", "rpos")
+   rpos->(DbSetOrder(2))   // Str(Besnr,6) + Str(Posnr,3)
+   IF rpos->(DbSeek(Str(nBesnr, 6) + Str(nPos, 3)))
+      DO WHILE ! rpos->(Eof()) .AND. rpos->Besnr == nBesnr .AND. rpos->Posnr == nPos
+         hInv := {=>}
+         hInv["invoice_no"] := HB_StrToUTF8(AllTrim(rpos->Beleg))
+         IF HB_IsNumeric(rpos->Belegpos) .AND. rpos->Belegpos != 0
+            hInv["invoice_line"] := rpos->Belegpos
+         ENDIF
+         IF ! Empty(rpos->Liefma)
+            hInv["supplier"] := HB_StrToUTF8(AllTrim(rpos->Liefma))
+         ENDIF
+         IF ValType(rpos->Date) == "D" .AND. ! Empty(rpos->Date)
+            hInv["date"] := rpos->Date
+         ENDIF
+         hInv["quantity"] := rpos->Menge
+         hInv["unit_price"] := rpos->EkPr
+         IF HB_IsNumeric(rpos->Pe) .AND. rpos->Pe != 0
+            hInv["price_unit"] := rpos->Pe
+         ENDIF
+         IF HB_IsNumeric(rpos->Rabatt) .AND. rpos->Rabatt != 0
+            hInv["discount"] := rpos->Rabatt
+         ENDIF
+         AAdd(aInv, hInv)
+         rpos->(DbSkip())
+      ENDDO
+   ENDIF
+RETURN aInv
+
 FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
    LOCAL hResult := {=>}
    LOCAL nPo, hLine, aLines := {}
    LOCAL nTotal := 0, nPriceEur
    LOCAL aSched, hSched, dTemp, nArr
+   LOCAL lWithInvoices := .T., aPosInv, nInvQty, nX
    LOCAL nOldSelect := Select()
 
    // Return schema and description when called without arguments
@@ -3075,7 +3112,8 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       hResult["schema"] := {;
          "type"=>"object",;
          "properties"=>{;
-            "po_number"=>{"type"=>"number","description"=>"Purchase order (Bestellung) number"};
+            "po_number"=>{"type"=>"number","description"=>"Purchase order (Bestellung) number"},;
+            "include_invoices"=>{"type"=>"boolean","description"=>"Attach the booked supplier-invoice lines per position (which invoices were booked onto each PO position), from rechpos (default true)"};
          },;
          "required"=>{"po_number"};
       }
@@ -3087,7 +3125,9 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
                                 "supplier-confirmed date, otherwise the expected date. Lines with a delivery " + ;
                                 "schedule (Liefereinteilungen) list their partial deliveries under 'delivery_schedule'. " + ;
                                 "Shipping confirmations appear as 'tracking'/'shipped_date' per line and per schedule " + ;
-                                "entry; open lines report 'shipping_confirmed' accordingly"
+                                "entry; open lines report 'shipping_confirmed' accordingly. Unless include_invoices " + ;
+                                "is false, each position also lists the booked supplier-invoice lines ('invoices') and " + ;
+                                "the invoiced_quantity - the reverse of the invoice->position link in get_article_movements"
       RETURN hResult
    ENDIF
 
@@ -3095,11 +3135,15 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
       RETURN "Parameter 'po_number' must be a number"
    ENDIF
    nPo := hArgs["po_number"]
+   IF HHasKey(hArgs, "include_invoices") .AND. HB_IsLogical(hArgs["include_invoices"])
+      lWithInvoices := hArgs["include_invoices"]
+   ENDIF
 
    NetUse("engbes", "bes")
    NetUse("besdel", "bdel")  // Liefereinteilungen per position
    NetUse("artlief", "ali")  // supplier part numbers
    NetUse("werkauf", "wer")  // production orders (Fremdfertigung)
+   NetUse("rechpos", "rpos") // booked invoice lines per PO position (include_invoices)
    ali->(DbSetOrder(1))  // Kunde(supplier) + Str(Artikelnr,6)
    wer->(DbSetOrder(6))  // Str(Besnr,6) + Str(Posnr,3)
    bes->(DbSetOrder(1))  // Str(Besnr,6) + Str(Posnr,3)
@@ -3244,6 +3288,20 @@ FUNCTION MCP_Tool_Get_Purchase_Order(hArgs)
             hLine["goods_receipt_block_reason"] := "production order already completed (FA status " + AllTrim(Str(wer->Status)) + ")"
          ENDIF
       ENDIF
+      // Booked supplier-invoice lines for this position (reverse of the
+      // invoice->position link in get_article_movements): rechpos order 2.
+      IF lWithInvoices
+         aPosInv := _McpPoPosInvoices(bes->Besnr, bes->Posnr)
+         IF Len(aPosInv) > 0
+            hLine["invoices"] := aPosInv
+            nInvQty := 0
+            FOR nX := 1 TO Len(aPosInv)
+               nInvQty += aPosInv[nX]["quantity"]
+            NEXT
+            hLine["invoiced_quantity"] := nInvQty
+         ENDIF
+      ENDIF
+
       hLine["line_total"] := Round(bes->BeQty * hLine["unit_price"], 2)
       nTotal += hLine["line_total"]
       AAdd(aLines, hLine)

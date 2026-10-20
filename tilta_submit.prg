@@ -47,7 +47,7 @@ LOCAL cBody, nResponse := 0, cResponse := ""
 LOCAL aDocs := {}, aLs
 LOCAL cPdf, cWhy := ""
 LOCAL nDueDays, nNetto
-LOCAL cSvcSt := "", cReq := ""
+LOCAL cSvcSt := "", cReq := "", cFacSt
 LOCAL nAdvance := 0
 LOCAL cDocs := ""
 LOCAL nX
@@ -144,6 +144,24 @@ LOCAL lExists := .F.
       RETURN hRes
    ELSEIF nResponse != 200
       Aadd(hRes["log"],"Buyer-Abfrage: HTTP "+LTrim(Str(nResponse))+" "+cResponse)
+      RETURN hRes
+   ENDIF
+
+   /*  Ohne nutzbare Fazilitaet finanziert Tilta nichts: bei PENDING ist noch
+    *  nicht entschieden, bei FROZEN oder EXPIRED ist Schluss. Dann gar nicht
+    *  erst einreichen - die Rechnung bleibt in FINA, wird gemeldet und der
+    *  Nachtlauf versucht es am naechsten Abend wieder. Sonst laege sie bei
+    *  Tilta, ohne dass jemand sie finanziert.  */
+   cBody := __TiltaCall("buyers/"+cBuyer+"/facility","GET",NIL,@nResponse,@cResponse)
+   IF nResponse != 200
+      Aadd(hRes["log"],"Fazilitaet konnte nicht gelesen werden: HTTP "+ ;
+                       LTrim(Str(nResponse))+" "+cResponse)
+      RETURN hRes
+   ENDIF
+   cFacSt := __TiltaFacStatus(cBody)
+   IF ! (cFacSt == "ACTIVE")
+      Aadd(hRes["log"],"Kreditfazilitaet ist nicht nutzbar (Status "+ ;
+                       IF(Empty(cFacSt),"unbekannt",cFacSt)+") - nicht eingereicht.")
       RETURN hRes
    ENDIF
 
@@ -282,6 +300,16 @@ LOCAL lExists := .F.
    hRes["ok"] := .T.
 
 RETURN hRes
+
+/*  Status der Kreditfazilitaet aus der Antwort. Leer, wenn Tilta keinen
+ *  liefert - dann wird genauso wenig eingereicht, denn ohne gesicherte
+ *  Auskunft gehen wir nicht davon aus, dass finanziert wird.             */
+STATIC FUNCTION __TiltaFacStatus(cJson)
+   LOCAL hFac := hb_jsonDecode(cJson)
+   IF ValType(hFac) == "H" .AND. HHasKey(hFac,"status") .AND. ValType(hFac["status"]) == "C"
+      RETURN Upper(AllTrim(hFac["status"]))
+   ENDIF
+RETURN ""
 
 /*  Meldung nur zeigen, wenn jemand zusieht - im Nachtlauf laeuft alles stumm.
  *  Leerer Text raeumt das Fenster wieder ab.                              */

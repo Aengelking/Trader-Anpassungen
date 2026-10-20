@@ -70,7 +70,121 @@ STATIC FUNCTION __TiltaSetupKunde(nKuNr)
                IF(ValType(hTilta) == "H",__TiltaLogText(hTilta),"Das Setup lief auf einen Fehler."))
    ENDIF
 
+   /*  Erst wenn der Kunde bei Tilta steht, ist die Abtretungsanzeige faellig.
+    *  Nur bei einer echten Neueinrichtung fragen - beim wiederholten Speichern
+    *  eines laengst eingerichteten Kunden ist changed .F. und es bleibt still.
+    *
+    *  Und nur bei genehmigter FazilitÑt: bei PENDING ist noch nicht
+    *  entschieden, ob Tilta den Kunden nimmt. Eine Anzeige "zahlen Sie ab
+    *  sofort an die Tilta Pay GmbH" wÑre dann unter UmstÑnden
+    *  zurÅckzunehmen - schlimmer als ein Brief zu spÑt.  */
+   IF ValType(hTilta) == "H" .AND. hTilta["ok"] .AND. hTilta["changed"] ;
+      .AND. ! GetConfigValue("BATCHMODE")
+      IF hTilta["status"] == "ACTIVE"
+         IF __TiltaInformKunde(nKuNr,cKunde)
+            Bewegung({"STM",2,Date(),0,nKuNr,0,0,0,0, ;
+                      HB_AnsiToOem("Tilta: Abtretungsanzeige an den Kunden verschickt"), ;
+                      0,0,cGroup,0})
+         ENDIF
+      ELSE
+         Tr_MsgBox({"Kunde "+cKunde+" ist bei Tilta eingerichtet.", ;
+                    "Die KreditfazilitÑt ist aber noch nicht genehmigt:", ;
+                    "Status "+IF(Empty(hTilta["status"]),"unbekannt",hTilta["status"])+".", ;
+                    "", ;
+                    "Die Abtretungsanzeige geht deshalb noch nicht raus.", ;
+                    "Der Nachtlauf meldet, sobald die FazilitÑt aktiv ist -", ;
+                    "dann lÑsst sie sich Åber den MenÅepunkt", ;
+                    "'Kunde bei Tilta einrichten' nachholen."},"NOCH NICHT GENEHMIGT")
+      ENDIF
+   ENDIF
+
 RETURN ValType(hTilta) == "H" .AND. hTilta["ok"]
+
+/*  Den Kunden ueber die Abtretung informieren - auf Nachfrage.
+ *
+ *  Empfaenger ist der Buchhaltungskontakt, ersatzweise der Rechnungskontakt;
+ *  dieselben, die auch Tilta als Ansprechpartner bekommt.
+ *
+ *  Das Stichdatum ist der heutige Tag: ab diesem Rechnungsdatum gehen die
+ *  Forderungen an Tilta. Passt das nicht, hier ablehnen und die Anzeige von
+ *  Hand schreiben - ein falsches Datum in einer Abtretungsanzeige waere
+ *  schlimmer als ein Brief mehr.                                          */
+STATIC FUNCTION __TiltaInformKunde(nKuNr,cKunde)
+   LOCAL hContact
+   LOCAL cMail, cName
+
+   hContact := GetAccountsContact(nKuNr)
+   IF hContact == NIL
+      hContact := GetInvoiceContact(nKuNr)
+   ENDIF
+   IF hContact == NIL .OR. Empty(hContact["email"])
+      Tr_MsgBox({"Kunde "+cKunde+" ist bei Tilta eingerichtet.", ;
+                 "Es ist aber kein Buchhaltungs- oder Rechnungskontakt mit", ;
+                 "E-Mail hinterlegt - die Abtretungsanzeige muss von Hand raus."}, ;
+                "KEIN EMPFAENGER")
+      RETURN .F.
+   ENDIF
+   cMail := AllTrim(hContact["email"])
+   cName := AllTrim(hContact["name"])
+
+   IF Tr_MsgBox({"Kunden Åber die Abtretung an die Tilta Pay GmbH informieren?", ;
+                 "", ;
+                 "An: "+cName+" <"+cMail+">", ;
+                 "Forderungen ab Rechnungsdatum "+DToC(Date())}, ;
+                "ABTRETUNGSANZEIGE",{"Nein","Ja"}) != 2
+      RETURN .F.
+   ENDIF
+
+   SendMail({{cMail,cName}}, ;
+            "Engelking Elektronik GmbH - Abtretung unserer Forderungen an die Tilta Pay GmbH", ;
+            __TiltaAbtretungText(Date()))
+
+RETURN .T.
+
+/*  Die Abtretungsanzeige. Wortlaut wie die bisher von Hand verschickte
+ *  Vorlage, nur das Stichdatum wechselt.                                  */
+STATIC FUNCTION __TiltaAbtretungText(dAb)
+   LOCAL aZ := {}
+   LOCAL cOut := "", nX
+
+   Aadd(aZ,"Sehr geehrte Damen und Herren,")
+   Aadd(aZ,"")
+   Aadd(aZ,"hiermit teilen wir Ihnen mit, dass die Engelking Elektronik GmbH eine")
+   Aadd(aZ,"Factoring-Vereinbarung mit der Tilta Pay GmbH geschlossen hat.")
+   Aadd(aZ,"")
+   Aadd(aZ,"Im Rahmen dieser Vereinbarung wurden unsere Forderungen aus Rechnungen mit")
+   Aadd(aZ,"einem Rechnungsdatum ab dem "+DToC(dAb)+" an die Tilta Pay GmbH abgetreten.")
+   Aadd(aZ,"Wir bitten Sie daher, alle Zahlungen auf diese Rechnungen ausschlie·lich auf")
+   Aadd(aZ,"folgendes Konto zu leisten:")
+   Aadd(aZ,"")
+   Aadd(aZ,"Kontoinhaber: Tilta Pay GmbH")
+   Aadd(aZ,"IBAN: DE76 2022 0800 0029 7350 25")
+   Aadd(aZ,"BIC: SXPYDEHH")
+   Aadd(aZ,"Bank: Banking Circle")
+   Aadd(aZ,"")
+   Aadd(aZ,"Bitte beachten Sie, dass fÅr diese Rechnungen nur Zahlungen auf das")
+   Aadd(aZ,"vorstehende Konto schuldbefreiende Wirkung haben. Zahlungen auf unser")
+   Aadd(aZ,"bisheriges Konto kînnen insoweit nicht mehr als ErfÅllung anerkannt werden.")
+   Aadd(aZ,"")
+   Aadd(aZ,"Wir weisen Sie zudem darauf hin, dass bei Rechnungen ab dem o.g. Datum kein")
+   Aadd(aZ,"Skontoabzug mehr mîglich ist. Die RechnungsbetrÑge sind jeweils in voller")
+   Aadd(aZ,"Hîhe zur Zahlung fÑllig.")
+   Aadd(aZ,"")
+   Aadd(aZ,"Rechnungen mit einem Rechnungsdatum vor dem o.g. Datum begleichen Sie bitte")
+   Aadd(aZ,"unverÑndert wie bisher.")
+   Aadd(aZ,"")
+   Aadd(aZ,"Wir bitten Sie, Ihre Unterlagen entsprechend anzupassen und diese Information")
+   Aadd(aZ,"an Ihre Kreditorenbuchhaltung weiterzuleiten. Bitte geben Sie bei jeder")
+   Aadd(aZ,"Zahlung weiterhin die jeweilige Rechnungsnummer an.")
+   Aadd(aZ,"")
+   Aadd(aZ,"Diese énderung betrifft ausschlie·lich die Abwicklung der Zahlungen. Unsere")
+   Aadd(aZ,"GeschÑftsbeziehung, Ihre gewohnten Ansprechpartner sowie die vereinbarten")
+   Aadd(aZ,"Konditionen unserer Zusammenarbeit bleiben im öbrigen unverÑndert bestehen.")
+
+   FOR nX := 1 TO Len(aZ)
+      cOut += aZ[nX]+Chr(13)+Chr(10)
+   NEXT
+RETURN cOut
 
 /*  Zahlungsbedingung pruefen und auf Wunsch umstellen.
  *

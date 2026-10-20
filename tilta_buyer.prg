@@ -67,4 +67,20 @@ LOCAL nX
    NEXT
    Tr_MsgBox(aMsg,IF(hRes["ok"],"OK","NICHT VOLLSTAENDIG"))
 
+   /*  Steht die Fazilitaet, kann die Abtretungsanzeige raus. Das ist der Weg,
+    *  sie nachzuholen, wenn sie bei der Einrichtung noch PENDING war - der
+    *  Hook after_save_address fragt dann bewusst nicht.
+    *
+    *  Gefragt wird hier jedes Mal: ob die Anzeige schon einmal raus ist, steht
+    *  als Bewegung am Kunden und nicht in einem Kennzeichen.               */
+   IF HHasKey(hRes,"status") .AND. hRes["status"] == "ACTIVE"
+      IF __TiltaInformKunde(ku->Nummer,Trim(ku->Kunde))
+         Bewegung({"STM",2,Date(),0,ku->Nummer,0,0,0,0, ;
+                   HB_AnsiToOem("Tilta: Abtretungsanzeige an den Kunden verschickt"), ;
+                   0,0,ku->Group,0})
+      ENDIF
+   ENDIF
+
 RETURN
+
+#include "x:\run\tilta_hook.prg"

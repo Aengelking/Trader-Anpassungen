@@ -9,6 +9,17 @@ Function AFTER_SAVE_EXTRAVALUE(cName,oExtra)
          oExtra:Save()
          Tr_MsgBox("Versandmitteilung wurde fÅr Werksbescheinigung aktiviert.")
       ENDIF
+
+      /*  Wird hier das Kennzeichen FACTORING gesetzt, den Kunden gleich bei
+       *  Tilta einrichten. Sonst passierte das erst beim nÑchsten Speichern
+       *  der Adresse, und bis dahin gÑbe es weder Buyer noch FazilitÑt -
+       *  Rechnungen dieses Kunden liefen also ins Leere.
+       *
+       *  Nur beim Setzen, nicht bei jeder anderen Variablen: das Setup kostet
+       *  mehrere API-Aufrufe. Was es anlegt, steht in run\tilta_hook.prg.  */
+      IF Upper(AllTrim(cName)) == "FACTORING" .AND. oExtra:Factoring         
+         __TiltaSetupKunde(oExtra:nID)
+      ENDIF
    ELSEIF oExtra:cDBID == "ART"
       IF oExtra:Gef_H225 .AND. ! oExtra:Gefahr
          oExtra:Gefahr := .T.
@@ -34,3 +45,5 @@ Function AFTER_SAVE_EXTRAVALUE(cName,oExtra)
       ENDIF
    ENDIF
 RETURN .T.
+
+#include "x:\run\tilta_hook.prg"

@@ -5,7 +5,6 @@ LOCAL lEG,nResult
 LOCAL aList,oRechnung,nRechnr
 LOCAL oCustom,oExtra,lUpDated,cError
 LOCAL nNewSkonto
-LOCAL hTilta
 
 NetUse("rechnung","reh")
 NetUse("englsre","re")
@@ -139,32 +138,11 @@ IF oAddress:GROUP == "K" //nur Bei Kunden
    ENDIF
 
    /*  Factoring-Kunden bei Tilta einrichten: Buyer, Ansprechpartner und
-    *  Kreditfazilit„t. Das Setup ist idempotent und prft selbst, was schon
-    *  vorhanden ist - es braucht hier also keine Erkennung, wann das
-    *  Kennzeichen gesetzt wurde.
-    *
-    *  Bewusst gekapselt: ein Fehler oder ein Ausfall der API darf das Speichern
-    *  der Adresse nicht behindern. Was angelegt wurde, landet als Bewegung am
-    *  Kunden; nur wenn etwas offen bleibt, gibt es eine Mail.  */
+    *  Kreditfazilit„t. Die Logik steht in run\tilta_hook.prg, damit das
+    *  Speichern der Adresse und das Setzen des Kennzeichens dasselbe tun
+    *  (Hook after_save_extravalue).  */
    IF oExtra:Factoring
-      hTilta := NIL
-      BEGIN SEQUENCE WITH {|e| Break(e)}
-         hTilta := MBaseRun(Path("run\tilta_setup.prg"),{oAddress:Nummer})
-      RECOVER
-         hTilta := NIL
-      END SEQUENCE
-      IF ValType(hTilta) == "H" .AND. hTilta["changed"]
-         Bewegung({"STM",2,Date(),0,ku->Nummer,0,0,0,0, ;
-                   HB_AnsiToOem("Tilta: "+__TiltaLogLine(hTilta)),0,0,ku->Group,0})
-      ENDIF
-      IF ValType(hTilta) != "H" .OR. ! hTilta["ok"]
-         SendMail({{"amos.engelking@engelking.de","Amos"}, ;
-                   {"sigrid.reichmann@engelking.de","Sigrid"}}, ;
-                  "Tilta-Einrichtung unvollst„ndig: "+Trim(ku->Kunde), ;
-                  "Kunde: "+Trim(ku->Kunde)+" "+Trim(ku->Name1)+Chr(13)+Chr(10)+ ;
-                  "Buyer: "+LTrim(Str(ku->Nummer))+Chr(13)+Chr(10)+Chr(13)+Chr(10)+ ;
-                  IF(ValType(hTilta) == "H",__TiltaLogText(hTilta),"Das Setup lief auf einen Fehler."))
-      ENDIF
+      __TiltaSetupKunde(oAddress:Nummer)
    ENDIF
 
 ENDIF
@@ -205,22 +183,7 @@ IF oAddress:Group $ {"K","L"}
    //OdooSync_EnqueueAddress(oAddress,IF(lNew,"CREATE","UPSERT"))
 ENDIF
 
-/*  Protokoll des Tilta-Setups: einzeilig fuer die Bewegung, mehrzeilig fuer
- *  die Mail.                                                             */
-STATIC FUNCTION __TiltaLogLine(hRes)
-   LOCAL cOut := "", nX
-   FOR nX := 1 TO Len(hRes["log"])
-      cOut += IF(Empty(cOut),""," / ")+hRes["log"][nX]
-   NEXT
-RETURN Left(cOut,60)
-
-STATIC FUNCTION __TiltaLogText(hRes)
-   LOCAL cOut := "", nX
-   FOR nX := 1 TO Len(hRes["log"])
-      cOut += hRes["log"][nX]+Chr(13)+Chr(10)
-   NEXT
-RETURN cOut
-
+#include "x:\run\tilta_hook.prg"
 #include "X:\run\agorum.prg"
 #include "X:\run\creditsafe.prg"
 #include "x:\run\update_branch_ai.prg"

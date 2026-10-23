@@ -37,7 +37,7 @@ FUNCTION RUN_FACTORING(oRechnung)
       Aadd(aAttach,ATail(aFiles)[6])
    ENDIF
 
-   Sendmail({{"amos.engelking@engelking.de","Amos"},{"sigrid.reichmann@engelking.de","Sigrid"}},"Bitte Factoring anmelden fÅr RE "+LTrim(Str(oRechnung:Rechnr)),"Lieferschein und Versandbenachrichtung im Anhang",aAttach)
+   //Sendmail({{"amos.engelking@engelking.de","Amos"},{"sigrid.reichmann@engelking.de","Sigrid"}},"Bitte Factoring anmelden fÅr RE "+LTrim(Str(oRechnung:Rechnr)),"Lieferschein und Versandbenachrichtung im Anhang",aAttach)
    
    oRechnung:State := "FINA"
    oRechnung:Save() //Field("STATE")

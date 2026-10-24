@@ -1101,9 +1101,9 @@ DO WHILE ! lExit
       
       //noCrm
       IF lBig .AND. nHistPos == 0 .AND. SystemUser():HasRole(1)
-         @ nTop+19,83 SAY "Werden geladen...." COLOR cHiliteColor
+         /*@ nTop+19,83 SAY "Werden geladen...." COLOR cHiliteColor
          nR := 1
-         oNoCrm := NoCrmAPi():New()
+         noNoCrm := NoCrmAPi():New()
          IF oNoCrm:Connect()
          
             //Altd()
@@ -1134,7 +1134,7 @@ DO WHILE ! lExit
             RETURN 0
          })
          
-         oBrowse:aData := oNoCrm:Execute("leads","GET",{"status"=>"todo,standby",/*"limit"=>"2",*/"field_key"=>"Kunde (Matchcode)","field_value"=>HB_StrToUtf8(Trim(ku->Kunde)),"order"=>"next_action"})  //only receives 100 leads
+         oBrowse:aData := oNoCrm:Execute("leads","GET",{"status"=>"todo,standby","field_key"=>"Kunde (Matchcode)","field_value"=>HB_StrToUtf8(Trim(ku->Kunde)),"order"=>"next_action"})  //only receives 100 leads
          oBrowse:lBox := .F.
          oBrowse:lArrow := .F.
          oBrowse:bAnyFun := {|oBrowse|            
@@ -1175,7 +1175,7 @@ DO WHILE ! lExit
          ELSE
             @ nTop+19,83 SAY "Fehler bei der Verbindung zu noCRM"
          ENDIF
-
+         */
       ENDIF
       //end noCRM
 

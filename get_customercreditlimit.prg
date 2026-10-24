@@ -36,8 +36,8 @@ IF Trim(ku->Kunde) == "ENGELKIA"
    RETURN 1000000  //Konzernunternehmen
 ENDIF
 
-IF Trim(ku->Kunde) == "VARTAR" .AND. Tr_Getini(28) == 9
-   //RETURN 22000
+IF Trim(ku->Kunde) == "VARTAR" .AND. Date() <= StoD("20261231") //.AND. Tr_Getini(28) == 9
+  RETURN 10000 //22000   //komplett eigenes Risiko, Ware ist bereits auf Lager Muttergesellschaft insolvent daher bekommen wir keine Deckung
 ENDIF
 
 
@@ -338,7 +338,7 @@ IF oExtra:Factoring
 ELSEIf wkv->(dbSeek( Str(nKuNr,6) ))
    If wkv->Blocked
       IF lDbg
-         Alert("Durch WKV gesperrt")
+         ? "Durch WKV gesperrt"
       ENDIF
       /*IF Trim(cKunde) == "AER" .AND. Date() <= STOD("20160613")
          //RETURN 1000

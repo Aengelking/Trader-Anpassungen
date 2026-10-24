@@ -19,6 +19,12 @@
  * ersetzt wird. Ersetzt wird ueber eine Zwischendatei (*.neu), damit nie eine
  * halbe Datei liegt.
  *
+ * Zeilenenden zaehlen nicht: Im Repository stehen die meisten Dateien mit LF,
+ * in Trader mit CR/LF, manche enden mit Ctrl-Z (Chr(26)). Darum wird die SHA
+ * auch ueber die Datei ohne CR und ohne Ctrl-Z am Ende gebildet. Passt keine,
+ * wird die Datei geholt; unterscheidet sie sich nur in den Zeilenenden, bleibt
+ * die Datei in Trader unveraendert (Protokoll: "nur Zeilenenden").
+ *
  * Geloescht wird nichts: Fehlt eine Datei im Repository, bleibt sie in Trader
  * liegen (in den Verzeichnissen gibt es auch Dateien, die nie im Repository
  * waren). Zum Entfernen die Datei in Trader von Hand loeschen.
@@ -30,17 +36,21 @@
  *   trader:-R&schneiderei_abholen               einspielen
  *   trader:-R&schneiderei_abholen&{"J"}         Testlauf: nur protokollieren, nichts schreiben
  *
- * Config (GetValue, siehe Schneiderei_Abholen_Setup):
- *   SCHNEIDEREI       Keychain-Eintrag mit dem Abhol-Token (trd_...) aus dem
- *                     Reiter "Abholung" der AppSchneiderei, eingesetzt fuer
- *                     $APIKEY$ im Header
- *   SCHNEIDEREI_URL   Adresse der Abholung, wie dort angezeigt, z. B.
+ * Config (GetValue, siehe Schneiderei_Abholen_Setup; Kategorie = Teil vor dem
+ * ersten "_", hoechstens 10 Zeichen - daher SCHNEIDERE wie im Schluesselbund):
+ *   SCHNEIDERE_URL    Adresse der Abholung, wie im Reiter "Abholung" der
+ *                     AppSchneiderei angezeigt, z. B.
  *                     https://runner.appschneiderei.cloud/v1/trader/
+ *
+ * Schluesselbund: Eintrag SCHNEIDERE (Namen haben hoechstens 10 Zeichen) mit
+ * dem Abhol-Token (trd_...) aus demselben Reiter als Kennwort, eingesetzt fuer
+ * $APIKEY$ im Header.
  *
  * Protokoll: Path("run\logs\")schneiderei_abholen_<Datum>_<Zeit>.log
  */
 
 #define SA_LOGDIR   "run\logs\"
+#define SA_KEYNAME  "SCHNEIDERE"                // Schluesselbund: hoechstens 10 Zeichen
 
 
 PROCEDURE RUN_SCHNEIDEREI_ABHOLEN(cTestlauf)
@@ -49,14 +59,15 @@ PROCEDURE RUN_SCHNEIDEREI_ABHOLEN(cTestlauf)
    LOCAL cLogFile := SA_LogFile()
    LOCAL cBase, xStand, hFreigabe, aDateien, hDatei
    LOCAL cCommit, cPfad, cZiel, cSha, cInhalt, cFehler
-   LOCAL nGleich := 0, nNeu := 0, nFehler := 0, nX
+   LOCAL nGleich := 0, nNeu := 0, nFehler := 0, nZeilen := 0, nX
+   LOCAL lDa, cAlt
    LOCAL aFehler := {}
 
    Schneiderei_Abholen_Setup()
 
-   cBase := AllTrim(SA_Str(GetValue("SCHNEIDEREI_URL")))
+   cBase := AllTrim(SA_Str(GetValue("SCHNEIDERE_URL")))
    IF Empty(cBase)
-      SA_Ende(cLogFile, lBatch, "SCHNEIDEREI_URL ist nicht gesetzt.")
+      SA_Ende(cLogFile, lBatch, "SCHNEIDERE_URL ist nicht gesetzt.")
       RETURN
    ENDIF
    IF Right(cBase, 1) != "/"
@@ -95,22 +106,32 @@ PROCEDURE RUN_SCHNEIDEREI_ABHOLEN(cTestlauf)
       IF Empty(cZiel)
          LOOP                                    // nicht hooks/, run/, mask/
       ENDIF
-      IF File(cZiel) .AND. SA_BlobSha(hb_MemoRead(cZiel)) == cSha
+      lDa  := File(cZiel)
+      cAlt := IF(lDa, hb_MemoRead(cZiel), "")
+      IF lDa .AND. SA_Gleich(cAlt, cSha)
          nGleich++
          LOOP
       ENDIF
 
-      SA_Log(cLogFile, "INFO", IF(File(cZiel), "geaendert: ", "neu: ") + cPfad + " -> " + cZiel)
-      IF lTest
-         nNeu++
-         LOOP
-      ENDIF
-
+      // holen (auch im Testlauf - nur so sind reine Zeilenend-Unterschiede erkennbar)
       cInhalt := SA_Get(cBase + "datei/" + cCommit + "/" + SA_UrlPfad(cPfad), @cFehler)
       IF cInhalt == NIL
          AAdd(aFehler, cPfad + ": " + cFehler)
-      ELSEIF SA_BlobSha(cInhalt) != cSha
+         LOOP
+      ENDIF
+      IF SA_BlobSha(cInhalt) != cSha
          AAdd(aFehler, cPfad + ": Inhalt passt nicht zur SHA - nicht ersetzt")
+         LOOP
+      ENDIF
+      IF lDa .AND. SA_Norm(cAlt) == SA_Norm(cInhalt)
+         SA_Log(cLogFile, "INFO", "nur Zeilenenden: " + cPfad)
+         nZeilen++
+         LOOP
+      ENDIF
+
+      SA_Log(cLogFile, "INFO", IF(lDa, "geaendert: ", "neu: ") + cPfad + " -> " + cZiel)
+      IF lTest
+         nNeu++
       ELSEIF ! SA_Schreiben(cZiel, cInhalt, @cFehler)
          AAdd(aFehler, cPfad + ": " + cFehler)
       ELSE
@@ -122,7 +143,7 @@ PROCEDURE RUN_SCHNEIDEREI_ABHOLEN(cTestlauf)
    FOR nX := 1 TO nFehler
       SA_Log(cLogFile, "ERROR", aFehler[nX])
    NEXT
-   SA_Log(cLogFile, "INFO", "Unveraendert " + LTrim(Str(nGleich)) + ", " + ;
+   SA_Log(cLogFile, "INFO", "Unveraendert " + LTrim(Str(nGleich)) + ", nur Zeilenenden " + LTrim(Str(nZeilen)) + ", " + ;
           IF(lTest, "wuerde ersetzen ", "ersetzt ") + LTrim(Str(nNeu)) + ", Fehler " + LTrim(Str(nFehler)))
 
    // 3. Rueckmeldung an die AppSchneiderei (nicht im Testlauf)
@@ -136,8 +157,7 @@ RETURN
 
 
 FUNCTION Schneiderei_Abholen_Setup()
-   GetValue("SCHNEIDEREI", "", "Keychain-Eintrag mit dem Abhol-Token der AppSchneiderei")
-   GetValue("SCHNEIDEREI_URL", "", "Adresse der Abholung (Reiter Abholung der AppSchneiderei)")
+   GetValue("SCHNEIDERE_URL", "", "Adresse der Abholung (Reiter Abholung der AppSchneiderei)")
 RETURN NIL
 
 
@@ -177,6 +197,31 @@ RETURN Trim(IF(Empty(cDir), Tr_GetIni(1), cDir))
 // Git-Blob-SHA: SHA-1 von "blob <laenge>" + Chr(0) + Inhalt
 STATIC FUNCTION SA_BlobSha(cInhalt)
 RETURN Lower(hb_SHA1("blob " + LTrim(Str(Len(cInhalt))) + Chr(0) + cInhalt))
+
+
+// Gleicher Inhalt wie im Repository - auch wenn die Datei in Trader andere
+// Zeilenenden hat (CR/LF statt LF) oder mit Ctrl-Z endet
+STATIC FUNCTION SA_Gleich(cInhalt, cSha)
+   LOCAL cOhneZ
+
+   IF SA_BlobSha(cInhalt) == cSha
+      RETURN .T.
+   ENDIF
+   cOhneZ := SA_OhneZ(cInhalt)
+RETURN SA_BlobSha(cOhneZ) == cSha .OR. SA_BlobSha(StrTran(cInhalt, Chr(13), "")) == cSha .OR. ;
+       SA_BlobSha(StrTran(cOhneZ, Chr(13), "")) == cSha
+
+
+// Inhalt ohne CR und ohne Ctrl-Z am Ende - zum Vergleich ohne Zeilenenden
+STATIC FUNCTION SA_Norm(cInhalt)
+RETURN StrTran(SA_OhneZ(cInhalt), Chr(13), "")
+
+
+STATIC FUNCTION SA_OhneZ(cInhalt)
+   DO WHILE Right(cInhalt, 1) == Chr(26)
+      cInhalt := Left(cInhalt, Len(cInhalt) - 1)
+   ENDDO
+RETURN cInhalt
 
 
 // Ueber Zwischendatei ersetzen, Unterverzeichnisse bei Bedarf anlegen
@@ -223,7 +268,7 @@ STATIC FUNCTION SA_Get(cUrl, cFehler)
    LOCAL cAntwort
 
    oRest:cBaseUrl    := ""
-   oRest:cApiKeyName := "SCHNEIDEREI"
+   oRest:cApiKeyName := SA_KEYNAME
    cFehler := ""
    BEGIN SEQUENCE WITH {|e| Break(e)}
       cAntwort := oRest:Execute(cUrl, "GET", NIL, aHeader, .F., @nStatus)
@@ -248,7 +293,7 @@ STATIC FUNCTION SA_Melden(cUrl, cCommit, lOk, cText, cLogFile)
    hBody["ok"]     := lOk
    hBody["text"]   := hb_strToUtf8(Left(cText, 2000))
    oRest:cBaseUrl    := ""
-   oRest:cApiKeyName := "SCHNEIDEREI"
+   oRest:cApiKeyName := SA_KEYNAME
    BEGIN SEQUENCE WITH {|e| Break(e)}
       oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus)
    RECOVER

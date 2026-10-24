@@ -27,7 +27,7 @@ Trader holt den freigegebenen Stand selbst ab: Das Run-Skript fragt die AppSchne
 Einmalig je Installation:
 
 1. In der AppSchneiderei im Reiter „Abholung“ ein Token erzeugen.
-2. In Trader im Schlüsselbund einen Eintrag `SCHNEIDEREI` mit dem Token als Kennwort anlegen.
+2. In Trader im Schlüsselbund einen Eintrag `SCHNEIDERE` (Namen haben höchstens 10 Zeichen) mit dem Token als Kennwort anlegen.
 3. In den Werten (`GetValue`) `SCHNEIDEREI_URL` auf die angezeigte Adresse setzen (`https://runner.<domain>/v1/trader/`).
 4. `run/schneiderei_abholen.prg` einmal von Hand in das Run-Verzeichnis kopieren – danach hält es sich selbst aktuell.
 5. Erst einen Testlauf: `trader:-R&schneiderei_abholen&{"J"}` schreibt nichts, protokolliert aber jede Datei mit ihrem Ziel (`run\logs\schneiderei_abholen_*.log`). Dort prüfen, dass die Zielverzeichnisse stimmen.

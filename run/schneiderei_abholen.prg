@@ -31,16 +31,19 @@
  *   trader:-R&schneiderei_abholen&{"J"}         Testlauf: nur protokollieren, nichts schreiben
  *
  * Config (GetValue, siehe Schneiderei_Abholen_Setup):
- *   SCHNEIDEREI       Keychain-Eintrag mit dem Abhol-Token (trd_...) aus dem
- *                     Reiter "Abholung" der AppSchneiderei, eingesetzt fuer
- *                     $APIKEY$ im Header
- *   SCHNEIDEREI_URL   Adresse der Abholung, wie dort angezeigt, z. B.
+ *   SCHNEIDEREI_URL   Adresse der Abholung, wie im Reiter "Abholung" der
+ *                     AppSchneiderei angezeigt, z. B.
  *                     https://runner.appschneiderei.cloud/v1/trader/
+ *
+ * Schluesselbund: Eintrag SCHNEIDERE (Namen haben hoechstens 10 Zeichen) mit
+ * dem Abhol-Token (trd_...) aus demselben Reiter als Kennwort, eingesetzt fuer
+ * $APIKEY$ im Header.
  *
  * Protokoll: Path("run\logs\")schneiderei_abholen_<Datum>_<Zeit>.log
  */
 
 #define SA_LOGDIR   "run\logs\"
+#define SA_KEYNAME  "SCHNEIDERE"                // Schluesselbund: hoechstens 10 Zeichen
 
 
 PROCEDURE RUN_SCHNEIDEREI_ABHOLEN(cTestlauf)
@@ -136,7 +139,6 @@ RETURN
 
 
 FUNCTION Schneiderei_Abholen_Setup()
-   GetValue("SCHNEIDEREI", "", "Keychain-Eintrag mit dem Abhol-Token der AppSchneiderei")
    GetValue("SCHNEIDEREI_URL", "", "Adresse der Abholung (Reiter Abholung der AppSchneiderei)")
 RETURN NIL
 
@@ -223,7 +225,7 @@ STATIC FUNCTION SA_Get(cUrl, cFehler)
    LOCAL cAntwort
 
    oRest:cBaseUrl    := ""
-   oRest:cApiKeyName := "SCHNEIDEREI"
+   oRest:cApiKeyName := SA_KEYNAME
    cFehler := ""
    BEGIN SEQUENCE WITH {|e| Break(e)}
       cAntwort := oRest:Execute(cUrl, "GET", NIL, aHeader, .F., @nStatus)
@@ -248,7 +250,7 @@ STATIC FUNCTION SA_Melden(cUrl, cCommit, lOk, cText, cLogFile)
    hBody["ok"]     := lOk
    hBody["text"]   := hb_strToUtf8(Left(cText, 2000))
    oRest:cBaseUrl    := ""
-   oRest:cApiKeyName := "SCHNEIDEREI"
+   oRest:cApiKeyName := SA_KEYNAME
    BEGIN SEQUENCE WITH {|e| Break(e)}
       oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus)
    RECOVER

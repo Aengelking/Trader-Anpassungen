@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Test: TeamTalk an einer David-Mail ueber die DvApi32-COM-Schnittstelle
+    (IChatManager.StartChat), frueh gebunden wie in den C#-Beispielen der Doku.
+
+    Einmalig in Visual Studio: Projekt -> Verweis hinzufuegen -> COM ->
+    "DvApi32" (David API) auswaehlen. Visual Studio traegt dann unten den
+    <COMReference> ein. Alternativ den <COMReference>-Block aus
+    DavidTest.csproj hierher kopieren.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- DvApi32 ist eine 32-Bit-COM-DLL im Prozess: nur x86 kann sie laden. -->
+    <PlatformTarget>x86</PlatformTarget>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>DavidTeamTalk</AssemblyName>
+  </PropertyGroup>
+
+</Project>

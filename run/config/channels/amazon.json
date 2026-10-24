@@ -1,0 +1,75 @@
+{
+  "channel_info": {
+    "name": "Amazon Business",
+    "code": "amazon",
+    "type": "marketplace",
+    "description": "Amazon Business Marketplace Integration"
+  },
+  "company_settings": {
+    "weee_number": "DE 43356265",
+    "brand": "Engelking",
+    "category": "Electronics"
+  },
+  "inventory_settings": {
+    "qty_no_stock": 500,
+    "max_delivery_weeks": 12,
+    "supplier_number": 0
+  },
+  "pricing_settings": {
+    "price_multiplier": 1.15,
+    "commission_note": "Amazon referral fee included",
+    "currency": "EUR",
+    "include_tax": true
+  },
+  "upload_settings": {
+    "method": "FTP",
+    "api": {
+      "url": "",
+      "authorization": "",
+      "content_type": "",
+      "import_mode": "UPDATE",
+      "operator_format": false,
+      "with_products": true,
+      "timeout_seconds": 60
+    },
+    "ftp_fallback": {
+      "url": "sftp://amazon-business:password@ftp.amazon.com/",
+      "host_key": "",
+      "scp_directory": "C:\\Program Files (x86)\\WinSCP\\"
+    }
+  },
+  "notification_settings": {
+    "error_email": {
+      "enabled": true,
+      "recipients": [
+        {"email": "amos.engelking@engelking.de", "name": "Amos"}
+      ],
+      "subject": "Amazon Upload Error"
+    },
+    "success_email": {
+      "enabled": true,
+      "recipients": [
+        {"email": "amos.engelking@engelking.de", "name": "Amos"}
+      ],
+      "subject": "Amazon Upload Success"
+    }
+  },
+  "product_data_settings": {
+    "warehouse": 1,
+    "state": 11,
+    "reversecharge": false,
+    "lead_time_multiplier": 7,
+    "sku_suffixes": {
+      "stock": "S",
+      "waldom": "W",
+      "incoming": "I", 
+      "production": "P"
+    }
+  },
+  "filters": {
+    "include_with_conrad_number": false,
+    "include_with_image": true,
+    "exclude_obsolete": true,
+    "include_cm_parts": false
+  }
+}

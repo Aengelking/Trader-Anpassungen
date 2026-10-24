@@ -1,0 +1,167 @@
+----------------------------- xHarbour Error Log ------------------------------
+
+Date...............: 12.05.08
+Time...............: 21:34:33
+
+Application name...: d:\harbour\trader\bin\trader.exe
+Workstation name...: BULL
+Available memory...: 2097151
+Current disk.......: D
+Current directory..: TRADER30\RUN
+Free disk space....: 53990739968
+
+Operating system...: Windows Server 2003 5.02.3790 Service Pack 2
+xHarbour version...: xHarbour build 1.0.0 Intl. (SimpLex)
+xHarbour built on..: Nov  8 2007 09:23:44
+C/C++ compiler.....: Borland C++ 5.5.1
+Multi Threading....: NO
+VM Optimization....: 0
+
+Current Area ......:1
+
+-------------------------- Environmental Information --------------------------
+
+SET ALTERNATE......: OFF
+SET ALTFILE........: 
+SET AUTOPEN........: ON
+SET AUTORDER.......: 0
+SET AUTOSHARE......: 0
+SET BACKGROUNDTASKS: OFF
+SET BACKGROUNDTICK.: 1000
+SET BELL...........: OFF
+SET BLINK..........: .T.
+SET CANCEL.........: OFF
+SET CENTURY........: OFF
+SET COLOR..........: W+/W,N/BG,N/N,N/N,N/W
+SET CONFIRM........: OFF
+SET CONSOLE........: ON
+SET COUNT..........: 0
+SET CURSOR.........: 0
+SET DATE FORMAT....: DD.MM.YY
+SET DBFLOCKSCHEME..: 0
+SET DEBUG..........: ON
+SET DECIMALS.......: 2
+SET DEFAULT........: 
+SET DELETED........: ON
+SET DELIMCHARS.....: ::
+SET DELIMETERS.....: OFF
+SET DEVICE.........: SCREEN
+SET DIRCASE........: 0
+SET DIRSEPARATOR...: \
+SET EOL............: 13
+SET EPOCH..........: 1980
+SET ERRORLOG.......: ERROR.LOG,.F.
+SET ERRORLOOP......: 8
+SET ESCAPE.........: ON
+SET EVENTMASK......: 255
+SET EXACT..........: ON
+SET EXCLUSIVE......: OFF
+SET EXIT...........: OFF
+SET EXTRA..........: OFF
+SET EXTRAFILE......: 
+SET FILECASE.......: 0
+SET FIXED..........: OFF
+SET FORCEOPT.......: OFF
+SET GTMODE.........: 1
+SET HARDCOMMIT.....: ON
+SET IDLEREPEAT.....: ON
+SET INSERT.........: OFF
+SET INTENSITY......: ON
+SET LANGUAGE.......: DE
+SET MARGIN.........: 0
+SET MBLOCKSIZE.....: 0
+SET MCENTER........: ON
+SET MESSAGE........: 24
+SET MFILEEXT.......: 
+SET OPTIMIZE.......: ON
+SET OUTPUTSAFETY...: ON
+SET PATH...........: 
+SET PRINTER........: OFF
+SET PRINTERJOB.....: 
+SET PRINTFILE......: PRN
+SET SCOREBOARD.....: OFF
+SET SCROLLBREAK....: ON
+SET SOFTSEEK.......: OFF
+SET STRICTREAD.....: OFF
+SET TRACE..........: ON
+SET TRACEFILE......: TRACE.LOG
+SET TRACESTACK.....: 2
+SET TRIMFILENAME...: .F.
+SET TYPEAHEAD......: 50
+SET UNIQUE.........: OFF
+SET VIDEOMODE......: 0
+SET WRAP...........: OFF
+
+---------------------------Detailed Work Area Items----------------------------
+
+Work Area No ......: 1
+Alias .............: ME
+Current Recno .....: 1
+Current Filter ....: 
+Relation Exp. .....: 
+Index Order .......: 0
+Active Key ........: 
+
+Work Area No ......: 2
+Alias .............: CUR
+Current Recno .....: 13
+Current Filter ....: 
+Relation Exp. .....: 
+Index Order .......: 1
+Active Key ........: CODE
+
+
+-------------------- Internal Error Handling Information  ---------------------
+
+Subsystem Call ....: BASE
+System Code .......: 1111
+Default Status ....: .F.
+Description .......: Argument error
+Operation .........: LEN
+Arguments .........:  [ 1] = Type: U
+Involved File .....: 
+Dos Error Code ....: 0
+
+ Trace Through:
+----------------
+LEN                   :       0 in Module: 
+INI_DRIVEMEM          :      78 in Module: trade051.prg
+MENU_IT               :      50 in Module: trade064.prg
+MENU                  :      41 in Module: tr_156.prg
+MENU                  :     162 in Module: tr_156.prg
+MENU                  :     162 in Module: tr_156.prg
+MAINX                 :     247 in Module: tr_002.prg
+MAIN                  :     117 in Module: tr_001.prg
+
+
+############################## Video Screen Dump ##############################
+
++--------------------------------------------------------------------------------+
+|บ                                                                             บ |
+|บ                                                                             บ |
+|บ                                                                             บ |
+|บ                                                                             บ |
+|บ                                                                             บ |
+|บ                                                                             บ |
+|บ                                                                             บ |
+|บ                                                                             บ |
+|บ                                                                             บ |
+|บ                                                                             บ |
+|บ                                                                             บ |
+|บ                                                                             บ |
+|บ                                                                             บ |
+|บ                                                                             บ |
+|บ                                                 D:\trader30                   |
+|Error BASE/1111  Argument error: LEN Arguments: ( [ 1] = Type: U)อออออออออออออผ |
+|                                                                                |
+|Error at ...: LEN(0) in Module:                                                 |
+|Called from : INI_DRIVEMEM(78) in Module: trade051.prg                          |
+|Called from : MENU_IT(50) in Module: trade064.prg                               |
+|Called from : MENU(41) in Module: tr_156.prg                                    |
+|Called from : MENU(162) in Module: tr_156.prg                                   |
+|Called from : MENU(162) in Module: tr_156.prg                                   |
+|Called from : MAINX(247) in Module: tr_002.prg                                  |
+|Called from : MAIN(117) in Module: tr_001.prg                                   |
++--------------------------------------------------------------------------------+
+
+

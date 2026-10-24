@@ -1,0 +1,6 @@
+NetUse("angebot","ang",.T.,0)
+ang->(dbSetOrder(0))
+ang->(dbGoTop())
+NetUse("angebo2","an2",.T.,0)
+Do While ! ang->(Eof())
+	@ 24,00 SAY ang->(Recno())

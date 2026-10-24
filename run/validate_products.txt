@@ -1,0 +1,11 @@
+dDate := GetBox(Date()-30,"Ab Datum")
+
+NetUSe("engabg","abg",.F.,0)
+abg->(dbSetOrder(0))
+abg->(dbGoBottom())
+NetUse("artikel","art",.F.,0)
+art->(dbSetOrder(2))
+Do While abg->Datum >= dDate
+	art->(dbSeek( Str(abg->artikelnr) )
+	abg->(dbSkip(-1))
+Enddo

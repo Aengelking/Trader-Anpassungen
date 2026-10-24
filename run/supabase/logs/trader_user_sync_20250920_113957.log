@@ -1,0 +1,181 @@
+[20.09.25 11:39:57] [INFO] Log started: 20.09.25 11:39:57
+[20.09.25 11:39:57] [INFO] Starting Trader User Sync to 1 Supabase databases
+[20.09.25 11:39:57] [INFO] Validating config: Sales DB
+[20.09.25 11:39:57] [INFO] Auth connection successful for Sales DB. First user: michelle.pomp@engelking.de
+[20.09.25 11:39:57] [INFO] Connection test successful for Sales DB
+[20.09.25 11:39:57] [INFO] Opened trader database with 74 user records
+[20.09.25 11:39:57] [INFO] Syncing to database: Sales DB
+[20.09.25 11:39:57] [INFO] Processing 74 user records for Sales DB
+[20.09.25 11:39:57] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[20.09.25 11:39:57] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:57] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:57] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:57] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:57] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:57] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:57] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:58] [DEBUG] Updated auth user: amos.engelking@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "8fa58594-36eb-4be7-b0e1-6e63f9ff02fb", "aud" => "authenticated", "role" => "authenticated", "email" => "amos.engelking@engelking.de", "email_confirmed_at" => "2025-09-19T19:04:22.537854Z", "phone" => "", "confirmed_at" => "2025-09-19T19:04:22.537854Z", "recovery_sent_at" => "2025-09-19T20:05:32.85752Z", "last_sign_in_at" => "2025-09-19T19:43:24.462617Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 9 }, "user_metadata" => { "active" => .T., "display_name" => "Amos", "email_verified" => .T., "full_name" => "Amos Engelking", "initials" => "ae", "last_sync" => "20.09.25 11:36:22", "phone" => "-15", "rate" => 75, "short_name" => "AMOS", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:22Z", "trader_user_id" => 9 }, "identities" => NIL, "created_at" => "2025-09-19T19:04:22.521793Z", "updated_at" => "2025-09-20T09:36:22.780126Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:39:58] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:58] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[20.09.25 11:39:58] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:58] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:58] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:58] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:58] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:58] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:58] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:58] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:58] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:58] [DEBUG] Skipping inactive user without email: ausgeschieden
+[20.09.25 11:39:58] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:58] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:58] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:58] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:59] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:59] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:59] [DEBUG] Updated auth user: johannes.engelking@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "aec9160d-55ed-4b0a-8b99-0ce71e64b131", "aud" => "authenticated", "role" => "authenticated", "email" => "johannes.engelking@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:24.0512Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:24.0512Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 28 }, "user_metadata" => { "active" => .T., "display_name" => "Johannes", "email_verified" => .T., "full_name" => "Johannes Engelking", "initials" => "jse", "last_sync" => "20.09.25 11:36:23", "phone" => "-14", "rate" => 0, "short_name" => "", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:23Z", "trader_user_id" => 28 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:24.046875Z", "updated_at" => "2025-09-20T09:36:24.052033Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:39:59] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[20.09.25 11:39:59] [DEBUG] Skipping inactive user without email: 
+[20.09.25 11:39:59] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[20.09.25 11:39:59] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[20.09.25 11:39:59] [DEBUG] Updated auth user: thimo.hamma@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "c6b70a49-1c0e-48fb-af2f-51fc2d4b8659", "aud" => "authenticated", "role" => "authenticated", "email" => "thimo.hamma@engelking.de", "email_confirmed_at" => "2025-09-20T09:34:12.142498Z", "phone" => "", "confirmed_at" => "2025-09-20T09:34:12.142498Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 33 }, "user_metadata" => { "active" => .T., "display_name" => "Thimo", "email_verified" => .T., "full_name" => "Thimo Hamma", "initials" => "th", "last_sync" => "20.09.25 11:36:24", "phone" => "-12", "rate" => 60, "short_name" => "THIMO", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:24Z", "trader_user_id" => 33 }, "identities" => NIL, "created_at" => "2025-09-20T09:34:12.135785Z", "updated_at" => "2025-09-20T09:36:24.493641Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:00] [DEBUG] Updated auth user: sigrid.reichmann@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "532c151d-cf3a-41ad-83ae-d4d078384c8a", "aud" => "authenticated", "role" => "authenticated", "email" => "sigrid.reichmann@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:25.005301Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:25.005301Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 34 }, "user_metadata" => { "active" => .T., "display_name" => "Sigrid", "email_verified" => .T., "full_name" => "Sigrid Reichmann", "initials" => "sr", "last_sync" => "20.09.25 11:36:24", "phone" => "-22", "rate" => 0, "short_name" => "", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:24Z", "trader_user_id" => 34 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:25.000078Z", "updated_at" => "2025-09-20T09:36:25.006261Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:00] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[20.09.25 11:40:00] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[20.09.25 11:40:00] [INFO] Deleting deactivated user from Supabase: ausgeschieden
+[20.09.25 11:40:00] [DEBUG] User not found in Supabase: samuel.engelking@engelking.de
+[20.09.25 11:40:00] [INFO] Successfully deleted user: samuel.engelking@engelking.de
+[20.09.25 11:40:00] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[20.09.25 11:40:00] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[20.09.25 11:40:01] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[20.09.25 11:40:01] [DEBUG] Updated auth user: sabid.pehlic@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "e4b92998-e47c-4fd0-846d-881d9bb99b0c", "aud" => "authenticated", "role" => "authenticated", "email" => "sabid.pehlic@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:25.702185Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:25.702185Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 41 }, "user_metadata" => { "active" => .T., "display_name" => "Sabid", "email_verified" => .T., "full_name" => "Sabid Pehlic", "initials" => "sp", "last_sync" => "20.09.25 11:36:25", "phone" => "-21", "rate" => 1, "short_name" => "SABID", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:25Z", "trader_user_id" => 41 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:25.697896Z", "updated_at" => "2025-09-20T09:36:25.702915Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:01] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[20.09.25 11:40:01] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[20.09.25 11:40:01] [DEBUG] Updated auth user: heike.schneckenburger@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "8a650448-5f52-46f9-b346-7b980468c066", "aud" => "authenticated", "role" => "authenticated", "email" => "heike.schneckenburger@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:26.232011Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:26.232011Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 44 }, "user_metadata" => { "active" => .T., "display_name" => "Heike", "email_verified" => .T., "full_name" => "Heike Schneckenburger", "initials" => "hs", "last_sync" => "20.09.25 11:36:25", "phone" => "", "rate" => 0, "short_name" => "", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:25Z", "trader_user_id" => 44 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:26.227937Z", "updated_at" => "2025-09-20T09:36:26.232823Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:02] [DEBUG] Updated auth user: joel.engelking@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "4506eacd-a506-49a5-9378-435c4787c6d3", "aud" => "authenticated", "role" => "authenticated", "email" => "joel.engelking@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:26.661397Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:26.661397Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 45 }, "user_metadata" => { "active" => .T., "display_name" => "Joel", "email_verified" => .T., "full_name" => "Joel Engelking", "initials" => "je", "last_sync" => "20.09.25 11:36:26", "phone" => "-20", "rate" => 0, "short_name" => "", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:26Z", "trader_user_id" => 45 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:26.65777Z", "updated_at" => "2025-09-20T09:36:26.662179Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:02] [DEBUG] Updated auth user: bertram.merz@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "864e6959-8318-484e-bc65-28492e4ca35c", "aud" => "authenticated", "role" => "authenticated", "email" => "bertram.merz@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:27.084027Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:27.084027Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 46 }, "user_metadata" => { "active" => .T., "display_name" => "Bertram", "email_verified" => .T., "full_name" => "Bertram Merz", "initials" => "bm", "last_sync" => "20.09.25 11:36:26", "phone" => "", "rate" => 0, "short_name" => "", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:26Z", "trader_user_id" => 46 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:27.0805Z", "updated_at" => "2025-09-20T09:36:27.084763Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:02] [DEBUG] Skipping inactive user without email: Manuela Benk
+[20.09.25 11:40:02] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[20.09.25 11:40:03] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[20.09.25 11:40:03] [DEBUG] Updated auth user: daniela.babic@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "53c0a127-08a6-4009-a55a-6f14e5f2eb05", "aud" => "authenticated", "role" => "authenticated", "email" => "daniela.babic@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:27.615291Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:27.615291Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 50 }, "user_metadata" => { "active" => .T., "display_name" => "Daniela", "email_verified" => .T., "full_name" => "Daniela Babic", "initials" => "db", "last_sync" => "20.09.25 11:36:27", "phone" => "", "rate" => 15, "short_name" => "DANI", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:27Z", "trader_user_id" => 50 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:27.611857Z", "updated_at" => "2025-09-20T09:36:27.615895Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:03] [INFO] Deleting deactivated user from Supabase: ausgeschieden
+[20.09.25 11:40:03] [DEBUG] User not found in Supabase: celina.engelking@engelking.de
+[20.09.25 11:40:03] [INFO] Successfully deleted user: celina.engelking@engelking.de
+[20.09.25 11:40:03] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[20.09.25 11:40:03] [DEBUG] Skipping inactive user without email: Ausgeschieden
+[20.09.25 11:40:04] [DEBUG] Updated auth user: tina.mantel@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "fb041ce8-1680-4ecb-ab8f-68109d0a2527", "aud" => "authenticated", "role" => "authenticated", "email" => "tina.mantel@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:28.196091Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:28.196091Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 54 }, "user_metadata" => { "active" => .T., "display_name" => "Tina", "email_verified" => .T., "full_name" => "Tina Mantel", "initials" => "tm", "last_sync" => "20.09.25 11:36:27", "phone" => "-23", "rate" => 0, "short_name" => "", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:27Z", "trader_user_id" => 54 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:28.192929Z", "updated_at" => "2025-09-20T09:36:28.196695Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:04] [DEBUG] Updated auth user: nora.zimmermann@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "a856a625-c6b4-4570-aa25-a31445d636d3", "aud" => "authenticated", "role" => "authenticated", "email" => "nora.zimmermann@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:28.613359Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:28.613359Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 55 }, "user_metadata" => { "active" => .T., "display_name" => "Nora", "email_verified" => .T., "full_name" => "Nora Zimmermann", "initials" => "nz", "last_sync" => "20.09.25 11:36:28", "phone" => "", "rate" => 26, "short_name" => "NORA", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:28Z", "trader_user_id" => 55 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:28.610205Z", "updated_at" => "2025-09-20T09:36:28.613963Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:04] [DEBUG] Skipping inactive user without email: Andrea Hauser
+[20.09.25 11:40:05] [DEBUG] Updated auth user: daniel.becker@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "f67cc739-0837-4f8c-92e3-3f3cd7087201", "aud" => "authenticated", "role" => "authenticated", "email" => "daniel.becker@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:29.069111Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:29.069111Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 57 }, "user_metadata" => { "active" => .T., "display_name" => "Daniel", "email_verified" => .T., "full_name" => "Daniel Becker", "initials" => "dbe", "last_sync" => "20.09.25 11:36:28", "phone" => "", "rate" => 0, "short_name" => "", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:28Z", "trader_user_id" => 57 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:29.064195Z", "updated_at" => "2025-09-20T09:36:29.069753Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:05] [DEBUG] Updated auth user: mara.henzler@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "ad8a2b7c-2e6c-4eb8-b762-72afb0cc70f0", "aud" => "authenticated", "role" => "authenticated", "email" => "mara.henzler@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:29.473629Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:29.473629Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 58 }, "user_metadata" => { "active" => .T., "display_name" => "Mara", "email_verified" => .T., "full_name" => "Mara Henzler", "initials" => "mh", "last_sync" => "20.09.25 11:36:29", "phone" => "-17", "rate" => 0, "short_name" => "", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:29Z", "trader_user_id" => 58 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:29.470211Z", "updated_at" => "2025-09-20T09:36:29.474255Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:05] [DEBUG] Skipping inactive user without email: ausgeschieden
+[20.09.25 11:40:05] [DEBUG] Skipping inactive user without email: ausgeschieden
+[20.09.25 11:40:05] [DEBUG] Skipping inactive user without email: ausgeschieden
+[20.09.25 11:40:06] [DEBUG] Updated auth user: jens.bender@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "5c465a22-a52b-4cbc-9146-cb72a4047e4d", "aud" => "authenticated", "role" => "authenticated", "email" => "jens.bender@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:30.021982Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:30.021982Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 62 }, "user_metadata" => { "active" => .T., "display_name" => "Jens", "email_verified" => .T., "full_name" => "Jens Bender", "initials" => "jb", "last_sync" => "20.09.25 11:36:29", "phone" => "", "rate" => 27, "short_name" => "JENS", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:29Z", "trader_user_id" => 62 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:30.015586Z", "updated_at" => "2025-09-20T09:36:30.023638Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:06] [INFO] Deleting deactivated user from Supabase: Chris Chertes
+[20.09.25 11:40:06] [INFO] Successfully deleted user: chris.chertes@engelking.de (ID: 4d6e4332-1f28-4539-bdc6-17deea23c67f)
+[20.09.25 11:40:06] [INFO] Successfully deleted user: chris.chertes@engelking.de
+[20.09.25 11:40:06] [DEBUG] Updated auth user: lisa.weber@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "ba2d448c-2ff2-42f8-b9ee-fb6fcc5b90b3", "aud" => "authenticated", "role" => "authenticated", "email" => "lisa.weber@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:30.820814Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:30.820814Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 64 }, "user_metadata" => { "active" => .T., "display_name" => "Lisa", "email_verified" => .T., "full_name" => "Lisa Joos", "initials" => "lw", "last_sync" => "20.09.25 11:36:30", "phone" => "", "rate" => 0, "short_name" => "LISA", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:30Z", "trader_user_id" => 64 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:30.817493Z", "updated_at" => "2025-09-20T09:36:30.821474Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:06] [DEBUG] Skipping inactive user without email: Vira Hiermann
+[20.09.25 11:40:07] [DEBUG] Updated auth user: soraya.hennig@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "be1093b9-f755-4380-9cdc-e115376a7d0e", "aud" => "authenticated", "role" => "authenticated", "email" => "soraya.hennig@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:31.273051Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:31.273051Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 66 }, "user_metadata" => { "active" => .T., "display_name" => "Soraya", "email_verified" => .T., "full_name" => "Soraya Hennig", "initials" => "sh", "last_sync" => "20.09.25 11:36:30", "phone" => "", "rate" => 0, "short_name" => "", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:30Z", "trader_user_id" => 66 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:31.269724Z", "updated_at" => "2025-09-20T09:36:31.273699Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:07] [DEBUG] Updated auth user: yannick.matthaeus@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "936338de-d4d1-42bc-8ef1-ff0510804168", "aud" => "authenticated", "role" => "authenticated", "email" => "yannick.matthaeus@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:31.658092Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:31.658092Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 67 }, "user_metadata" => { "active" => .T., "display_name" => "Yannick", "email_verified" => .T., "full_name" => "Yannick Matth�us", "initials" => "ym", "last_sync" => "20.09.25 11:36:31", "phone" => "", "rate" => 0, "short_name" => "", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:31Z", "trader_user_id" => 67 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:31.654748Z", "updated_at" => "2025-09-20T09:36:31.658752Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:07] [DEBUG] Skipping inactive user without email: Maria Petrocelli
+[20.09.25 11:40:07] [INFO] Deleting deactivated user from Supabase: ausgeschieden
+[20.09.25 11:40:08] [INFO] Successfully deleted user: bettina.sforza@engelking.de (ID: f0c77ce7-3b81-461e-b859-a16eaf856ab8)
+[20.09.25 11:40:08] [INFO] Successfully deleted user: bettina.sforza@engelking.de
+[20.09.25 11:40:08] [DEBUG] Updated auth user: melanie.bielitzer@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "b8f198f6-b344-4f96-bc31-378cb06b0daf", "aud" => "authenticated", "role" => "authenticated", "email" => "melanie.bielitzer@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:32.479208Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:32.479208Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 70 }, "user_metadata" => { "active" => .T., "display_name" => "Melanie", "email_verified" => .T., "full_name" => "Melanie Bielitzer", "initials" => "mbi", "last_sync" => "20.09.25 11:36:32", "phone" => "", "rate" => 0, "short_name" => "", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:32Z", "trader_user_id" => 70 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:32.475685Z", "updated_at" => "2025-09-20T09:36:32.479818Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:08] [DEBUG] Updated auth user: jennifer.lang@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "fa731cc3-f3fc-4926-957d-f85d1e9a01cb", "aud" => "authenticated", "role" => "authenticated", "email" => "jennifer.lang@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:32.862515Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:32.862515Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 71 }, "user_metadata" => { "active" => .T., "display_name" => "Jennifer", "email_verified" => .T., "full_name" => "Jennifer Lang", "initials" => "jl", "last_sync" => "20.09.25 11:36:32", "phone" => "", "rate" => 0, "short_name" => "", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:32Z", "trader_user_id" => 71 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:32.859153Z", "updated_at" => "2025-09-20T09:36:32.863204Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:09] [DEBUG] Updated auth user: marcel.moessner@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "d6f0e5b0-bc71-4eb6-be80-0009a81399d2", "aud" => "authenticated", "role" => "authenticated", "email" => "marcel.moessner@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:33.250807Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:33.250807Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 72 }, "user_metadata" => { "active" => .T., "display_name" => "Marcel", "email_verified" => .T., "full_name" => "Marcel Moessner", "initials" => "mm", "last_sync" => "20.09.25 11:36:32", "phone" => "", "rate" => 0, "short_name" => "", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:32Z", "trader_user_id" => 72 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:33.247435Z", "updated_at" => "2025-09-20T09:36:33.251407Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:09] [DEBUG] Updated auth user: thomas.koenig@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "5cb3964c-8b6f-48b0-a258-7449de656183", "aud" => "authenticated", "role" => "authenticated", "email" => "thomas.koenig@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:33.639294Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:33.639294Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 73 }, "user_metadata" => { "active" => .T., "display_name" => "Thomas", "email_verified" => .T., "full_name" => "Thomas K�nig", "initials" => "TK", "last_sync" => "20.09.25 11:36:33", "phone" => "-35", "rate" => 0, "short_name" => "", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:33Z", "trader_user_id" => 73 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:33.635552Z", "updated_at" => "2025-09-20T09:36:33.639988Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:10] [DEBUG] Updated auth user: michelle.pomp@engelking.de- hash: { "users" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := { "id" => "2684ad58-abac-4827-9bb9-e60e814d9d0e", "aud" => "authenticated", "role" => "authenticated", "email" => "michelle.pomp@engelking.de", "email_confirmed_at" => "2025-09-20T09:36:34.012926Z", "phone" => "", "confirmed_at" => "2025-09-20T09:36:34.012926Z", "app_metadata" => { "department" => "trader", "provider" => "trader", "providers" => M->__ValToPrg_Array := Array(1)
+   M->__ValToPrg_Array[1] := "email"
+, "role" => "user", "trader_user_id" => 74 }, "user_metadata" => { "active" => .T., "display_name" => "Michelle", "email_verified" => .T., "full_name" => "Michelle Pomp", "initials" => "MP", "last_sync" => "20.09.25 11:36:33", "phone" => "-36", "rate" => 0, "short_name" => "", "source" => "trader_sync", "sync_timestamp" => "20.09.25T11:36:33Z", "trader_user_id" => 74 }, "identities" => NIL, "created_at" => "2025-09-20T09:36:34.009307Z", "updated_at" => "2025-09-20T09:36:34.013616Z", "is_anonymous" => .F. }
+, "aud" => "authenticated" }
+[20.09.25 11:40:10] [INFO] Sync summary for Sales DB: Processed=74, Synced=22, Deleted=4, Skipped=52
+[20.09.25 11:40:10] [INFO] Successfully synced to: Sales DB
+[20.09.25 11:40:10] [INFO] Sync completed. Success: 1, Errors: 0

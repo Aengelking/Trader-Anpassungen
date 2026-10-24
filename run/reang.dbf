@@ -1,0 +1,6 @@
+NetUse("angebot1","ang",.F.,0)
+aStruct := ang->(Dbstruct())
+
+cNew := "d:\trader30\angebot2.dbf"
+DbCreate(cnew,aStruct)
+

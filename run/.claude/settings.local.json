@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /y/Harbour/Trader && grep -rin \"MCP_StdIO\\\\b\" source/*.prg 2>/dev/null | head; echo \"=== run dir hbp/hbc ===\"; ls -1 run/*.hbc run/*.hbp 2>/dev/null; echo \"=== how mcp built: search batch in run ===\"; grep -lin \"mcp\" run/*.bat 2>/dev/null)"
+    ]
+  }
+}

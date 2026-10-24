@@ -1,0 +1,77 @@
+{
+  "channel_info": {
+    "name": "DigiKey",
+    "code": "digikey",
+    "type": "marketplace",
+    "description": "DigiKey Quote API Integration"
+  },
+  "company_settings": {
+    "weee_number": "DE 43356265",
+    "brand": "Engelking",
+    "category": "Electronics"
+  },
+  "inventory_settings": {
+    "qty_no_stock": 1000,
+    "max_delivery_weeks": 16,
+    "supplier_number": 0
+  },
+  "pricing_settings": {
+    "price_multiplier": 1.18,
+    "commission_note": "DigiKey pricing",
+    "currency": "EUR",
+    "include_tax": true
+  },
+  "upload_settings": {
+    "method": "DIGIKEY_API",
+    "digikey_api": {
+      "environment": "live",
+      "base_url": "https://api.digikey.com",
+      "authorize_url": "https://api.digikey.com/v1/oauth2/authorize",
+      "token_url": "https://api.digikey.com/v1/oauth2/token",
+      "redirect_uri": "https://db.engelking.de/trader/oauth_digikey_callback.prg",
+      "scope": "",
+      "client_id": "KTqwPTA6vjG313YdwNmnriORPPM1Kq6paANc0OqCvAYsASAN",
+      "supplier_id": "6312",
+      "file_origin": "API",
+      "upload_version": "V2",
+      "excludes_dk_article_id": false,
+      "import_type": "REPLACE",
+      "customer_code": "",
+      "price_breaks": 3,
+      "timeout_seconds": 30,
+      "curl_path": "c:\\curl\\bin\\curl"
+    }
+  },
+  "notification_settings": {
+    "error_email": {
+      "enabled": true,
+      "recipients": [
+        {"email": "amos.engelking@engelking.de", "name": "Amos"}
+      ],
+      "subject": "DigiKey Upload Error"
+    },
+    "success_email": {
+      "enabled": false,
+      "recipients": [],
+      "subject": "DigiKey Upload Success"
+    }
+  },
+  "product_data_settings": {
+    "warehouse": 1,
+    "state": 11,
+    "reversecharge": false,
+    "lead_time_multiplier": 5,
+    "sku_suffixes": {
+      "stock": "S",
+      "waldom": "W",
+      "incoming": "I",
+      "production": "P"
+    }
+  },
+  "filters": {
+    "include_with_conrad_number": false,
+    "include_with_image": true,
+    "exclude_obsolete": true,
+    "include_cm_parts": true
+  }
+}

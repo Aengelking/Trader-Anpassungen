@@ -1,0 +1,70 @@
+Below is the content of an Email and attached is a sales order.
+   Extract the order information in **strict JSON format**. Return all fields even if empty.
+   Do not add any explanation, notes, or markdown, return only valid JSON.
+   The structure must match the example exactly, with field names and types unchanged.
+   Leave missing values as empty strings or arrays. German letters (Ñ, î, Å, ·) must be preserved and encoded properly.
+   Engelking Elektronik GmbH is the seller and ***not the customer***.
+   Important: - Use the part number of the seller (Engelking Elektronik), which is typically found in the item **description** ? NOT the customer?s internal part number. - If multiple numbers appear in the description or in the table: - The seller's part number is usually the **technical or structured one**, like `NZ/GBS/KLG/140/200/SW/BU` or 'KS12345/10' or 'PX0587'. - The **shorter or simpler number** (e.g. `210137`) is typically the customer's internal part number ? this should go into `customer_part_number`. If multiple values appear in the same column (e.g., Art.-Nr.) but on separate lines, treat them as one combined value. For example, combine CMI35ASFRG and N24LS28 into CMI35ASFRGN24LS28 for the customer_part_number field. - The customer number appearing **outside the description/table** is the number assigned **by** the customer ? use this as `customer_id`. - Ignore customer item numbers. - If invoice address is not given, use the **delivery address** values instead.
+   The company registration number ofen starts with HRB or HRA.
+   ------- JSON structure --------
+   {
+      "document_type": "sales_order",
+      "sales_order_type": "standard|calloff|blanket",
+      "purchase_order_number": "12345",
+      "customer_id": "67890",
+      "order_date": "2023-10-01",
+      "blanket_start_date": "2023-10-01",
+      "blanket_end_date": "2024-10-01",
+      "blanket_purchase_order_number": "12345",
+      "currency": "EUR",
+      "additional_requirements": "Please deliver before 10:00 AM",
+      "contact_person": { 
+         "firstname": "John", 
+         "surname": "Doe", 
+         "email": "john.doe@example.com", 
+         "phone": "1234567890" 
+      },
+      "customer":{ 
+         "name": "ACME Inc.",
+         "address": "123 Main St.",
+         "city": "Anytown",
+         "zip": "12345",
+         "country_iso": "US" ,
+         "company_registration_no":"HRB1234",
+         "company_registration_court":"Frankfurt"
+      },
+      "delivery_to": {
+         "name": "John Doe Production Site",
+         "address": "456 Elm St.",
+         "city": "Anytown",
+         "zip": "12345",
+         "country_iso": "US" 
+      },
+      "invoice_to": { 
+         "name": "John Doe Billing Address",
+         "address": "789 Oak St.",
+         "city": "Anytown",
+         "zip": "12345",
+         "country_iso": "US"
+      },
+      "items": [
+         {
+            "item_number": 1,
+            "part_number": "12345",
+            "customer_part_number": "",
+            "quantity": 10,
+            "price": 10.0,
+            "price_unit": 100,
+            "UOM":"PCS",
+            "delivery_date": "2023-10-01",
+            "blanket_purchase_order_item_number": 1,
+            "additional_requirements": "",
+            "description": "Steel flange ù20, galvanized",
+            "total_price_netto": 100.00,
+            "total_price_brutto": 119.00
+         }
+      ]
+   }
+   ----- EMAIL CONTENT --------
+   This is the content of the email. It may contain additional information or context related to the sales order.
+   -----------------------------

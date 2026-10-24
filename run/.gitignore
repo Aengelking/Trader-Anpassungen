@@ -1,0 +1,12 @@
+cleverreach_token.json
+
+# local build-aid symlink for syntax checks on POSIX (mirrors the
+# Windows-relative include path ..\hooks\archive.ch in mcp_stdio.prg)
+..\\hooks\\archive.ch
+supabase/logs
+
+# Auswertungsausgabe von agorum_status.prg (Laufergebnis, kein Quelltext)
+agorum_status.txt
+agorum_adresse.txt
+agorum_mailpruefung.txt
+agorum_nachtrag.txt

@@ -1,0 +1,32 @@
+{
+  "general": {
+    "company": {
+      "name": "Engelking Elektronik",
+      "weee_default": "DE 43356265"
+    },
+    "system": {
+      "debug_default": true,
+      "timeout_default": 30,
+      "batch_size": 1000
+    },
+    "suppliers": {
+      "waldom": {
+        "name": "WALDOM",
+        "code": "WALDOM",
+        "default_delivery_days": 7
+      },
+      "onpow": {
+        "name": "ONPOW", 
+        "code": "ONPOW",
+        "price_tab": 75
+      }
+    },
+    "product_defaults": {
+      "warehouse": 1,
+      "state": 11,
+      "reversecharge": false,
+      "lead_time_multiplier": 5,
+      "max_price_quantity": 100
+    }
+  }
+}

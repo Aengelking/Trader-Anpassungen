@@ -10,6 +10,25 @@ LOCAL aData, cInfoData, cDebugInfo
 LOCAL aSubDistis := {=>}
 LOCAL cSupplier,aAvail,nAvailableStock,nEk
 LOCAL aQty,oFolArt
+LOCAL hCache,cCacheKey,nCacheTTL := 600 //Ergebnis-Cache Staffel 60: 600 Sekunden
+
+//Staffel 60 (Engelking) ist teuer zu kalkulieren und wird pro Artikel oft mehrfach abgefragt (z.B. gepruefter Preis).
+//Ergebnis daher fuer nCacheTTL Sekunden im Speicher halten. Hooks laufen per hb_hrbRun, ein STATIC
+//ueberlebt den Aufruf nicht - daher ein PUBLIC-Hash (thread-lokal, gilt pro Trader-Sitzung).
+IF nTab == 60
+   IF ! __mvExist("PRICETAB60_CACHE")
+      __mvPublic("PRICETAB60_CACHE")
+      __mvPut("PRICETAB60_CACHE",{=>})
+   ENDIF
+   hCache    := __mvGet("PRICETAB60_CACHE")
+   cCacheKey := Str(nArtnr,6)+"|"+IF(ValType(dDate)=="D",DtoS(dDate),"")+"|"+IF(ValType(cKundma)=="C",Trim(cKundma),"")
+   IF HB_HHasKey(hCache,cCacheKey)
+      IF hb_MilliSeconds()-hCache[cCacheKey][1] <= nCacheTTL*1000
+         RETURN AClone(hCache[cCacheKey][2])
+      ENDIF
+      HB_HDel(hCache,cCacheKey)
+   ENDIF
+ENDIF
 
 NetUse("ptcache","ptc")
 //use cache if it is not older than a week (or a month for tab 60=Engelking)
@@ -227,7 +246,7 @@ ELSEIF nTab == 13 //Kabelkonfektion
          bpr->( dbSkip() )
       ENDDO
    ENDIF
-   aPriceTabs := ASort(aPriceTabs,,,{|a,b| a[1] < b[1] })
+   aPriceTabs := ASort(aPriceTabs,,,{|a,b| a[1] < b[1] })   
    
    IF Len(aPriceTabs) == 0
       aPriceTabs := {{1,9999.99}}
@@ -274,6 +293,7 @@ ELSEIF nTab == 15 //Value-Add
          art->(dbSetORder(2))
          art->(dbSeek( Str(part->Partart,6) ))    
          manu->(dbSeek( Str(art->Manufactur,5) ))
+         
          IF part->Pos == 0 .OR. part->Qty+part->AddQty <= 0 //header or part with no qty, ignore
             IF part->Pos == -1 .AND. ! GetConfigValue("BATCHMODE")               
                Tr_MsgBox("Lohnposition ohne Menge")
@@ -282,7 +302,7 @@ ELSEIF nTab == 15 //Value-Add
             IF part->Qty == 1
                nSubArt := art->Artikelnr
             ELSEIF Tr_Getini(28) == 9
-               Tr_MsgBox("Lohnposition mit mehr als einem Stï¿½ck;"+art->Matchcode)
+               Tr_MsgBox("Lohnposition mit mehr als einem Stck;"+art->Matchcode)
             ENDIF
          ELSEIF Trim(art->Type) == "VERP" //Left(art->Matchcode,6) == "KARTON" //nur Verpackung
             oArt := Artikel():New()
@@ -306,12 +326,12 @@ ELSEIF nTab == 15 //Value-Add
                aPriceTabs := {}
                lFound := .F.
                IF ! GetConfigValue("BATCHMODE")
-                  Tr_MsgBox({"Keine Preisstaffel fï¿½r "+trim(art->Matchcode)})
+                  Tr_MsgBox({"Keine Preisstaffel fr "+trim(art->Matchcode)})
                ENDIF
                EXIT
-            ELSEIF Len(aPriceTabs) == 0
+            ELSEIF Len(aPriceTabs) == 0               
                aPriceTabs := aPartPriceTabs
-            ELSE
+            ELSE               
                nX := 1
                DO WHILE nX <= Len(aPriceTabs)
                   nY := AScan(aPartPriceTabs,{|aTab| aTab[1] <= aPriceTabs[nX,1] })
@@ -400,7 +420,7 @@ ELSEIF nTab == 15 //Value-Add
             IF Len(aPriceTabs) >= 2 .AND. HGetKeyAt(hPrice,1) < aPriceTabs[2,1] //the next one is big enough, then we change the quantity on this one
                aPriceTabs[1,1] := HGetKeyAt(hPrice,1)
                nX := 2
-               DO WHILE nX <= Len(hPrice) .AND. HGetKeyAt(hPrice,nX) <= aPriceTabs[nX,1] 
+               DO WHILE nX <= Len(hPrice) .AND. HGetKeyAt(hPrice,nX) < aPriceTabs[nX,1] //nur Mengen einfuegen, die es noch nicht gibt (sonst doppelte Staffel)
                   HB_AIns(aPriceTabs,nX,{HGetKeyAt(hPrice,nX),aPriceTabs[1,2]},.T.) 
                   nX++
                ENDDO    
@@ -426,6 +446,16 @@ ELSEIF nTab == 15 //Value-Add
          NEXT
          
          ASort(aPriceTabs,,,{|a,b| a[1] < b[1] })
+         //doppelte Mengen zusammenfassen, der guenstigere Preis bleibt
+         nX := 2
+         DO WHILE nX <= Len(aPriceTabs)
+            IF aPriceTabs[nX,1] == aPriceTabs[nX-1,1]
+               aPriceTabs[nX-1,2] := Min(aPriceTabs[nX-1,2],aPriceTabs[nX,2])
+               HB_ADel(aPriceTabs,nX,.T.)
+            ELSE
+               nX++
+            ENDIF
+         ENDDO
 
       ELSE       
          IF ! GetConfigValue("BATCHMODE") 
@@ -490,7 +520,7 @@ ELSEIF nTab == 75 .OR. nTab == 10
       art->(dbSetOrder( 2 ))
 
       IF ! part->(dbSeek( Str(nArtnr,6) ))      
-         Alert("No partlist")
+         //Alert("No partlist")
       ENDIF
       nSubArt := 0
       lFound := .F.
@@ -795,6 +825,16 @@ IF Tr_GetIni(28) == 9 //.AND. nTab == 44
    //Alert(cKundma)
 ENDIF
 
+
+IF nTab == 60 .AND. hCache != NIL .AND. Len(aPriceTabs) > 0
+   //abgelaufene Eintraege entfernen, damit der Cache nicht waechst
+   FOR nX := Len(hCache) TO 1 STEP -1
+      IF hb_MilliSeconds()-HB_HValueAt(hCache,nX)[1] > nCacheTTL*1000
+         HB_HDelAt(hCache,nX)
+      ENDIF
+   NEXT
+   hCache[cCacheKey] := {hb_MilliSeconds(),AClone(aPriceTabs)}
+ENDIF
 
 RETURN aPriceTabs
 

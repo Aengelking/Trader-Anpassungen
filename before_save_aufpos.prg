@@ -16,11 +16,12 @@ LOCAL aFreigabeList
 LOCAL nStock
 LOCAL lSaveTodo := .F.
 LOCAL bGetFreigabe := { |nLief,oLief|
-   LOCAL cText
+   LOCAL cText,cNextLevel
    
    oAufPos:Artikel:gotoRec()
    //Alert(art->Matchcode)
-   hFreigabe := GetFreigabeBesState(nLief)   
+   hFreigabe := GetFreigabeBesState(nLief)      
+   cNextLevel := GetNextFreigabeLevel(oAufPos:Artikel:Artikelnr,nLief,hFreigabe:aStatus[1])
    IF nLief == 0
       cText := "INTERN "  
    ELSE
@@ -29,6 +30,9 @@ LOCAL bGetFreigabe := { |nLief,oLief|
    //Alert("Freigabe wird geprÅft fÅr: "+cText)
    IF hFreigabe:lBes       
       //Alert("bestellbar "+Ltrim(Str(hFreigabe:PPF))+ValToPrg(hFreigabe:aStatus))
+      IF cNextLevel == "VMU"
+         Aadd(aFreigabeList,cText+" Teile dienen nur als Vorserienmuster (keine Erstmuster!)")
+      ENDIF
       IF ! lBes .AND. hFreigabe:nMaxQty != 0 //noch nicht durch anderen Lieferanten freiggebn um Menge beschrÑnkt
          nMaxQty += hFreigabe:nMaxQty
          cText += "Freigabe fÅr "+LTrim(Str(nMaxQty))+" erteilt. " 
@@ -472,10 +476,9 @@ IF oContrPos != NIL .AND. oExtra:AufLos //"|"+Trim(oAufPos:Auftrag:Kundma)+"|" $
             IF oAufPos:lNew
                MBaseRun(Trim(Tr_Getini(1))+"\run\fremdab",{oAufPos,"DEL"})
             ELSE
-               //reset call off
-               //nNewQty := oAufPos:VkQty
+               //reset call off: first take back the quantity already booked on the frame, then reset the position
+               MBaseRun(Trim(Tr_Getini(1))+"\run\fremdab",{oAufPos,"UNDO"})
                oAufPos:VkQty := oAufPos:GetField("VkQty",.T.)
-               MBaseRun(Trim(Tr_Getini(1))+"\run\fremdab",{oAufPos,"EDIT"})
             ENDIF
          ENDIF
          RETURN .F.

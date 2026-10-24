@@ -2,7 +2,8 @@
 
 CLASS Perplexity FROM RestAPI
    DATA cBaseUrl INIT "https://api.perplexity.ai/chat/completions"
-   DATA cToken INIT "SCHLUESSEL_ENTFERNT"
+   
+   DATA cApiKeyName INIT "PERPLEXITY"
 
    DATA aMessages INIT {}
 
@@ -10,7 +11,7 @@ CLASS Perplexity FROM RestAPI
 ENDCLASS
 
 METHOD Ask(cPrompt,cModel,hData) CLASS Perplexity
-   LOCAL aHeaders := {"Authorization: Bearer "+::cToken,"Content-Type: application/json"}
+   LOCAL aHeaders := {"Authorization: Bearer $APIKEY$","Content-Type: application/json"}
    LOCAL cAnswer,hAnswer
 
    Default(@cModel,"sonar-pro")

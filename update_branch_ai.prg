@@ -75,19 +75,20 @@ RETURN
 
 FUNC UpdateBrancheWithAI(cError)
    LOCAL cUrl := "https://api.perplexity.ai/chat/completions"
-   LOCAL cToken := "SCHLUESSEL_ENTFERNT"
+  
    LOCAL oRest := RestAPI():New()
    LOCAL hData := {=>},aHeader,hAnswer,cAnswer
    LOCAL cContent,hContent,cPrompt
    LOCAL cBranchen := "",oExtra,lSuccess
 
    cError := ""
-
+//Alert("Starting UpdateBrancheWithAI")
    NetUse("branch","br")
 
    oRest:cBaseUrl := cUrl
+   oRest:cApiKeyName := "PERPLEXITY"
 
-   aHeader := {"Authorization: Bearer "+cToken,"Content-Type: application/json"}
+   aHeader := {"Authorization: Bearer $APIKEY$","Content-Type: application/json"}
 
    hData["model"] := "sonar-pro"
 

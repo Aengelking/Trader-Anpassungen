@@ -2,16 +2,6 @@
 PROCEDURE RUN_Browser(cUrl,cTitle)
    cUrl := "https://engelking.frepple.com/quote/"
    cTitle := "Lieferzeit fr Angebote berechnen"
-   /*Default(@cSecret, GetConfigValue("JWT_SECRET"))
-   IF Empty(cSecret)
-      cSecret := "frepple-default-secret-key-change-in-production"
-   ENDIF
-   
-   // Create payload with user information
-   hPayload := CreateJWTPayload(cUserId, cEmail, 24) // 24 hours expiration
-   
-   // Generate JWT token
-   cToken := GenerateJWT(hPayload, cSecret, "HS256")*/
 
 hb_threadStart({|cUrl,cTitle|        
          
@@ -125,52 +115,6 @@ FUNCTION CreateJWTPayload(cUserId, cEmail, nExpirationHours)
    hPayload["type"] := "access_token"
    
 RETURN hPayload
-
-// Example usage function
-FUNCTION CreateFreppleJWT(cUserId, cEmail, cSecret)
-   LOCAL hPayload, cToken
-   
-   Default(@cSecret, GetConfigValue("JWT_SECRET"))
-   IF Empty(cSecret)
-      cSecret := "frepple-default-secret-key-change-in-production"
-   ENDIF
-   
-   // Create payload with user information
-   hPayload := CreateJWTPayload(cUserId, cEmail, 24) // 24 hours expiration
-   
-   // Generate JWT token
-   cToken := GenerateJWT(hPayload, cSecret, "HS256")
-   
-RETURN cToken
-
-// Test function to demonstrate JWT generation
-PROCEDURE TestJWTGeneration()
-   LOCAL cToken, hPayload
-   LOCAL cUserId := "user123"
-   LOCAL cEmail := "user@example.com"
-   LOCAL cSecret := "my-super-secret-key"
-   
-   // Test 1: Generate a basic JWT token
-   Alert("Generating JWT token for user: " + cUserId)
-   cToken := CreateFreppleJWT(cUserId, cEmail, cSecret)
-   Alert("Generated JWT Token: " + cToken)
-   
-   // Test 2: Generate with custom payload
-   hPayload := {=>}
-   hPayload["user_id"] := cUserId
-   hPayload["email"] := cEmail
-   hPayload["role"] := "admin"
-   hPayload["permissions"] := {"read", "write", "delete"}
-   hPayload["exp"] := Int((DateTime() + 1) * 86400) // 1 day from now
-   
-   cToken := GenerateJWT(hPayload, cSecret, "HS256")
-   Alert("Custom JWT Token: " + cToken)
-   
-   // Test 3: Different algorithm (fallback to HS256 in our implementation)
-   cToken := GenerateJWT(hPayload, cSecret, "HS512")
-   Alert("HS512 JWT Token (fallback): " + cToken)
-   
-RETURN
 
 // Validate JWT token (basic structure validation)
 FUNCTION ValidateJWTStructure(cToken)

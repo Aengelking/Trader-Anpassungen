@@ -18,4 +18,17 @@ Nicht hier: der Trader-Kern (`Aengelking/Trader`, wird mit Windows gebaut), der 
 
 ## Arbeiten mit der AppSchneiderei
 
-Projektart „Trader-Anpassungen“: `master`/`main` ist das Produkt, `kunde/<firma>` die Version einer Firma. Änderungen per Chat, Vorschau = Prüfergebnis des Harbour-Compilers, „Freigeben“ prüft die geänderten Skripte; Trader holt den freigegebenen Stand mit seinem Token ab und spielt jeden Ordner in sein Verzeichnis (siehe Tabelle).
+Projektart „Trader-Anpassungen“: `main` ist das Produkt, `kunde/<firma>` die Version einer Installation. Änderungen per Chat, Vorschau = Prüfergebnis des Harbour-Compilers, „Freigeben“ prüft die geänderten Skripte.
+
+## Einspielen in Trader (`run/schneiderei_abholen.prg`)
+
+Trader holt den freigegebenen Stand selbst ab: Das Run-Skript fragt die AppSchneiderei nach dem Stand, vergleicht jede Datei unter `hooks/`, `run/` und `mask/` über ihre Git-Blob-SHA mit der Datei in Trader, holt nur Geändertes, prüft es und ersetzt die alte Datei über eine Zwischendatei. Danach meldet es zurück, was eingespielt ist (Reiter „Abholung“). Gelöscht wird nichts.
+
+Einmalig je Installation:
+
+1. In der AppSchneiderei im Reiter „Abholung“ ein Token erzeugen.
+2. In Trader im Schlüsselbund einen Eintrag `SCHNEIDEREI` mit dem Token als Kennwort anlegen.
+3. In den Werten (`GetValue`) `SCHNEIDEREI_URL` auf die angezeigte Adresse setzen (`https://runner.<domain>/v1/trader/`).
+4. `run/schneiderei_abholen.prg` einmal von Hand in das Run-Verzeichnis kopieren – danach hält es sich selbst aktuell.
+5. Erst einen Testlauf: `trader:-R&schneiderei_abholen&{"J"}` schreibt nichts, protokolliert aber jede Datei mit ihrem Ziel (`run\logs\schneiderei_abholen_*.log`). Dort prüfen, dass die Zielverzeichnisse stimmen.
+6. Dann regelmäßig aus der Aufgabenplanung: `trader:-R&schneiderei_abholen`.

@@ -9,7 +9,6 @@ This directory contains the configuration files for the product data export syst
 
 ### Channel Configurations
 - `channels/` - Directory containing individual channel configuration files
-  - `conrad.json` - Conrad B2B marketplace configuration
   - `amazon.json` - Amazon Business marketplace configuration (example)
   - `digikey.json` - DigiKey Quote API configuration
 
@@ -51,12 +50,9 @@ The system loads configurations in this order:
 To use a specific channel configuration, pass the channel name to the ProductDataXML function:
 
 ```harbour
-// Use Conrad configuration
-ProductDataXML(.T., .F., "conrad")
+// Use DigiKey configuration
+ProductDataXML(.T., .F., "digikey")
 
 // Use Amazon configuration  
 ProductDataXML(.T., .F., "amazon")
-
-// Default to Conrad if no channel specified
-ProductDataXML(.T., .F.)
 ```

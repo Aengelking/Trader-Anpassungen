@@ -23,8 +23,6 @@ LOCAL nStdOUT,nProc,cData,cCmd,cLine,nBytes,nSecond,hData,lSuccess
 LOCAL aRecipients,cSubject
 LOCAL oExtra
 
-Default(@cChannel,"conrad")
-
 // Set current channel and load all configurations
 IF ! SetCurrentChannel(cChannel)
    RETURN

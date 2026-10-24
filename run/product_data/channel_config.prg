@@ -46,12 +46,11 @@ FUNCTION LoadAllChannelConfigs()
 RETURN .T.
 
 FUNCTION SetCurrentChannel(cChannelName)
-   // Default to Conrad if no channel specified
    IF Empty(cChannelName)
-      cChannelName := "conrad"
-   ELSE
-      cChannelName := Lower(cChannelName)
+      Alert("No channel specified")
+      RETURN .F.
    ENDIF
+   cChannelName := Lower(cChannelName)
    
    // Load all configs if not already loaded
    IF s_hAllConfigs == NIL

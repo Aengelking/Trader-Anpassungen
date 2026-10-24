@@ -30,8 +30,9 @@
  *   trader:-R&schneiderei_abholen               einspielen
  *   trader:-R&schneiderei_abholen&{"J"}         Testlauf: nur protokollieren, nichts schreiben
  *
- * Config (GetValue, siehe Schneiderei_Abholen_Setup):
- *   SCHNEIDEREI_URL   Adresse der Abholung, wie im Reiter "Abholung" der
+ * Config (GetValue, siehe Schneiderei_Abholen_Setup; Kategorie = Teil vor dem
+ * ersten "_", hoechstens 10 Zeichen - daher SCHNEIDERE wie im Schluesselbund):
+ *   SCHNEIDERE_URL    Adresse der Abholung, wie im Reiter "Abholung" der
  *                     AppSchneiderei angezeigt, z. B.
  *                     https://runner.appschneiderei.cloud/v1/trader/
  *
@@ -57,9 +58,9 @@ PROCEDURE RUN_SCHNEIDEREI_ABHOLEN(cTestlauf)
 
    Schneiderei_Abholen_Setup()
 
-   cBase := AllTrim(SA_Str(GetValue("SCHNEIDEREI_URL")))
+   cBase := AllTrim(SA_Str(GetValue("SCHNEIDERE_URL")))
    IF Empty(cBase)
-      SA_Ende(cLogFile, lBatch, "SCHNEIDEREI_URL ist nicht gesetzt.")
+      SA_Ende(cLogFile, lBatch, "SCHNEIDERE_URL ist nicht gesetzt.")
       RETURN
    ENDIF
    IF Right(cBase, 1) != "/"
@@ -139,7 +140,7 @@ RETURN
 
 
 FUNCTION Schneiderei_Abholen_Setup()
-   GetValue("SCHNEIDEREI_URL", "", "Adresse der Abholung (Reiter Abholung der AppSchneiderei)")
+   GetValue("SCHNEIDERE_URL", "", "Adresse der Abholung (Reiter Abholung der AppSchneiderei)")
 RETURN NIL
 
 

@@ -43,13 +43,7 @@ IF lRech //Rechnung
 
 
       IF Trim(oRechnung:oKunde:Kunde) == "CONRADSE"
-         IF nNetto <= 85            
-            oRechnung:Porto := 3
-            oRechnung:Save()
-
-            oRechnung:UpdateTotal()
-         ENDIF
-
+         //porto so belassen wie es bei der Rechnung erstellt wird
       ELSE
 
       

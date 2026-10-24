@@ -1,6 +1,7 @@
 FUNC HOOK_BEFORE_CREATE_INVOICE(oRechnung,lCredit)
    LOCAL hContacts
    LOCAL aMsg
+   LOCAL nNetto
 
    MEMVAR mcInvoiceError
    PUBLIC mcInvoiceError
@@ -48,7 +49,21 @@ FUNC HOOK_BEFORE_CREATE_INVOICE(oRechnung,lCredit)
          RETURN .F.
       ENDIF
    ENDIF
-   IF lCredit
+   IF Trim(oRechnung:oKunde:Kunde) == "CONRADSE"
+      nNetto := oRechnung:Brutto
+      IF oRechnung:ReArt < 2
+         nNetto -= oRechnung:MwSt
+      ENDIF
+      nNetto -= oRechnung:Porto
+
+      IF nNetto <= 85            
+         oRechnung:Porto := 3
+      ELSE
+         oRechnung:Porto := 0
+      ENDIF
+      
+
+   ELSEIF lCredit
       oRechnung:Porto := 0
       oRechnung:Versandart := 21
    ELSEIF oRechnung:Versandart == 10 //Abholung

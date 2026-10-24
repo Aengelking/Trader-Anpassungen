@@ -16,13 +16,19 @@ FUNCTION HOOK_GET_WE_QM_NUMBER(oBesPos, oArt, hData, cBeleg)
    LOCAL hQm
    LOCAL hRet := {=>}
 
-   BEGIN SEQUENCE WITH {|e| Break(e)}
+   BEGIN SEQUENCE WITH {|e| Break(e)}      
       hQm := MBaseRun(Path("run\qm_we_register"), {"reserve", oBesPos, oArt, hData, cBeleg})
-
-      IF ValType(hQm) == "H" .AND. "inspection_number" $ hQm
-         hRet["qm_number"]         := Trim(hQm["inspection_number"])
-         hRet["qm_number_barcode"] := Trim(hQm["inspection_number"])
+//Alert("HERE: hQm = "+ValToPrg(hQm))
+      IF ValType(hQm) == "H"          
+         IF "inspection_number" $ hQm
+            hRet["qm_number"]         := Trim(hQm["inspection_number"])
+            hRet["qm_number_barcode"] := Trim(hQm["inspection_number"])
+         ENDIF
+         IF "decision" $ hQm .AND. hQm["decision"] $ {"new","appended"}
+            hRet["required"] := .T.
+         ENDIF
       ENDIF
-   RECOVER
+   RECOVER USING e
+      //Alert("Error reserving QM number: "+e:Message())
    END SEQUENCE
 RETURN hRet

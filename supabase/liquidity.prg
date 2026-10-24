@@ -104,7 +104,8 @@ FUNCTION RUN_SYNC_SUPABASE_LIQUIDITY(cUserId)
       RETURN .T.
    ENDIF
 
-   oRest:cBaseUrl := "https://fhyvjvjyszbqzefwvtpz.supabase.co/"
+   //oRest:cBaseUrl := "https://fhyvjvjyszbqzefwvtpz.supabase.co/"
+   oRest:cBaseUrl := "https://bjsocddqwaddzhybhixu.supabase.co"
    oRest:cApiKeyName := "LIQUIDITY"
 
    AAdd(aHeader, "x-api-key: $APIKEY$")

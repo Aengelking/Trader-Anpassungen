@@ -5832,11 +5832,63 @@ STATIC FUNCTION _MCP_MimeFromName(cName)
    ENDCASE
 RETURN "application/octet-stream"
 
+// Upload size cap for archive_document's content_base64 (raw bytes after decoding).
+#define MCP_ARCHIVE_MAX_UPLOAD 20000000
+
+// File name for an uploaded document: no path parts, no characters Windows
+// rejects. The archive hook derives the archived name from it.
+STATIC FUNCTION _MCP_SafeFileName(cName)
+   LOCAL cOut := "", cCh, n
+   cName := AllTrim(cName)
+   n := Max(RAt("\", cName), RAt("/", cName))
+   IF n > 0
+      cName := SubStr(cName, n + 1)
+   ENDIF
+   FOR n := 1 TO Len(cName)
+      cCh := SubStr(cName, n, 1)
+      cOut += IIF(Asc(cCh) < 32 .OR. cCh $ ':*?"<>|', "_", cCh)
+   NEXT
+   cOut := AllTrim(cOut)
+   DO WHILE Left(cOut, 1) == "."
+      cOut := SubStr(cOut, 2)
+   ENDDO
+RETURN IIF(Empty(cOut), "document", cOut)
+
+// Write an uploaded document to its own folder under the system temp dir, so
+// that AddFileToArchive() sees a normal file with the original name. Returns
+// the full path, or "" (cError tells why).
+STATIC FUNCTION _MCP_UploadToTemp(cName, cBase64, cDir, cError)
+   LOCAL cData, cFile
+   cData := hb_base64Decode(StrTran(StrTran(cBase64, Chr(13), ""), Chr(10), ""))
+   IF Empty(cData)
+      cError := "Parameter 'content_base64' is empty or not valid base64"
+      RETURN ""
+   ENDIF
+   IF Len(cData) > MCP_ARCHIVE_MAX_UPLOAD
+      cError := "Upload too large (" + LTrim(Str(Len(cData))) + " bytes, max " + LTrim(Str(MCP_ARCHIVE_MAX_UPLOAD)) + ")"
+      RETURN ""
+   ENDIF
+   cDir := hb_DirSepAdd(hb_DirTemp()) + "mcp_archive" + hb_ps() + ;
+           hb_TtoS(hb_DateTime()) + "_" + StrZero(hb_RandomInt(1, 999999), 6)
+   IF ! hb_DirBuild(cDir)
+      cError := "Could not create temp folder " + cDir
+      RETURN ""
+   ENDIF
+   cFile := hb_DirSepAdd(cDir) + _MCP_SafeFileName(cName)
+   IF ! hb_MemoWrit(cFile, cData) .OR. hb_FSize(cFile) != Len(cData)
+      FErase(cFile)
+      DirRemove(cDir)
+      cError := "Could not write temp file " + cFile
+      RETURN ""
+   ENDIF
+RETURN cFile
+
 FUNCTION MCP_Tool_Archive_Document(hArgs)
    LOCAL hResult := {=>}
    LOCAL cTyp, nNo, cFile, cArchived
    LOCAL aArchived := {}
    LOCAL hDocType
+   LOCAL lUpload, cTmpDir := "", cError := ""
    #include '..\hooks\archive.ch'
 
    // Return schema and description when called without arguments
@@ -5846,9 +5898,11 @@ FUNCTION MCP_Tool_Archive_Document(hArgs)
          "properties"=>{;
             "doc_type"=>{"type"=>"string","enum"=>{},"description"=>"Transaction type: "},;
             "number"=>{"type"=>"number","description"=>"Number of the transaction (e.g. the Bestellnummer for BES/BB)"},;
-            "file"=>{"type"=>"string","description"=>"Full path (as seen by the Trader server) of a file to archive"};
+            "file"=>{"type"=>"string","description"=>"Full path (as seen by the Trader server) of a file to archive. Use either file or content_base64 + filename"},;
+            "content_base64"=>{"type"=>"string","description"=>"The document itself, base64-encoded (max 20 MB) - for callers that cannot place a file where the Trader server can read it. Requires filename"},;
+            "filename"=>{"type"=>"string","description"=>"File name for content_base64, e.g. 'LS 4711.pdf' (path parts are dropped)"};
          },;
-         "required"=>{"doc_type","number","file"};
+         "required"=>{"doc_type","number"};
       }
       FOR EACH hDocType IN hTypes
          Aadd(hResult["schema"]["properties"]["doc_type"]["enum"],hDocType:__enumKey)
@@ -5856,8 +5910,9 @@ FUNCTION MCP_Tool_Archive_Document(hArgs)
       NEXT
       hResult["description"] := "Archive a file to a business transaction (Vorgang), e.g. a supplier's order " + ;
                                 "confirmation PDF to purchase order BB/4711. The file is stored via the standard " + ;
-                                "Trader archive (the same location the archive browser shows) and its path must be " + ;
-                                "reachable by the Trader server"
+                                "Trader archive (the same location the archive browser shows). Pass either 'file' " + ;
+                                "(a path the Trader server can read) or the document itself as 'content_base64' " + ;
+                                "plus 'filename'"
       RETURN hResult
    ENDIF
 
@@ -5867,27 +5922,49 @@ FUNCTION MCP_Tool_Archive_Document(hArgs)
    IF ! HB_IsNumeric(hArgs["number"])
       RETURN "Parameter 'number' must be a number"
    ENDIF
-   IF ! HHasKey(hArgs, "file") .OR. Empty(hArgs["file"])
-      RETURN "Parameter 'file' (a path reachable by the Trader server) is required"
+   lUpload := HHasKey(hArgs, "content_base64") .AND. ValType(hArgs["content_base64"]) == "C" .AND. ! Empty(hArgs["content_base64"])
+   IF lUpload .AND. HHasKey(hArgs, "file") .AND. ! Empty(hArgs["file"])
+      RETURN "Pass either 'file' or 'content_base64', not both"
+   ENDIF
+   IF lUpload .AND. ( ! HHasKey(hArgs, "filename") .OR. ValType(hArgs["filename"]) != "C" .OR. Empty(hArgs["filename"]) )
+      RETURN "Parameter 'filename' is required with 'content_base64'"
+   ENDIF
+   IF ! lUpload .AND. ( ! HHasKey(hArgs, "file") .OR. Empty(hArgs["file"]) )
+      RETURN "Parameter 'file' (a path reachable by the Trader server) or 'content_base64' + 'filename' is required"
    ENDIF
    cTyp := Upper(AllTrim(hArgs["doc_type"]))
    nNo := hArgs["number"]
 
-   cFile := HB_UTF8ToStr(AllTrim(hArgs["file"]))
-   IF ! File(cFile)
-      RETURN "File not found: " + cFile
+   IF lUpload
+      cFile := _MCP_UploadToTemp(HB_UTF8ToStr(hArgs["filename"]), hArgs["content_base64"], @cTmpDir, @cError)
+      IF Empty(cFile)
+         RETURN cError
+      ENDIF
+   ELSE
+      cFile := HB_UTF8ToStr(AllTrim(hArgs["file"]))
+      IF ! File(cFile)
+         RETURN "File not found: " + cFile
+      ENDIF
    ENDIF
    BEGIN SEQUENCE
       cArchived := AddFileToArchive(cTyp, nNo, cFile, .T.)
    RECOVER
       cArchived := ""
    END SEQUENCE
+   IF lUpload
+      // The temp copy is ours; the archive keeps its own copy
+      IF File(cFile)
+         FErase(cFile)
+      ENDIF
+      DirRemove(cTmpDir)
+   ENDIF
    IF Empty(cArchived)
       hResult["status"] := "error"
       hResult["message"] := "Archiving failed - the archive hook returned no target file"
       RETURN hResult
    ENDIF
-   AAdd(aArchived, {"source"=>HB_StrToUTF8(cFile), "archived_as"=>HB_StrToUTF8(cArchived)})
+   AAdd(aArchived, {"source"=>IIF(lUpload, HB_StrToUTF8(_MCP_SafeFileName(HB_UTF8ToStr(hArgs["filename"]))), HB_StrToUTF8(cFile)), ;
+                    "archived_as"=>HB_StrToUTF8(cArchived)})
 
    hResult["doc_type"] := cTyp
    hResult["number"] := nNo

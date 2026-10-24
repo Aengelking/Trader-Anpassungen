@@ -39,10 +39,12 @@ METHOD New() CLASS AIService
    
    // Initialize API headers
    Aadd(::aHeader, "content-type: application/json")
-   Aadd(::aHeader, "x-api-key: SCHLUESSEL_ENTFERNT")
+   Aadd(::aHeader, "x-api-key: $APIKEY$")
    Aadd(::aHeader, "anthropic-version: 2023-06-01")
    
    ::oRest:cBaseUrl := "https://api.anthropic.com/v1/"
+   ::oRest:cApiKeyName := "ANTHROPIC"
+   
 RETURN Self
 
 METHOD ProcessEmail(oItem, cNotFileRegex) CLASS AIService

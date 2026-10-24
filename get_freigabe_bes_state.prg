@@ -51,7 +51,7 @@ ELSEIF cNextLevel == "MUS" .OR. ;
    ENDIF
    IF art->Gruppe == "KANK" //Netzkabel            
       hRet:nMaxQty     := 1000
-   ELSEIF oArt:Manufactur == 6 //Engelking
+   ELSEIF oArt:Manufactur == 6 .AND. nSupplier $ {0} //Engelking. 30.09.26 added nSupplier = 0 to stop parts which are setup incorrectly beeing ordered by some random chineese
       hRet:nMaxQty     := 500
    ELSEIF oArt:Manufactur == 5 //Engelking China
       hRet:nMaxQty     := 11   //10 for the customer and one for us

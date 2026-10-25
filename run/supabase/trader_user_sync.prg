@@ -83,7 +83,7 @@ STATIC FUNCTION GetSupabaseConfigs()
       "enabled" => .T.,;
       "sync_mode" => "UPSERT",;
       "create_users" => .T.,;
-      "send_email" => .F.;
+      "send_email" => .T.;
    })
   
    // Development Database
@@ -94,7 +94,7 @@ STATIC FUNCTION GetSupabaseConfigs()
       "enabled" => .T.,;
       "sync_mode" => "UPSERT",;
       "create_users" => .T.,;
-      "send_email" => .F.;
+      "send_email" => .T.;
    })
   /* 
    // Backup Database
@@ -306,22 +306,17 @@ RETURN lSuccess
  */
 STATIC FUNCTION PrepareUserAuthData(hConfig)
    LOCAL hData := {=>}
-   LOCAL cEmail, cPassword
-   
-   // Generate email if not provided
-   cEmail := AllTrim(buy->Email)
+   LOCAL cEmail := AllTrim(buy->Email)
+
+   // Only users with a real mailbox: they set their own password via the mail
    IF Empty(cEmail)
-      // Generate email based on initials and domain
-      cEmail := Lower(AllTrim(buy->Initials)) + "@trader.local"
+      RETURN NIL
    ENDIF
-   
-   // Generate a default password (should be changed on first login)
-   cPassword := "Trader" + LTrim(Str(buy->(Recno()))) + "!"
-   
+
    // Basic auth user information
    hData["email"] := cEmail
-   hData["password"] := cPassword
-   hData["email_confirm"] := .T. // Skip email confirmation
+   hData["password"] := RandomPassword() // Known to nobody, never logged
+   hData["email_confirm"] := .T. // Address comes from Trader
    
    // User metadata - custom fields
    hData["user_metadata"] := {=>}
@@ -361,6 +356,7 @@ STATIC FUNCTION SyncSingleAuthUser(oSupa, hConfig, hUserData, cLogFile)
    LOCAL cEmail := hUserData["email"]
    LOCAL nTraderUserId := hUserData["user_metadata"]["trader_user_id"]
    LOCAL cUserId, hUpdateData
+   LOCAL lCreated := .F.
    
    IF hConfig["sync_mode"] == "UPSERT"
       // Check if user exists by email
@@ -406,6 +402,7 @@ STATIC FUNCTION SyncSingleAuthUser(oSupa, hConfig, hUserData, cLogFile)
          ELSE
             // Create new user
             cResult := oSupa:Execute(cEndpoint, "POST", hUserData, , .T.)
+            lCreated := .T.
 #ifdef LOG_ENABLED
             WriteLog(cLogFile, "DEBUG", "Created auth user: " + cEmail )
 #endif
@@ -419,6 +416,7 @@ STATIC FUNCTION SyncSingleAuthUser(oSupa, hConfig, hUserData, cLogFile)
       
    ELSE // INSERT mode - always create new user
       cResult := oSupa:Execute(cEndpoint, "POST", hUserData, , .T.)
+      lCreated := .T.
 #ifdef LOG_ENABLED
       WriteLog(cLogFile, "DEBUG", "Created auth user: " + cEmail)
 #endif
@@ -434,8 +432,36 @@ STATIC FUNCTION SyncSingleAuthUser(oSupa, hConfig, hUserData, cLogFile)
 #ifdef LOG_ENABLED
       WriteLog(cLogFile, "WARNING", "Auth user already exists: " + cEmail)
 #endif
+   ELSEIF lCreated .AND. hConfig["send_email"]
+      SendPasswordSetupMail(oSupa, cEmail, cLogFile)
    ENDIF
    
+RETURN lSuccess
+
+/**
+ * Random password for new auth users: 32 bytes from Harbour's
+ * OS-seeded generator, hex-encoded. Nobody knows it; the user sets
+ * an own password via the reset mail or signs in with Microsoft.
+ */
+STATIC FUNCTION RandomPassword()
+RETURN hb_StrToHex(hb_randStr(32))
+
+/**
+ * Send the standard Supabase password reset mail so a new user
+ * can choose an own password
+ */
+STATIC FUNCTION SendPasswordSetupMail(oSupa, cEmail, cLogFile)
+   LOCAL cResult := oSupa:Execute("auth/v1/recover", "POST", {"email" => cEmail}, , .T.)
+   LOCAL lSuccess := ! "error" $ Lower(cResult)
+
+#ifdef LOG_ENABLED
+   IF lSuccess
+      WriteLog(cLogFile, "INFO", "Sent password setup mail to: " + cEmail)
+   ELSE
+      WriteLog(cLogFile, "ERROR", "Failed to send password setup mail to " + cEmail + ": " + cResult)
+   ENDIF
+#endif
+
 RETURN lSuccess
 
 /**

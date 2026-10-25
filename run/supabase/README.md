@@ -118,9 +118,9 @@ The sync maps trader user fields to Supabase Auth user structure:
 ### Basic Auth Fields
 | Trader Field | Auth Field | Description |
 |--------------|------------|-------------|
-| buy->Email or generated | email | Email address (generated if empty) |
-| Generated | password | Default password (should be changed) |
-| - | email_confirm | Set to true (skip confirmation) |
+| buy->Email | email | Email address (users without email are skipped) |
+| Random | password | 32 random bytes, hex; known to nobody. With `send_email` the user gets the password reset mail to set an own password |
+| - | email_confirm | Set to true (address comes from Trader) |
 
 ### User Metadata (user-editable)
 | Trader Field | Metadata Field | Description |
@@ -198,13 +198,13 @@ The system includes comprehensive error handling:
 2. **File Permissions**: Protect configuration files containing sensitive keys
 3. **Network**: Ensure secure HTTPS connections to Supabase
 4. **Logging**: Log files may contain email addresses and sensitive information
-5. **Passwords**: Generated passwords should be changed on first login
+5. **Passwords**: New users get a random password nobody knows; they set their own via the reset mail or sign in with Microsoft
 6. **Email Verification**: Consider enabling email verification in production
 
 ## Authentication Flow
 
 After sync, users can authenticate using:
-1. **Email/Password**: Using generated or updated passwords
+1. **Email/Password**: After setting an own password via the reset mail
 2. **SSO Integration**: If configured in Supabase
 3. **Magic Links**: If enabled in Supabase Auth
 

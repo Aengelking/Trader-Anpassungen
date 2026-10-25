@@ -1,7 +1,5 @@
 
 
-//URL for downloading PDF: http://app.creditsafede.com/CSDEWebsite/Company/Print/DE01679628?saveReport=save
-//most likely after login with the Username and password
 
 
 FUNCTION CreditSafe
@@ -9,19 +7,11 @@ FUNCTION CreditSafe
    MEMVAR mcCSLastError
    PRIVATE mcCSLastError := ""
 
-   //Test Service
-   /*oUrl := tUrl():New("https://testwebservices.creditsafe.com/GlobalData/1.3/MainServiceBasic.svc")
-   oUrl:cUserId := "engelkingtest"
-   oUrl:cPassword := "engelking558989"*/
-
-
-   //Live Service
+   //Zugangsdaten: Schluesselbund-Eintrag CREDITSAFE (Benutzer + Kennwort, Ziel
+   //https://webservices.creditsafe.com/). Bis 10/2026 standen sie hier im Klartext.
+   //Testdienst: https://testwebservices.creditsafe.com/GlobalData/1.3/MainServiceBasic.svc
    oUrl := tUrl():New("https://webservices.creditsafe.com/GlobalData/1.3/MainServiceBasic.svc")
-   oUrl:cUserId := "engelkinglive"
-   oUrl:cPassword := "engelkinglive6985"
-
-   
-   oSOAP := SOAPHttpClient():New(oUrl)
+   oSOAP := SOAPHttpClient():New(oUrl,"CREDITSAFE")
    oSOAP:bSOAPAction := {|cNS,cMethod|
       cService := ""
       IF cMethod+" " $ "GetCountries FindCompanies GetPossibleSearchCriteria GetReportCustomDataSchema "
@@ -138,90 +128,6 @@ FUNCTION CS_GetCompanyReport(oSoap,cID,nReason)
       RETURN oReport
    ENDIF
 RETURN NIL
-
-FUNCTION CS_DownloadAndSavePdfReport(oXML,nReason,nKuNummer)
-   LOCAL cFileName,cNewFile := "",cPDF
-   LOCAL oLogin,oHttp,oUrl
-   LOCAL nFH
-   LOCAL aReason := {"CreditEnquiry","BusinessRelationship","SolvencyCheck","CommercialCreditInsurance","Contract","RentContract","InsuranceContract","Claim"}
-   LOCAL hQuery := {=>}
-   LOCAL oIter,oNode,nX,cID,cValue,lReg,hCookies
-   
-   MEMVAR mcCSLastError
-
-   oIter := TXMLIteratorScan():New(oXml:oRoot)
-   oNode :=  oIter:Find("Number")
-   IF oNode != NIL
-      cID := oNode:cData
-   ELSE
-      Alert("Error in report data")
-      RETURN ""
-   ENDIF
-
-   oIter:rewind()
-   lReg := oIter:Find("CompanyRegistrationNumber") != NIL
-
-   oLogin := TipClientHttp():New("http://www.creditsafede.com/CSDEWebSite")
-   IF oLogin:Open()
-      oLogin:Post( {"User.UserName"=>"EngelKing","User.Password"=>"PzaO4WLM"} )
-      IF oLogin:nReplyCode == 200
-         FOR nX := 1 TO 2
-            oUrl := TUrl():New("http://app.creditsafede.com/CSDEWebsite/Company"+IF(!lReg,"/NRegCompany","")+"/Print/"+AllTrim(cID))
-            hQuery["saveReport"] := "save"
-            hQuery["PrintCompanySummary"] := "true"
-            IF lReg
-               hQuery["PrintCurrentDirectors"] := "true"
-               hQuery["PrintCurrentShareholders"] := "true"
-               hQuery["PrintBeneficialOwnerships"] := "true"
-               hQuery["PrintPreviousDirectors"] := "true"
-               hQuery["PrintPerformanceIndicators"] := "true"
-               hQuery["PrintFinancials"] := "true"
-               hQuery["PrintIndividualFinancials"] := "true"
-               hQuery["PrintHGBFinancials"] := "true"
-            ENDIF
-            oUrl:AddGetForm(hQuery)
-            oHttp := TipClientHttp():New(oUrl)
-            hCookies := HGetValueAt(HGetValueAt(oLogin:hCookies,1),1)
-            cValue := ""
-            FOR EACH cValue IN hCookies
-               oHttp:setCookie(cValue:__enumKey()+"="+cValue)
-            NEXT
-            oLogin:close()
-            oHttp:Open()
-            IF nX == 1
-               oHttp:Post({ "ReportReason"=>aReason[nReason] })  //first time post the reason, second get PDF
-            ELSE
-               cFileName := GetEnv("TEMP")+"\CS_"+StrTran(cID,"/","")+"_"+TtoS(DateTime())+".pdf"
-               oHttp:Get()
-               cPDF := oHttp:ReadAll()
-               IF oHttp:nReplyCode != 200 .AND. oHttp:nReplyCode != 0
-                  Alert("Error downloading PDF report "+ValToPrg(oHttp:nReplyCode))
-                  MemoEdit(cPDF)
-                  //Alert(oURl:BuildAddress())
-               ELSE
-                  nFH := FCreate(cFileName)
-                  FWrite(nFH,cPdf)
-                  FClose(nFH)
-
-                  cNewFile :=AddFileToArchive("KA",nKuNummer,cFileName,.F.)
-                  IF Empty(cNewFile)
-                     mcCSLastError := "Error archiving report"
-                     IF ! GetConfigValue("batchmode")
-                        Tr_MsgBox(mcCSLastError)
-                     ENDIF
-                  ELSEIF FErase(cFileName) != 0
-                     mcCSLastError := "Error deleting file "  +Str(FError())
-                     IF ! GetConfigValue("batchmode")
-                        Tr_MsgBox(mcCSLastError)
-                     ENDIF
-                  ENDIF
-               ENDIF
-            ENDIF
-            oHttp:Close()
-         NEXT
-      ENDIF
-   ENDIF
-RETURN cNewFile
 
 FUNCTION CS_SaveReport(nKuNummer,oXML,oOldXML,lForceSave)
    LOCAL cFileName,nFH,cNewFile := ""

@@ -49,7 +49,7 @@ ENDIF
 IF oAddress:GROUP == "K" //nur Bei Kunden 
 
    IF oAddress:HasCargo("report") //save the report, needs to be done before GetCustomerCreditLimit
-      CS_SaveReport(oAddress:Nummer,oAddress:GetCargo("report")) //this also downloads the PDF and saves it
+      CS_SaveReport(oAddress:Nummer,oAddress:GetCargo("report"))
    ENDIF
 
    lChange := .F.

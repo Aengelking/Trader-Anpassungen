@@ -8,12 +8,15 @@
  *    Laesst sich eine Position nicht zuordnen, wird nichts angenommen und
  *    einmalig eine Mail geschickt.
  * 2. Angenommene und bezahlte Bestellungen (Status SHIPPING) liefert Mirakl
- *    mit der Lieferadresse des Endkunden. Sie werden einmalig per Mail
- *    gemeldet (Artikel, Mengen, Preise, Lieferadresse), damit der Auftrag
- *    fuer CONRADSE angelegt werden kann.
+ *    mit der Lieferadresse des Endkunden. Daraus wird ein Auftrag fuer
+ *    CONRAD_ORDERS_KUNDE angelegt: Conrad-Bestellnr. als "Ihre Bestellnr.",
+ *    Preise wie beim Erfassen von Hand (Kundenpreis aus Trader), Versandart
+ *    und Porto aus dem Kunden, Lieferadresse "Auftragsbezogen (A)" mit der
+ *    Adresse des Endkunden. Geht das nicht, kommt einmalig eine Mail mit
+ *    allem, was zum Anlegen von Hand gebraucht wird.
  *
- * Welche Bestellungen schon gemeldet sind, steht in
- * Path("export\conrad\")conrad_orders_erledigt.txt (eine Zeile je Meldung).
+ * Welche Bestellungen schon erledigt sind, steht in
+ * Path("export\conrad\")conrad_orders_erledigt.txt (eine Zeile je Bestellung).
  *
  * Aufruf (Run-Script, z. B. alle 15 Minuten aus der Aufgabenplanung):
  *   trader:-R&conrad_orders                 abholen, annehmen, melden
@@ -24,6 +27,7 @@
  *                       (Shop-Key), eingesetzt fuer $APIKEY$ im Header
  *   CONRAD_MIRAKL_URL   Adresse der Mirakl-API
  *   CONRAD_ORDERS_MAIL  Empfaenger der Meldungen
+ *   CONRAD_ORDERS_KUNDE Matchcode des Kunden fuer die Auftraege (CONRADSE)
  *
  * Protokoll: Path("run\logs\")conrad_orders_<Datum>_<Zeit>.log
  */
@@ -36,17 +40,18 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
    LOCAL lTest    := CO_IsYes(cTestlauf)
    LOCAL lBatch   := GetConfigValue("BATCHMODE")
    LOCAL cLogFile := CO_LogFile()
-   LOCAL cBase, cFehler, cMail, cErledigt
-   LOCAL aOrders, hOrder, cOrderId, aOhne
-   LOCAL nAngenommen := 0, nGemeldet := 0, nX
+   LOCAL cBase, cFehler, cMail, cErledigt, cKunde
+   LOCAL aOrders, hOrder, cOrderId, aOhne, nAbnr
+   LOCAL nAngenommen := 0, nAngelegt := 0, nGemeldet := 0, nX
    LOCAL aFehler := {}
 
    Conrad_Orders_Setup()
 
    cBase := AllTrim(CO_Str(GetValue("CONRAD_MIRAKL_URL")))
    cMail := AllTrim(CO_Str(GetValue("CONRAD_ORDERS_MAIL")))
-   IF Empty(cBase) .OR. Empty(cMail)
-      CO_Ende(cLogFile, lBatch, "CONRAD_MIRAKL_URL oder CONRAD_ORDERS_MAIL ist nicht gesetzt.")
+   cKunde := Upper(AllTrim(CO_Str(GetValue("CONRAD_ORDERS_KUNDE"))))
+   IF Empty(cBase) .OR. Empty(cMail) .OR. Empty(cKunde)
+      CO_Ende(cLogFile, lBatch, "CONRAD_MIRAKL_URL, CONRAD_ORDERS_MAIL oder CONRAD_ORDERS_KUNDE ist nicht gesetzt.")
       RETURN
    ENDIF
    IF Right(cBase, 1) != "/"
@@ -61,6 +66,12 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
 
    NetUse("artikel", "art")
    art->(dbSetOrder( 2 ))
+   NetUse("engkund", "ku")
+   ku->(dbSetOrder( 1 ))
+   IF ! ku->(dbSeek( Pad(cKunde, 8) + "K" ))
+      CO_Ende(cLogFile, lBatch, "Kunde " + cKunde + " (CONRAD_ORDERS_KUNDE) nicht gefunden.")
+      RETURN
+   ENDIF
 
    // 1. neue Bestellungen annehmen
    aOrders := CO_Orders(cBase, "WAITING_ACCEPTANCE", @cFehler)
@@ -93,7 +104,7 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
       ENDIF
    NEXT
 
-   // 2. bezahlte Bestellungen mit Lieferadresse melden
+   // 2. bezahlte Bestellungen mit Lieferadresse als Auftrag anlegen
    aOrders := CO_Orders(cBase, "SHIPPING", @cFehler)
    IF aOrders == NIL
       AAdd(aFehler, "Versandbereite Bestellungen nicht abrufbar: " + cFehler)
@@ -105,20 +116,38 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
       IF CO_Erledigt(cErledigt, cOrderId)
          LOOP
       ENDIF
-      CO_Log(cLogFile, "INFO", cOrderId + ": " + IF(lTest, "wuerde melden", "melden"))
-      IF ! lTest
-         SendMail({{cMail}}, "Neue Conrad-Bestellung " + cOrderId + " - Auftrag fuer CONRADSE anlegen", ;
-                  CO_Text(hOrder))
-         CO_Merken(cErledigt, cOrderId)
+      IF lTest
+         CO_Log(cLogFile, "INFO", cOrderId + ": wuerde Auftrag anlegen")
+         nAngelegt++
+         LOOP
       ENDIF
-      nGemeldet++
+      aOhne := CO_OhneArtikel(hOrder)
+      IF Len(aOhne) > 0
+         nAbnr   := 0
+         cFehler := "SKU ohne Artikel: " + CO_Join(aOhne, ", ")
+      ELSE
+         nAbnr := CO_Auftrag(hOrder, cKunde, @cFehler)
+      ENDIF
+      CO_Merken(cErledigt, cOrderId)
+      IF nAbnr > 0
+         CO_Log(cLogFile, "INFO", cOrderId + ": Auftrag " + LTrim(Str(nAbnr)) + " angelegt")
+         nAngelegt++
+      ENDIF
+      IF ! Empty(cFehler)
+         CO_Log(cLogFile, "ERROR", cOrderId + ": " + cFehler)
+         SendMail({{cMail}}, "Conrad-Bestellung " + cOrderId + " - " + ;
+                  IF(nAbnr > 0, "Auftrag " + LTrim(Str(nAbnr)) + " pruefen", "Auftrag fuer " + cKunde + " von Hand anlegen"), ;
+                  cFehler + Chr(13) + Chr(10) + Chr(13) + Chr(10) + CO_Text(hOrder, cKunde))
+         nGemeldet++
+      ENDIF
    NEXT
 
    FOR nX := 1 TO Len(aFehler)
       CO_Log(cLogFile, "ERROR", aFehler[nX])
    NEXT
    CO_Log(cLogFile, "INFO", IF(lTest, "Testlauf: ", "") + "angenommen " + LTrim(Str(nAngenommen)) + ;
-          ", gemeldet " + LTrim(Str(nGemeldet)) + ", Fehler " + LTrim(Str(Len(aFehler))))
+          ", Auftraege angelegt " + LTrim(Str(nAngelegt)) + ", per Mail gemeldet " + LTrim(Str(nGemeldet)) + ;
+          ", Fehler " + LTrim(Str(Len(aFehler))))
    IF Len(aFehler) > 0 .AND. lBatch
       SendMail({{cMail}}, "Conrad-Bestellungen: Fehler beim Abholen", CO_Join(aFehler, Chr(13) + Chr(10)))
    ENDIF
@@ -131,6 +160,7 @@ FUNCTION Conrad_Orders_Setup()
    GetValue("CONRAD_MIRAKL", "", "Keychain-Eintrag mit dem Mirakl-API-Schluessel von Conrad")
    GetValue("CONRAD_MIRAKL_URL", "https://conradb2b-prod.mirakl.net/api/", "Adresse der Mirakl-API von Conrad")
    GetValue("CONRAD_ORDERS_MAIL", "", "Empfaenger der Meldungen zu Conrad-Bestellungen")
+   GetValue("CONRAD_ORDERS_KUNDE", "CONRADSE", "Kunde (Matchcode) fuer Auftraege aus Conrad-Bestellungen")
 RETURN NIL
 
 
@@ -181,12 +211,176 @@ STATIC FUNCTION CO_OhneArtikel(hOrder)
    LOCAL cSku, nX
 
    FOR nX := 1 TO Len(aLines)
+      IF CO_Storniert(aLines[nX])
+         LOOP
+      ENDIF
       cSku := CO_Str(CO_HDef(aLines[nX], "offer_sku", ""))
       IF CO_Artikelnr(cSku) == 0 .OR. ! art->(dbSeek( Str(CO_Artikelnr(cSku),6) ))
          AAdd(aOhne, cSku)
       ENDIF
    NEXT
 RETURN aOhne
+
+
+// abgelehnte oder stornierte Position
+STATIC FUNCTION CO_Storniert(hLine)
+RETURN AScan({"REFUSED", "CANCELED"}, CO_Str(CO_HDef(hLine, "order_line_state", ""))) > 0
+
+
+// Auftrag mit allen Positionen anlegen, danach die Lieferadresse des
+// Endkunden als auftragsbezogene Adresse ("A"+AbNr, Gruppe 0).
+// Liefert die AbNr (0, wenn kein Auftrag entstanden ist); cFehler ist leer,
+// wenn alles geklappt hat.
+STATIC FUNCTION CO_Auftrag(hOrder, cKunde, cFehler)
+   LOCAL cOrderId := CO_Str(CO_HDef(hOrder, "order_id", ""))
+   LOCAL aLines   := CO_HDef(hOrder, "order_lines", {})
+   LOCAL hAdr     := CO_HDef(CO_HDef(hOrder, "customer", {=>}), "shipping_address", {=>})
+   LOCAL nAbnr    := 0
+   LOCAL lSaved   := .T.
+   LOCAL oAuf, oPos, oErr, hLine, nX
+
+   cFehler := ""
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      oAuf := Auftrag():New(.T.)
+      oAuf:Besda   := Date()
+      oAuf:Kundma  := cKunde                     // Porto/Versandart/Incoterm aus dem Kunden
+      oAuf:Money   := IF(Empty(oAuf:Kunde:Money), "EUR", AllTrim(oAuf:Kunde:Money))
+      oAuf:nLiefAd := 1                          // Lieferadresse "Auftragsbezogen (A)"
+      FOR nX := 1 TO Len(aLines)
+         hLine := aLines[nX]
+         IF CO_Storniert(hLine)
+            LOOP
+         ENDIF
+         lSaved := .F.
+         oPos := oAuf:Positions:NewRecord()
+         oPos:InitializeDefaultDates()
+         oPos:Artikelnr := CO_Artikelnr(CO_Str(CO_HDef(hLine, "offer_sku", "")))
+         oPos:VKQty     := CO_HDef(hLine, "quantity", 0)
+         oPos:ApplyCustomerPricing()
+         oPos:SetField("AUFNR", cOrderId)
+         IF oPos:HasValidationErrors()
+            cFehler := "Position " + LTrim(Str(nX)) + " ungueltig: " + CO_ValErr(oPos)
+            BREAK
+         ENDIF
+         oPos:Save()                             // die erste Position vergibt die AbNr
+         lSaved := .T.
+         IF nAbnr == 0
+            nAbnr := oAuf:AbNr
+         ENDIF
+      NEXT
+      IF nAbnr == 0
+         cFehler := "Bestellung ohne Positionen"
+         BREAK
+      ENDIF
+      oAuf:HeadText := "Conrad-Bestellung " + cOrderId + " - Versand direkt an den Endkunden"
+      oAuf:Save()
+   RECOVER USING oErr
+      IF Empty(cFehler)
+         cFehler := "Fehler beim Anlegen des Auftrags" + ;
+                    IF(ValType(oErr) == "O", ": " + CO_Str(oErr:Description) + " " + CO_Str(oErr:Operation), "")
+      ENDIF
+   END SEQUENCE
+   IF ! lSaved .AND. oPos != NIL
+      BEGIN SEQUENCE WITH {|e| Break(e)}
+         oPos:Discard()
+      END SEQUENCE
+   ENDIF
+
+   IF nAbnr > 0
+      IF ! Empty(cFehler)
+         cFehler := "Auftrag " + LTrim(Str(nAbnr)) + " nur teilweise angelegt - bitte pruefen. " + cFehler
+      ELSEIF ! CO_Lieferadresse(nAbnr, hAdr, @cFehler)
+         cFehler := "Auftrag " + LTrim(Str(nAbnr)) + " angelegt, aber die Lieferadresse fehlt - " + ;
+                    "bitte von Hand eintragen, sonst geht die Ware an " + cKunde + ". " + cFehler
+      ENDIF
+   ENDIF
+RETURN nAbnr
+
+
+// Lieferadresse des Endkunden als auftragsbezogene Adresse speichern
+STATIC FUNCTION CO_Lieferadresse(nAbnr, hAdr, cFehler)
+   LOCAL cFirma  := CO_Teile(hAdr, "company")
+   LOCAL cName   := CO_Teile(hAdr, "firstname", "lastname")
+   LOCAL cStr    := CO_Teile(hAdr, "street_1")
+   LOCAL cZusatz := CO_Teile(hAdr, "street_2")
+   LOCAL cMatch  := "A" + LTrim(Str(nAbnr, 6))
+   LOCAL lOk     := .F.
+   LOCAL oAdr, oErr
+
+   IF Empty(cName + cFirma) .OR. Empty(cStr) .OR. Empty(CO_Teile(hAdr, "city"))
+      cFehler := "Conrad hat keine vollstaendige Lieferadresse geliefert."
+      RETURN .F.
+   ENDIF
+   IF Empty(cFirma)
+      cFirma := cName
+      cName  := ""
+   ENDIF
+   IF Empty(cName)
+      cName := cZusatz
+   ELSEIF ! Empty(cZusatz)
+      cStr += ", " + cZusatz
+   ENDIF
+
+   ku->(dbSetOrder( 1 ))
+   IF ku->(dbSeek( Pad(cMatch, 8) + "0" ))
+      cFehler := "Adresse " + cMatch + " gibt es schon."
+      RETURN .F.
+   ENDIF
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      oAdr := Adresse():New(.T.)
+      oAdr:SetField("kunde", cMatch)
+      oAdr:SetField("group", "0")
+      oAdr:SetField("name1", cFirma)
+      oAdr:SetField("name2", cName)
+      oAdr:SetField("street", cStr)
+      oAdr:SetField("plz", CO_Teile(hAdr, "zip_code"))
+      oAdr:SetField("town", CO_Teile(hAdr, "city"))
+      oAdr:SetField("telefon", CO_Teile(hAdr, "phone"))
+      oAdr:CountryIso := CO_Iso2(CO_Teile(hAdr, "country_iso_code"))
+      oAdr:SetField("k_seit", Date())
+      oAdr:Save()
+      lOk := .T.
+   RECOVER USING oErr
+      cFehler := "Fehler beim Speichern der Lieferadresse" + ;
+                 IF(ValType(oErr) == "O", ": " + CO_Str(oErr:Description) + " " + CO_Str(oErr:Operation), "")
+   END SEQUENCE
+RETURN lOk
+
+
+// Mirakl liefert das Land als ISO-3166 alpha-3 ("DEU"), Trader nutzt alpha-2
+STATIC FUNCTION CO_Iso2(cIso)
+   LOCAL aEnv := SaveEnv()
+   LOCAL cIso2 := ""
+
+   cIso := Upper(AllTrim(cIso))
+   IF Len(cIso) == 2
+      RETURN cIso
+   ENDIF
+   NetUse("countri2", "ct2", .F., 0)
+   ct2->(dbGoTop())
+   DO WHILE ! ct2->(Eof())
+      IF Upper(AllTrim(ct2->Iso3)) == cIso
+         cIso2 := AllTrim(ct2->Iso2)
+         EXIT
+      ENDIF
+      ct2->(dbSkip())
+   ENDDO
+   RestEnv(aEnv, .F.)
+RETURN IF(Empty(cIso2), "DE", cIso2)
+
+
+// erste Fehlermeldung aus der Pruefung der Position
+STATIC FUNCTION CO_ValErr(oPos)
+   LOCAL hR := oPos:GetValidationResult()
+   LOCAL aErr
+
+   IF ValType(hR) == "H" .AND. HHasKey(hR, "errors")
+      aErr := hR["errors"]
+      IF ValType(aErr) == "A" .AND. Len(aErr) > 0
+         RETURN CO_Str(CO_HDef(aErr[1], "message", ""))
+      ENDIF
+   ENDIF
+RETURN ""
 
 
 // "12345S-06" -> 12345
@@ -200,13 +394,13 @@ RETURN Val(Left(cSku, nX - 1))
 
 
 // Mailtext mit allem, was fuer den Auftrag gebraucht wird
-STATIC FUNCTION CO_Text(hOrder)
+STATIC FUNCTION CO_Text(hOrder, cKunde)
    LOCAL cNl    := Chr(13) + Chr(10)
    LOCAL hAdr   := CO_HDef(CO_HDef(hOrder, "customer", {=>}), "shipping_address", {=>})
    LOCAL aLines := CO_HDef(hOrder, "order_lines", {})
    LOCAL cText, cSku, hLine, nX
 
-   cText := "Kunde: CONRADSE" + cNl
+   cText := "Kunde: " + cKunde + cNl
    cText += "Ihre Bestellnr.: " + CO_Str(CO_HDef(hOrder, "order_id", "")) + cNl
    cText += "Bestellt am: " + Left(CO_Str(CO_HDef(hOrder, "created_date", "")), 10) + cNl + cNl
 
@@ -239,6 +433,12 @@ RETURN cText
 
 // eine Adresszeile aus mehreren Feldern; leer, wenn alle Felder leer sind
 STATIC FUNCTION CO_Zeile(hAdr, ...)
+   LOCAL cZeile := CO_Teile(hAdr, ...)
+RETURN IF(Empty(cZeile), "", "  " + cZeile + Chr(13) + Chr(10))
+
+
+// Werte mehrerer Adressfelder, mit Leerzeichen verbunden
+STATIC FUNCTION CO_Teile(hAdr, ...)
    LOCAL aKeys := hb_AParams()
    LOCAL cZeile := "", cWert, nX
 
@@ -248,7 +448,7 @@ STATIC FUNCTION CO_Zeile(hAdr, ...)
          cZeile += IF(Empty(cZeile), "", " ") + cWert
       ENDIF
    NEXT
-RETURN IF(Empty(cZeile), "", "  " + cZeile + Chr(13) + Chr(10))
+RETURN cZeile
 
 
 // Aufruf der Mirakl-API mit dem Schluessel aus dem Keychain; NIL bei Fehler

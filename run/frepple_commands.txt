@@ -1,12 +1,12 @@
 
-curl -u API:zDiHTeiN54HyrPE "https://engelking.frepple.com/scenario2/execute/api/runplan/?constraint=13&plantype=1&env=supply" --data ""
+curl -H "Authorization: Bearer %FREPPLE_API_KEY%" "https://engelking.frepple.com/scenario2/execute/api/runplan/?constraint=13&plantype=1&env=supply" --data ""
 
-curl -u API:zDiHTeiN54HyrPE -X POST -k -F "item.csv=@x:/export/frepple/item.csv" -F "supplier.csv=@x:\export\frepple\supplier.csv" -F "buffer.csv=@x:\export\frepple\buffer.csv" -F "customer.csv=@x:\export\frepple\customer.csv" -F "manufacturing order.csv=@x:\export\frepple\manufacturing order.csv" -F "supplier.csv=@x:\export\frepple\supplier.csv" -F "purchase order.csv=@x:\export\frepple\purchase order.csv" -F "sales order.csv.csv=@x:\export\frepple\sales order.csv" -F "item supplier.csv=@x:\export\frepple\item supplier.csv" "https://engelking.frepple.com/scenario2/execute/uploadtofolder/0/"
+curl -H "Authorization: Bearer %FREPPLE_API_KEY%" -X POST -k -F "item.csv=@x:/export/frepple/item.csv" -F "supplier.csv=@x:\export\frepple\supplier.csv" -F "buffer.csv=@x:\export\frepple\buffer.csv" -F "customer.csv=@x:\export\frepple\customer.csv" -F "manufacturing order.csv=@x:\export\frepple\manufacturing order.csv" -F "supplier.csv=@x:\export\frepple\supplier.csv" -F "purchase order.csv=@x:\export\frepple\purchase order.csv" -F "sales order.csv.csv=@x:\export\frepple\sales order.csv" -F "item supplier.csv=@x:\export\frepple\item supplier.csv" "https://engelking.frepple.com/scenario2/execute/uploadtofolder/0/"
 
-curl -u API:zDiHTeiN54HyrPE -X DELETE -k "https://engelking.frepple.com/scenario2/execute/deletefromfolder/0/AllFiles/"
+curl -H "Authorization: Bearer %FREPPLE_API_KEY%" -X DELETE -k "https://engelking.frepple.com/scenario2/execute/deletefromfolder/0/AllFiles/"
 
-curl -u API:zDiHTeiN54HyrPE "https://engelking.frepple.com/scenario2/execute/api/importfromfolder/" --data ""
+curl -H "Authorization: Bearer %FREPPLE_API_KEY%" "https://engelking.frepple.com/scenario2/execute/api/importfromfolder/" --data ""
 
-curl -u API:zDiHTeiN54HyrPE -X POST -k "https://engelking.frepple.com/execute/api/empty/?models=input.demand,input.deliveryorder,input.operationplanmaterial,input.operationplanresource,input.purchaseorder,input.manufacturingorder"	
+curl -H "Authorization: Bearer %FREPPLE_API_KEY%" -X POST -k "https://engelking.frepple.com/scenario2/execute/api/empty/?models=input.demand,input.deliveryorder,input.operationplanmaterial,input.operationplanresource,input.purchaseorder,input.manufacturingorder" --data ""	
 
 input.operationplanmaterial,input.operationplanresource,input.manufacturingorder

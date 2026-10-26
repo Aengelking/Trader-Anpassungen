@@ -3,7 +3,7 @@
 #include 'hbclass.ch'
 
 FUNCTION RUN_FREPPLE_CURL
-   LOCAL cCmd,cDir,aFiles,nX,nProc,cLine,cData,nBytes,nStdOut,nStdErr
+   LOCAL cDir,aFiles,nX,cData,nResponse := 0
    LOCAL aBucket,aBuckets := {}
    LOCAL oFrepple
    LOCAL aOldBuckets ,aOldBucket        
@@ -85,46 +85,19 @@ FUNCTION RUN_FREPPLE_CURL
    ENDIF
 
    ? "Upload files"
-   //this is easier over the cmd line
-   cCmd := "C:\Curl\bin\curl -u "+oFrepple:cUser+":"+oFrepple:cPW+" -X POST -k"
-   cDir := "x:\export\frepple\"
    aFiles := {"item.csv","supplier.csv","buffer.csv","customer.csv","sales order.csv","item supplier.csv",;
                "purchase order.csv","manufacturing order.csv","operation material.csv","operation.csv","item distribution.csv",;
                "operation resource.csv","resource.csv","calendar.csv","calendar buckets.csv","calendar bucket.csv","resource detail.csv","resourceskill.csv","skill.csv"}
-
-   FOR nX := 1 TO Len(aFiles)
-      cCmd += ' -F "'+aFiles[nX]+"=@"+cDir+aFiles[nX]+'"'
-   NEXT
-   cCmd += ' "'+oFrepple:cBaseUrl+oFrepple:cScenarioUrl+'execute/uploadtofolder/0/"'
-   //? cCmd
-   cData := ""
-   nProc := HB_OpenProcess(cCmd,,@nStdOut,@nStdErr,.T.)
-   IF nProc <= 0
-      Alert("Failed to start process.;"+cCmd)
-      UnLockEntity("PPLUP",0)
-      RETURN .F.
+   AEval(aFiles,{|x,n| aFiles[n] := {x,Path("export\frepple\"+x)} })
+   //Upload ueber die RestAPI: der API-Schluessel kommt aus dem Schluesselbund und steht nicht in der Kommandozeile
+   IF ! oFrepple:UploadToFolder(aFiles,@nResponse,@cData)
+      oErr := ErrorNew()
+      oErr:SubSystem   := "frePPLe-Upload"
+      oErr:Description := "Upload failed: HTTP "+LTrim(Str(nResponse))+" "+cData
+      oErr:Args        := {}
+      Throw(oErr)
    ENDIF
-   nSecs := Seconds()
-   ? " "
-   DO WHILE HB_ProcessValue(nProc,.F.) == -1      
-      cLine := Space( 1000 )
-      nBytes := Fread( nStdOUT, @cLine, Len(cLine) )
-      ?? StrTran(StrTran(StrTran(cLine,"<strong>",""),"</strong>",""),"<br>",Chr(13)+Chr(10)+"  ")
-      
-      cLine := Space( 1000 )
-      nBytes := Fread( nStdERR, @cLine, Len(cLine) )
-      cData += SubStr(cLine,1,nBytes)
-      
-      IF Seconds() - nSecs > 30 //timeout after 30 seconds
-         HB_CloseProcess(nProc)
-         oErr := ErrorNew()
-         oErr:SubSystem   := "frePPLe-Upload"
-         oErr:Description := "Upload process timed out"+Chr(13)+Chr(10)+"StdErr:"+cData
-         oErr:Args        := {}
-         Throw(oErr)          
-      ENDIF
-   ENDDO
-   HB_CloseProcess(nProc)
+   ? " ",StrTran(StrTran(StrTran(cData,"<strong>",""),"</strong>",""),"<br>",Chr(13)+Chr(10)+"  ")
    //? " ",StrTran(StrTran(StrTran(cData,"<strong>",""),"</strong>",""),"<br>",Chr(13)+Chr(10)+"  ")
    
    ? "Syncing absences to frePPLe "

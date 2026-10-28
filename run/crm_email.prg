@@ -239,7 +239,7 @@ RETURN nRet == 0 .AND. "OK " $ cOut
 // window.crmPickerSelect(String(ref), type), captured by crmPickerSelect().
 // Returns a hash {"ref"=>nRef,"type"=>cType} or NIL if cancelled.
 //---------------------------------------------------------------------------
-STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyName, cValue, cQuote, cName, cDraft, cPage)
+STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyName, cValue, cQuote, cName, cDraft, cPage, cSample)
 	LOCAL nW, cUrl
 
 	gcCrmNewRef  := ""
@@ -282,6 +282,11 @@ STATIC FUNCTION ShowCrmPicker(cEmail, cSubject, cOnly, cErpCustomer, cCompanyNam
 	// Assign-Aufruf mehr n�tig).
 	IF ! Empty(cQuote)
 		cUrl += "quote=" + CrmUrlEncode(cQuote) + "&"
+	ENDIF
+	// Musternummer: wie quote=, der Picker speichert die Zuordnung
+	// Muster->Opportunity beim Auswaehlen/Anlegen (api-sample).
+	IF ! Empty(cSample)
+		cUrl += "sample=" + CrmUrlEncode(cSample) + "&"
 	ENDIF
 	// ERP-Kundennummer: die Auswahl wird auf die Firma dieses Kunden begrenzt
 	// (nur Opportunities, die bereits der Firma zugeordnet sind).
@@ -769,3 +774,122 @@ STATIC PROCEDURE CrmAngebotContact(nAngnr, cName, cEmail)
 
 	RestEnv(aEnv, .F.)
 RETURN
+
+//===========================================================================
+// Muster -> Opportunity anbindung (api-sample edge function)
+//
+// Aufruf aus den Hooks ueber LoadPrg(Path("run\crm_email.prg")) + HB_ExecFromArray:
+//   after_approve_mus -> CRM_SampleAssign(nMusNr, ...)   (Vertrieb, Muster-Maske)
+//   after_pack        -> CRM_SampleReport(nMusNr, ...)   (Packplatz, ohne Rueckfrage)
+//
+// Wie bei Angeboten liegt die Zuordnung Muster<->Opportunity nur im CRM.
+// Solange das CRM api-sample nicht anbietet, liefert Status() NIL: dann
+// oeffnet sich kein Picker (sonst entstuenden Opportunities ohne Zuordnung)
+// und der Versand wird nicht gemeldet. Beides ist nie ein Fehler fuer Trader.
+//===========================================================================
+
+// Musternummer ohne fuehrende Nullen (sample_number), wie CrmQuoteNumber.
+STATIC FUNCTION CrmSampleNumber(nMusNr)
+RETURN LTrim(Str(Int(nMusNr)))
+
+//---------------------------------------------------------------------------
+// after_approve_mus: Muster einer Opportunity zuordnen. Ist es bereits
+// zugeordnet, passiert nichts. Sonst oeffnet sich der CRM-Picker (nur
+// Opportunities des Kunden, Neuanlage erlaubt); der Picker speichert die
+// Zuordnung selbst (sample=).
+// Gibt .T. zurueck, wenn eine Zuordnung besteht (alt oder neu), sonst .F.
+//---------------------------------------------------------------------------
+FUNCTION CRM_SampleAssign(nMusNr, cErpNumber, cKundenName, cContactName, cContactEmail, nRef)
+	LOCAL oApi := CrmSampleApi():New()
+	LOCAL cSampleNo := CrmSampleNumber(nMusNr)
+	LOCAL hStatus, hSel
+
+	Default(@cErpNumber,"")
+	Default(@cKundenName,"")
+	Default(@cContactName,"")
+	Default(@cContactEmail,"")
+
+	hStatus := oApi:Status(cSampleNo)
+	IF ValType(hStatus) != "H"
+		RETURN .F.        // api-sample nicht erreichbar / noch nicht vorhanden
+	ENDIF
+	IF HHasKey(hStatus,"linked") .AND. hStatus["linked"]
+		nRef := hStatus["opportunity"]["ref"]
+		RETURN .T.
+	ENDIF
+
+	hSel := ShowCrmPicker(cContactEmail, "Muster " + cSampleNo, "opportunity", AllTrim(cErpNumber), ;
+		AllTrim(cKundenName), "", "", cContactName, "", "picker", cSampleNo)
+	IF hSel == NIL
+		RETURN .F.        // abgebrochen
+	ENDIF
+
+	IF Lower(hSel["type"]) != "opportunity"
+		Wapi_MessageBox(,"Ein Muster kann nur einer Opportunity zugeordnet werden.","CRM",0)
+		RETURN .F.
+	ENDIF
+	nRef := hSel["ref"]
+
+RETURN .T.
+
+//---------------------------------------------------------------------------
+// after_pack: Musterversand als Aktivitaet an die zugeordnete Opportunity
+// melden. Laeuft am Packplatz: keine Rueckfrage, keine Meldung. Ist das
+// Muster keiner Opportunity zugeordnet, antwortet das CRM {linked: false}.
+// cUserEmail = zustaendiger Vertriebler (Bearbeiter des Musters).
+// Gibt .T. zurueck, wenn die Aktivitaet angelegt wurde.
+//---------------------------------------------------------------------------
+FUNCTION CRM_SampleReport(nMusNr, cUserEmail, cText, cCarrier, aTracking, cContactName)
+	LOCAL oApi := CrmSampleApi():New()
+	LOCAL cSampleNo := CrmSampleNumber(nMusNr)
+	LOCAL xResp
+
+	Default(@cText,"")
+	Default(@cCarrier,"")
+	Default(@aTracking,{})
+	Default(@cContactName,"")
+
+	xResp := oApi:Report(cSampleNo, AllTrim(cUserEmail), "Muster " + cSampleNo + " versendet", ;
+		cText, cCarrier, aTracking, cContactName)
+
+	IF ValType(xResp) != "H" .OR. (HHasKey(xResp,"linked") .AND. ! xResp["linked"])
+		RETURN .F.
+	ENDIF
+
+RETURN .T.
+
+CLASS CrmSampleApi FROM CrmQuoteApi
+	METHOD New
+	METHOD Status
+	METHOD Report
+ENDCLASS
+
+METHOD New() CLASS CrmSampleApi
+	::Super:New()
+	::cBaseUrl := CrmEndpoint("api-sample/")
+RETURN SELF
+
+// GET status by sample_number -> Hash {linked, opportunity, ...} or NIL
+METHOD Status(cSampleNo) CLASS CrmSampleApi
+RETURN ::Execute("GET", "?sample_number=" + CrmUrlEncode(cSampleNo), NIL)
+
+// POST /report -> Aktivitaet "Muster versendet" an die verknuepfte Opportunity
+METHOD Report(cSampleNo, cUserEmail, cTitle, cDescription, cCarrier, aTracking, cContactName) CLASS CrmSampleApi
+	LOCAL hData := {=>}
+	LOCAL aNr := {}, cNr
+
+	FOR EACH cNr IN aTracking
+		IF ValType(cNr) == "C" .AND. ! Empty(cNr)
+			AAdd(aNr, hb_strToUtf8(AllTrim(cNr)))
+		ENDIF
+	NEXT
+
+	hData["sample_number"]    := cSampleNo
+	hData["user_email"]       := cUserEmail
+	hData["title"]            := hb_strToUtf8(cTitle)
+	hData["description"]      := hb_strToUtf8(cDescription)
+	hData["shipped_at"]       := Transform(DToS(Date()),"@R 9999-99-99")
+	hData["carrier"]          := hb_strToUtf8(AllTrim(cCarrier))
+	hData["tracking_numbers"] := aNr
+	hData["contact_name"]     := hb_strToUtf8(AllTrim(cContactName))
+RETURN ::Execute("POST", "report", hData)

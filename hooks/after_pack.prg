@@ -134,6 +134,16 @@ ELSE
       NetUse("buyer","buy")
       buy->(dbGoto( mus->Buyer ))
       SendMail({{buy->Email,buy->Buyer}},"Muster an "+Trim(ku->Name1)+" ausgeliefert",cMessage,,,,.F.)
+
+      // CRM: Versand an die Opportunity melden, die der Vertrieb bei der
+      // Freigabe gewaehlt hat (after_approve_mus). Ohne Rueckfrage am Packplatz;
+      // ist das Muster nicht zugeordnet, passiert nichts. Best-effort.
+      BEGIN SEQUENCE
+         LoadPrg(Path("run\crm_email.prg"))
+         HB_ExecFromArray({"CRM_SampleReport", nNr, buy->Email, cMessage, VerShow(nVersandArt), aPakete, aContact["name"]})
+      RECOVER
+         //nicht fatal
+      END SEQUENCE
 	Endif
 Endif
 

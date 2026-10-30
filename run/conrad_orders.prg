@@ -87,6 +87,9 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
       RETURN
    ENDIF
    CO_Log(cLogFile, "INFO", "Conrad meldet " + LTrim(Str(Len(aOrders))) + " Bestellung(en) im Status SHIPPING")
+   IF Len(aOrders) == 0
+      CO_Diagnose(cBase, cLogFile)
+   ENDIF
    FOR nX := 1 TO Len(aOrders)
       hOrder   := aOrders[nX]
       cOrderId := CO_Str(CO_HDef(hOrder, "order_id", ""))
@@ -189,6 +192,30 @@ STATIC FUNCTION CO_Vorhanden(cOrderId, cKunde)
       auf->(dbSkip())
    ENDDO
 RETURN 0
+
+
+// Nur zur Fehlersuche: Bestellungen der letzten 30 Tage mit ihrem Status ins Protokoll
+STATIC FUNCTION CO_Diagnose(cBase, cLogFile)
+   LOCAL dAb := Date() - 30
+   LOCAL cFehler := ""
+   LOCAL xAntwort, aSeite, hOrder, nX
+
+   xAntwort := CO_Json(CO_Request(cBase + "orders?start_date=" + Str(Year(dAb), 4) + "-" + ;
+                                  StrZero(Month(dAb), 2) + "-" + StrZero(Day(dAb), 2) + "T00:00:00Z&max=100", ;
+                                  "GET", NIL, @cFehler))
+   IF ValType(xAntwort) != "H"
+      CO_Log(cLogFile, "WARNING", "Diagnose: Bestellungen nicht abrufbar " + cFehler)
+      RETURN NIL
+   ENDIF
+   aSeite := CO_HDef(xAntwort, "orders", {})
+   CO_Log(cLogFile, "INFO", "Diagnose: " + LTrim(Str(Len(aSeite))) + " Bestellung(en) seit " + DToC(dAb) + ;
+          " (total_count " + CO_Str(CO_HDef(xAntwort, "total_count", "?")) + ")")
+   FOR nX := 1 TO Len(aSeite)
+      hOrder := aSeite[nX]
+      CO_Log(cLogFile, "INFO", "Diagnose: " + CO_Str(CO_HDef(hOrder, "order_id", "")) + " Status " + ;
+             CO_Str(CO_HDef(hOrder, "order_state", "")) + " vom " + Left(CO_Str(CO_HDef(hOrder, "created_date", "")), 10))
+   NEXT
+RETURN NIL
 
 
 // SKUs der Bestellung, zu denen es keinen Artikel gibt

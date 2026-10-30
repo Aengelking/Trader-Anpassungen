@@ -200,6 +200,14 @@ STATIC FUNCTION CO_Diagnose(cBase, cLogFile)
    LOCAL cFehler := ""
    LOCAL xAntwort, aSeite, hOrder, nX
 
+   // A01: zu welchem Shop gehoert der Schluessel?
+   xAntwort := CO_Json(CO_Request(cBase + "account", "GET", NIL, @cFehler))
+   IF ValType(xAntwort) == "H"
+      CO_Log(cLogFile, "INFO", "Diagnose: " + cBase + " Shop " + CO_Str(CO_HDef(xAntwort, "shop_id", "")) + ;
+             " " + CO_Str(CO_HDef(xAntwort, "shop_name", "")) + ", Status " + CO_Str(CO_HDef(xAntwort, "shop_state", "")))
+   ELSE
+      CO_Log(cLogFile, "WARNING", "Diagnose: Shop nicht abrufbar " + cFehler)
+   ENDIF
    xAntwort := CO_Json(CO_Request(cBase + "orders?start_date=" + Str(Year(dAb), 4) + "-" + ;
                                   StrZero(Month(dAb), 2) + "-" + StrZero(Day(dAb), 2) + "T00:00:00Z&max=100", ;
                                   "GET", NIL, @cFehler))

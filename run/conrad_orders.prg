@@ -86,10 +86,12 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
       CO_Ende(cLogFile, lBatch, "Versandbereite Bestellungen nicht abrufbar: " + cFehler)
       RETURN
    ENDIF
+   CO_Log(cLogFile, "INFO", "Conrad meldet " + LTrim(Str(Len(aOrders))) + " Bestellung(en) im Status SHIPPING")
    FOR nX := 1 TO Len(aOrders)
       hOrder   := aOrders[nX]
       cOrderId := CO_Str(CO_HDef(hOrder, "order_id", ""))
       IF CO_Erledigt(cErledigt, cOrderId)
+         CO_Log(cLogFile, "INFO", cOrderId + ": schon erledigt (" + cErledigt + ")")
          LOOP
       ENDIF
       nAbnr := CO_Vorhanden(cOrderId, cKunde)

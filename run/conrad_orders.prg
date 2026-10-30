@@ -14,6 +14,8 @@
  *
  * Welche Bestellungen schon erledigt sind, steht in
  * Path("export\conrad\")conrad_orders_erledigt.txt (eine Zeile je Bestellung).
+ * Zusaetzlich wird keine Bestellung angelegt, fuer die es beim Kunden schon
+ * einen Auftrag mit dieser "Ihre Bestellnr." gibt (auch von Hand angelegt).
  *
  * Aufruf (Run-Script, z. B. alle 15 Minuten aus der Aufgabenplanung):
  *   trader:-R&conrad_orders                 abholen, Auftraege anlegen, melden
@@ -31,6 +33,7 @@
 
 #define CO_LOGDIR    "run\logs\"
 #define CO_DATADIR   "export\conrad\"
+#define CO_KEYNAME   "CONRADMKL"            // Keychain, max. 10 Zeichen
 
 
 PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
@@ -54,6 +57,11 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
    IF Right(cBase, 1) != "/"
       cBase += "/"
    ENDIF
+   NetUse("keychain", "chain")
+   IF ! chain->(dbSeek( Pad(CO_KEYNAME, 10) ))
+      CO_Ende(cLogFile, lBatch, "Im Schluesselbund fehlt der Eintrag " + CO_KEYNAME + " mit dem Mirakl-API-Schluessel.")
+      RETURN
+   ENDIF
    cErledigt := CO_ErledigtDatei()
 
    IF ! lBatch
@@ -63,6 +71,8 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
 
    NetUse("artikel", "art")
    art->(dbSetOrder( 2 ))
+   NetUse("engauf", "auf")
+   auf->(dbSetOrder( 12 ))                       // AUFNR (Ihre Bestellnr.)
    NetUse("engkund", "ku")
    ku->(dbSetOrder( 1 ))
    IF ! ku->(dbSeek( Pad(cKunde, 8) + "K" ))
@@ -80,6 +90,14 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
       hOrder   := aOrders[nX]
       cOrderId := CO_Str(CO_HDef(hOrder, "order_id", ""))
       IF CO_Erledigt(cErledigt, cOrderId)
+         LOOP
+      ENDIF
+      nAbnr := CO_Vorhanden(cOrderId, cKunde)
+      IF nAbnr > 0                               // schon in Trader, z. B. von Hand angelegt
+         CO_Log(cLogFile, "INFO", cOrderId + ": Auftrag " + LTrim(Str(nAbnr)) + " gibt es schon")
+         IF ! lTest
+            CO_Merken(cErledigt, cOrderId)
+         ENDIF
          LOOP
       ENDIF
       IF lTest
@@ -153,6 +171,22 @@ STATIC FUNCTION CO_Orders(cBase, cState, cFehler)
       ENDIF
    ENDDO
 RETURN aAlle
+
+
+// AbNr des Auftrags fuer cKunde mit der Conrad-Bestellnr. als "Ihre Bestellnr.";
+// 0, wenn es noch keinen gibt
+STATIC FUNCTION CO_Vorhanden(cOrderId, cKunde)
+   IF Empty(cOrderId)
+      RETURN 0
+   ENDIF
+   auf->(dbSeek( cOrderId ))
+   DO WHILE ! auf->(Eof()) .AND. Trim(auf->Aufnr) == cOrderId
+      IF Upper(Trim(auf->Kundma)) == cKunde
+         RETURN auf->Abnr
+      ENDIF
+      auf->(dbSkip())
+   ENDDO
+RETURN 0
 
 
 // SKUs der Bestellung, zu denen es keinen Artikel gibt
@@ -417,22 +451,24 @@ STATIC FUNCTION CO_Request(cUrl, cMethod, hBody, cFehler)
    LOCAL oRest   := RestApi():New()
    LOCAL aHeader := {"Authorization: $APIKEY$", "Accept: application/json"}
    LOCAL nStatus := 0
-   LOCAL cAntwort
+   LOCAL cGrund  := ""
+   LOCAL cAntwort, oErr
 
    IF hBody != NIL
       AAdd(aHeader, "Content-Type: application/json")
    ENDIF
    oRest:cBaseUrl    := ""
-   oRest:cApiKeyName := "CONRADMKL"            // Keychain, max. 10 Zeichen
+   oRest:cApiKeyName := CO_KEYNAME
    cFehler := ""
    BEGIN SEQUENCE WITH {|e| Break(e)}
-      cAntwort := oRest:Execute(cUrl, cMethod, hBody, aHeader, hBody != NIL, @nStatus)
-   RECOVER
+      cAntwort := oRest:Execute(cUrl, cMethod, hBody, aHeader, hBody != NIL, @nStatus, @cGrund)
+   RECOVER USING oErr                            // z. B. Zieladresse im Schluesselbund nicht freigegeben
       cAntwort := NIL
       nStatus  := -1
+      cGrund   := IF(ValType(oErr) == "O", CO_Str(oErr:Description), "")
    END SEQUENCE
    IF nStatus < 200 .OR. nStatus >= 300
-      cFehler := "HTTP " + LTrim(Str(nStatus)) + " " + Left(CO_Str(cAntwort), 300)
+      cFehler := "HTTP " + LTrim(Str(nStatus)) + " " + CO_Str(cGrund) + " " + Left(CO_Str(cAntwort), 300)
       RETURN NIL
    ENDIF
 RETURN IF(cAntwort == NIL, "", cAntwort)

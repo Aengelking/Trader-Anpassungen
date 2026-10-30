@@ -1,25 +1,22 @@
 /*
  * conrad_orders.prg  -  Bestellungen vom Conrad-Marktplatz (Mirakl) abholen.
  * -----------------------------------------------------------------------
- * 1. Neue Bestellungen (Status WAITING_ACCEPTANCE) werden automatisch
- *    angenommen, wenn jede Position einem Trader-Artikel zugeordnet werden
- *    kann. Die SKU ist die aus dem frueheren Angebots-Upload
- *    (product_data.prg): Artikelnr + S/W/I/P, ggf. mit "-06"/"-24".
- *    Laesst sich eine Position nicht zuordnen, wird nichts angenommen und
- *    einmalig eine Mail geschickt.
- * 2. Angenommene und bezahlte Bestellungen (Status SHIPPING) liefert Mirakl
- *    mit der Lieferadresse des Endkunden. Daraus wird ein Auftrag fuer
- *    CONRAD_ORDERS_KUNDE angelegt: Conrad-Bestellnr. als "Ihre Bestellnr.",
- *    Preis je Stueck = Conrad-Preis netto (price_unit / MwSt wie beim
- *    Upload, Taxit(1)), Versandart und Porto aus dem Kunden, Lieferadresse
- *    "Auftragsbezogen (A)" mit der Adresse des Endkunden. Geht das nicht, kommt einmalig eine Mail mit
- *    allem, was zum Anlegen von Hand gebraucht wird.
+ * Conrad nimmt die Bestellungen selbst an. Angenommene und bezahlte
+ * Bestellungen (Status SHIPPING, "Wartet auf Versand") liefert Mirakl mit der
+ * Lieferadresse des Endkunden. Daraus wird ein Auftrag fuer
+ * CONRAD_ORDERS_KUNDE angelegt: Conrad-Bestellnr. als "Ihre Bestellnr.",
+ * Preis je Stueck = Conrad-Preis netto (price_unit / MwSt wie beim
+ * Upload, Taxit(1)), Versandart und Porto aus dem Kunden, Lieferadresse
+ * "Auftragsbezogen (A)" mit der Adresse des Endkunden. Die SKU ist die aus
+ * dem frueheren Angebots-Upload (product_data.prg): Artikelnr + S/W/I/P,
+ * ggf. mit "-06"/"-24". Geht das nicht (z. B. SKU ohne Artikel), kommt
+ * einmalig eine Mail mit allem, was zum Anlegen von Hand gebraucht wird.
  *
  * Welche Bestellungen schon erledigt sind, steht in
  * Path("export\conrad\")conrad_orders_erledigt.txt (eine Zeile je Bestellung).
  *
  * Aufruf (Run-Script, z. B. alle 15 Minuten aus der Aufgabenplanung):
- *   trader:-R&conrad_orders                 abholen, annehmen, melden
+ *   trader:-R&conrad_orders                 abholen, Auftraege anlegen, melden
  *   trader:-R&conrad_orders&{"J"}           Testlauf: nur protokollieren
  *
  * Keychain-Eintrag CONRADMKL: Mirakl-API-Schluessel (Shop-Key), eingesetzt fuer $APIKEY$ im Header
@@ -42,7 +39,7 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
    LOCAL cLogFile := CO_LogFile()
    LOCAL cBase, cFehler, cMail, cErledigt, cKunde
    LOCAL aOrders, hOrder, cOrderId, aOhne, nAbnr
-   LOCAL nAngenommen := 0, nAngelegt := 0, nGemeldet := 0, nX
+   LOCAL nAngelegt := 0, nGemeldet := 0, nX
    LOCAL aFehler := {}
 
    Conrad_Orders_Setup()
@@ -73,42 +70,11 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
       RETURN
    ENDIF
 
-   // 1. neue Bestellungen annehmen
-   aOrders := CO_Orders(cBase, "WAITING_ACCEPTANCE", @cFehler)
-   IF aOrders == NIL
-      CO_Ende(cLogFile, lBatch, "Neue Bestellungen nicht abrufbar: " + cFehler)
-      RETURN
-   ENDIF
-   FOR nX := 1 TO Len(aOrders)
-      hOrder   := aOrders[nX]
-      cOrderId := CO_Str(CO_HDef(hOrder, "order_id", ""))
-      aOhne    := CO_OhneArtikel(hOrder)
-      IF Len(aOhne) > 0
-         CO_Log(cLogFile, "WARNING", cOrderId + ": SKU ohne Artikel: " + CO_Join(aOhne, ", "))
-         IF ! lTest .AND. ! CO_Erledigt(cErledigt, cOrderId + " OHNE_ARTIKEL")
-            SendMail({{cMail}}, "Conrad-Bestellung " + cOrderId + " nicht angenommen", ;
-                     "Diese SKUs passen zu keinem Artikel in Trader:" + Chr(13) + Chr(10) + ;
-                     CO_Join(aOhne, Chr(13) + Chr(10)) + Chr(13) + Chr(10) + Chr(13) + Chr(10) + ;
-                     "Bitte im Conrad-Portal von Hand annehmen oder ablehnen.")
-            CO_Merken(cErledigt, cOrderId + " OHNE_ARTIKEL")
-         ENDIF
-         LOOP
-      ENDIF
-      CO_Log(cLogFile, "INFO", cOrderId + ": " + IF(lTest, "wuerde annehmen", "annehmen"))
-      IF lTest
-         nAngenommen++
-      ELSEIF CO_Annehmen(cBase, hOrder, @cFehler)
-         nAngenommen++
-      ELSE
-         AAdd(aFehler, cOrderId + ": Annehmen fehlgeschlagen: " + cFehler)
-      ENDIF
-   NEXT
-
-   // 2. bezahlte Bestellungen mit Lieferadresse als Auftrag anlegen
+   // bezahlte Bestellungen mit Lieferadresse als Auftrag anlegen
    aOrders := CO_Orders(cBase, "SHIPPING", @cFehler)
    IF aOrders == NIL
-      AAdd(aFehler, "Versandbereite Bestellungen nicht abrufbar: " + cFehler)
-      aOrders := {}
+      CO_Ende(cLogFile, lBatch, "Versandbereite Bestellungen nicht abrufbar: " + cFehler)
+      RETURN
    ENDIF
    FOR nX := 1 TO Len(aOrders)
       hOrder   := aOrders[nX]
@@ -145,8 +111,7 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
    FOR nX := 1 TO Len(aFehler)
       CO_Log(cLogFile, "ERROR", aFehler[nX])
    NEXT
-   CO_Log(cLogFile, "INFO", IF(lTest, "Testlauf: ", "") + "angenommen " + LTrim(Str(nAngenommen)) + ;
-          ", Auftraege angelegt " + LTrim(Str(nAngelegt)) + ", per Mail gemeldet " + LTrim(Str(nGemeldet)) + ;
+   CO_Log(cLogFile, "INFO", IF(lTest, "Testlauf: ", "") + "Auftraege angelegt " + LTrim(Str(nAngelegt)) + ", per Mail gemeldet " + LTrim(Str(nGemeldet)) + ;
           ", Fehler " + LTrim(Str(Len(aFehler))))
    IF Len(aFehler) > 0 .AND. lBatch
       SendMail({{cMail}}, "Conrad-Bestellungen: Fehler beim Abholen", CO_Join(aFehler, Chr(13) + Chr(10)))
@@ -188,19 +153,6 @@ STATIC FUNCTION CO_Orders(cBase, cState, cFehler)
       ENDIF
    ENDDO
 RETURN aAlle
-
-
-// Alle Positionen annehmen (OR21)
-STATIC FUNCTION CO_Annehmen(cBase, hOrder, cFehler)
-   LOCAL aLines := CO_HDef(hOrder, "order_lines", {})
-   LOCAL aBody  := {}
-   LOCAL nX
-
-   FOR nX := 1 TO Len(aLines)
-      AAdd(aBody, {"accepted" => .T., "id" => CO_Str(CO_HDef(aLines[nX], "order_line_id", ""))})
-   NEXT
-RETURN CO_Request(cBase + "orders/" + CO_Str(CO_HDef(hOrder, "order_id", "")) + "/accept", ;
-                  "PUT", {"order_lines" => aBody}, @cFehler) != NIL
 
 
 // SKUs der Bestellung, zu denen es keinen Artikel gibt

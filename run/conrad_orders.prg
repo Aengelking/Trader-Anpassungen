@@ -5,8 +5,7 @@
  * Bestellungen (Status SHIPPING, "Wartet auf Versand") liefert Mirakl mit der
  * Lieferadresse des Endkunden. Daraus wird ein Auftrag fuer
  * CONRAD_ORDERS_KUNDE angelegt: Conrad-Bestellnr. als "Ihre Bestellnr.",
- * Preis je Stueck = Conrad-Preis netto (price_unit / MwSt wie beim
- * Upload, Taxit(1)), Versandart und Porto aus dem Kunden, Lieferadresse
+ * Preis je Stueck = price_unit von Conrad (kommt netto), Versandart und Porto aus dem Kunden, Lieferadresse
  * "Auftragsbezogen (A)" mit der Adresse des Endkunden. Die SKU ist die aus
  * dem frueheren Angebots-Upload (product_data.prg): Artikelnr + S/W/I/P,
  * ggf. mit "-06"/"-24". Geht das nicht (z. B. SKU ohne Artikel), kommt
@@ -237,12 +236,9 @@ STATIC FUNCTION CO_Auftrag(hOrder, cKunde, cFehler)
    LOCAL hAdr     := CO_HDef(CO_HDef(hOrder, "customer", {=>}), "shipping_address", {=>})
    LOCAL nAbnr    := 0
    LOCAL lSaved   := .T.
-   LOCAL nMwSt    := 0
    LOCAL oAuf, oPos, oErr, hLine, nX, nPreis
 
    cFehler := ""
-   Taxit(1, @nMwSt, Date())                      // Conrad-Preise sind brutto (siehe Upload)
-   nMwSt := 1 + nMwSt / 100
    BEGIN SEQUENCE WITH {|e| Break(e)}
       oAuf := Auftrag():New(.T.)
       oAuf:Besda   := Date()
@@ -254,7 +250,7 @@ STATIC FUNCTION CO_Auftrag(hOrder, cKunde, cFehler)
          IF CO_Storniert(hLine)
             LOOP
          ENDIF
-         nPreis := Round(CO_HDef(hLine, "price_unit", 0) / nMwSt, 2)
+         nPreis := Round(CO_HDef(hLine, "price_unit", 0), 2)    // Conrad liefert netto
          IF nPreis <= 0
             cFehler := "Position " + LTrim(Str(nX)) + " ohne Conrad-Preis"
             BREAK
@@ -453,7 +449,7 @@ STATIC FUNCTION CO_Text(hOrder, cKunde)
    cText += CO_Zeile(hAdr, "phone")
    cText += cNl
 
-   cText += "Positionen (Preise brutto, wie bei Conrad):" + cNl
+   cText += "Positionen (Preise netto, wie von Conrad):" + cNl
    FOR nX := 1 TO Len(aLines)
       hLine := aLines[nX]
       cSku  := CO_Str(CO_HDef(hLine, "offer_sku", ""))

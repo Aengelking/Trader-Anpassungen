@@ -74,7 +74,7 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
    NetUse("artikel", "art")
    art->(dbSetOrder( 2 ))
    NetUse("engauf", "auf")
-   auf->(dbSetOrder( 12 ))                       // AUFNR (Ihre Bestellnr.)
+   auf->(dbSetOrder( 2 ))                        // Kundma
    NetUse("engkund", "ku")
    ku->(dbSetOrder( 1 ))
    IF ! ku->(dbSeek( Pad(cKunde, 8) + "K" ))
@@ -96,7 +96,7 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
          CO_Log(cLogFile, "INFO", cOrderId + ": schon erledigt (" + cErledigt + ")")
          LOOP
       ENDIF
-      nAbnr := CO_Vorhanden(cOrderId, cKunde, cLogFile)
+      nAbnr := CO_Vorhanden(cOrderId, cKunde)
       IF nAbnr > 0                               // schon in Trader, z. B. von Hand angelegt
          CO_Log(cLogFile, "INFO", cOrderId + ": Auftrag " + LTrim(Str(nAbnr)) + " gibt es schon")
          IF ! lTest
@@ -181,10 +181,8 @@ RETURN aAlle
 // AbNr des Auftrags fuer cKunde mit der Conrad-Bestellnr. als "Ihre Bestellnr.";
 // 0, wenn es noch keinen gibt. Verglichen wird nur die Nummer vor dem ersten
 // "-" (4519864688-00-A -> 4519864688), von Hand wird oft nur die erfasst.
-// Treffer bei anderen Kunden kommen ins Protokoll, zaehlen aber nicht.
-STATIC FUNCTION CO_Vorhanden(cOrderId, cKunde, cLogFile)
-   LOCAL cNr    := AllTrim(cOrderId)
-   LOCAL nFremd := 0
+STATIC FUNCTION CO_Vorhanden(cOrderId, cKunde)
+   LOCAL cNr := AllTrim(cOrderId)
 
    IF "-" $ cNr
       cNr := Left(cNr, At("-", cNr) - 1)
@@ -192,15 +190,10 @@ STATIC FUNCTION CO_Vorhanden(cOrderId, cKunde, cLogFile)
    IF Empty(cNr)
       RETURN 0
    ENDIF
-   auf->(dbSeek( cNr ))
-   DO WHILE ! auf->(Eof()) .AND. Left(auf->Aufnr, Len(cNr)) == cNr
-      IF Upper(Trim(auf->Kundma)) == cKunde
+   auf->(dbSeek( Pad(cKunde, 8) ))
+   DO WHILE ! auf->(Eof()) .AND. Upper(Trim(auf->Kundma)) == cKunde
+      IF Left(AllTrim(auf->Aufnr), Len(cNr)) == cNr
          RETURN auf->Abnr
-      ENDIF
-      IF auf->Abnr != nFremd                     // je Auftrag nur einmal, nicht je Position
-         nFremd := auf->Abnr
-         CO_Log(cLogFile, "WARNING", cOrderId + ": Ihre Bestellnr. " + Trim(auf->Aufnr) + " gibt es bei Kunde " + ;
-                Trim(auf->Kundma) + " (Auftrag " + LTrim(Str(auf->Abnr)) + ") - nicht beachtet")
       ENDIF
       auf->(dbSkip())
    ENDDO

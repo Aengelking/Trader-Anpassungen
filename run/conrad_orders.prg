@@ -73,8 +73,6 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
 
    NetUse("artikel", "art")
    art->(dbSetOrder( 2 ))
-   NetUse("shopware", "shop")
-   shop->(dbSetOrder( 3 ))                       // Matchcode
    NetUse("engauf", "auf")
    auf->(dbSetOrder( 2 ))                        // Kundma
    NetUse("engkund", "ku")
@@ -206,15 +204,15 @@ RETURN 0
 STATIC FUNCTION CO_OhneArtikel(hOrder)
    LOCAL aLines := CO_HDef(hOrder, "order_lines", {})
    LOCAL aOhne  := {}
-   LOCAL cSku, cMatch, nX
+   LOCAL cSku, nX
 
    FOR nX := 1 TO Len(aLines)
       IF CO_Storniert(aLines[nX])
          LOOP
       ENDIF
       cSku := CO_Str(CO_HDef(aLines[nX], "offer_sku", ""))
-      IF CO_Artikelnr(cSku, @cMatch) == 0
-         AAdd(aOhne, cSku + IF(Empty(cMatch), "", " (Shop-Matchcode " + cMatch + ", Artikel fehlt in Trader)"))
+      IF CO_Artikelnr(cSku) == 0
+         AAdd(aOhne, cSku)
       ENDIF
    NEXT
 RETURN aOhne
@@ -394,17 +392,14 @@ RETURN ""
 // Trader-Artikel zur SKU; 0, wenn es keinen gibt. art steht danach auf dem Artikel.
 // - "12345S-06" -> Artikel 12345
 // - CM-Teile hat product_data.prg mit dem Matchcode hochgeladen, "/" durch "-"
-//   ersetzt, ggf. mit Zusatz wie "(S)" am Ende:
+//   ersetzt, ggf. mit Zusatz wie "(S)" am Ende. Gesucht wird der Matchcode
+//   erst wie geliefert, dann ohne Zusatz, dann mit "/" statt "-":
 //   CMI35-V2-F-R-RD-24-M-S-28(S) -> CMI35/V2/F/R/RD/24/M/S/28
-//   Weil Matchcodes selbst "-" enthalten koennen, wird nicht zurueckgerechnet,
-//   sondern der Matchcode gesucht, der umgewandelt gleich aussieht.
-//   Erst in den Artikeln, dann in shopware; cMatch liefert den Treffer.
-STATIC FUNCTION CO_Artikelnr(cSku, cMatch)
+STATIC FUNCTION CO_Artikelnr(cSku)
    LOCAL nX := 1
    LOCAL nArtnr := 0
-   LOCAL cOhne, cPre
+   LOCAL cOhne, aVersuche
 
-   cMatch := ""
    DO WHILE nX <= Len(cSku) .AND. IsDigit(SubStr(cSku, nX, 1))
       nX++
    ENDDO
@@ -417,39 +412,20 @@ STATIC FUNCTION CO_Artikelnr(cSku, cMatch)
    IF Right(cOhne, 1) == ")" .AND. "(" $ cOhne    // Zusatz "(S)" weg
       cOhne := AllTrim(Left(cOhne, RAt("(", cOhne) - 1))
    ENDIF
-   cPre := IF("-" $ cOhne, Left(cOhne, At("-", cOhne) - 1), cOhne)
-   IF Empty(cPre)
-      RETURN 0
-   ENDIF
+   aVersuche := {AllTrim(cSku), cOhne, StrTran(cOhne, "-", "/")}
 
    art->(dbSetOrder( 1 ))                        // Matchcode
-   art->(dbSeek( cPre ))
-   DO WHILE ! art->(Eof()) .AND. Left(art->Matchcode, Len(cPre)) == cPre
-      IF StrTran(Trim(art->Matchcode), "/", "-") == cOhne
+   FOR nX := 1 TO Len(aVersuche)
+      IF ! Empty(aVersuche[nX]) .AND. art->(dbSeek( Pad(aVersuche[nX], 25) ))
          nArtnr := art->Artikelnr
-         cMatch := Trim(art->Matchcode)
          EXIT
       ENDIF
-      art->(dbSkip())
-   ENDDO
+   NEXT
    art->(dbSetOrder( 2 ))
    IF nArtnr != 0
       art->(dbSeek( Str(nArtnr,6) ))
-      RETURN nArtnr
    ENDIF
-
-   shop->(dbSeek( cPre ))
-   DO WHILE ! shop->(Eof()) .AND. Left(shop->Matchcode, Len(cPre)) == cPre
-      IF StrTran(Trim(shop->Matchcode), "/", "-") == cOhne .OR. StrTran(Trim(shop->Matchcode), "/", "-") == cSku
-         cMatch := Trim(shop->Matchcode)
-         IF shop->Artikelnr != 0 .AND. art->(dbSeek( Str(shop->Artikelnr,6) ))
-            RETURN shop->Artikelnr
-         ENDIF
-         EXIT
-      ENDIF
-      shop->(dbSkip())
-   ENDDO
-RETURN 0
+RETURN nArtnr
 
 
 // Mailtext mit allem, was fuer den Auftrag gebraucht wird

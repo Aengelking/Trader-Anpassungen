@@ -123,10 +123,14 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
       ENDIF
       IF ! Empty(cFehler)
          CO_Log(cLogFile, "ERROR", cOrderId + ": " + cFehler)
-         SendMail({{cMail, cMail}}, "Conrad-Bestellung " + cOrderId + " - " + ;
-                  IF(nAbnr > 0, "Auftrag " + LTrim(Str(nAbnr)) + " pruefen", "Auftrag fuer " + cKunde + " von Hand anlegen"), ;
-                  cFehler + Chr(13) + Chr(10) + Chr(13) + Chr(10) + CO_Text(hOrder, cKunde))
+         CO_Mail(cMail, "Conrad-Bestellung " + cOrderId + " - " + ;
+                 IF(nAbnr > 0, "Auftrag " + LTrim(Str(nAbnr)) + " pruefen und freigeben", "Auftrag fuer " + cKunde + " von Hand anlegen"), ;
+                 cFehler + Chr(13) + Chr(10) + Chr(13) + Chr(10) + CO_Text(hOrder, cKunde), nAbnr)
          nGemeldet++
+      ELSEIF nAbnr > 0                           // Auftrag muss noch freigegeben werden
+         CO_Mail(cMail, "Conrad-Bestellung " + cOrderId + " - Auftrag " + LTrim(Str(nAbnr)) + " bitte freigeben", ;
+                 "Der Auftrag wurde automatisch angelegt und muss noch freigegeben werden." + ;
+                 Chr(13) + Chr(10) + Chr(13) + Chr(10) + CO_Text(hOrder, cKunde), nAbnr)
       ENDIF
    NEXT
 
@@ -136,7 +140,7 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
    CO_Log(cLogFile, "INFO", IF(lTest, "Testlauf: ", "") + "Auftraege angelegt " + LTrim(Str(nAngelegt)) + ", per Mail gemeldet " + LTrim(Str(nGemeldet)) + ;
           ", Fehler " + LTrim(Str(Len(aFehler))))
    IF Len(aFehler) > 0 .AND. lBatch
-      SendMail({{cMail, cMail}}, "Conrad-Bestellungen: Fehler beim Abholen", CO_Join(aFehler, Chr(13) + Chr(10)))
+      CO_Mail(cMail, "Conrad-Bestellungen: Fehler beim Abholen", CO_Join(aFehler, Chr(13) + Chr(10)), 0)
    ENDIF
 
    CO_Ende(cLogFile, lBatch, IF(Len(aFehler) == 0, "", LTrim(Str(Len(aFehler))) + " Fehler - siehe Protokoll."))
@@ -464,6 +468,21 @@ STATIC FUNCTION CO_Text(hOrder, cKunde)
    cText += "Versand: " + Transform(CO_HDef(hOrder, "shipping_price", 0), "999999.99") + " EUR" + cNl
    cText += "Gesamt:  " + Transform(CO_HDef(hOrder, "total_price", 0), "999999.99") + " EUR" + cNl
 RETURN cText
+
+
+// Mail als HTML: SendMail entfernt im Text Chr(10), Zeilenumbrueche gingen
+// sonst verloren. Mit nAbnr > 0 steht oben ein Link auf den Auftrag.
+STATIC FUNCTION CO_Mail(cMail, cSubject, cText, nAbnr)
+   LOCAL cHtml := ""
+
+   IF nAbnr > 0
+      cHtml := 'Auftrag <a href="' + TraderUrl('EngAuft(' + LTrim(Str(nAbnr)) + ')') + '">' + ;
+               LTrim(Str(nAbnr)) + '</a><br><br>'
+   ENDIF
+   cText := StrTran(StrTran(StrTran(cText, "&", "&amp;"), "<", "&lt;"), ">", "&gt;")
+   cHtml += StrTran(cText, Chr(13) + Chr(10), "<br>")
+   SendMail({{cMail, cMail}}, cSubject, cHtml, , , , .T.)
+RETURN NIL
 
 
 // eine Adresszeile aus mehreren Feldern; leer, wenn alle Felder leer sind

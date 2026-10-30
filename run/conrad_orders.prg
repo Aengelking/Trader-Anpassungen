@@ -25,6 +25,8 @@
  *
  * Config (GetValue, siehe Conrad_Orders_Setup):
  *   CONRAD_MIRAKL_URL   Adresse der Mirakl-API
+ *   CONRAD_MIRAKL_SHOP  Shop-ID bei Conrad (der Schluessel gilt fuer mehrere
+ *                       Shops; leer = Standard-Shop des Schluessels)
  *   CONRAD_ORDERS_MAIL  Empfaenger der Meldungen
  *   CONRAD_ORDERS_KUNDE Matchcode des Kunden fuer die Auftraege (CONRADSE)
  *
@@ -146,6 +148,7 @@ RETURN
 
 FUNCTION Conrad_Orders_Setup()
    GetValue("CONRAD_MIRAKL_URL", "https://conradb2b-prod.mirakl.net/api/", "Adresse der Mirakl-API von Conrad")
+   GetValue("CONRAD_MIRAKL_SHOP", "", "Shop-ID bei Conrad (leer = Standard-Shop des API-Schluessels)")
    GetValue("CONRAD_ORDERS_MAIL", "", "Empfaenger der Meldungen zu Conrad-Bestellungen")
    GetValue("CONRAD_ORDERS_KUNDE", "CONRADSE", "Kunde (Matchcode) fuer Auftraege aus Conrad-Bestellungen")
 RETURN NIL
@@ -489,10 +492,14 @@ STATIC FUNCTION CO_Request(cUrl, cMethod, hBody, cFehler)
    LOCAL aHeader := {"Authorization: $APIKEY$", "Accept: application/json"}
    LOCAL nStatus := 0
    LOCAL cGrund  := ""
+   LOCAL cShop   := AllTrim(CO_Str(GetValue("CONRAD_MIRAKL_SHOP")))
    LOCAL cAntwort, oErr
 
    IF hBody != NIL
       AAdd(aHeader, "Content-Type: application/json")
+   ENDIF
+   IF ! Empty(cShop)                             // Schluessel gilt fuer mehrere Shops
+      cUrl += IF("?" $ cUrl, "&", "?") + "shop_id=" + cShop
    ENDIF
    oRest:cBaseUrl    := ""
    oRest:cApiKeyName := CO_KEYNAME

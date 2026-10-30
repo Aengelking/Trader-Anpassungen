@@ -29,10 +29,12 @@
  *   CONRAD_ORDERS_MAIL  Empfaenger der Meldungen
  *   CONRAD_ORDERS_KUNDE Matchcode des Kunden fuer die Auftraege (CONRADSE)
  *
- * Protokoll: Path("run\logs\")conrad_orders_<Datum>_<Zeit>.log
+ * Protokoll: Path("run\logs\")conrad_orders_<Datum>.log, eine Datei je Tag,
+ * nach 30 Tagen geloescht (CO_LOGTAGE)
  */
 
 #define CO_LOGDIR    "run\logs\"
+#define CO_LOGTAGE   30
 #define CO_DATADIR   "export\conrad\"
 #define CO_KEYNAME   "CONRADMKL"            // Keychain, max. 10 Zeichen
 
@@ -609,15 +611,23 @@ STATIC FUNCTION CO_Ende(cLogFile, lBatch, cFehler)
 RETURN NIL
 
 
+// eine Datei je Tag, alle Laeufe des Tages haengen an; aeltere als
+// CO_LOGTAGE Tage werden geloescht
 STATIC FUNCTION CO_LogFile()
    LOCAL cDir := Path(CO_LOGDIR)
-   LOCAL cFile
+   LOCAL cFile, aAlt, nX
 
    IF ! hb_DirExists(Left(cDir, Len(cDir) - 1))
       MakeDir(Left(cDir, Len(cDir) - 1))
    ENDIF
-   cFile := cDir + "conrad_orders_" + DToS(Date()) + "_" + StrTran(Time(), ":", "") + ".log"
-   CO_Log(cFile, "INFO", "Protokoll gestartet: " + DToC(Date()) + " " + Time())
+   aAlt := Directory(cDir + "conrad_orders_*.log")
+   FOR nX := 1 TO Len(aAlt)
+      IF aAlt[nX, 3] < Date() - CO_LOGTAGE       // F_DATE
+         FErase(cDir + aAlt[nX, 1])
+      ENDIF
+   NEXT
+   cFile := cDir + "conrad_orders_" + DToS(Date()) + ".log"
+   CO_Log(cFile, "INFO", "----- Lauf gestartet")
 RETURN cFile
 
 

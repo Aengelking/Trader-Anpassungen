@@ -123,7 +123,7 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
       ENDIF
       IF ! Empty(cFehler)
          CO_Log(cLogFile, "ERROR", cOrderId + ": " + cFehler)
-         SendMail({{cMail}}, "Conrad-Bestellung " + cOrderId + " - " + ;
+         SendMail({{cMail, cMail}}, "Conrad-Bestellung " + cOrderId + " - " + ;
                   IF(nAbnr > 0, "Auftrag " + LTrim(Str(nAbnr)) + " pruefen", "Auftrag fuer " + cKunde + " von Hand anlegen"), ;
                   cFehler + Chr(13) + Chr(10) + Chr(13) + Chr(10) + CO_Text(hOrder, cKunde))
          nGemeldet++
@@ -136,7 +136,7 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
    CO_Log(cLogFile, "INFO", IF(lTest, "Testlauf: ", "") + "Auftraege angelegt " + LTrim(Str(nAngelegt)) + ", per Mail gemeldet " + LTrim(Str(nGemeldet)) + ;
           ", Fehler " + LTrim(Str(Len(aFehler))))
    IF Len(aFehler) > 0 .AND. lBatch
-      SendMail({{cMail}}, "Conrad-Bestellungen: Fehler beim Abholen", CO_Join(aFehler, Chr(13) + Chr(10)))
+      SendMail({{cMail, cMail}}, "Conrad-Bestellungen: Fehler beim Abholen", CO_Join(aFehler, Chr(13) + Chr(10)))
    ENDIF
 
    CO_Ende(cLogFile, lBatch, IF(Len(aFehler) == 0, "", LTrim(Str(Len(aFehler))) + " Fehler - siehe Protokoll."))

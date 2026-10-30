@@ -89,9 +89,6 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
       RETURN
    ENDIF
    CO_Log(cLogFile, "INFO", "Conrad meldet " + LTrim(Str(Len(aOrders))) + " Bestellung(en) im Status SHIPPING")
-   IF Len(aOrders) == 0
-      CO_Diagnose(cBase, cLogFile)
-   ENDIF
    FOR nX := 1 TO Len(aOrders)
       hOrder   := aOrders[nX]
       cOrderId := CO_Str(CO_HDef(hOrder, "order_id", ""))
@@ -99,7 +96,7 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
          CO_Log(cLogFile, "INFO", cOrderId + ": schon erledigt (" + cErledigt + ")")
          LOOP
       ENDIF
-      nAbnr := CO_Vorhanden(cOrderId, cKunde)
+      nAbnr := CO_Vorhanden(cOrderId, cKunde, cLogFile)
       IF nAbnr > 0                               // schon in Trader, z. B. von Hand angelegt
          CO_Log(cLogFile, "INFO", cOrderId + ": Auftrag " + LTrim(Str(nAbnr)) + " gibt es schon")
          IF ! lTest
@@ -182,51 +179,32 @@ RETURN aAlle
 
 
 // AbNr des Auftrags fuer cKunde mit der Conrad-Bestellnr. als "Ihre Bestellnr.";
-// 0, wenn es noch keinen gibt
-STATIC FUNCTION CO_Vorhanden(cOrderId, cKunde)
-   IF Empty(cOrderId)
+// 0, wenn es noch keinen gibt. Verglichen wird nur die Nummer vor dem ersten
+// "-" (4519864688-00-A -> 4519864688), von Hand wird oft nur die erfasst.
+// Treffer bei anderen Kunden kommen ins Protokoll, zaehlen aber nicht.
+STATIC FUNCTION CO_Vorhanden(cOrderId, cKunde, cLogFile)
+   LOCAL cNr    := AllTrim(cOrderId)
+   LOCAL nFremd := 0
+
+   IF "-" $ cNr
+      cNr := Left(cNr, At("-", cNr) - 1)
+   ENDIF
+   IF Empty(cNr)
       RETURN 0
    ENDIF
-   auf->(dbSeek( cOrderId ))
-   DO WHILE ! auf->(Eof()) .AND. Trim(auf->Aufnr) == cOrderId
+   auf->(dbSeek( cNr ))
+   DO WHILE ! auf->(Eof()) .AND. Left(auf->Aufnr, Len(cNr)) == cNr
       IF Upper(Trim(auf->Kundma)) == cKunde
          RETURN auf->Abnr
+      ENDIF
+      IF auf->Abnr != nFremd                     // je Auftrag nur einmal, nicht je Position
+         nFremd := auf->Abnr
+         CO_Log(cLogFile, "WARNING", cOrderId + ": Ihre Bestellnr. " + Trim(auf->Aufnr) + " gibt es bei Kunde " + ;
+                Trim(auf->Kundma) + " (Auftrag " + LTrim(Str(auf->Abnr)) + ") - nicht beachtet")
       ENDIF
       auf->(dbSkip())
    ENDDO
 RETURN 0
-
-
-// Nur zur Fehlersuche: Bestellungen der letzten 30 Tage mit ihrem Status ins Protokoll
-STATIC FUNCTION CO_Diagnose(cBase, cLogFile)
-   LOCAL dAb := Date() - 30
-   LOCAL cFehler := ""
-   LOCAL xAntwort, aSeite, hOrder, nX
-
-   // A01: zu welchem Shop gehoert der Schluessel?
-   xAntwort := CO_Json(CO_Request(cBase + "account", "GET", NIL, @cFehler))
-   IF ValType(xAntwort) == "H"
-      CO_Log(cLogFile, "INFO", "Diagnose: " + cBase + " Shop " + CO_Str(CO_HDef(xAntwort, "shop_id", "")) + ;
-             " " + CO_Str(CO_HDef(xAntwort, "shop_name", "")) + ", Status " + CO_Str(CO_HDef(xAntwort, "shop_state", "")))
-   ELSE
-      CO_Log(cLogFile, "WARNING", "Diagnose: Shop nicht abrufbar " + cFehler)
-   ENDIF
-   xAntwort := CO_Json(CO_Request(cBase + "orders?start_date=" + Str(Year(dAb), 4) + "-" + ;
-                                  StrZero(Month(dAb), 2) + "-" + StrZero(Day(dAb), 2) + "T00:00:00Z&max=100", ;
-                                  "GET", NIL, @cFehler))
-   IF ValType(xAntwort) != "H"
-      CO_Log(cLogFile, "WARNING", "Diagnose: Bestellungen nicht abrufbar " + cFehler)
-      RETURN NIL
-   ENDIF
-   aSeite := CO_HDef(xAntwort, "orders", {})
-   CO_Log(cLogFile, "INFO", "Diagnose: " + LTrim(Str(Len(aSeite))) + " Bestellung(en) seit " + DToC(dAb) + ;
-          " (total_count " + CO_Str(CO_HDef(xAntwort, "total_count", "?")) + ")")
-   FOR nX := 1 TO Len(aSeite)
-      hOrder := aSeite[nX]
-      CO_Log(cLogFile, "INFO", "Diagnose: " + CO_Str(CO_HDef(hOrder, "order_id", "")) + " Status " + ;
-             CO_Str(CO_HDef(hOrder, "order_state", "")) + " vom " + Left(CO_Str(CO_HDef(hOrder, "created_date", "")), 10))
-   NEXT
-RETURN NIL
 
 
 // SKUs der Bestellung, zu denen es keinen Artikel gibt

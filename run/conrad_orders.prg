@@ -22,9 +22,9 @@
  *   trader:-R&conrad_orders                 abholen, annehmen, melden
  *   trader:-R&conrad_orders&{"J"}           Testlauf: nur protokollieren
  *
+ * Keychain-Eintrag CONRADMKL: Mirakl-API-Schluessel (Shop-Key), eingesetzt fuer $APIKEY$ im Header
+ *
  * Config (GetValue, siehe Conrad_Orders_Setup):
- *   CONRAD_MIRAKL       Keychain-Eintrag mit dem Mirakl-API-Schluessel
- *                       (Shop-Key), eingesetzt fuer $APIKEY$ im Header
  *   CONRAD_MIRAKL_URL   Adresse der Mirakl-API
  *   CONRAD_ORDERS_MAIL  Empfaenger der Meldungen
  *   CONRAD_ORDERS_KUNDE Matchcode des Kunden fuer die Auftraege (CONRADSE)
@@ -157,7 +157,6 @@ RETURN
 
 
 FUNCTION Conrad_Orders_Setup()
-   GetValue("CONRAD_MIRAKL", "", "Keychain-Eintrag mit dem Mirakl-API-Schluessel von Conrad")
    GetValue("CONRAD_MIRAKL_URL", "https://conradb2b-prod.mirakl.net/api/", "Adresse der Mirakl-API von Conrad")
    GetValue("CONRAD_ORDERS_MAIL", "", "Empfaenger der Meldungen zu Conrad-Bestellungen")
    GetValue("CONRAD_ORDERS_KUNDE", "CONRADSE", "Kunde (Matchcode) fuer Auftraege aus Conrad-Bestellungen")
@@ -472,7 +471,7 @@ STATIC FUNCTION CO_Request(cUrl, cMethod, hBody, cFehler)
       AAdd(aHeader, "Content-Type: application/json")
    ENDIF
    oRest:cBaseUrl    := ""
-   oRest:cApiKeyName := "CONRAD_MIRAKL"
+   oRest:cApiKeyName := "CONRADMKL"            // Keychain, max. 10 Zeichen
    cFehler := ""
    BEGIN SEQUENCE WITH {|e| Break(e)}
       cAntwort := oRest:Execute(cUrl, cMethod, hBody, aHeader, hBody != NIL, @nStatus)

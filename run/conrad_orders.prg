@@ -393,13 +393,16 @@ RETURN ""
 
 // Trader-Artikel zur SKU; 0, wenn es keinen gibt. art steht danach auf dem Artikel.
 // - "12345S-06" -> Artikel 12345
-// - CM-Teile ohne Artikelnr. hat product_data.prg mit dem Shop-Matchcode
-//   hochgeladen, "/" durch "-" ersetzt (CMI35-V2-...). Zurueck geht das nur
-//   ueber shopware; cMatch liefert den gefundenen Matchcode.
+// - CM-Teile hat product_data.prg mit dem Matchcode hochgeladen, "/" durch "-"
+//   ersetzt, ggf. mit Zusatz wie "(S)" am Ende:
+//   CMI35-V2-F-R-RD-24-M-S-28(S) -> CMI35/V2/F/R/RD/24/M/S/28
+//   Weil Matchcodes selbst "-" enthalten koennen, wird nicht zurueckgerechnet,
+//   sondern der Matchcode gesucht, der umgewandelt gleich aussieht.
+//   Erst in den Artikeln, dann in shopware; cMatch liefert den Treffer.
 STATIC FUNCTION CO_Artikelnr(cSku, cMatch)
    LOCAL nX := 1
    LOCAL nArtnr := 0
-   LOCAL cPre
+   LOCAL cOhne, cPre
 
    cMatch := ""
    DO WHILE nX <= Len(cSku) .AND. IsDigit(SubStr(cSku, nX, 1))
@@ -410,13 +413,34 @@ STATIC FUNCTION CO_Artikelnr(cSku, cMatch)
       RETURN IF(art->(dbSeek( Str(nArtnr,6) )), nArtnr, 0)
    ENDIF
 
-   cPre := IF("-" $ cSku, Left(cSku, At("-", cSku) - 1), cSku)
+   cOhne := AllTrim(cSku)
+   IF Right(cOhne, 1) == ")" .AND. "(" $ cOhne    // Zusatz "(S)" weg
+      cOhne := AllTrim(Left(cOhne, RAt("(", cOhne) - 1))
+   ENDIF
+   cPre := IF("-" $ cOhne, Left(cOhne, At("-", cOhne) - 1), cOhne)
    IF Empty(cPre)
       RETURN 0
    ENDIF
+
+   art->(dbSetOrder( 1 ))                        // Matchcode
+   art->(dbSeek( cPre ))
+   DO WHILE ! art->(Eof()) .AND. Left(art->Matchcode, Len(cPre)) == cPre
+      IF StrTran(Trim(art->Matchcode), "/", "-") == cOhne
+         nArtnr := art->Artikelnr
+         cMatch := Trim(art->Matchcode)
+         EXIT
+      ENDIF
+      art->(dbSkip())
+   ENDDO
+   art->(dbSetOrder( 2 ))
+   IF nArtnr != 0
+      art->(dbSeek( Str(nArtnr,6) ))
+      RETURN nArtnr
+   ENDIF
+
    shop->(dbSeek( cPre ))
    DO WHILE ! shop->(Eof()) .AND. Left(shop->Matchcode, Len(cPre)) == cPre
-      IF StrTran(Trim(shop->Matchcode), "/", "-") == cSku
+      IF StrTran(Trim(shop->Matchcode), "/", "-") == cOhne .OR. StrTran(Trim(shop->Matchcode), "/", "-") == cSku
          cMatch := Trim(shop->Matchcode)
          IF shop->Artikelnr != 0 .AND. art->(dbSeek( Str(shop->Artikelnr,6) ))
             RETURN shop->Artikelnr
@@ -425,17 +449,7 @@ STATIC FUNCTION CO_Artikelnr(cSku, cMatch)
       ENDIF
       shop->(dbSkip())
    ENDDO
-   IF ! Empty(cMatch)                            // Artikel evtl. inzwischen angelegt
-      art->(dbSetOrder( 1 ))                     // Matchcode
-      IF art->(dbSeek( Pad(cMatch, 25) ))
-         nArtnr := art->Artikelnr
-      ENDIF
-      art->(dbSetOrder( 2 ))
-      IF nArtnr != 0
-         art->(dbSeek( Str(nArtnr,6) ))
-      ENDIF
-   ENDIF
-RETURN nArtnr
+RETURN 0
 
 
 // Mailtext mit allem, was fuer den Auftrag gebraucht wird

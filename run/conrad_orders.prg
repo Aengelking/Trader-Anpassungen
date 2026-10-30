@@ -73,6 +73,8 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
 
    NetUse("artikel", "art")
    art->(dbSetOrder( 2 ))
+   NetUse("shopware", "shop")
+   shop->(dbSetOrder( 3 ))                       // Matchcode
    NetUse("engauf", "auf")
    auf->(dbSetOrder( 2 ))                        // Kundma
    NetUse("engkund", "ku")
@@ -204,15 +206,15 @@ RETURN 0
 STATIC FUNCTION CO_OhneArtikel(hOrder)
    LOCAL aLines := CO_HDef(hOrder, "order_lines", {})
    LOCAL aOhne  := {}
-   LOCAL cSku, nX
+   LOCAL cSku, cMatch, nX
 
    FOR nX := 1 TO Len(aLines)
       IF CO_Storniert(aLines[nX])
          LOOP
       ENDIF
       cSku := CO_Str(CO_HDef(aLines[nX], "offer_sku", ""))
-      IF CO_Artikelnr(cSku) == 0 .OR. ! art->(dbSeek( Str(CO_Artikelnr(cSku),6) ))
-         AAdd(aOhne, cSku)
+      IF CO_Artikelnr(cSku, @cMatch) == 0
+         AAdd(aOhne, cSku + IF(Empty(cMatch), "", " (Shop-Matchcode " + cMatch + ", Artikel fehlt in Trader)"))
       ENDIF
    NEXT
 RETURN aOhne
@@ -389,14 +391,51 @@ STATIC FUNCTION CO_ValErr(oPos)
 RETURN ""
 
 
-// "12345S-06" -> 12345
-STATIC FUNCTION CO_Artikelnr(cSku)
+// Trader-Artikel zur SKU; 0, wenn es keinen gibt. art steht danach auf dem Artikel.
+// - "12345S-06" -> Artikel 12345
+// - CM-Teile ohne Artikelnr. hat product_data.prg mit dem Shop-Matchcode
+//   hochgeladen, "/" durch "-" ersetzt (CMI35-V2-...). Zurueck geht das nur
+//   ueber shopware; cMatch liefert den gefundenen Matchcode.
+STATIC FUNCTION CO_Artikelnr(cSku, cMatch)
    LOCAL nX := 1
+   LOCAL nArtnr := 0
+   LOCAL cPre
 
+   cMatch := ""
    DO WHILE nX <= Len(cSku) .AND. IsDigit(SubStr(cSku, nX, 1))
       nX++
    ENDDO
-RETURN Val(Left(cSku, nX - 1))
+   nArtnr := Val(Left(cSku, nX - 1))
+   IF nArtnr != 0
+      RETURN IF(art->(dbSeek( Str(nArtnr,6) )), nArtnr, 0)
+   ENDIF
+
+   cPre := IF("-" $ cSku, Left(cSku, At("-", cSku) - 1), cSku)
+   IF Empty(cPre)
+      RETURN 0
+   ENDIF
+   shop->(dbSeek( cPre ))
+   DO WHILE ! shop->(Eof()) .AND. Left(shop->Matchcode, Len(cPre)) == cPre
+      IF StrTran(Trim(shop->Matchcode), "/", "-") == cSku
+         cMatch := Trim(shop->Matchcode)
+         IF shop->Artikelnr != 0 .AND. art->(dbSeek( Str(shop->Artikelnr,6) ))
+            RETURN shop->Artikelnr
+         ENDIF
+         EXIT
+      ENDIF
+      shop->(dbSkip())
+   ENDDO
+   IF ! Empty(cMatch)                            // Artikel evtl. inzwischen angelegt
+      art->(dbSetOrder( 1 ))                     // Matchcode
+      IF art->(dbSeek( Pad(cMatch, 25) ))
+         nArtnr := art->Artikelnr
+      ENDIF
+      art->(dbSetOrder( 2 ))
+      IF nArtnr != 0
+         art->(dbSeek( Str(nArtnr,6) ))
+      ENDIF
+   ENDIF
+RETURN nArtnr
 
 
 // Mailtext mit allem, was fuer den Auftrag gebraucht wird
@@ -425,7 +464,7 @@ STATIC FUNCTION CO_Text(hOrder, cKunde)
       hLine := aLines[nX]
       cSku  := CO_Str(CO_HDef(hLine, "offer_sku", ""))
       cText += CO_Str(CO_HDef(hLine, "quantity", 0)) + " x "
-      IF CO_Artikelnr(cSku) != 0 .AND. art->(dbSeek( Str(CO_Artikelnr(cSku),6) ))
+      IF CO_Artikelnr(cSku) != 0
          cText += Trim(art->Matchcode) + " (Artikel " + LTrim(Str(art->Artikelnr)) + ")"
       ELSE
          cText += "SKU " + cSku + " - KEIN ARTIKEL GEFUNDEN"

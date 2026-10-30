@@ -4,6 +4,7 @@ LOCAL oExtra
 LOCAL lUpdateFreight,oRechnung,nPorto,lPorto,nNetto
 LOCAL cMessage,aContact,cNr
 LOCAL oKunde
+LOCAL cKunde
 
 HB_SYMBOL_UNUSED( nPerson )
 HB_SYMBOL_UNUSED( aGewichte )
@@ -23,6 +24,7 @@ IF lRech //Rechnung
    re->(dbSeek( Str(nNr,6)+Str(0,3) ))
    ku->(dbSetOrder( 1 ))
    ku->(dbSeek( re->Kunde+"K" ))
+   cKunde := Upper(Trim(re->Kunde))
 
    oExtra := ku->(ExtraData():New( ku->Nummer ))   
    IF ! sk->(IsPrePay(re->Skonto)) .AND. (re->PosWt > 0 .OR. Trim(re->Kunde) == "TEST")//nur bei rechnungen
@@ -98,6 +100,18 @@ IF lRech //Rechnung
       IF oExtra:Factoring 
          MBaseRun(Path("run\factoring.prg"),{oRechnung})
       ENDIF
+   ENDIF
+
+   // Conrad-Marktplatz: Versand und Tracking-Nr. an Conrad melden
+   // (run\conrad_orders.prg). Fehler kommen per Mail, nie Abbruch am Packplatz.
+   IF ValType(GetValue("CONRAD_ORDERS_KUNDE")) == "C" .AND. ;
+      cKunde == Upper(AllTrim(GetValue("CONRAD_ORDERS_KUNDE")))
+      BEGIN SEQUENCE WITH {|e| Break(e)}
+         LoadPrg(Path("run\conrad_orders.prg"))
+         HB_ExecFromArray({"Conrad_Ship", nNr, nVersandArt, aPakete})
+      RECOVER
+         //nicht fatal
+      END SEQUENCE
    ENDIF
 ELSE
    NetUse("muster","mus",.F.,0)

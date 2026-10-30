@@ -11,6 +11,12 @@
  * ggf. mit "-06"/"-24". Geht das nicht (z. B. SKU ohne Artikel), kommt
  * einmalig eine Mail mit allem, was zum Anlegen von Hand gebraucht wird.
  *
+ * Versand melden: Conrad_Ship() aus dem Hook after_pack, wenn die Rechnung
+ * fuer CONRAD_ORDERS_KUNDE gebucht wird. Die Conrad-Bestellnr. kommt aus
+ * "Ihre Bestellnr." der Rechnungspositionen; gemeldet werden Spediteur und
+ * Tracking-Nr. (OR23) und der Versand (OR24). Fehler kommen per Mail, der
+ * Packplatz wird nie aufgehalten.
+ *
  * Welche Bestellungen schon erledigt sind, steht in
  * Path("export\conrad\")conrad_orders_erledigt.txt (eine Zeile je Bestellung).
  * Zusaetzlich wird keine Bestellung angelegt, fuer die es beim Kunden schon
@@ -154,6 +160,150 @@ FUNCTION Conrad_Orders_Setup()
    GetValue("CONRAD_ORDERS_MAIL", "", "Empfaenger der Meldungen zu Conrad-Bestellungen")
    GetValue("CONRAD_ORDERS_KUNDE", "CONRADSE", "Kunde (Matchcode) fuer Auftraege aus Conrad-Bestellungen")
 RETURN NIL
+
+
+// Versand einer Rechnung an Conrad melden (aus after_pack). Liefert .T., wenn
+// alles gemeldet wurde; Fehler gehen ins Protokoll und per Mail.
+FUNCTION Conrad_Ship(nRechnr, nVersandart, aPakete)
+   LOCAL cLogFile := CO_LogFile()
+   LOCAL aFehler  := {}
+   LOCAL cBase, cMail, cFehler, cCarrier, cTracking, cNr
+   LOCAL aNummern, hOrder, hTrack, cOrderId, cState, nX
+
+   Conrad_Orders_Setup()
+   cBase := AllTrim(CO_Str(GetValue("CONRAD_MIRAKL_URL")))
+   cMail := AllTrim(CO_Str(GetValue("CONRAD_ORDERS_MAIL")))
+   IF Right(cBase, 1) != "/"
+      cBase += "/"
+   ENDIF
+   CO_Log(cLogFile, "INFO", "Versand melden fuer Rechnung " + LTrim(Str(nRechnr)))
+
+   NetUse("keychain", "chain")
+   IF ! chain->(dbSeek( Pad(CO_KEYNAME, 10) ))
+      AAdd(aFehler, "Im Schluesselbund fehlt der Eintrag " + CO_KEYNAME + ".")
+   ENDIF
+
+   aNummern := IF(Len(aFehler) == 0, CO_RechnungNummern(nRechnr), {})
+   IF Len(aFehler) == 0 .AND. Len(aNummern) == 0
+      AAdd(aFehler, "Rechnung " + LTrim(Str(nRechnr)) + " hat keine Conrad-Bestellnr. (Ihre Bestellnr.)")
+   ENDIF
+
+   cCarrier  := AllTrim(CO_Str(VerShow(nVersandart)))
+   cTracking := ""
+   FOR nX := 1 TO Len(aPakete)
+      IF ValType(aPakete[nX]) == "C" .AND. ! Empty(aPakete[nX])
+         IF Empty(cTracking)
+            cTracking := AllTrim(aPakete[nX])
+         ELSE
+            CO_Log(cLogFile, "INFO", "weitere Tracking-Nr. " + AllTrim(aPakete[nX]) + " (Conrad nimmt nur eine)")
+         ENDIF
+      ENDIF
+   NEXT
+   IF Len(aNummern) > 0 .AND. ! Empty(cTracking)
+      hTrack := CO_Carrier(cBase, cCarrier, cLogFile)
+      hTrack["tracking_number"] := cTracking
+   ENDIF
+
+   FOR EACH cNr IN aNummern
+      hOrder := CO_Bestellung(cBase, cNr, @cFehler)
+      IF hOrder == NIL
+         AAdd(aFehler, cNr + ": " + IF(Empty(cFehler), "bei Conrad nicht gefunden", cFehler))
+         LOOP
+      ENDIF
+      cOrderId := CO_Str(CO_HDef(hOrder, "order_id", ""))
+      cState   := CO_Str(CO_HDef(hOrder, "order_state", ""))
+      IF cState != "SHIPPING"
+         CO_Log(cLogFile, "INFO", cOrderId + ": Status " + cState + " - nichts zu melden")
+         LOOP
+      ENDIF
+      IF hTrack != NIL .AND. CO_Request(cBase + "orders/" + cOrderId + "/tracking", "PUT", hTrack, @cFehler) == NIL
+         AAdd(aFehler, cOrderId + ": Tracking nicht gemeldet: " + cFehler)
+         LOOP
+      ENDIF
+      IF CO_Request(cBase + "orders/" + cOrderId + "/ship", "PUT", NIL, @cFehler) == NIL
+         AAdd(aFehler, cOrderId + ": Versand nicht gemeldet: " + cFehler)
+         LOOP
+      ENDIF
+      CO_Log(cLogFile, "INFO", cOrderId + ": Versand gemeldet (" + cCarrier + ;
+             IF(Empty(cTracking), ", ohne Tracking-Nr.", " " + cTracking) + ")")
+   NEXT
+
+   FOR nX := 1 TO Len(aFehler)
+      CO_Log(cLogFile, "ERROR", aFehler[nX])
+   NEXT
+   IF Len(aFehler) > 0 .AND. ! Empty(cMail)
+      CO_Mail(cMail, "Conrad: Versand zu Rechnung " + LTrim(Str(nRechnr)) + " nicht gemeldet", ;
+              "Bitte den Versand im Conrad-Portal von Hand melden." + Chr(13) + Chr(10) + Chr(13) + Chr(10) + ;
+              CO_Join(aFehler, Chr(13) + Chr(10)) + Chr(13) + Chr(10) + Chr(13) + Chr(10) + ;
+              "Versandart: " + cCarrier + Chr(13) + Chr(10) + ;
+              "Tracking-Nr.: " + CO_Join(aPakete, ", "), 0)
+   ENDIF
+RETURN Len(aFehler) == 0
+
+
+// Conrad-Bestellnummern ("Ihre Bestellnr.") der Positionen einer Rechnung
+STATIC FUNCTION CO_RechnungNummern(nRechnr)
+   LOCAL aNummern := {}
+   LOCAL cNr
+
+   NetUse("engslre", "re")
+   re->(dbSetOrder( 12 ))
+   re->(dbSeek( Str(nRechnr,6) + Str(0,3) ))
+   re->(dbSkip())
+   DO WHILE ! re->(Eof()) .AND. re->Rechnr == nRechnr
+      cNr := AllTrim(re->Aufnr)
+      IF re->AoQty > 0 .AND. ! Empty(cNr) .AND. AScan(aNummern, {|x| x == cNr }) == 0
+         AAdd(aNummern, cNr)
+      ENDIF
+      re->(dbSkip())
+   ENDDO
+RETURN aNummern
+
+
+// Bestellung bei Conrad zur Nummer; von Hand wird oft nur der Teil vor dem
+// ersten "-" erfasst (4519864688 statt 4519864688-00-A). NIL, wenn nicht da.
+STATIC FUNCTION CO_Bestellung(cBase, cNr, cFehler)
+   LOCAL xAntwort, aOrders, nX
+
+   xAntwort := CO_Json(CO_Request(cBase + "orders?order_ids=" + cNr, "GET", NIL, @cFehler))
+   IF ValType(xAntwort) != "H"
+      RETURN NIL
+   ENDIF
+   aOrders := CO_HDef(xAntwort, "orders", {})
+   IF Len(aOrders) > 0
+      RETURN aOrders[1]
+   ENDIF
+   aOrders := CO_Orders(cBase, "SHIPPING", @cFehler)
+   IF aOrders == NIL
+      RETURN NIL
+   ENDIF
+   FOR nX := 1 TO Len(aOrders)
+      IF Left(CO_Str(CO_HDef(aOrders[nX], "order_id", "")), Len(cNr) + 1) == cNr + "-"
+         RETURN aOrders[nX]
+      ENDIF
+   NEXT
+RETURN NIL
+
+
+// Spediteur fuer OR23: Code aus der Conrad-Liste (SH21), wenn Code oder
+// Bezeichnung in der Trader-Versandart vorkommt (z. B. "DHL Paket" -> DHL);
+// sonst nur der Name.
+STATIC FUNCTION CO_Carrier(cBase, cCarrier, cLogFile)
+   LOCAL cFehler := ""
+   LOCAL cUpper  := Upper(cCarrier)
+   LOCAL xAntwort, aListe, cCode, cLabel, nX
+
+   xAntwort := CO_Json(CO_Request(cBase + "shipping/carriers", "GET", NIL, @cFehler))
+   aListe   := CO_HDef(IF(ValType(xAntwort) == "H", xAntwort, {=>}), "carriers", {})
+   FOR nX := 1 TO Len(aListe)
+      cCode  := Upper(AllTrim(CO_Str(CO_HDef(aListe[nX], "code", ""))))
+      cLabel := Upper(AllTrim(CO_Str(CO_HDef(aListe[nX], "label", ""))))
+      IF (! Empty(cCode) .AND. cCode $ cUpper) .OR. (! Empty(cLabel) .AND. cLabel $ cUpper)
+         RETURN {"carrier_code" => CO_Str(CO_HDef(aListe[nX], "code", ""))}
+      ENDIF
+   NEXT
+   CO_Log(cLogFile, "INFO", "Spediteur '" + cCarrier + "' nicht in der Conrad-Liste - nur Name gemeldet")
+RETURN {"carrier_name" => cCarrier}
 
 
 // Alle Bestellungen in einem Status (OR11), seitenweise; NIL bei Fehler
@@ -591,7 +741,7 @@ RETURN ""
 STATIC FUNCTION CO_Join(aZeilen, cTrenner)
    LOCAL cOut := "", nX
    FOR nX := 1 TO Len(aZeilen)
-      cOut += IF(nX > 1, cTrenner, "") + aZeilen[nX]
+      cOut += IF(nX > 1, cTrenner, "") + CO_Str(aZeilen[nX])
    NEXT
 RETURN cOut
 

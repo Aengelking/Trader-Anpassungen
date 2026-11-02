@@ -1,0 +1,14 @@
+Specification Change Notification for %parts_list_subject%
+%anrede%,
+
+Please find attached the specification change notification for the following articles:
+<pre>
+Part                      Drawing
+%parts_list%
+</pre>
+Please review the attached documents and implement the necessary measures.
+
+If you have any questions, please do not hesitate to contact us.
+
+Best Regards
+%username%

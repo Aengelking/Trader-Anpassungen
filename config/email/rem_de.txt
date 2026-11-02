@@ -1,0 +1,9 @@
+Bestellerinnerung
+%anrede%
+
+In der Anlage erhalten Sie eine Bestellerinnerung.
+
+Wir bitten Sie diese zu prüfen und uns möglichst kurzfristig eine Rückmeldung zu geben.
+
+Mit freundlichen Grüßen
+%username%

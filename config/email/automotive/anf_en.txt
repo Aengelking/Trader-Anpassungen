@@ -1,0 +1,11 @@
+Enquiry %nr%
+%anrede%
+
+Please find our current enquiry attached. Please make us your best offer quoting price and delivery time.
+
+Please provide a BOM with the quote where possible.
+
+If you have any questions, please do not hesitate to contact me.
+
+Best Regards
+%username%

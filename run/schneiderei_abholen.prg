@@ -10,10 +10,17 @@
  *   run/<pfad>     ->  Path("run\")<pfad>       (x:\run\...)
  *   mask/<pfad>    ->  Path(,"MASK")<pfad>
  *   config/menu.json -> DATA\config\menu.json  (Menue und Tasten, menuconfig.prg)
+ *   config/email/<datei>, config/email/<firma>/<datei>
+ *                  ->  DATA\config\email\...   (E-Mail-Vorlagen, email_templates.prg)
  *
- * Aus config/ nur die freigegebenen Dateien (SA_CONFIG): in DATA\config
+ * Aus config/ nur die freigegebenen Dateien (SA_CONFIG) und die E-Mail-Vorlagen
+ * (*.txt, *.html, hoechstens ein Unterordner fuer FIRMPATH): in DATA\config
  * liegen auch trader.ini und Schluessel, die nie aus dem Repository kommen.
  * JSON-Dateien werden vor dem Ersetzen geparst - kaputtes JSON bleibt liegen.
+ * E-Mail-Vorlagen behalten ihren Zeichensatz: LoadEmailTemplate liest sie als
+ * ISO-8859-1, einzelne Aufrufer als UTF-8. Kommt eine vorhandene Vorlage mit
+ * anderem Zeichensatz (UTF-8 statt ISO-8859-1 oder umgekehrt), bleibt die alte
+ * liegen - sonst waeren die Umlaute in den Mails kaputt.
  *
  * Alles andere im Repository (README.md, CLAUDE.md ...) bleibt liegen.
  *
@@ -57,6 +64,7 @@
 #define SA_LOGDIR   "run\logs\"
 #define SA_KEYNAME  "SCHNEIDERE"                // Schluesselbund: hoechstens 10 Zeichen
 #define SA_CONFIG   {"menu.json"}               // erlaubte Dateien unter config/
+#define SA_EMAILEXT {".txt", ".html"}           // erlaubte Vorlagen unter config/email/
 
 
 PROCEDURE RUN_SCHNEIDEREI_ABHOLEN(cTestlauf)
@@ -133,6 +141,11 @@ PROCEDURE RUN_SCHNEIDEREI_ABHOLEN(cTestlauf)
          AAdd(aFehler, cPfad + ": kein gueltiges JSON - nicht ersetzt")
          LOOP
       ENDIF
+      IF lDa .AND. SA_IstVorlage(cPfad) .AND. ! SA_GleicherZs(cAlt, cInhalt)
+         AAdd(aFehler, cPfad + ": Zeichensatz geaendert (" + SA_ZsName(cAlt) + " -> " + ;
+              SA_ZsName(cInhalt) + ") - nicht ersetzt")
+         LOOP
+      ENDIF
       IF lDa .AND. SA_Norm(cAlt) == SA_Norm(cInhalt)
          SA_Log(cLogFile, "INFO", "nur Zeilenenden: " + cPfad)
          nZeilen++
@@ -193,7 +206,7 @@ STATIC FUNCTION SA_Ziel(cPfad)
    CASE cTeil == "mask"
       cDir := Path(, "MASK")
    CASE cTeil == "config"
-      IF AScan(SA_CONFIG, {|c| c == Lower(cRest) }) == 0
+      IF AScan(SA_CONFIG, {|c| c == Lower(cRest) }) == 0 .AND. ! SA_IstVorlage(cPfad)
          RETURN ""                               // nur freigegebene Dateien
       ENDIF
       cDir := SA_Data() + "\config\"
@@ -201,6 +214,46 @@ STATIC FUNCTION SA_Ziel(cPfad)
       RETURN ""
    ENDCASE
 RETURN cDir + hb_utf8ToStr(cRest)
+
+
+// E-Mail-Vorlage: config/email/<datei> oder config/email/<firma>/<datei>,
+// nur *.txt und *.html
+STATIC FUNCTION SA_IstVorlage(cPfad)
+   LOCAL cLow := Lower(cPfad)
+   LOCAL cRest, nTiefe
+
+   IF ! Left(cLow, 13) == "config/email/"
+      RETURN .F.
+   ENDIF
+   cRest  := SubStr(cLow, 14)
+   nTiefe := Len(cRest) - Len(StrTran(cRest, "/", ""))
+   IF Empty(cRest) .OR. nTiefe > 1 .OR. Left(cRest, 1) == "/" .OR. "/." $ "/" + cRest
+      RETURN .F.
+   ENDIF
+RETURN AScan(SA_EMAILEXT, {|c| Right(cRest, Len(c)) == c .AND. Len(cRest) > Len(c) }) > 0
+
+
+// Zeichensatz einer Datei: "A" nur ASCII, "U" UTF-8, "8" anderer 8-Bit-Zeichensatz
+STATIC FUNCTION SA_Zs(cText)
+   LOCAL nX
+
+   FOR nX := 1 TO Len(cText)
+      IF Asc(SubStr(cText, nX, 1)) > 127
+         RETURN IF(hb_StrIsUTF8(cText), "U", "8")
+      ENDIF
+   NEXT
+RETURN "A"
+
+
+STATIC FUNCTION SA_ZsName(cText)
+   LOCAL cZs := SA_Zs(cText)
+RETURN IF(cZs == "U", "UTF-8", IF(cZs == "8", "ISO-8859-1", "ASCII"))
+
+
+// Nur ASCII passt zu allem; sonst muss der Zeichensatz gleich bleiben
+STATIC FUNCTION SA_GleicherZs(cAlt, cNeu)
+   LOCAL cA := SA_Zs(cAlt), cN := SA_Zs(cNeu)
+RETURN cA == "A" .OR. cN == "A" .OR. cA == cN
 
 
 // Datenverzeichnis wie DATA in trader.ch (dort sucht Hook() die Hooks)

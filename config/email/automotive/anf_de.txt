@@ -1,0 +1,11 @@
+Anfrage %nr%
+%anrede%,
+
+in der Anlage finden Sie unsere aktuelle Anfrage. Wir bitten um Ihr bestes Angebot mit Angabe von Preis und Lieferzeit.
+
+Bitte senden Sie uns, falls möglich, die Stücklisten mit dem Angebot.
+
+Für Rückfragen stehen wir Ihnen gerne zur Verfügung.
+
+Mit freundlichen Grüßen
+%username%

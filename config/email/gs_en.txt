@@ -1,0 +1,8 @@
+Credit note %nr%
+%anrede%
+
+Please find a credit note attached.
+
+Best Regards
+%username%
+

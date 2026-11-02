@@ -1,0 +1,11 @@
+Delivery amendment for your order %nr%
+%anrede%
+
+We would like to inform you that there is a delivery amendment for your order %nr%. Please see the attachment for more information.
+
+If you require any further information or have any questions, please do not hesitate to contact us.
+
+Thank you for your understanding.
+
+Best regards
+%username%

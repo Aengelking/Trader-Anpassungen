@@ -1,0 +1,7 @@
+Bestellung %nr%
+%anrede%,
+
+in der Anlage erhalten Sie unsere Bestellung.
+
+Mit freundlichen Grüßen
+%username%

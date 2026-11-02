@@ -1,0 +1,12 @@
+Proforma invoice %nr%
+%anrede%
+
+Thank you for your purchase order. Please find attached the proforma invoice for your order. This invoice also serves as your order confirmation.
+
+You have various payment options: Please transfer the total value to our bank account or pay by credit card, Paypal, Bancontact, giropay, iDEAL or SOFORT via the following link:
+https://engelking.payrexx.com/en/?invoice_amount=%brutto%&invoice_number=Proforma%20invoice%20%nr%&tid=e58cb310
+
+If you have any questions, please do not hesitate to contact us.
+
+Best regards
+%username%

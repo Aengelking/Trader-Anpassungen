@@ -1,0 +1,21 @@
+The first line in the file is always the subject
+
+Attachments can be added with %attachment:FILENAME%
+
+//If the file ends with .html the Email will be sent as an HTML email
+All Emails are now sent as HTML. header.html is added to the front and the footer.html to the end of the email
+
+Variables set by the printer function can be used as
+%VARIABLENAME%
+
+Variables can also be used as if like this:
+%VARIABLENAME?THEN|ELSE%
+Variablename will be evaluated so you can also do VARIABLENAME=0 or VARIABLENAME=A
+ELSE can be blank but you need to add the pipe
+
+Available variables are:
+%nr% - the Number of the document, e.g. Invoice no.
+%brutto% - the total amount of the order confirmation
+%total% - the total amount
+%anrede% - salutation + name
+%username% - Full name of the user

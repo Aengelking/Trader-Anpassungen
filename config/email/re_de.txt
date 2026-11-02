@@ -1,0 +1,7 @@
+Rechnung %nr%
+%anrede%,
+
+in der Anlage erhalten Sie eine Rechnung.
+
+Mit freundlichen Grüßen
+

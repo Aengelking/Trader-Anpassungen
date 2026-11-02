@@ -1,0 +1,7 @@
+%reminder=3?Letzte |%%reminder=0?Kontoauszug|Zahlungserinnerung%
+%anrede%,
+
+in der Anlage erhalten Sie %reminder=0?Ihren aktuellen Kontoauszug|eine Zahlungserinnerung%.
+
+Mit freundlichen Grüßen
+%username%

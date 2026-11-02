@@ -1,0 +1,8 @@
+Letter
+%anrede%
+
+Please find a letter attached.
+
+Best Regards
+%username%
+

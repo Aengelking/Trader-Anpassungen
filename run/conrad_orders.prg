@@ -569,7 +569,7 @@ STATIC FUNCTION CO_Auftrag(hOrder, cKunde, cFehler)
    IF nAbnr > 0
       IF ! Empty(cFehler)
          cFehler := "Auftrag " + LTrim(Str(nAbnr)) + " nur teilweise angelegt - bitte pruefen. " + cFehler
-      ELSEIF ! CO_Lieferadresse(nAbnr, hAdr, @cFehler)
+      ELSEIF ! CO_Lieferadresse(nAbnr, hAdr, CO_Zusatzfeld(hOrder, "carrier-phone"), @cFehler)
          cFehler := "Auftrag " + LTrim(Str(nAbnr)) + " angelegt, aber die Lieferadresse fehlt - " + ;
                     "bitte von Hand eintragen, sonst geht die Ware an " + cKunde + ". " + cFehler
       ENDIF
@@ -577,12 +577,15 @@ STATIC FUNCTION CO_Auftrag(hOrder, cKunde, cFehler)
 RETURN nAbnr
 
 
-// Lieferadresse des Endkunden als auftragsbezogene Adresse speichern
-STATIC FUNCTION CO_Lieferadresse(nAbnr, hAdr, cFehler)
+// Lieferadresse des Endkunden als auftragsbezogene Adresse speichern.
+// 2. Zeile: Name des Empfaengers, sonst company_2, sonst street_2 bzw.
+// additional_info. Conrad fuellt Vor-/Nachname oft mit "." - das gilt als leer
+// (CO_Teile). Telefon: aus der Adresse, sonst cTelefon (Zusatzfeld carrier-phone).
+STATIC FUNCTION CO_Lieferadresse(nAbnr, hAdr, cTelefon, cFehler)
    LOCAL cFirma  := CO_Teile(hAdr, "company")
    LOCAL cName   := CO_Teile(hAdr, "firstname", "lastname")
    LOCAL cStr    := CO_Teile(hAdr, "street_1")
-   LOCAL cZusatz := CO_Teile(hAdr, "street_2")
+   LOCAL cZusatz := CO_Teile(hAdr, "street_2", "additional_info")
    LOCAL cMatch  := "A" + LTrim(Str(nAbnr, 6))
    LOCAL lOk     := .F.
    LOCAL oAdr, oErr
@@ -594,6 +597,9 @@ STATIC FUNCTION CO_Lieferadresse(nAbnr, hAdr, cFehler)
    IF Empty(cFirma)
       cFirma := cName
       cName  := ""
+   ENDIF
+   IF Empty(cName)
+      cName := CO_Teile(hAdr, "company_2")
    ENDIF
    IF Empty(cName)
       cName := cZusatz
@@ -615,7 +621,7 @@ STATIC FUNCTION CO_Lieferadresse(nAbnr, hAdr, cFehler)
       oAdr:SetField("street", cStr)
       oAdr:SetField("plz", CO_Teile(hAdr, "zip_code"))
       oAdr:SetField("town", CO_Teile(hAdr, "city"))
-      oAdr:SetField("telefon", CO_Teile(hAdr, "phone"))
+      oAdr:SetField("telefon", IF(Empty(CO_Teile(hAdr, "phone")), cTelefon, CO_Teile(hAdr, "phone")))
       oAdr:CountryIso := CO_Iso2(CO_Teile(hAdr, "country_iso_code"))
       oAdr:SetField("k_seit", Date())
       oAdr:Save()
@@ -706,7 +712,8 @@ RETURN nArtnr
 // keine. Zuerst das Feld "Kundenreferenz" (Schluessel oder Zusatzfeld-Code
 // wie customer_reference / kundenreferenz, auch in den Positionen), dann
 // references/order_reference_for_customer, zuletzt ein Zusatzfeld, dessen
-// Code nach Bestell- oder Referenznummer aussieht. Conrads eigene Nummern
+// Code eindeutig eine Bestell- oder Referenznummer ist (nicht z. B.
+// purchaser-invoice-email oder purchaser-vat-id). Conrads eigene Nummern
 // zaehlen nicht.
 STATIC FUNCTION CO_KundenBestellnr(hOrder)
    LOCAL aEigene := {CO_Str(CO_HDef(hOrder, "order_id", "")), CO_Str(CO_HDef(hOrder, "commercial_id", ""))}
@@ -724,10 +731,11 @@ STATIC FUNCTION CO_KundenBestellnr(hOrder)
    FOR nX := 1 TO Len(aFelder)
       cCode := Upper(CO_Str(CO_HDef(aFelder[nX], "code", "")))
       cNr   := AllTrim(CO_Str(CO_HDef(aFelder[nX], "value", "")))
-      IF ! Empty(cNr) .AND. AScan(aEigene, {|x| x == cNr }) == 0 .AND. ;
-         ("BESTELL" $ cCode .OR. "PURCHASE" $ cCode .OR. "REF" $ cCode .OR. ;
-          "ORDER-NUMBER" $ cCode .OR. "ORDER_NUMBER" $ cCode .OR. "ORDERNUMBER" $ cCode .OR. ;
-          cCode == "PO" .OR. Left(cCode, 3) == "PO-" .OR. Left(cCode, 3) == "PO_")
+      cCode := StrTran(StrTran(cCode, "_", ""), "-", "")
+      IF ! Empty(cNr) .AND. AScan(aEigene, {|x| x == cNr }) == 0 .AND. ! "@" $ cNr .AND. ;
+         ("BESTELLNR" $ cCode .OR. "BESTELLNUMMER" $ cCode .OR. "ORDERNUMBER" $ cCode .OR. ;
+          "PONUMBER" $ cCode .OR. "PURCHASEORDERNUMBER" $ cCode .OR. cCode == "PO" .OR. ;
+          "REFERENCE" $ cCode .OR. "REFERENZ" $ cCode)
          RETURN hb_Utf8ToStr(cNr)
       ENDIF
    NEXT
@@ -777,6 +785,19 @@ STATIC FUNCTION CO_IstKundenRef(cName)
 RETURN "KUNDENREFERENZ" $ cName .OR. "CUSTOMERREFERENCE" $ cName .OR. "CUSTOMERREF" $ cName
 
 
+// Wert eines Zusatzfelds der Bestellung (order_additional_fields), "" wenn nicht da
+STATIC FUNCTION CO_Zusatzfeld(hOrder, cCode)
+   LOCAL aFelder := CO_HDef(hOrder, "order_additional_fields", {})
+   LOCAL nX
+
+   FOR nX := 1 TO Len(aFelder)
+      IF Lower(CO_Str(CO_HDef(aFelder[nX], "code", ""))) == Lower(cCode)
+         RETURN AllTrim(hb_Utf8ToStr(CO_Str(CO_HDef(aFelder[nX], "value", ""))))
+      ENDIF
+   NEXT
+RETURN ""
+
+
 // Codes der Zusatzfelder einer Bestellung (fuers Protokoll)
 STATIC FUNCTION CO_Zusatzfelder(hOrder)
    LOCAL aFelder := CO_HDef(hOrder, "order_additional_fields", {})
@@ -803,12 +824,17 @@ STATIC FUNCTION CO_Text(hOrder, cKunde)
 
    cText += "Lieferadresse (Endkunde):" + cNl
    cText += CO_Zeile(hAdr, "company")
+   cText += CO_Zeile(hAdr, "company_2")
    cText += CO_Zeile(hAdr, "civility", "firstname", "lastname")
    cText += CO_Zeile(hAdr, "street_1")
    cText += CO_Zeile(hAdr, "street_2")
+   cText += CO_Zeile(hAdr, "additional_info")
    cText += CO_Zeile(hAdr, "zip_code", "city")
    cText += CO_Zeile(hAdr, "country_iso_code", "country")
    cText += CO_Zeile(hAdr, "phone")
+   IF ! Empty(CO_Zusatzfeld(hOrder, "carrier-phone") + CO_Zusatzfeld(hOrder, "carrier-email"))
+      cText += "  Kontakt fuer den Spediteur: " + AllTrim(CO_Zusatzfeld(hOrder, "carrier-phone") + " " + CO_Zusatzfeld(hOrder, "carrier-email")) + cNl
+   ENDIF
    cText += cNl
 
    cText += "Positionen (Preise netto, wie von Conrad):" + cNl
@@ -849,14 +875,15 @@ STATIC FUNCTION CO_Zeile(hAdr, ...)
 RETURN IF(Empty(cZeile), "", "  " + cZeile + Chr(13) + Chr(10))
 
 
-// Werte mehrerer Adressfelder, mit Leerzeichen verbunden
+// Werte mehrerer Adressfelder, mit Leerzeichen verbunden; Werte nur aus
+// Punkten zaehlen als leer
 STATIC FUNCTION CO_Teile(hAdr, ...)
    LOCAL aKeys := hb_AParams()
    LOCAL cZeile := "", cWert, nX
 
    FOR nX := 2 TO Len(aKeys)
       cWert := AllTrim(hb_Utf8ToStr(CO_Str(CO_HDef(hAdr, aKeys[nX], ""))))
-      IF ! Empty(cWert)
+      IF ! Empty(StrTran(cWert, ".", ""))          // Conrad schickt "." fuer leer
          cZeile += IF(Empty(cZeile), "", " ") + cWert
       ENDIF
    NEXT

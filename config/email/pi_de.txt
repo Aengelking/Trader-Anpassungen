@@ -1,0 +1,12 @@
+Proformarechnung %nr%
+%anrede%,
+
+vielen Dank für Ihre Bestellung. In der Anlage erhalten Sie die Proforma-Rechnung zu Ihrem Auftrag, die gleichzeitig als Auftragsbestätigung dient.
+
+Um die Zahlung zu tätigen, haben Sie verschiedene Optionen: Die Rechnungssumme können Sie entweder per Banküberweisung begleichen oder Sie nutzen die Zahlungsmethoden Kreditkarte, Paypal, Bancontact, giropay, iDEAL oder SOFORT über den folgenden Link:
+https://engelking.payrexx.com/de/?invoice_amount=%brutto%&invoice_number=Proformarechnung%20%nr%&tid=e58cb310
+
+Bei Fragen stehen wir Ihnen selbstverständlich gerne zur Verfügung.
+
+Mit freundlichen Grüßen
+%username%

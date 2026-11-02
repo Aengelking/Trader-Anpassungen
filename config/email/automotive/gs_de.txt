@@ -1,0 +1,7 @@
+Gutschrift %nr%
+%anrede%,
+
+in der Anlage erhalten Sie eine Stornorechnung.
+
+Mit freundlichen Grüßen
+

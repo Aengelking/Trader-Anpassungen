@@ -1,0 +1,9 @@
+Order Reminder
+%anrede%
+
+Please find an order reminder attached. 
+
+Can you please check this and get back to us asap.
+
+Best Regards
+%username%

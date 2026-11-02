@@ -1,0 +1,8 @@
+Invoice %nr%
+%anrede%
+
+Please find an invoice attached.
+
+Best Regards
+%username%
+

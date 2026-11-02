@@ -1,0 +1,8 @@
+Schreiben im Anhang
+%anrede%,
+
+in der Anlage erhalten Sie eine PDF Datei.
+
+Mit freundlichen Grüßen
+%username%
+

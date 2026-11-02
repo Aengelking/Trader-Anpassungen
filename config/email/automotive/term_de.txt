@@ -1,0 +1,11 @@
+Lieferterminänderung für Ihre Bestellung %nr%
+%anrede%,
+
+wir möchten Sie darüber informieren, dass es eine Lieferterminänderung bei Ihrer Bestellung %nr% gibt. Bitte beachten Sie die Details im Anhang.
+
+Wir stehen Ihnen gerne zur Verfügung, falls Sie weitere Informationen benötigen oder Fragen haben.
+
+Vielen Dank für Ihr Verständnis.
+
+Mit freundlichen Grüßen
+%username%

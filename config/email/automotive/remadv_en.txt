@@ -1,0 +1,7 @@
+Remittance advice
+%anrede%
+
+Please find a remittance advice attached.
+
+Best Regards
+%username%

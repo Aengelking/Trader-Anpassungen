@@ -1,0 +1,7 @@
+Statement
+%anrede%
+
+Please find attached your current statement.
+
+Best Regards
+%username%

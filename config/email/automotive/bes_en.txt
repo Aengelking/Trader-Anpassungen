@@ -1,0 +1,7 @@
+Purchase order %nr%
+%anrede%
+
+Please find our purchase order attached.
+
+Best Regards
+%username%

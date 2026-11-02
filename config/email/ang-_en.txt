@@ -1,0 +1,11 @@
+Your quote %nr%
+%anrede%,
+
+Thank you for your enquiry. I am pleased to send you a customised quote attached.
+
+Please feel free to check the conditions, including the offer period, and get in touch with me as soon as you have made a decision.
+
+In the meantime, please do not hesitate to contact me if you have any questions or require further information.
+
+Best regards,
+%username%

@@ -7,7 +7,8 @@ Was am ERP Trader ohne Neubau des Programms angepasst wird: Harbour-Skripte und 
 | `hooks/` | Hooks: `<name>.prg` wird beim Ereignis `<name>` aufgerufen (`Hook()` in `hooks.prg` des Kerns). Unterordner = Firma (`FIRMPATH`), z. B. `automotive/`. | `Aengelking/Trader-Hooks` | `DATA\hooks\` |
 | `run/` | Run-Skripte: per Menü, Zeitplan oder `#include` aus Hooks gestartet (`MBaseRun`). | `Aengelking/Trader-Run` | Run-Verzeichnis (`x:\run\`) |
 | `mask/` | Masken (`.prg`, `.arr`, Texte je Sprache `.d`/`.e`/`.f`). | `Aengelking/trader-MASK` | Maskenverzeichnis (`Path(,"MASK")`) |
-| `config/` | Nur `menu.json`: Menüs und Tasten (`menuconfig.prg` im Kern). UTF-8. Fehlt die Datei oder ist sie kaputt, liest Trader die Tabelle `function`. Andere Dateien unter `config/` werden nicht eingespielt. | Tabelle `function` | `DATA\config\menu.json` |
+| `config/` | Nur `menu.json`: Menüs und Tasten (`menuconfig.prg` im Kern). UTF-8. Fehlt die Datei oder ist sie kaputt, liest Trader die Tabelle `function`. Andere Dateien direkt unter `config/` werden nicht eingespielt. | Tabelle `function` | `DATA\config\menu.json` |
+| `config/email/` | E-Mail-Vorlagen (`email_templates.prg`): erste Zeile Betreff, `%VARIABLE%` als Platzhalter, `header.html`/`footer.html` drumherum, Unterordner je `FIRMPATH` (z. B. `automotive/`). Nur `*.txt` und `*.html`, höchstens ein Unterordner. **Zeichensatz beibehalten:** fast alle Vorlagen sind ISO-8859-1, nur `portal_invite_de.html`, `remail_de.html` und `remailrem_de.html` sind UTF-8. Kommt eine Vorlage mit anderem Zeichensatz, spielt die Abholung sie nicht ein. | – | `DATA\config\email\...` |
 
 Nicht hier: der Trader-Kern (`Aengelking/Trader`, wird mit Windows gebaut), der MCP-Server (gehört zum Kern) und die Weboberfläche (`Aengelking/Trader-www`).
 

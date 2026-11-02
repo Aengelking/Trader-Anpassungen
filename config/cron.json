@@ -1,0 +1,12 @@
+{
+  "jobs": [
+    {
+      "name": "Preise Wettbewerb einlesen",
+      "run": "prices/capture_batch",
+      "args": [40],
+      "cron": "0 1 * * *",
+      "timeout_min": 180,
+      "enabled": false
+    }
+  ]
+}

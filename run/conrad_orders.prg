@@ -477,7 +477,7 @@ STATIC FUNCTION CO_Auftrag(hOrder, cKunde, cFehler)
       ENDIF
       cKdNr := CO_KundenBestellnr(hOrder)
       IF Empty(cKdNr)
-         oAuf:HeadText := "Conrad-Bestellung " + cOrderId + " - Versand direkt an den Endkunden"
+         oAuf:HeadText := "ber Conrad"          // Conrad-Nr. steht schon in "Ihre Bestellnr."
       ELSE
          oAuf:HeadText := Left(cKdNr, 30)        // 2. Zeile unter "Ihre Bestellnr."
       ENDIF
@@ -631,14 +631,20 @@ RETURN nArtnr
 
 
 // Bestellnummer, die der Kunde bei Conrad selbst angegeben hat; leer, wenn
-// keine. Zuerst references/order_reference_for_customer, sonst ein
-// Zusatzfeld (order_additional_fields), dessen Code nach Bestell- oder
-// Referenznummer aussieht. Conrads eigene Nummern zaehlen nicht.
+// keine. Zuerst das Feld "Kundenreferenz" (Schluessel oder Zusatzfeld-Code
+// wie customer_reference / kundenreferenz, auch in den Positionen), dann
+// references/order_reference_for_customer, zuletzt ein Zusatzfeld, dessen
+// Code nach Bestell- oder Referenznummer aussieht. Conrads eigene Nummern
+// zaehlen nicht.
 STATIC FUNCTION CO_KundenBestellnr(hOrder)
    LOCAL aEigene := {CO_Str(CO_HDef(hOrder, "order_id", "")), CO_Str(CO_HDef(hOrder, "commercial_id", ""))}
    LOCAL aFelder := CO_HDef(hOrder, "order_additional_fields", {})
    LOCAL cNr, cCode, nX
 
+   cNr := CO_KundenRef(hOrder, aEigene)
+   IF ! Empty(cNr)
+      RETURN hb_Utf8ToStr(cNr)
+   ENDIF
    cNr := AllTrim(CO_Str(CO_HDef(CO_HDef(hOrder, "references", {=>}), "order_reference_for_customer", "")))
    IF ! Empty(cNr) .AND. AScan(aEigene, {|x| x == cNr }) == 0
       RETURN hb_Utf8ToStr(cNr)
@@ -654,6 +660,49 @@ STATIC FUNCTION CO_KundenBestellnr(hOrder)
       ENDIF
    NEXT
 RETURN ""
+
+
+// Sucht in der ganzen Bestellung (auch Positionen und Unterobjekten) einen
+// Wert "Kundenreferenz": entweder als Schluessel oder als Zusatzfeld mit
+// code/label. Liefert den ersten Wert, der keine Conrad-Nummer ist.
+STATIC FUNCTION CO_KundenRef(xWert, aEigene)
+   LOCAL cNr, cName, xKey, nX
+
+   DO CASE
+   CASE ValType(xWert) == "H"
+      cName := CO_Str(CO_HDef(xWert, "code", "")) + "|" + CO_Str(CO_HDef(xWert, "label", ""))
+      IF CO_IstKundenRef(cName)
+         cNr := AllTrim(CO_Str(CO_HDef(xWert, "value", "")))
+         IF ! Empty(cNr) .AND. AScan(aEigene, {|x| x == cNr }) == 0
+            RETURN cNr
+         ENDIF
+      ENDIF
+      FOR EACH xKey IN hb_HKeys(xWert)
+         IF CO_IstKundenRef(xKey)
+            cNr := AllTrim(CO_Str(xWert[xKey]))
+            IF ! Empty(cNr) .AND. AScan(aEigene, {|x| x == cNr }) == 0
+               RETURN cNr
+            ENDIF
+         ENDIF
+         cNr := CO_KundenRef(xWert[xKey], aEigene)
+         IF ! Empty(cNr)
+            RETURN cNr
+         ENDIF
+      NEXT
+   CASE ValType(xWert) == "A"
+      FOR nX := 1 TO Len(xWert)
+         cNr := CO_KundenRef(xWert[nX], aEigene)
+         IF ! Empty(cNr)
+            RETURN cNr
+         ENDIF
+      NEXT
+   ENDCASE
+RETURN ""
+
+
+STATIC FUNCTION CO_IstKundenRef(cName)
+   cName := StrTran(StrTran(StrTran(Upper(CO_Str(cName)), "_", ""), "-", ""), " ", "")
+RETURN "KUNDENREFERENZ" $ cName .OR. "CUSTOMERREFERENCE" $ cName .OR. "CUSTOMERREF" $ cName
 
 
 // Codes der Zusatzfelder einer Bestellung (fuers Protokoll)

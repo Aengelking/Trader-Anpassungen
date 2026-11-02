@@ -125,7 +125,9 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
       ENDIF
       CO_Merken(cErledigt, cOrderId)
       IF nAbnr > 0
-         CO_Log(cLogFile, "INFO", cOrderId + ": Auftrag " + LTrim(Str(nAbnr)) + " angelegt")
+         CO_Log(cLogFile, "INFO", cOrderId + ": Auftrag " + LTrim(Str(nAbnr)) + " angelegt, Bestellnr. des Kunden: " + ;
+                IF(Empty(CO_KundenBestellnr(hOrder)), "keine", CO_KundenBestellnr(hOrder)) + ;
+                IF(Empty(CO_Zusatzfelder(hOrder)), "", " (Zusatzfelder: " + CO_Zusatzfelder(hOrder) + ")"))
          nAngelegt++
       ENDIF
       IF ! Empty(cFehler)
@@ -431,7 +433,7 @@ STATIC FUNCTION CO_Auftrag(hOrder, cKunde, cFehler)
    LOCAL hAdr     := CO_HDef(CO_HDef(hOrder, "customer", {=>}), "shipping_address", {=>})
    LOCAL nAbnr    := 0
    LOCAL lSaved   := .T.
-   LOCAL oAuf, oPos, oErr, hLine, nX, nPreis
+   LOCAL oAuf, oPos, oErr, hLine, nX, nPreis, cKdNr
 
    cFehler := ""
    BEGIN SEQUENCE WITH {|e| Break(e)}
@@ -473,7 +475,12 @@ STATIC FUNCTION CO_Auftrag(hOrder, cKunde, cFehler)
          cFehler := "Bestellung ohne Positionen"
          BREAK
       ENDIF
-      oAuf:HeadText := "Conrad-Bestellung " + cOrderId + " - Versand direkt an den Endkunden"
+      cKdNr := CO_KundenBestellnr(hOrder)
+      IF Empty(cKdNr)
+         oAuf:HeadText := "Conrad-Bestellung " + cOrderId + " - Versand direkt an den Endkunden"
+      ELSE
+         oAuf:HeadText := Left(cKdNr, 30)        // 2. Zeile unter "Ihre Bestellnr."
+      ENDIF
       oAuf:Save()
    RECOVER USING oErr
       IF Empty(cFehler)
@@ -623,6 +630,44 @@ STATIC FUNCTION CO_Artikelnr(cSku)
 RETURN nArtnr
 
 
+// Bestellnummer, die der Kunde bei Conrad selbst angegeben hat; leer, wenn
+// keine. Zuerst references/order_reference_for_customer, sonst ein
+// Zusatzfeld (order_additional_fields), dessen Code nach Bestell- oder
+// Referenznummer aussieht. Conrads eigene Nummern zaehlen nicht.
+STATIC FUNCTION CO_KundenBestellnr(hOrder)
+   LOCAL aEigene := {CO_Str(CO_HDef(hOrder, "order_id", "")), CO_Str(CO_HDef(hOrder, "commercial_id", ""))}
+   LOCAL aFelder := CO_HDef(hOrder, "order_additional_fields", {})
+   LOCAL cNr, cCode, nX
+
+   cNr := AllTrim(CO_Str(CO_HDef(CO_HDef(hOrder, "references", {=>}), "order_reference_for_customer", "")))
+   IF ! Empty(cNr) .AND. AScan(aEigene, {|x| x == cNr }) == 0
+      RETURN hb_Utf8ToStr(cNr)
+   ENDIF
+   FOR nX := 1 TO Len(aFelder)
+      cCode := Upper(CO_Str(CO_HDef(aFelder[nX], "code", "")))
+      cNr   := AllTrim(CO_Str(CO_HDef(aFelder[nX], "value", "")))
+      IF ! Empty(cNr) .AND. AScan(aEigene, {|x| x == cNr }) == 0 .AND. ;
+         ("BESTELL" $ cCode .OR. "PURCHASE" $ cCode .OR. "REF" $ cCode .OR. ;
+          "ORDER-NUMBER" $ cCode .OR. "ORDER_NUMBER" $ cCode .OR. "ORDERNUMBER" $ cCode .OR. ;
+          cCode == "PO" .OR. Left(cCode, 3) == "PO-" .OR. Left(cCode, 3) == "PO_")
+         RETURN hb_Utf8ToStr(cNr)
+      ENDIF
+   NEXT
+RETURN ""
+
+
+// Codes der Zusatzfelder einer Bestellung (fuers Protokoll)
+STATIC FUNCTION CO_Zusatzfelder(hOrder)
+   LOCAL aFelder := CO_HDef(hOrder, "order_additional_fields", {})
+   LOCAL aCodes  := {}
+   LOCAL nX
+
+   FOR nX := 1 TO Len(aFelder)
+      AAdd(aCodes, CO_Str(CO_HDef(aFelder[nX], "code", "")) + "=" + CO_Str(CO_HDef(aFelder[nX], "value", "")))
+   NEXT
+RETURN CO_Join(aCodes, ", ")
+
+
 // Mailtext mit allem, was fuer den Auftrag gebraucht wird
 STATIC FUNCTION CO_Text(hOrder, cKunde)
    LOCAL cNl    := Chr(13) + Chr(10)
@@ -632,6 +677,7 @@ STATIC FUNCTION CO_Text(hOrder, cKunde)
 
    cText := "Kunde: " + cKunde + cNl
    cText += "Ihre Bestellnr.: " + CO_Str(CO_HDef(hOrder, "order_id", "")) + cNl
+   cText += "Bestellnr. des Kunden: " + IF(Empty(CO_KundenBestellnr(hOrder)), "keine angegeben", CO_KundenBestellnr(hOrder)) + cNl
    cText += "Bestellt am: " + Left(CO_Str(CO_HDef(hOrder, "created_date", "")), 10) + cNl + cNl
 
    cText += "Lieferadresse (Endkunde):" + cNl

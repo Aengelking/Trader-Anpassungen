@@ -58,7 +58,11 @@
  * dem Abhol-Token (trd_...) aus demselben Reiter als Kennwort, eingesetzt fuer
  * $APIKEY$ im Header.
  *
- * Protokoll: Path("run\logs\")schneiderei_abholen_<Datum>_<Zeit>.log
+ * Protokoll: Path("run\logs\")schneiderei_abholen_<Datum>.log - eine Datei je
+ * Tag, an die jeder Lauf anhaengt. Geschrieben wird nur, wenn etwas passiert ist
+ * (Datei ersetzt, Fehler, Warnung, Testlauf) oder der Lauf im Dialog kam; ein
+ * Lauf ohne Aenderung hinterlaesst nichts. Die Rueckmeldung an die
+ * AppSchneiderei geht trotzdem bei jedem Lauf raus.
  */
 
 #define SA_LOGDIR   "run\logs\"
@@ -175,7 +179,8 @@ PROCEDURE RUN_SCHNEIDEREI_ABHOLEN(cTestlauf)
                 IF(nFehler == 0, LTrim(Str(nNeu)) + " Datei(en) ersetzt", SA_Join(aFehler)), cLogFile)
    ENDIF
 
-   SA_Ende(cLogFile, lBatch, IF(nFehler == 0, "", LTrim(Str(nFehler)) + " Datei(en) nicht eingespielt - siehe Protokoll."))
+   SA_Ende(cLogFile, lBatch, IF(nFehler == 0, "", LTrim(Str(nFehler)) + " Datei(en) nicht eingespielt - siehe Protokoll."), ;
+           lTest .OR. nNeu > 0)
 RETURN
 
 
@@ -435,10 +440,15 @@ STATIC FUNCTION SA_IsYes(xVal)
 RETURN ValType(xVal) == "C" .AND. Upper(Left(AllTrim(xVal), 1)) $ "JY1T"
 
 
-// Abschluss: Fehler protokollieren und - im Dialog - anzeigen
-STATIC FUNCTION SA_Ende(cLogFile, lBatch, cFehler)
+// Abschluss: Fehler protokollieren und - im Dialog - anzeigen. Das Protokoll
+// wird nur geschrieben, wenn etwas passiert ist (lWichtig, Fehler, Warnung)
+// oder der Lauf im Dialog kam.
+STATIC FUNCTION SA_Ende(cLogFile, lBatch, cFehler, lWichtig)
    IF ! Empty(cFehler)
       SA_Log(cLogFile, "ERROR", cFehler)
+   ENDIF
+   IF lWichtig == .T. .OR. SA_Puffer()["wichtig"] .OR. ! lBatch
+      SA_LogSchreiben(cLogFile)
    ENDIF
    IF ! lBatch
       Tr_MsgBox(IF(Empty(cFehler), "Fertig - Protokoll: " + cLogFile, cFehler))
@@ -446,30 +456,55 @@ STATIC FUNCTION SA_Ende(cLogFile, lBatch, cFehler)
 RETURN NIL
 
 
+// Protokoll des Laufs: Zeilen sammeln sich in SA_Puffer() und werden erst am
+// Ende an die Tagesdatei angehaengt
 STATIC FUNCTION SA_LogFile()
-   LOCAL cDir := Path(SA_LOGDIR)
-   LOCAL cFile
+   LOCAL hPuffer := SA_Puffer()
 
-   SA_Verzeichnis(Left(cDir, Len(cDir) - 1))
-   cFile := cDir + "schneiderei_abholen_" + DToS(Date()) + "_" + StrTran(Time(), ":", "") + ".log"
-   SA_Log(cFile, "INFO", "Protokoll gestartet: " + DToC(Date()) + " " + Time())
-RETURN cFile
+   hPuffer["zeilen"]  := {}
+   hPuffer["wichtig"] := .F.
+   SA_Log("-", "INFO", "Lauf gestartet")
+RETURN Path(SA_LOGDIR) + "schneiderei_abholen_" + DToS(Date()) + ".log"
+
+
+STATIC FUNCTION SA_Puffer()
+   STATIC s_hPuffer := NIL
+
+   IF s_hPuffer == NIL
+      s_hPuffer := {"zeilen" => {}, "wichtig" => .F.}
+   ENDIF
+RETURN s_hPuffer
 
 
 STATIC FUNCTION SA_Log(cLogFile, cLevel, cMessage)
-   LOCAL nHandle
-   LOCAL cLine := "[" + DToC(Date()) + " " + Time() + "] [" + cLevel + "] " + cMessage + Chr(13) + Chr(10)
+   LOCAL hPuffer := SA_Puffer()
 
    IF Empty(cLogFile)
       RETURN NIL
    ENDIF
+   AAdd(hPuffer["zeilen"], "[" + DToC(Date()) + " " + Time() + "] [" + cLevel + "] " + cMessage)
+   IF cLevel == "ERROR" .OR. cLevel == "WARNING"
+      hPuffer["wichtig"] := .T.
+   ENDIF
+RETURN NIL
+
+
+STATIC FUNCTION SA_LogSchreiben(cLogFile)
+   LOCAL cDir := Left(cLogFile, RAt("\", cLogFile) - 1)
+   LOCAL cText := "", cZeile, nHandle
+
+   FOR EACH cZeile IN SA_Puffer()["zeilen"]
+      cText += cZeile + Chr(13) + Chr(10)
+   NEXT
+   SA_Verzeichnis(cDir)
    nHandle := FOpen(cLogFile, 2)                 // FO_READWRITE
    IF nHandle == -1
       nHandle := FCreate(cLogFile)
    ENDIF
    IF nHandle != -1
       FSeek(nHandle, 0, 2)                       // FS_END
-      FWrite(nHandle, cLine)
+      FWrite(nHandle, cText)
       FClose(nHandle)
    ENDIF
+   SA_Puffer()["zeilen"] := {}
 RETURN NIL

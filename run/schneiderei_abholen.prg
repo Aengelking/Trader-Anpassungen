@@ -53,6 +53,8 @@
  *   SCHNEIDERE_URL    Adresse der Abholung, wie im Reiter "Abholung" der
  *                     AppSchneiderei angezeigt, z. B.
  *                     https://runner.appschneiderei.cloud/v1/trader/
+ *   SCHNEIDERE_LOGTAGE  Protokolle nach so vielen Tagen loeschen, 0 = nie
+ *                     (Standard 30)
  *
  * Schluesselbund: Eintrag SCHNEIDERE (Namen haben hoechstens 10 Zeichen) mit
  * dem Abhol-Token (trd_...) aus demselben Reiter als Kennwort, eingesetzt fuer
@@ -62,7 +64,9 @@
  * Tag, an die jeder Lauf anhaengt. Geschrieben wird nur, wenn etwas passiert ist
  * (Datei ersetzt, Fehler, Warnung, Testlauf) oder der Lauf im Dialog kam; ein
  * Lauf ohne Aenderung hinterlaesst nichts. Die Rueckmeldung an die
- * AppSchneiderei geht trotzdem bei jedem Lauf raus.
+ * AppSchneiderei geht trotzdem bei jedem Lauf raus. Protokolle der Abholung,
+ * die aelter sind als SCHNEIDERE_LOGTAGE Tage (Datum im Dateinamen), loescht
+ * jeder Lauf.
  */
 
 #define SA_LOGDIR   "run\logs\"
@@ -82,6 +86,7 @@ PROCEDURE RUN_SCHNEIDEREI_ABHOLEN(cTestlauf)
    LOCAL aFehler := {}
 
    Schneiderei_Abholen_Setup()
+   SA_LogsAufraeumen()
 
    cBase := AllTrim(SA_Str(GetValue("SCHNEIDERE_URL")))
    IF Empty(cBase)
@@ -186,6 +191,7 @@ RETURN
 
 FUNCTION Schneiderei_Abholen_Setup()
    GetValue("SCHNEIDERE_URL", "", "Adresse der Abholung (Reiter Abholung der AppSchneiderei)")
+   GetValue("SCHNEIDERE_LOGTAGE", 30, "Protokolle der Abholung nach so vielen Tagen loeschen (0 = nie)")
 RETURN NIL
 
 
@@ -465,6 +471,25 @@ STATIC FUNCTION SA_LogFile()
    hPuffer["wichtig"] := .F.
    SA_Log("-", "INFO", "Lauf gestartet")
 RETURN Path(SA_LOGDIR) + "schneiderei_abholen_" + DToS(Date()) + ".log"
+
+
+// Alte Protokolle loeschen - das Datum steht im Dateinamen
+// (schneiderei_abholen_<JJJJMMTT>[_<Zeit>].log), nicht das Dateidatum
+STATIC FUNCTION SA_LogsAufraeumen()
+   LOCAL nTage := GetValue("SCHNEIDERE_LOGTAGE", 30)
+   LOCAL cDir  := Path(SA_LOGDIR)
+   LOCAL aDatei, dDatei
+
+   IF ValType(nTage) != "N" .OR. nTage <= 0
+      RETURN NIL
+   ENDIF
+   FOR EACH aDatei IN Directory(cDir + "schneiderei_abholen_*.log")
+      dDatei := SToD(SubStr(aDatei[1], 21, 8))
+      IF ! Empty(dDatei) .AND. dDatei < Date() - nTage
+         FErase(cDir + aDatei[1])
+      ENDIF
+   NEXT
+RETURN NIL
 
 
 STATIC FUNCTION SA_Puffer()

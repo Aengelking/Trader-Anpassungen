@@ -159,6 +159,7 @@ FUNCTION Conrad_Orders_Setup()
    GetValue("CONRAD_MIRAKL_SHOP", "", "Shop-ID bei Conrad (leer = Standard-Shop des API-Schluessels)")
    GetValue("CONRAD_ORDERS_MAIL", "", "Empfaenger der Meldungen zu Conrad-Bestellungen")
    GetValue("CONRAD_ORDERS_KUNDE", "CONRADSE", "Kunde (Matchcode) fuer Auftraege aus Conrad-Bestellungen")
+   GetValue("CONRAD_ORDERS_SPEDITEUR", "", "Conrad-Spediteurcode, wenn die Versandart keinem Conrad-Spediteur zugeordnet werden kann (z. B. DHL)")
 RETURN NIL
 
 
@@ -201,7 +202,14 @@ FUNCTION Conrad_Ship(nRechnr, nVersandart, aPakete)
    NEXT
    IF Len(aNummern) > 0 .AND. ! Empty(cTracking)
       hTrack := CO_Carrier(cBase, cCarrier, cLogFile)
-      hTrack["tracking_number"] := cTracking
+      IF hTrack == NIL
+         AAdd(aFehler, "Kein Spediteur fuer Versandart " + LTrim(Str(nVersandart)) + ;
+              IF(Empty(cCarrier), " (ohne Bezeichnung)", " (" + cCarrier + ")") + ;
+              " - Einstellung CONRAD_ORDERS_SPEDITEUR setzen")
+         aNummern := {}
+      ELSE
+         hTrack["tracking_number"] := cTracking
+      ENDIF
    ENDIF
 
    FOR EACH cNr IN aNummern
@@ -235,7 +243,7 @@ FUNCTION Conrad_Ship(nRechnr, nVersandart, aPakete)
       CO_Mail(cMail, "Conrad: Versand zu Rechnung " + LTrim(Str(nRechnr)) + " nicht gemeldet", ;
               "Bitte den Versand im Conrad-Portal von Hand melden." + Chr(13) + Chr(10) + Chr(13) + Chr(10) + ;
               CO_Join(aFehler, Chr(13) + Chr(10)) + Chr(13) + Chr(10) + Chr(13) + Chr(10) + ;
-              "Versandart: " + cCarrier + Chr(13) + Chr(10) + ;
+              "Versandart: " + LTrim(Str(nVersandart)) + " " + cCarrier + Chr(13) + Chr(10) + ;
               "Tracking-Nr.: " + CO_Join(aPakete, ", "), 0)
    ENDIF
 RETURN Len(aFehler) == 0
@@ -287,13 +295,18 @@ RETURN NIL
 
 // Spediteur fuer OR23: Code aus der Conrad-Liste (SH21), wenn Code oder
 // Bezeichnung in der Trader-Versandart vorkommt (z. B. "DHL Paket" -> DHL);
-// sonst nur der Name.
+// sonst der Code aus CONRAD_ORDERS_SPEDITEUR, sonst nur der Name (UTF-8).
+// NIL, wenn es nichts zu melden gibt - Conrad lehnt das Tracking dann ab.
 STATIC FUNCTION CO_Carrier(cBase, cCarrier, cLogFile)
-   LOCAL cFehler := ""
-   LOCAL cUpper  := Upper(cCarrier)
+   LOCAL cFehler   := ""
+   LOCAL cUpper    := Upper(cCarrier)
+   LOCAL cStandard := AllTrim(CO_Str(GetValue("CONRAD_ORDERS_SPEDITEUR")))
    LOCAL xAntwort, aListe, cCode, cLabel, nX
 
    xAntwort := CO_Json(CO_Request(cBase + "shipping/carriers", "GET", NIL, @cFehler))
+   IF ! Empty(cFehler)
+      CO_Log(cLogFile, "ERROR", "Spediteur-Liste von Conrad nicht abrufbar: " + cFehler)
+   ENDIF
    aListe   := CO_HDef(IF(ValType(xAntwort) == "H", xAntwort, {=>}), "carriers", {})
    FOR nX := 1 TO Len(aListe)
       cCode  := Upper(AllTrim(CO_Str(CO_HDef(aListe[nX], "code", ""))))
@@ -302,8 +315,15 @@ STATIC FUNCTION CO_Carrier(cBase, cCarrier, cLogFile)
          RETURN {"carrier_code" => CO_Str(CO_HDef(aListe[nX], "code", ""))}
       ENDIF
    NEXT
+   IF ! Empty(cStandard)
+      CO_Log(cLogFile, "INFO", "Spediteur '" + cCarrier + "' nicht in der Conrad-Liste - Standard " + cStandard + " gemeldet")
+      RETURN {"carrier_code" => cStandard}
+   ENDIF
+   IF Empty(cCarrier)
+      RETURN NIL
+   ENDIF
    CO_Log(cLogFile, "INFO", "Spediteur '" + cCarrier + "' nicht in der Conrad-Liste - nur Name gemeldet")
-RETURN {"carrier_name" => cCarrier}
+RETURN {"carrier_name" => hb_StrToUtf8(cCarrier)}
 
 
 // Alle Bestellungen in einem Status (OR11), seitenweise; NIL bei Fehler

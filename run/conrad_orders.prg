@@ -25,6 +25,9 @@
  * Aufruf (Run-Script, z. B. alle 15 Minuten aus der Aufgabenplanung):
  *   trader:-R&conrad_orders                 abholen, Auftraege anlegen, melden
  *   trader:-R&conrad_orders&{"J"}           Testlauf: nur protokollieren
+ *   trader:-R&conrad_orders&{"F","<Nr>"}    Felder einer Bestellung anzeigen
+ *                                           (ohne Nr.: die 3 neuesten), legt
+ *                                           nichts an - siehe CO_Anzeigen
  *
  * Keychain-Eintrag CONRADMKL: Mirakl-API-Schluessel (Shop-Key), eingesetzt fuer $APIKEY$ im Header
  *
@@ -45,8 +48,9 @@
 #define CO_KEYNAME   "CONRADMKL"            // Keychain, max. 10 Zeichen
 
 
-PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
+PROCEDURE RUN_CONRAD_ORDERS(cTestlauf, cNr)
    LOCAL lTest    := CO_IsYes(cTestlauf)
+   LOCAL lFelder  := ValType(cTestlauf) == "C" .AND. Upper(AllTrim(cTestlauf)) == "F"
    LOCAL lBatch   := GetConfigValue("BATCHMODE")
    LOCAL cLogFile := CO_LogFile()
    LOCAL cBase, cFehler, cMail, cErledigt, cKunde
@@ -72,6 +76,11 @@ PROCEDURE RUN_CONRAD_ORDERS(cTestlauf)
       RETURN
    ENDIF
    cErledigt := CO_ErledigtDatei()
+
+   IF lFelder
+      CO_Anzeigen(cBase, IF(ValType(cNr) == "C", AllTrim(cNr), ""), cLogFile, lBatch)
+      RETURN
+   ENDIF
 
    IF ! lBatch
       Head("Conrad-Marktplatz - Bestellungen abholen")
@@ -315,6 +324,69 @@ STATIC FUNCTION CO_Bestellung(cBase, cNr, cFehler)
          RETURN aOrders[nX]
       ENDIF
    NEXT
+RETURN NIL
+
+
+// Alle Felder einer Bestellung, wie Conrad sie liefert, in eine Textdatei
+// (Path("export\conrad\")conrad_felder_<Datum>.txt), je Feld eine Zeile
+// "Pfad = Wert"; dahinter die Antwort im Original. Ohne cNr die drei
+// neuesten Bestellungen in jedem Status. Legt nichts an, merkt nichts.
+STATIC FUNCTION CO_Anzeigen(cBase, cNr, cLogFile, lBatch)
+   LOCAL cFehler := ""
+   LOCAL cNl     := Chr(13) + Chr(10)
+   LOCAL cFile   := Path(CO_DATADIR) + "conrad_felder_" + DToS(Date()) + ".txt"
+   LOCAL xAntwort, aOrders, aZeilen, cText, nX
+
+   IF Empty(cNr)
+      xAntwort := CO_Json(CO_Request(cBase + "orders?sort=dateCreated&order=desc&max=3", "GET", NIL, @cFehler))
+      aOrders  := CO_HDef(IF(ValType(xAntwort) == "H", xAntwort, {=>}), "orders", {})
+   ELSE
+      aOrders := {}
+      xAntwort := CO_Bestellung(cBase, cNr, @cFehler)
+      IF xAntwort != NIL
+         AAdd(aOrders, xAntwort)
+      ENDIF
+   ENDIF
+   IF Len(aOrders) == 0
+      CO_Ende(cLogFile, lBatch, "Keine Bestellung " + cNr + " bei Conrad gefunden. " + cFehler)
+      RETURN NIL
+   ENDIF
+
+   cText := "Conrad-Bestellungen, abgerufen am " + DToC(Date()) + " " + Time() + cNl
+   FOR nX := 1 TO Len(aOrders)
+      aZeilen := {}
+      CO_Felder(aOrders[nX], "", aZeilen)
+      cText += cNl + "===== " + CO_Str(CO_HDef(aOrders[nX], "order_id", "")) + " =====" + cNl
+      cText += CO_Join(aZeilen, cNl) + cNl
+      cText += cNl + "----- Original (JSON) -----" + cNl + hb_Utf8ToStr(hb_jsonEncode(aOrders[nX], .T.)) + cNl
+   NEXT
+   MemoWrit(cFile, cText)
+   CO_Log(cLogFile, "INFO", "Felder von " + LTrim(Str(Len(aOrders))) + " Bestellung(en) in " + cFile)
+   IF ! lBatch
+      Wapi_ShellExecute(, "open", cFile)
+   ENDIF
+RETURN NIL
+
+
+// Werte eines JSON-Objekts flach als "Pfad = Wert" (Pfad z. B.
+// customer.shipping_address.street_2, Listen mit [1], [2] ...)
+STATIC FUNCTION CO_Felder(xWert, cPfad, aZeilen)
+   LOCAL xKey, nX
+
+   DO CASE
+   CASE ValType(xWert) == "H"
+      FOR EACH xKey IN hb_HKeys(xWert)
+         CO_Felder(xWert[xKey], IF(Empty(cPfad), "", cPfad + ".") + xKey, aZeilen)
+      NEXT
+   CASE ValType(xWert) == "A"
+      FOR nX := 1 TO Len(xWert)
+         CO_Felder(xWert[nX], cPfad + "[" + LTrim(Str(nX)) + "]", aZeilen)
+      NEXT
+   CASE xWert == NIL
+      AAdd(aZeilen, cPfad + " = (leer)")
+   OTHERWISE
+      AAdd(aZeilen, cPfad + " = '" + hb_Utf8ToStr(CO_Str(xWert)) + "'")
+   ENDCASE
 RETURN NIL
 
 

@@ -10,7 +10,7 @@ PROC SYNC_Supabase_Website()
       lProducts := Tr_msgbox("Sync Products zu Supabase?",, {"Ja", "Nein"}) != 2
    ENDIF
 
-   oRest:cBaseUrl := "https://kooxwelqbqplbryoxbya.supabase.co/"
+   oRest:cBaseUrl := _WebsiteUrl()
    oRest:cApiKeyName := "WEBSITE"
 
    IF lOptions
@@ -47,7 +47,7 @@ PROC SYNC_Supabase_Website_Test(nArticles)
 
    Head("TEST Sync Supabase Website (" + LTrim(Str(nArticles)) + " Artikel)")
 
-   oRest:cBaseUrl := "https://kooxwelqbqplbryoxbya.supabase.co/"
+   oRest:cBaseUrl := _WebsiteUrl()
    oRest:cApiKeyName := "WEBSITE"
    AAdd(aHeader, "Authorization: Bearer $APIKEY$")
 
@@ -185,6 +185,19 @@ STATIC PROCEDURE _SyncProductsToSupabase(oRest)
    ? "Upserted tier prices: " + LTrim(Str(nTierPricesUpserted))
 
 RETURN
+
+*  ---------------------------------------------------------------------------
+*  Adresse der Website-Datenbank (Supabase) aus der Einstellung WEBSITE_URL,
+*  immer mit "/" am Ende.
+*  ---------------------------------------------------------------------------
+STATIC FUNCTION _WebsiteUrl()
+   LOCAL cUrl := AllTrim(GetValue("WEBSITE_URL", "https://kooxwelqbqplbryoxbya.supabase.co/", "Adresse der Website-Datenbank (Supabase)"))
+
+   IF Right(cUrl, 1) != "/"
+      cUrl += "/"
+   ENDIF
+RETURN cUrl
+
 
 STATIC FUNCTION _BuildOptionsJson()
    LOCAL aEnv := SaveEnv()

@@ -9,6 +9,11 @@
  *   hooks/<pfad>   ->  DATA\hooks\<pfad>        (wie Hook() in hooks.prg)
  *   run/<pfad>     ->  Path("run\")<pfad>       (x:\run\...)
  *   mask/<pfad>    ->  Path(,"MASK")<pfad>
+ *   config/menu.json -> DATA\config\menu.json  (Menue und Tasten, menuconfig.prg)
+ *
+ * Aus config/ nur die freigegebenen Dateien (SA_CONFIG): in DATA\config
+ * liegen auch trader.ini und Schluessel, die nie aus dem Repository kommen.
+ * JSON-Dateien werden vor dem Ersetzen geparst - kaputtes JSON bleibt liegen.
  *
  * Alles andere im Repository (README.md, CLAUDE.md ...) bleibt liegen.
  *
@@ -51,6 +56,7 @@
 
 #define SA_LOGDIR   "run\logs\"
 #define SA_KEYNAME  "SCHNEIDERE"                // Schluesselbund: hoechstens 10 Zeichen
+#define SA_CONFIG   {"menu.json"}               // erlaubte Dateien unter config/
 
 
 PROCEDURE RUN_SCHNEIDEREI_ABHOLEN(cTestlauf)
@@ -123,6 +129,10 @@ PROCEDURE RUN_SCHNEIDEREI_ABHOLEN(cTestlauf)
          AAdd(aFehler, cPfad + ": Inhalt passt nicht zur SHA - nicht ersetzt")
          LOOP
       ENDIF
+      IF Lower(Right(cPfad, 5)) == ".json" .AND. ! SA_JsonOk(cInhalt)
+         AAdd(aFehler, cPfad + ": kein gueltiges JSON - nicht ersetzt")
+         LOOP
+      ENDIF
       IF lDa .AND. SA_Norm(cAlt) == SA_Norm(cInhalt)
          SA_Log(cLogFile, "INFO", "nur Zeilenenden: " + cPfad)
          nZeilen++
@@ -182,6 +192,11 @@ STATIC FUNCTION SA_Ziel(cPfad)
       cDir := Path("run\")
    CASE cTeil == "mask"
       cDir := Path(, "MASK")
+   CASE cTeil == "config"
+      IF AScan(SA_CONFIG, {|c| c == Lower(cRest) }) == 0
+         RETURN ""                               // nur freigegebene Dateien
+      ENDIF
+      cDir := SA_Data() + "\config\"
    OTHERWISE
       RETURN ""
    ENDCASE
@@ -318,6 +333,15 @@ STATIC FUNCTION SA_UrlPfad(cPfad)
       ENDIF
    NEXT
 RETURN cOut
+
+
+// JSON ohne Fehler lesbar (sonst wuerde Trader auf die Tabelle zurueckfallen)
+STATIC FUNCTION SA_JsonOk(cText)
+   LOCAL xVal
+   IF Left(cText, 3) == Chr(239) + Chr(187) + Chr(191)
+      cText := SubStr(cText, 4)
+   ENDIF
+RETURN hb_jsonDecode(cText, @xVal) > 0 .AND. ValType(xVal) == "H"
 
 
 STATIC FUNCTION SA_Json(cText)

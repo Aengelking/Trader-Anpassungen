@@ -569,7 +569,7 @@ STATIC FUNCTION CO_Auftrag(hOrder, cKunde, cFehler)
    IF nAbnr > 0
       IF ! Empty(cFehler)
          cFehler := "Auftrag " + LTrim(Str(nAbnr)) + " nur teilweise angelegt - bitte pruefen. " + cFehler
-      ELSEIF ! CO_Lieferadresse(nAbnr, hAdr, CO_Zusatzfeld(hOrder, "carrier-phone"), @cFehler)
+      ELSEIF ! CO_Lieferadresse(nAbnr, hAdr, CO_Zeile2(hOrder), CO_Zusatzfeld(hOrder, "carrier-phone"), @cFehler)
          cFehler := "Auftrag " + LTrim(Str(nAbnr)) + " angelegt, aber die Lieferadresse fehlt - " + ;
                     "bitte von Hand eintragen, sonst geht die Ware an " + cKunde + ". " + cFehler
       ENDIF
@@ -578,10 +578,11 @@ RETURN nAbnr
 
 
 // Lieferadresse des Endkunden als auftragsbezogene Adresse speichern.
-// 2. Zeile: Name des Empfaengers, sonst company_2, sonst street_2 bzw.
-// additional_info. Conrad fuellt Vor-/Nachname oft mit "." - das gilt als leer
-// (CO_Teile). Telefon: aus der Adresse, sonst cTelefon (Zusatzfeld carrier-phone).
-STATIC FUNCTION CO_Lieferadresse(nAbnr, hAdr, cTelefon, cFehler)
+// 2. Zeile (name2) ist immer cZeile2 (billing_address.company_2, CO_Zeile2);
+// street_2/additional_info haengen an der Strasse. Conrad fuellt Vor-/Nachname
+// oft mit "." - das gilt als leer (CO_Teile). Telefon: aus der Adresse, sonst
+// cTelefon (Zusatzfeld carrier-phone).
+STATIC FUNCTION CO_Lieferadresse(nAbnr, hAdr, cZeile2, cTelefon, cFehler)
    LOCAL cFirma  := CO_Teile(hAdr, "company")
    LOCAL cName   := CO_Teile(hAdr, "firstname", "lastname")
    LOCAL cStr    := CO_Teile(hAdr, "street_1")
@@ -596,14 +597,8 @@ STATIC FUNCTION CO_Lieferadresse(nAbnr, hAdr, cTelefon, cFehler)
    ENDIF
    IF Empty(cFirma)
       cFirma := cName
-      cName  := ""
    ENDIF
-   IF Empty(cName)
-      cName := CO_Teile(hAdr, "company_2")
-   ENDIF
-   IF Empty(cName)
-      cName := cZusatz
-   ELSEIF ! Empty(cZusatz)
+   IF ! Empty(cZusatz)
       cStr += ", " + cZusatz
    ENDIF
 
@@ -617,7 +612,7 @@ STATIC FUNCTION CO_Lieferadresse(nAbnr, hAdr, cTelefon, cFehler)
       oAdr:SetField("kunde", cMatch)
       oAdr:SetField("group", "0")
       oAdr:SetField("name1", cFirma)
-      oAdr:SetField("name2", cName)
+      oAdr:SetField("name2", cZeile2)
       oAdr:SetField("street", cStr)
       oAdr:SetField("plz", CO_Teile(hAdr, "zip_code"))
       oAdr:SetField("town", CO_Teile(hAdr, "city"))
@@ -708,81 +703,22 @@ STATIC FUNCTION CO_Artikelnr(cSku)
 RETURN nArtnr
 
 
-// Bestellnummer, die der Kunde bei Conrad selbst angegeben hat; leer, wenn
-// keine. Zuerst das Feld "Kundenreferenz" (Schluessel oder Zusatzfeld-Code
-// wie customer_reference / kundenreferenz, auch in den Positionen), dann
-// references/order_reference_for_customer, zuletzt ein Zusatzfeld, dessen
-// Code eindeutig eine Bestell- oder Referenznummer ist (nicht z. B.
-// purchaser-invoice-email oder purchaser-vat-id). Conrads eigene Nummern
-// zaehlen nicht.
+// Bestellnummer, die der Kunde bei Conrad selbst angegeben hat
+// (references.order_reference_for_customer, im Portal "Kundenreferenz");
+// leer, wenn keine. Conrads eigene Nummern zaehlen nicht.
 STATIC FUNCTION CO_KundenBestellnr(hOrder)
-   LOCAL aEigene := {CO_Str(CO_HDef(hOrder, "order_id", "")), CO_Str(CO_HDef(hOrder, "commercial_id", ""))}
-   LOCAL aFelder := CO_HDef(hOrder, "order_additional_fields", {})
-   LOCAL cNr, cCode, nX
+   LOCAL cNr := AllTrim(CO_Str(CO_HDef(CO_HDef(hOrder, "references", {=>}), "order_reference_for_customer", "")))
 
-   cNr := CO_KundenRef(hOrder, aEigene)
-   IF ! Empty(cNr)
-      RETURN hb_Utf8ToStr(cNr)
+   IF Empty(StrTran(cNr, ".", "")) .OR. cNr == CO_Str(CO_HDef(hOrder, "order_id", "")) .OR. ;
+      cNr == CO_Str(CO_HDef(hOrder, "commercial_id", ""))
+      RETURN ""
    ENDIF
-   cNr := AllTrim(CO_Str(CO_HDef(CO_HDef(hOrder, "references", {=>}), "order_reference_for_customer", "")))
-   IF ! Empty(cNr) .AND. AScan(aEigene, {|x| x == cNr }) == 0
-      RETURN hb_Utf8ToStr(cNr)
-   ENDIF
-   FOR nX := 1 TO Len(aFelder)
-      cCode := Upper(CO_Str(CO_HDef(aFelder[nX], "code", "")))
-      cNr   := AllTrim(CO_Str(CO_HDef(aFelder[nX], "value", "")))
-      cCode := StrTran(StrTran(cCode, "_", ""), "-", "")
-      IF ! Empty(cNr) .AND. AScan(aEigene, {|x| x == cNr }) == 0 .AND. ! "@" $ cNr .AND. ;
-         ("BESTELLNR" $ cCode .OR. "BESTELLNUMMER" $ cCode .OR. "ORDERNUMBER" $ cCode .OR. ;
-          "PONUMBER" $ cCode .OR. "PURCHASEORDERNUMBER" $ cCode .OR. cCode == "PO" .OR. ;
-          "REFERENCE" $ cCode .OR. "REFERENZ" $ cCode)
-         RETURN hb_Utf8ToStr(cNr)
-      ENDIF
-   NEXT
-RETURN ""
+RETURN hb_Utf8ToStr(cNr)
 
 
-// Sucht in der ganzen Bestellung (auch Positionen und Unterobjekten) einen
-// Wert "Kundenreferenz": entweder als Schluessel oder als Zusatzfeld mit
-// code/label. Liefert den ersten Wert, der keine Conrad-Nummer ist.
-STATIC FUNCTION CO_KundenRef(xWert, aEigene)
-   LOCAL cNr, cName, xKey, nX
-
-   DO CASE
-   CASE ValType(xWert) == "H"
-      cName := CO_Str(CO_HDef(xWert, "code", "")) + "|" + CO_Str(CO_HDef(xWert, "label", ""))
-      IF CO_IstKundenRef(cName)
-         cNr := AllTrim(CO_Str(CO_HDef(xWert, "value", "")))
-         IF ! Empty(cNr) .AND. AScan(aEigene, {|x| x == cNr }) == 0
-            RETURN cNr
-         ENDIF
-      ENDIF
-      FOR EACH xKey IN hb_HKeys(xWert)
-         IF CO_IstKundenRef(xKey)
-            cNr := AllTrim(CO_Str(xWert[xKey]))
-            IF ! Empty(cNr) .AND. AScan(aEigene, {|x| x == cNr }) == 0
-               RETURN cNr
-            ENDIF
-         ENDIF
-         cNr := CO_KundenRef(xWert[xKey], aEigene)
-         IF ! Empty(cNr)
-            RETURN cNr
-         ENDIF
-      NEXT
-   CASE ValType(xWert) == "A"
-      FOR nX := 1 TO Len(xWert)
-         cNr := CO_KundenRef(xWert[nX], aEigene)
-         IF ! Empty(cNr)
-            RETURN cNr
-         ENDIF
-      NEXT
-   ENDCASE
-RETURN ""
-
-
-STATIC FUNCTION CO_IstKundenRef(cName)
-   cName := StrTran(StrTran(StrTran(Upper(CO_Str(cName)), "_", ""), "-", ""), " ", "")
-RETURN "KUNDENREFERENZ" $ cName .OR. "CUSTOMERREFERENCE" $ cName .OR. "CUSTOMERREF" $ cName
+// 2. Zeile der Lieferadresse: customer.billing_address.company_2
+STATIC FUNCTION CO_Zeile2(hOrder)
+RETURN CO_Teile(CO_HDef(CO_HDef(hOrder, "customer", {=>}), "billing_address", {=>}), "company_2")
 
 
 // Wert eines Zusatzfelds der Bestellung (order_additional_fields), "" wenn nicht da
@@ -824,7 +760,7 @@ STATIC FUNCTION CO_Text(hOrder, cKunde)
 
    cText += "Lieferadresse (Endkunde):" + cNl
    cText += CO_Zeile(hAdr, "company")
-   cText += CO_Zeile(hAdr, "company_2")
+   cText += IF(Empty(CO_Zeile2(hOrder)), "", "  " + CO_Zeile2(hOrder) + cNl)
    cText += CO_Zeile(hAdr, "civility", "firstname", "lastname")
    cText += CO_Zeile(hAdr, "street_1")
    cText += CO_Zeile(hAdr, "street_2")

@@ -189,7 +189,7 @@ FUNCTION Conrad_Ship(nRechnr, nVersandart, aPakete)
       AAdd(aFehler, "Rechnung " + LTrim(Str(nRechnr)) + " hat keine Conrad-Bestellnr. (Ihre Bestellnr.)")
    ENDIF
 
-   cCarrier  := AllTrim(CO_Str(VerShow(nVersandart)))
+   cCarrier  := CO_VersandName(nRechnr, nVersandart)
    cTracking := ""
    FOR nX := 1 TO Len(aPakete)
       IF ValType(aPakete[nX]) == "C" .AND. ! Empty(aPakete[nX])
@@ -200,10 +200,13 @@ FUNCTION Conrad_Ship(nRechnr, nVersandart, aPakete)
          ENDIF
       ENDIF
    NEXT
+   IF Empty(cCarrier) .AND. Upper(Left(cTracking, 2)) == "1Z"
+      cCarrier := "UPS"                          // UPS-Sendungsnummern beginnen mit 1Z
+   ENDIF
    IF Len(aNummern) > 0 .AND. ! Empty(cTracking)
       hTrack := CO_Carrier(cBase, cCarrier, cLogFile)
       IF hTrack == NIL
-         AAdd(aFehler, "Kein Spediteur fuer Versandart " + LTrim(Str(nVersandart)) + ;
+         AAdd(aFehler, "Kein Spediteur fuer Versandart " + CO_Str(nVersandart) + ;
               IF(Empty(cCarrier), " (ohne Bezeichnung)", " (" + cCarrier + ")") + ;
               " - Einstellung CONRAD_ORDERS_SPEDITEUR setzen")
          aNummern := {}
@@ -243,10 +246,30 @@ FUNCTION Conrad_Ship(nRechnr, nVersandart, aPakete)
       CO_Mail(cMail, "Conrad: Versand zu Rechnung " + LTrim(Str(nRechnr)) + " nicht gemeldet", ;
               "Bitte den Versand im Conrad-Portal von Hand melden." + Chr(13) + Chr(10) + Chr(13) + Chr(10) + ;
               CO_Join(aFehler, Chr(13) + Chr(10)) + Chr(13) + Chr(10) + Chr(13) + Chr(10) + ;
-              "Versandart: " + LTrim(Str(nVersandart)) + " " + cCarrier + Chr(13) + Chr(10) + ;
+              "Versandart: " + CO_Str(nVersandart) + " " + cCarrier + Chr(13) + Chr(10) + ;
               "Tracking-Nr.: " + CO_Join(aPakete, ", "), 0)
    ENDIF
 RETURN Len(aFehler) == 0
+
+
+// Bezeichnung der Versandart (Tabelle versand, Satznummer = Versandart):
+// die vom Packplatz, sonst die der Rechnung. Leer, wenn keine gefunden.
+STATIC FUNCTION CO_VersandName(nRechnr, nVersandart)
+   LOCAL cName := ""
+
+   IF ValType(nVersandart) != "N" .OR. nVersandart <= 0
+      NetUse("engslre", "re")
+      re->(dbSetOrder( 12 ))
+      nVersandart := IF(re->(dbSeek( Str(nRechnr,6) + Str(0,3) )), re->Versandart, 0)
+   ENDIF
+   IF nVersandart > 0
+      NetUse("versand", "vers")
+      vers->(dbGoTo( nVersandart ))
+      IF ! vers->(Eof())
+         cName := AllTrim(vers->Firma)
+      ENDIF
+   ENDIF
+RETURN cName
 
 
 // Conrad-Bestellnummern ("Ihre Bestellnr.") der Positionen einer Rechnung

@@ -1,1 +1,2190 @@
-
+{
+  "version": 1,
+  "functions":
+  [
+    {
+      "text": "FUNCTIONEN",
+      "exec": "RUNPROZ(PROZ,0,VAR)",
+      "short": "FUNK",
+      "key": "F10"
+    },
+    {
+      "text": "NOTIZEN",
+      "exec": "NOTES(PROZ,0,VAR)",
+      "short": "N",
+      "key": "F5"
+    },
+    {
+      "text": "BILDSCHIRM AUSDRUCK",
+      "exec": "PRTSCR(PROZ,0,VAR)",
+      "key": "SHIFT-F1"
+    },
+    {
+      "text": "BESTELLUNGEN",
+      "exec": "BESFO(PROZ,0,VAR)",
+      "short": "BM",
+      "key": "SHIFT-F6"
+    },
+    {
+      "text": "ADDRESSEN",
+      "exec": "ENADDR(PROZ,0,VAR)",
+      "key": "F9"
+    },
+    {
+      "text": "AUFTRÄGE",
+      "exec": "AUFFO(PROZ,0,VAR)",
+      "key": "CTRL-F7"
+    },
+    {
+      "text": "AUFTRÄGE",
+      "exec": "AUFFO(PROZ,0,VAR)",
+      "key": "F7"
+    },
+    {
+      "text": "AUFTRÄGE",
+      "exec": "AUFFO(PROZ,0,VAR)",
+      "key": "SHIFT-F7"
+    },
+    {
+      "text": "ARTIKEL-LIEFERANTEN",
+      "exec": "ARTLIEFEDIT(.T.)",
+      "short": "ARTLIEFEDI",
+      "key": "ALT-L"
+    },
+    {
+      "text": "ARTIKEL-KUNDEN",
+      "exec": "ARTLIEFEDIT(.F.)",
+      "short": "ARTKUND",
+      "key": "ALT-K"
+    },
+    {
+      "text": "ERRORLOG",
+      "exec": "EVAL({|| NETUSE(\"ERRORLOG\",\"ERR\",.F.,0),ERR->(DBEDIT()),ERR->(DBcLOSEaREA()})"
+    },
+    {
+      "text": "Hilfe",
+      "exec": "TR_MsgBox(\"Sorry, the help doesn't work yet.\")",
+      "key": "F1"
+    },
+    {
+      "text": "ETIKETTEN DRUCKEN",
+      "exec": "MBaseRun(Path(\"run\\print_label\"))",
+      "key": "ALT-E"
+    },
+    {
+      "text": "INDEXRE",
+      "exec": "INDEXRE()",
+      "short": "indexre"
+    },
+    {
+      "text": "Projektliste",
+      "exec": "Amenu(GetProjectList())",
+      "short": "PL"
+    },
+    {
+      "text": "Neues Warenetikett",
+      "exec": "If(Alias()==\"ART\",StickPrint(\"WARE2\"),\"\")",
+      "key": "ALT-G"
+    },
+    {
+      "text": "Folgepositionen aktualisieren",
+      "exec": "MBAseRun(Trim(Tr_Getini(1))+\"\\run\\folgeupd\")",
+      "key": "ALT-U"
+    },
+    {
+      "text": "Zeichnung Anzeigen",
+      "exec": "Tr_MsgBox(MBAseRun(\"y:\\trader30\\run\\getdrawing.prg\"))",
+      "key": "CTRL-F1"
+    },
+    {
+      "text": "Freigabe (Auftrag) prüfen",
+      "exec": "MBaseRun(\"Y:\\trader30\\run\\test_approve\")",
+      "key": "ALT-M"
+    },
+    {
+      "text": "UpdateInvoice Amount",
+      "exec": "IF(Tr_Getini(28)==9,RechnungUpdateTotal(),\"\")",
+      "short": "RECHUPD"
+    },
+    {
+      "text": "",
+      "exec": "Hook(\"after_fertigung_we\",{})",
+      "short": "TESTHOOK"
+    },
+    {
+      "text": "",
+      "exec": "Alert(Str(BesGetEKPRice()))",
+      "short": "TESTEK"
+    }
+  ],
+  "menus":
+  [
+    {
+      "name": "ANGEBOTSBEARBEITUNG",
+      "items":
+      [
+        {
+          "text": "Angebot eingeben",
+          "exec": "ENQUIRY()",
+          "short": "E",
+          "permission": "SALESQUOTE",
+          "permtype": "R",
+          "key": "ALT-O"
+        },
+        {
+          "text": "Angebot schliessen",
+          "exec": "MbaseRun(Path(\"\\run\\angebot_close\"))",
+          "permission": "SALESQUOTE",
+          "permtype": "U"
+        },
+        {
+          "text": "Angebote als Excel exportieren",
+          "exec": "MBaseRun(Path(\"run\\kundenpreisliste\"))"
+        },
+        {
+          "text": "Angebote anzeigen",
+          "exec": "ENQFO(PROZ,0,VAR)",
+          "permission": "SALESQUOTE",
+          "permtype": "R",
+          "key": "SHIFT-F8"
+        }
+      ]
+    },
+    {
+      "name": "AUFKLEBER",
+      "items":
+      [
+        {
+          "text": "Aufkelber drucken",
+          "exec": "StickPrint(GetBox(Space(10),\"Name\"),GetBox(Space(4),\"DEVICE\"))"
+        },
+        {
+          "text": "Aufkleber ändern",
+          "exec": "EditForm(\"Aufkelber\",.F.,\"STform\",\"STtrans\",.T.,.T.,.T.)"
+        }
+      ]
+    },
+    {
+      "name": "AUFTRAGSBEARBEITUNG",
+      "items":
+      [
+        {
+          "text": "Aufträge eingeben",
+          "exec": "ENGAUFT()",
+          "short": "A",
+          "key": "ALT-A",
+          "status": 3
+        },
+        {
+          "text": "Aufträge anzeigen",
+          "exec": "AUFFO(PROZ,0,VAR)",
+          "short": "AU",
+          "key": "F7"
+        },
+        {
+          "text": "Ausgangsrechnungen",
+          "exec": "MENU(\" AUSGANGSRECHNUNGEN \")",
+          "key": "ALT-H"
+        },
+        {
+          "text": "Staffelpreise Drucken",
+          "exec": "STAFPREI()"
+        },
+        {
+          "text": "Offenauftragsliste für Kunden",
+          "exec": "ListPrint(\"AUFTRAG3\")"
+        },
+        {
+          "text": "Auftragsbestätigung drucken",
+          "exec": "EnAbDr()"
+        },
+        {
+          "text": "Mahnung Rahmenende",
+          "exec": "MBaseRun(Path(\"run\\rahm_mahnung\"))"
+        },
+        {
+          "text": "Preisänderung versenden",
+          "exec": "MbaseRun(Path(\"run\\send_customer_approval\"))"
+        }
+      ]
+    },
+    {
+      "name": "AUSGANGSRECHNUNGEN",
+      "items":
+      [
+        {
+          "text": "Rechnungen erstellen",
+          "exec": "EVAL({||MIRENR := 0,MIKOND := SPACE(8),MIKUND := SPACE(8),ENGREAB(PROZ)})"
+        },
+        {
+          "text": "Rechnung anzeigen/ändern/drucken",
+          "exec": "RechCha()",
+          "key": "ALT-R"
+        },
+        {
+          "text": "Rechnungen Anzeigen",
+          "exec": "Refo()",
+          "key": "SHIFT-F5"
+        },
+        {
+          "text": "Paketkleber drucken",
+          "exec": "EVAL({|| LABEL(\"RECHMU\"),SET(20,\"SCREEN\")})"
+        },
+        {
+          "text": "Margin für Rechnungen",
+          "exec": "MBaseRun('g:\\trader25\\remarg')"
+        },
+        {
+          "text": "Zusatzfelder",
+          "exec": "MBaseRun(Path(\"run/edit_extrafields\"),{\"reh\",.T.})"
+        },
+        {
+          "text": "Stapeldruck Rechnung",
+          "exec": "MBaseRun(Path(\"run\\print_re\"))"
+        }
+      ]
+    },
+    {
+      "name": "BERICHTE",
+      "items":
+      [
+        {
+          "text": "Berichte",
+          "exec": "MBaseRun(Trim(Tr_getini(1))+\"\\run\\reports\")"
+        },
+        {
+          "text": "Listen gestalten",
+          "exec": "ListFrm()"
+        },
+        {
+          "text": "Listen einstellen",
+          "exec": "ListGen()"
+        },
+        {
+          "text": "Listen drucken",
+          "exec": "LTestPrint()"
+        },
+        {
+          "text": "Gesprächsnotizen",
+          "exec": "ListPrint(\"NOTIZEN\")"
+        }
+      ]
+    },
+    {
+      "name": "BESTELLISTEN",
+      "items":
+      [
+        {
+          "text": "Mahnungen drucken",
+          "exec": "ENGMADR()",
+          "short": "MA"
+        },
+        {
+          "text": "Bestellungen drucken",
+          "exec": "ENBEDR(\"XXXXX\")"
+        },
+        {
+          "text": "Bestellung als BOM exportieren",
+          "exec": "MBaseRun(Trim(Tr_getini(1))+\"\\run\\waldom_bom\")"
+        }
+      ]
+    },
+    {
+      "name": "BESTELLWESEN",
+      "items":
+      [
+        {
+          "text": "Bestellungen eingeben",
+          "exec": "ENGBEST()",
+          "short": "B",
+          "key": "ALT-B"
+        },
+        {
+          "text": "Bestelldruckprogramme",
+          "exec": "MENU(\"BESTELLISTEN\")"
+        },
+        {
+          "text": "Bestellungen anzeigen",
+          "exec": "BESFO(PROZ,0,VAR)",
+          "short": "BE",
+          "key": "F6"
+        },
+        {
+          "text": "Lieferantenbestätigungen buchen",
+          "exec": "BESTCHK()"
+        },
+        {
+          "text": "Wartelisten anzeigen",
+          "exec": "MBaseRun(Path(\"run\\show_warteliste\"))"
+        },
+        {
+          "text": "Laufzeiten in Bestellungen aktualisieren",
+          "exec": "MBaseRun(Path(\"run\\upd_shiptime\"))"
+        },
+        {
+          "text": "Lieferanten Lieferzeiten anpassen",
+          "exec": "MBaseRun(Path(\"run/upd_artlief_lz\"))"
+        },
+        {
+          "text": "Inventurliste für Lieferant",
+          "exec": "MBaseRun(Path(\"run\\reports\\stock_supplier\"),{.F.})"
+        },
+        {
+          "text": "Zusatzfelder",
+          "exec": "MBaseRun(Path(\"run/edit_extrafields\"),{\"bes\",.T.})"
+        }
+      ]
+    },
+    {
+      "name": "BUCHHALTUNG",
+      "items":
+      [
+        {
+          "text": "Rechnungseingang",
+          "exec": "ENGRE()",
+          "short": "RECHNUNG",
+          "permission": "PURCHASEINVOICE",
+          "permtype": "R"
+        },
+        {
+          "text": "Eingangsrechnungen anzeigen",
+          "exec": "REANZ()",
+          "permission": "PURCHASEINVOICE",
+          "permtype": "R"
+        },
+        {
+          "text": "Eingangsrechnung stornieren",
+          "exec": "MBaseRun(Path(\"run\\invoice_storno\"))",
+          "permission": "PURCHASEINVOICE",
+          "permtype": "U"
+        },
+        {
+          "text": "Rechungseingangsbuch",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\reb\")"
+        },
+        {
+          "text": "Wiederkehrende Rechnungen",
+          "exec": "MBAseRun(Path(\"run\\rerepeat\"))",
+          "permission": "SYSTEM",
+          "permtype": "R"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Lexware Sync",
+          "exec": "IF(.F.,Alert(\"Gesperrt\"),LexwareSync())",
+          "permission": "ACC",
+          "permtype": "R"
+        },
+        {
+          "text": "Provisionsabrechung",
+          "exec": "provab()"
+        },
+        {
+          "text": "Lexware Saldo",
+          "exec": "MBaseRun(Trim(Tr_getini(1))+\"\\run\\lex_saldo\")"
+        },
+        {
+          "text": "Lexware Export",
+          "exec": "LexwareSync(.F.)"
+        },
+        {
+          "text": "Wechselkurs Währungskonten",
+          "exec": "MBaseRun(Trim(Tr_GetinI(1))+\"\\run\\lexcur\")"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Offene Posten verwalten",
+          "exec": "Menu(\"OFFENE POSTEN VERWALTEN\")"
+        },
+        {
+          "text": "Vorkasse Debitoren erstellen",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\create_vorkasse_debtors\")"
+        },
+        {
+          "text": "Gutschrift erstellen",
+          "exec": "If(Tr_Getini(28)==9,Engreab(,.T.),.F.)"
+        },
+        {
+          "text": "Gelangsbest.anforderung senden",
+          "exec": "MBaseRun(path(\"run\\send_gb\"))",
+          "status": 5
+        },
+        {
+          "text": "Gelangensbestätigung drucken",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\print_gb\")"
+        },
+        {
+          "text": "Limits der Warenkreditversicherung",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\creditlimit_edit.prg\")",
+          "permission": "ADR_CUSTOMER_CREDITLIMIT",
+          "permtype": "U"
+        },
+        {
+          "text": "Manuelle Kreditlimits",
+          "exec": "MBaseRun(Path(\"run\\speccl_edit\"))"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Intrastat Meldung",
+          "exec": "Intrastat()"
+        },
+        {
+          "text": "Barcodeetiketten drucken",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\invoice_label\")"
+        },
+        {
+          "text": "Zahlungsavis",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\payment_advice\")"
+        },
+        {
+          "text": "Abschlussarbeiten",
+          "exec": "Menu(\"BUCHHALTUNG - ABSCHLUSSARBEITEN\")"
+        },
+        {
+          "text": "Fremdwährungsbedarf berechnen",
+          "exec": "MBaseRun(Path(\"run\\reports\\fremdwaehrung\"))"
+        }
+      ]
+    },
+    {
+      "name": "BUCHHALTUNG-ABSCHLUSSARBEITEN",
+      "items":
+      [
+        {
+          "text": "Salden für Monatsabschluss",
+          "exec": "MBaseRun(Trim(Tr_getini(1))+\"\\run\\ma.prg\")"
+        },
+        {
+          "text": "Währungsdifferenzen nach 256a HGB",
+          "exec": "MBaseRun(Path(\"run\\lex_wahrungsdiff\"))"
+        },
+        {
+          "text": "Kontenabstimmung Lexware",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\lexcheck\")"
+        },
+        {
+          "text": "OP Salden mit UST",
+          "exec": "MBaseRun(Path(\"run\\lex_debitor_salden\"))"
+        },
+        {
+          "text": "Gutschriften exportieren",
+          "exec": "MBaseRun(Path(\"run\\export_credit_notes\"))"
+        },
+        {
+          "text": "Belege auf Vollständigkeit prüfen",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\check_invoice_beleg\")"
+        }
+      ]
+    },
+    {
+      "name": "EINKAUF",
+      "items":
+      [
+        {
+          "text": "Bestellwesen",
+          "exec": "MENU(\" B E S T E L L W E S E N \")",
+          "permission": "PURCHASEORDER",
+          "permtype": "R"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Angebot bearbeiten",
+          "exec": "Quote_Edit()",
+          "permission": "ART_EK",
+          "permtype": "R"
+        },
+        {
+          "text": "Angebote anzeigen",
+          "exec": "Quote_Browse()"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Stückliste analysieren",
+          "exec": "PartsEnquiry()"
+        },
+        {
+          "text": "Lieferschein Umlaufverpackung",
+          "exec": "MBaseRun(Path(\"run\\box_delivery_print\"))"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Anfrage drucken",
+          "exec": "EnqDr(,.T.)"
+        },
+        {
+          "text": "Anfrage ins Lieferantenportal",
+          "exec": "MBAseRun(Path(\"run\\portalanfrage\"))"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Lieferantenbezeichnungen editieren",
+          "exec": "ARTLIEFEDIT(.T.)"
+        },
+        {
+          "text": "Einstellungen",
+          "exec": "Browse_Values(\"EK\")"
+        }
+      ]
+    },
+    {
+      "name": "EINSTELLUNGEN",
+      "items":
+      [
+        {
+          "text": "Programm Parameters",
+          "exec": "setit()"
+        },
+        {
+          "text": "Drucker definieren",
+          "exec": "ChoosePrint()"
+        },
+        {
+          "text": "Benutzereinstellungen",
+          "exec": "UserSettings()"
+        }
+      ]
+    },
+    {
+      "name": "EXPORT",
+      "items":
+      [
+        {
+          "text": "Faxnummern exportieren",
+          "exec": "MBaserUN(Tr_Getini(1)+\"\\ELEKTRON\\Run\\fax\")"
+        },
+        {
+          "text": "Kundepreisliste (BMECat)",
+          "exec": "BMECat()"
+        },
+        {
+          "text": "CM/CMI Onpow Artikelnummern",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\onpow_artlief\")"
+        },
+        {
+          "text": "CM/CMI Preise importieren",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\onpow_prices\")"
+        },
+        {
+          "text": "Artikelnummern importieren",
+          "exec": "Menu(\"Import Artikelnummern\")"
+        },
+        {
+          "text": "Preisliste importieren",
+          "exec": "ImportPrices():New()"
+        },
+        {
+          "text": "Email-Adressen für Mailing",
+          "exec": "MBaseRun(Trim(Tr_getini(1))+\"\\run\\export_cs_auftraege\")"
+        },
+        {
+          "text": "Email Adressen für Cleverreach",
+          "exec": "MbaseRun(Path(\"run\\export_contacts_cleverreach\"))"
+        },
+        {
+          "text": "Waldom Preis/Bestände importieren",
+          "exec": "MBaseRun(Path(\"run\\waldom\"))"
+        },
+        {
+          "text": "Artikel für Zoll exportieren",
+          "exec": "MBaseRun(Path(\"run\\export\\zollparts\"))"
+        },
+        {
+          "text": "Inventur mit Abteilung",
+          "exec": "MBaseRun(\"x:\\run\\inventurCalc_prod\")",
+          "permission": "SYSTEM",
+          "permtype": "R"
+        },
+        {
+          "text": "Enddatum Preise setzen",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\upd_price_enddate\")"
+        },
+        {
+          "text": "Shopware Matchcodes generieren",
+          "exec": "MBaseRun(Path(\"run\\shopware\"))"
+        },
+        {
+          "text": "Shopware Bilder setzen",
+          "exec": "MBaseRun(Path(\"run\\shopware_pics\"))"
+        },
+        {
+          "text": "Distributorenpreisliste (XLSX)",
+          "exec": "MBaseRUn(Path(\"run\\export_customer_pricelist\"))"
+        }
+      ]
+    },
+    {
+      "name": "FELDER",
+      "items":
+      [
+        {
+          "text": "Artikelfelder sperren",
+          "exec": "LockedGets(\"engart.lck\")"
+        },
+        {
+          "text": "Adressen Felder sperren",
+          "exec": "LockedGets(\"enGaddr.lck\")"
+        }
+      ]
+    },
+    {
+      "name": "FERTIGUNGSAUFTRÄGE",
+      "items":
+      [
+        {
+          "text": "Fertigungsaufträge anlegen",
+          "exec": "WERKAUF()"
+        },
+        {
+          "text": "Fertigungsaufträge anzeigen",
+          "exec": "Werkanz()"
+        },
+        {
+          "text": "Nacharbeitsauftrag anlegen",
+          "exec": "NachArbeit()"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Planung",
+          "exec": "ProdPlan()"
+        },
+        {
+          "text": "Planung für Stüli-Artikel",
+          "exec": "ProdPlan(,,.T.)"
+        },
+        {
+          "text": "Planung aktualisieren",
+          "exec": "UpdateProdPlans()"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Gesamtplanung",
+          "exec": "CompleteProdPlan()"
+        },
+        {
+          "text": "Gesamtplanung intern",
+          "exec": "CompleteProdPlan(1)"
+        },
+        {
+          "text": "Gesamtplanung Lieferant",
+          "exec": "CompleteProdPlan(2)"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Fertigbare Aufträge suchen",
+          "exec": "MBAseRun(Path(\"run\\find_fa_producable\"))"
+        }
+      ]
+    },
+    {
+      "name": "FERTIGUNGSORGANISATION",
+      "items":
+      [
+        {
+          "text": "",
+          "exec": ""
+        }
+      ]
+    },
+    {
+      "name": "FERTIGUNGSSTEUERUNG",
+      "items":
+      [
+        {
+          "text": "Stücklisten Drucken",
+          "exec": "EVAL({|| MAWMU := 2,CALL_PROG := \"\", PARTPRIN()})"
+        },
+        {
+          "text": "Bewertete Stückliste Drucken",
+          "exec": "eval({|| mawmu := 3,CALL_PROG := \"\", partprin()})"
+        },
+        {
+          "text": "Dispositionsstücklisten Drucken",
+          "exec": "eval({|| mawmu := 4,CALL_PROG := \"\", partprin()})"
+        },
+        {
+          "text": "Fertigungsaufträge",
+          "exec": "MENU(\"FERTIGUNGSAUFTRÄGE\")"
+        },
+        {
+          "text": "Stückgemeinkosten Eingeben",
+          "exec": "gemko()"
+        },
+        {
+          "text": "Stückliste Kopieren",
+          "exec": "partcopy()"
+        },
+        {
+          "text": "Variantenstückliste",
+          "exec": "varplist()"
+        },
+        {
+          "text": "Tätigkeiten",
+          "exec": "Jobs_Browse()"
+        },
+        {
+          "text": "Resourcen",
+          "exec": "resource_browse()"
+        },
+        {
+          "text": "Fähigkeiten",
+          "exec": "Skills_Browse()"
+        },
+        {
+          "text": "Bewertung für Präf.ursprung",
+          "exec": "eval({|| partprin(\"\",,10)})"
+        },
+        {
+          "text": "Produktionsplan",
+          "exec": "WAPI_ShellExecute(,\"open\",'\"C:\\Programme\\Google\\Chrome\\Application\\chrome_proxy.exe\"','--app=\"https://db.engelking.de/trader/prodplan.html\"')"
+        },
+        {
+          "text": "Fertigungs-App",
+          "exec": "WAPI_ShellExecute(,\"open\",'\"C:\\Programme\\Google\\Chrome\\Application\\chrome_proxy.exe\"','--app=\"https://db.engelking.de/trader/fertigung.html\"')"
+        },
+        {
+          "text": "Frepple (Fertigungsplanung)",
+          "exec": "MENU(\"FREPPLE\")"
+        },
+        {
+          "text": "Aufbrauchen von Lagerbeständen",
+          "exec": "MBaseRun(Path(\"run\\stock_use\"))"
+        },
+        {
+          "text": "Auswertungs Ausschuß",
+          "exec": "MBaseRun(Path(\"run\\reports\\ausschuss\"))"
+        }
+      ]
+    },
+    {
+      "name": "FIBU",
+      "items":
+      [
+        {
+          "text": "KOSTENVERGLEICHSLISTE",
+          "exec": "VERG()"
+        }
+      ]
+    },
+    {
+      "name": "FORMULARGESTALTUNG",
+      "items":
+      [
+        {
+          "text": "Lieferanten",
+          "exec": "Menu(\" FORMULARGESTALTUNG - LIEFERANTEN \")"
+        },
+        {
+          "text": "Kunden",
+          "exec": "Menu(\" FORMULARGESTALTUNG - KUNDEN \")"
+        },
+        {
+          "text": "Brief",
+          "exec": "Menu(\" FORMULARGESTALTUNG - BRIEF \")"
+        },
+        {
+          "text": "Lagerentnahmeschein gestalten",
+          "exec": "EDITFORM(\"LAGERENTNAHME\",.F.,\"ENTFORM\",\"LTRANS\")"
+        },
+        {
+          "text": "Musterlieferschein gestalten",
+          "exec": "EDITFORM(\"MUSTERLIEFERSCHEIN\",.F.,\"MUSFORM\",\"LTRANS\")"
+        },
+        {
+          "text": "Schächte",
+          "exec": "EditSchacht()"
+        },
+        {
+          "text": "Aufkleber berarbeiten",
+          "exec": "EDITFORM(\"Aufkleber\",.F.,\"STFORM\",\"STTRANS\",.T.,.T.,.T.)"
+        },
+        {
+          "text": "Werkstattauftrag gestalten",
+          "exec": "EDITFORM(\"WERKSTATTAUFTRAG\",.F.,\"WERKFORM\",\"WTRANS\",,.t.)"
+        },
+        {
+          "text": "Fertigungsstückliste",
+          "exec": "EDITFORM(\"FERTIGUNGSSTÜCKLISTE\",.F.,\"WEPRTFORM\",\"WTRANS\",,.t.)"
+        }
+      ]
+    },
+    {
+      "name": "FORMULARGESTALTUNG-BRIEF",
+      "items":
+      [
+        {
+          "text": "Standardwerte",
+          "exec": "EINST()"
+        },
+        {
+          "text": "Briefkopf gestalten",
+          "exec": "LETFORM()"
+        },
+        {
+          "text": "Anlagen für Briefe",
+          "exec": "AnlChoice(.f.,999)"
+        }
+      ]
+    },
+    {
+      "name": "FORMULARGESTALTUNG-KUNDEN",
+      "items":
+      [
+        {
+          "text": "Rechnung gestalten",
+          "exec": "EDITFORM(\"RECHNUNGS FORMULAR GESTALTEN\",{|| RETEST()},\"RECHFORM\",\"RTRANS\")"
+        },
+        {
+          "text": "Lieferschein gestalten",
+          "exec": "EDITFORM(\"LIEFERSCHEIN GESTALTEN\",{|| RETEST()},\"LIEFFORM\",\"RTRANS\")"
+        },
+        {
+          "text": "Packzettel gestalten",
+          "exec": "EDITFORM(\"PACKZETTEL GESTALTEN\",{|| RETEST()},\"EXFORM\",\"RTRANS\")"
+        },
+        {
+          "text": "Angebotsformular gestalten",
+          "exec": "EDITFORM(\"ANGEBOTSFORMULAR GESTALTEN\",{|| ENQTEST(\"E\")},\"ANGFORM\",\"ETRANS\")"
+        },
+        {
+          "text": "Auftragsformular Gestalten",
+          "exec": "EDITFORM(\"AUFTRAGSFORMULAR GESTALTEN\",{|| AUFTEST()},\"AUFFORM\",\"ATRANS\")"
+        },
+        {
+          "text": "Gelangensbestätigung gestalten",
+          "exec": "EDITFORM(\"Gelangensbestätigung GESTALTEN\",{|| RETEST()},\"GBFORM\",\"RTRANS\")"
+        },
+        {
+          "text": "Kontoauszugsformular gestalten",
+          "exec": "EditForm(\"Kontoauszugsformular\",.F.,\"statform\",\"strans\")"
+        }
+      ]
+    },
+    {
+      "name": "FORMULARGESTALTUNG-LIEFERANTEN",
+      "items":
+      [
+        {
+          "text": "Bestellung",
+          "exec": "EditForm(\"BESTELLUNG\",,\"BESFORM\",\"BTRANS\")"
+        },
+        {
+          "text": "Mahnformular gestalten",
+          "exec": "EDITFORM(\"MAHNFORMULAR GESTALTEN\",{|| CALL_PROG := \"ENGMADR\",ENGMADR()},\"MAFORM\",\"BTRANS\")"
+        },
+        {
+          "text": "Zahlungsformular gestalten",
+          "exec": "EditForm(\"Manuele Zahlungsliste gestalten\",.F.,\"PAYFORM\",\"PTRANS\")"
+        },
+        {
+          "text": "Anfrageformular gestalten",
+          "exec": "EDITFORM(\"ANFRAGEFORMULAR GESTALTEN\",{|| ENQTEST(\"A\")},\"ENQFORM\",\"ETRANS\")"
+        },
+        {
+          "text": "Zahlungsavisformular",
+          "exec": "EDITFORM(\"ZAHLUNGSAVIS GESTALTEN\",{|| .T. },\"PAFORM\",\"paTRANS\")"
+        }
+      ]
+    },
+    {
+      "name": "FREPPLE",
+      "items":
+      [
+        {
+          "text": "Frepple öffnen",
+          "exec": "WAPI_ShellExecute(,\"open\",'\"C:\\Programme\\Google\\Chrome\\Application\\chrome_proxy.exe\"','--app=\"https://engelking.frepple.com\"')"
+        },
+        {
+          "text": "Export to frePPLe",
+          "exec": "MBaseRun(Path(\"run\\frepple_export\"))"
+        },
+        {
+          "text": "Upload to frePPLe",
+          "exec": "MBAseRun(Path(\"run\\frepple_curl\"))"
+        },
+        {
+          "text": "Import von Frepple",
+          "exec": "MBaseRun(Path(\"run\\frepple_import\"))"
+        },
+        {
+          "text": "Abwesenheiten Synchronisieren",
+          "exec": "MBaseRun(Path(\"run\\timebutler_sync\"),{.F.,.F.,.T.,.F.})"
+        },
+        {
+          "text": "Einstellungen",
+          "exec": "Browse_Values(\"FREPPLE\")"
+        }
+      ]
+    },
+    {
+      "name": "HAUPTMENU",
+      "items":
+      [
+        {
+          "text": "Stammdaten",
+          "exec": "Menu(\"STAMMDATEN\")"
+        },
+        {
+          "text": "Vertrieb",
+          "exec": "Menu(\"VERTRIEB\")"
+        },
+        {
+          "text": "Fertigung",
+          "exec": "menu(\"FERTIGUNGSSTEUERUNG\")",
+          "hint": "STÜCKLISTEN & WERKSTATTSAUFTRÄGE",
+          "permission": "MANU",
+          "permtype": "R"
+        },
+        {
+          "text": "Einkauf",
+          "exec": "Menu(\"EINKAUF\")",
+          "permission": "PURCHASEORDER",
+          "permtype": "R"
+        },
+        {
+          "text": "Lager",
+          "exec": "MENU(\" LAGER \")"
+        },
+        {
+          "text": "Buchhaltung",
+          "exec": "Menu(\"B U C H H A L T U N G\")",
+          "permission": "ACC",
+          "permtype": "R"
+        },
+        {
+          "text": "Qualität",
+          "exec": "Menu(\"QUALITÄTSSICHERUNG\")"
+        },
+        {
+          "text": "Projekte",
+          "exec": "MENU(\"P R O J E K T E\")",
+          "permission": "PROJECTS",
+          "permtype": "R"
+        },
+        {
+          "text": "Hilfsprogramme",
+          "exec": "MENU(\" UTILITIES \")",
+          "hint": "SETUP USW."
+        },
+        {
+          "text": "E N D E",
+          "exec": "__BREAK()",
+          "hint": "TRADER VERLASSEN"
+        }
+      ]
+    },
+    {
+      "name": "IMPORTARTIKELNUMMERN",
+      "items":
+      [
+        {
+          "text": "Conrad Artikelnummer importieren",
+          "exec": "MBaseRun(Trim(Tr_getini(1))+\"\\run\\conrad_import\")"
+        },
+        {
+          "text": "Mouser Artikelnummern importieren",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\mouser_import\")"
+        },
+        {
+          "text": "Distrelec Artikelnummern importieren",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\distrelec_import\")"
+        },
+        {
+          "text": "Reichelt Artikelnummer importieren",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\reichelt_import\")"
+        },
+        {
+          "text": "Bürklin",
+          "exec": "MBaseRun(PatH(\"run\\buerklin_import\"))"
+        },
+        {
+          "text": "Lieferanten aus CSV Datei",
+          "exec": "MBaseRun(Path(\"run\\import_supplier_parts\"))"
+        },
+        {
+          "text": "Kundenartikelnr. aus CSV Datei",
+          "exec": "MBaseRun(Path(\"run\\import_customer_parts\"))"
+        }
+      ]
+    },
+    {
+      "name": "INVENTUR",
+      "items":
+      [
+        {
+          "text": "Zählung erstellen",
+          "exec": "Inventur()"
+        },
+        {
+          "text": "Zählblatt drucken",
+          "exec": "MBaseRun(Trim(Tr_getini(1))+\"\\run\\inv_print\")"
+        },
+        {
+          "text": "Zählergebnisse drucken",
+          "exec": "ListPrint(\"INVCOUNT\")"
+        },
+        {
+          "text": "Inventur (de)aktivieren",
+          "exec": "MBaseRun(Path(\"run\\activate_inventur\"))"
+        }
+      ]
+    },
+    {
+      "name": "KALKULATION",
+      "items":
+      [
+        {
+          "text": "KAKLKULATIONSDURCHLAUF",
+          "exec": "AUTOCALC(1)"
+        },
+        {
+          "text": "EINZELBETRÄGE",
+          "exec": "AUTOCALC(2)"
+        },
+        {
+          "text": "BOOKINGSKALKULATION DRUCKEN",
+          "exec": "AUTOCALC(3)"
+        },
+        {
+          "text": "BILLINGKALKULATION DRUCKEN",
+          "exec": "AUTOCALC(4)"
+        }
+      ]
+    },
+    {
+      "name": "KATALOG",
+      "items":
+      [
+        {
+          "text": "Katalog-Artikel Export",
+          "exec": "Cat_Exp()"
+        },
+        {
+          "text": "Kataloggruppen bearbeiten",
+          "exec": "Edit_CatGr()"
+        }
+      ]
+    },
+    {
+      "name": "LAGER",
+      "items":
+      [
+        {
+          "text": "Lagerentnahme",
+          "exec": "LAGERNE()"
+        },
+        {
+          "text": "Abgang buchen",
+          "exec": "LAGABG()",
+          "status": 2
+        },
+        {
+          "text": "Zugang buchen",
+          "exec": "LAGZUG()",
+          "status": 2
+        },
+        {
+          "text": "Lagerortsverwaltung",
+          "exec": "MENU(\"LAGERORTSVERWALTUNG\")",
+          "status": 2
+        },
+        {
+          "text": "Versandsverwaltung",
+          "exec": "MENU(\" VERSANDSVERWALTUNG \")"
+        },
+        {
+          "text": "Inventur",
+          "exec": "Menu(\"Inventur\")"
+        },
+        {
+          "text": "Sperrvermerk drucken",
+          "exec": "MBaseRun(Path(\"run\\print_sperrvermerk\"))"
+        },
+        {
+          "text": "Wareneingang",
+          "exec": "Menu(\"WARENEINGANG\")"
+        },
+        {
+          "text": "Gefahrstoffverzeichnis",
+          "exec": "MBaseRun(Path(\"run\\gefahrstoff\"))"
+        },
+        {
+          "text": "Umlaufverpackung Mengen",
+          "exec": "MBaseRun(Path(\"run\\showumlauf\"))"
+        }
+      ]
+    },
+    {
+      "name": "LAGEREINGANG",
+      "items":
+      [
+        {
+          "text": "Lagereingang",
+          "exec": "englag()"
+        },
+        {
+          "text": "Wareneingangsprotokoll gestalten",
+          "exec": "EditForm(\"Wareneingangsprotokoll\",.F.,\"WEFORM\",\"WETRANS\")"
+        },
+        {
+          "text": "Lagerorte einbuchen",
+          "exec": "BookLager()"
+        },
+        {
+          "text": "Einlagerungsprotokoll gestalten",
+          "exec": "EditForm('Einlagerungsprotokoll gestalten',.F.,'LEFORM','LETRANS')"
+        }
+      ]
+    },
+    {
+      "name": "LAGERORTSVERWALTUNG",
+      "items":
+      [
+        {
+          "text": "LAGERORT UMBUCHEN",
+          "exec": "LAGBUCH()"
+        },
+        {
+          "text": "Ware auslagern",
+          "exec": "LagBuch(,2)"
+        },
+        {
+          "text": "Ware einlagern",
+          "exec": "LagBucH(,3)"
+        },
+        {
+          "text": "Lagerorte bearbeiten",
+          "exec": "BROWSELAGER()"
+        },
+        {
+          "text": "Lagerortsbestände",
+          "exec": "ListPrint(\"LAGERMENG1\")"
+        },
+        {
+          "text": "Artikelbestand an Lagerortbestand angleichen",
+          "exec": "MBAseRun(Trim(Tr_Getini(1))+\"\\run\\lag_bestand\")"
+        },
+        {
+          "text": "Alle Artikel im Lagerort umbuchen",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\lagallumbuch\")"
+        },
+        {
+          "text": "Lagerortsetiketten drucken",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\lagstickers\")"
+        },
+        {
+          "text": "Lagerorte anlegen",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\lagcreate\")"
+        },
+        {
+          "text": "Mischcharge erzeugen",
+          "exec": "MbaseRun(Path(\"run\\batch_mix\"))"
+        },
+        {
+          "text": "Angebrochene Bestände",
+          "exec": "MBAseRun(\"x:\\run\\list_orte_taken.prg\")"
+        }
+      ]
+    },
+    {
+      "name": "MITARBEITER",
+      "items":
+      [
+        {
+          "text": "Mitarbeiter",
+          "exec": "BUYER()",
+          "status": 1
+        },
+        {
+          "text": "Rollen",
+          "exec": "Roles_Browse()"
+        },
+        {
+          "text": "Vertretergebiete",
+          "exec": "EditReps()"
+        },
+        {
+          "text": "Innendienst Teams",
+          "exec": "TeamBrowse()"
+        },
+        {
+          "text": "Mitarbeiter mit Lovable synchronisieren",
+          "exec": "MBaseRun(Path(\"run\\supabase\\trader_user_sync\"))"
+        }
+      ]
+    },
+    {
+      "name": "MUSTER",
+      "items":
+      [
+        {
+          "text": "Muster-Auftrag",
+          "exec": "MUSTER()"
+        },
+        {
+          "text": "Musteraufträge anzeigen",
+          "exec": "MUSFO(PROZ,0,VAR)",
+          "key": "ALT-F7"
+        },
+        {
+          "text": "Musterversand",
+          "exec": "Lagerne()"
+        },
+        {
+          "text": "Wiedervorlage bearbeiten",
+          "exec": "MBaseRun(Path(\"run\\nocrm\"),{\"MUS\"})"
+        }
+      ]
+    },
+    {
+      "name": "NUMMERNKREISE",
+      "items":
+      [
+        {
+          "text": "Spezifikation Sonderartikel",
+          "exec": "EditNummern(\"nr_spez\",\"Spezifikation Sonderartikel\")"
+        },
+        {
+          "text": "Arbeitsanweisungen",
+          "exec": "EditArbAnw()"
+        },
+        {
+          "text": "Benötigte Arbeitsanweisungen",
+          "exec": "MBAseRun(Path(\"run\\check_wo_instructions\"))"
+        }
+      ]
+    },
+    {
+      "name": "OBSOLETE",
+      "items":
+      [
+        {
+          "text": "Provisionsabrechnung",
+          "exec": "PROVAB()"
+        },
+        {
+          "text": "Update PIM spreadsheet",
+          "exec": "MBaseRun(Path(\"run\\pim_update\"))"
+        }
+      ]
+    },
+    {
+      "name": "OFFENEPOSTENVERWALTEN",
+      "items":
+      [
+        {
+          "text": "Zahlungseingänge",
+          "exec": "EngPaid()",
+          "key": "ALT-Q"
+        },
+        {
+          "text": "Liste offener Rechnungen",
+          "exec": "ListPrint(\"OFFRECH\")"
+        },
+        {
+          "text": "Kontoauszug drucken",
+          "exec": "Statdr()"
+        },
+        {
+          "text": "Zahlungseingänge",
+          "exec": "RasDisp()"
+        },
+        {
+          "text": "Kundenrechnungen nach Fälligkeit",
+          "exec": "ListPrint(\"FÄLLIGRECH\")"
+        },
+        {
+          "text": "Offeneposten (Lexware) verrechnen",
+          "exec": "MBaseRun(Trim(Tr_getini(1))+\"\\run\\lexopver\")"
+        }
+      ]
+    },
+    {
+      "name": "PREISLISTEN",
+      "items":
+      [
+        {
+          "text": "Zander-Preisliste",
+          "exec": "preiz"
+        },
+        {
+          "text": "Industrie-Preisliste",
+          "exec": "PREI"
+        },
+        {
+          "text": "Musik-Preisliste",
+          "exec": "PREIM"
+        }
+      ]
+    },
+    {
+      "name": "PREISLISTENVERWALTUNG",
+      "items":
+      [
+        {
+          "text": "Preisliste anzeigen",
+          "exec": "PR_BROWSEARTIKEL(\"PREI\")"
+        },
+        {
+          "text": "Preisliste ausfüllen",
+          "exec": "PR_FILL(.F.)"
+        },
+        {
+          "text": "Preisliste aktualisieren",
+          "exec": "PR_FILL(.T.)"
+        },
+        {
+          "text": "Editieren",
+          "exec": "PR_EDIT()"
+        },
+        {
+          "text": "Memofelder aus Textdatei importieren",
+          "exec": "PR_TXTCH(\"PREI\")"
+        },
+        {
+          "text": "Memofelder kopieren",
+          "exec": "PR_KOPIIT(\"PREI\")"
+        },
+        {
+          "text": "Preisliste für PM sortieren",
+          "exec": "PR_COPYSORT(\"PREI\")"
+        },
+        {
+          "text": "Pack",
+          "exec": "PR_PACK(\"PREI\")"
+        },
+        {
+          "text": "Zap",
+          "exec": "PR_ZAP(\"PREI\")"
+        }
+      ]
+    },
+    {
+      "name": "PRODUKTSTATISTIK",
+      "items":
+      [
+        {
+          "text": "Produktstatistik ergänzen",
+          "exec": "GroupStatsUpdate(.F.)"
+        },
+        {
+          "text": "Produktstatistik anzeigen",
+          "exec": "WAPI_ShellExecute(,\"open\",\"http:\\\\192.168.2.228\\trader\\stats.html\")"
+        },
+        {
+          "text": "Umsätze auf Deutschlandkarte",
+          "exec": "MapStatsShow()"
+        }
+      ]
+    },
+    {
+      "name": "PROJEKTE",
+      "items":
+      [
+        {
+          "text": "Projekte anzeigen (nur offene)",
+          "exec": "IF(SystemUser():oSettings:WebUI,ProjektWebLoader(0),Project_Browse(0))"
+        },
+        {
+          "text": "Projekte anzeigen (offen/laufend)",
+          "exec": "IF(SystemUser():oSettings:WebUI,ProjektWebLoader(1),Project_Browse(1))"
+        },
+        {
+          "text": "Projekte anzeigen (alle)",
+          "exec": "IF(SystemUser():oSettings:WebUI,ProjektWebLoader(),Project_Browse(.F.))"
+        },
+        {
+          "text": "Projekt bearbeiten",
+          "exec": "Project_Edit()"
+        },
+        {
+          "text": "Alle offenen Aufgaben",
+          "exec": "MBaseRun(Path(\"run\\all_project_todo\"))"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Zeichnungen",
+          "exec": "EditNummern(\"nr_zeich\",\"Zeichnungen\")"
+        },
+        {
+          "text": "Zeichnungsrevision aktualisieren",
+          "exec": "MBaseRun(Path(\"run\\ChangeDrawingRevision\"))"
+        },
+        {
+          "text": "SCN versenden",
+          "exec": "MBaseRun(Path(\"run\\scn_sender\"))"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Aufgabenblöcke bearbeiten",
+          "exec": "TodoBlockEditor(\"PJ\")",
+          "permission": "PROJECTS_TODOBLOCKS",
+          "permtype": "U"
+        }
+      ]
+    },
+    {
+      "name": "QUALITÄTSSICHERUNG",
+      "items":
+      [
+        {
+          "text": "Fehler anzeigen (offen)",
+          "exec": "BrowseQS(.T.)"
+        },
+        {
+          "text": "Fehler anzeigen",
+          "exec": "BrowseQS()"
+        },
+        {
+          "text": "Liste fehlender Freigaben",
+          "exec": "MBaseRun(Path(\"run/check_freigabe\"),{.T.})"
+        },
+        {
+          "text": "Artikel im QS Lager",
+          "exec": "MBaseRun(Path(\"run\\show_qs_parts\"))"
+        },
+        {
+          "text": "Erstmusterprüfberichte",
+          "exec": "EditNummern(\"nr_empb\",\"Erstmüsterprüfberichte\")"
+        },
+        {
+          "text": "Losnummer aus Barcode",
+          "exec": "MBaseRun(PatH(\"run\\datamatrix\"))"
+        },
+        {
+          "text": "Chargen Etiketten drucken",
+          "exec": "MBaseRun(Path(\"run\\print_batch_labels\"),{GetBox(Space(20),\"Charge\")})"
+        },
+        {
+          "text": "Verwendung Charge suchen",
+          "exec": "MBaseRun(Path(\"run\\find_batch\"))"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Termintreue berechnen",
+          "exec": "MBaseRun(Path(\"run\\reports\\check_auf_ontime\"))"
+        }
+      ]
+    },
+    {
+      "name": "SETUP",
+      "items":
+      [
+        {
+          "text": "Feld Sperren",
+          "exec": "Menu(\" FELDER \")",
+          "permission": "SYSTEM",
+          "permtype": "U",
+          "status": 1
+        },
+        {
+          "text": "Druckercodes anlegen",
+          "exec": "PrintCod()",
+          "permission": "SYSTEM",
+          "permtype": "U"
+        },
+        {
+          "text": "Mitarbeiter/Berechtigungen",
+          "exec": "Menu(\"MITARBEITER\")"
+        },
+        {
+          "text": "Lieferaussagetexte",
+          "exec": "DELTEXT()"
+        },
+        {
+          "text": "Formulargestaltung",
+          "exec": "Menu(\" FORMULARGESTALTUNG \")",
+          "permission": "SYSTEM_FORMS",
+          "permtype": "U"
+        },
+        {
+          "text": "Finanzielle Einstellungen",
+          "exec": "Menu(\" SETUP - FINANZ \")"
+        },
+        {
+          "text": "Metallzuschlagstabelle",
+          "exec": "SHOW_ZUSCHLAG()"
+        },
+        {
+          "text": "Mengeneinheiten editieren",
+          "exec": "MEEDIT()"
+        },
+        {
+          "text": "Zusatzfelder",
+          "exec": "Menu(\"ZUSATZFELDER\")",
+          "permtype": "U"
+        },
+        {
+          "text": "Länder",
+          "exec": "Countries_Browse()"
+        },
+        {
+          "text": "Rechtsformen",
+          "exec": "CompForm_Browse()"
+        },
+        {
+          "text": "Schlüsselbund",
+          "exec": "Keychain_Browse()"
+        },
+        {
+          "text": "Weitere Einstellungen",
+          "exec": "Menu(\"SETUP - EINSTELLUNGEN\")"
+        },
+        {
+          "text": "Menü bearbeiten",
+          "exec": "SHOWFUNC(.T.)",
+          "key": "ALT-F10"
+        },
+        {
+          "text": "Aufgabenblöcke",
+          "exec": "AddTodoBlockEditorToMenu()"
+        }
+      ]
+    },
+    {
+      "name": "SETUP-EINSTELLUNGEN",
+      "items":
+      [
+        {
+          "text": "REB",
+          "exec": "Browse_Values(\"REB\")",
+          "permission": "VALUES_REB",
+          "permtype": "U"
+        },
+        {
+          "text": "Agorum",
+          "exec": "Browse_Values(\"AGORUM\")"
+        },
+        {
+          "text": "Shopware",
+          "exec": "Browse_Values(\"SW\")"
+        },
+        {
+          "text": "Frepple",
+          "exec": "Browse_Values(\"FREPPLE\")"
+        },
+        {
+          "text": "Buchhaltung",
+          "exec": "Browse_Values(\"BH\")"
+        },
+        {
+          "text": "Creditsafe",
+          "exec": "Browse_Values(\"CS\")"
+        },
+        {
+          "text": "Fertigung",
+          "exec": "Browse_Values(\"FA\")"
+        },
+        {
+          "text": "Checker",
+          "exec": "Browse_Values(\"CHECKER\")"
+        },
+        {
+          "text": "Odoo",
+          "exec": "Browse_Values(\"ODOO\")"
+        },
+        {
+          "text": "MCP Server",
+          "exec": "Browse_Values(\"MCP\")"
+        },
+        {
+          "text": "REB Value Checker",
+          "exec": "Browse_Values(\"REBCHK\")"
+        },
+        {
+          "text": "AppSchneiderei",
+          "exec": "Browse_Values(\"SCHNEIDERE\")"
+        },
+        {
+          "text": "Conrad",
+          "exec": "Browse_Values(\"CONRAD\")"
+        },
+        {
+          "text": "Sonstige",
+          "exec": "Browse_Values(\"\")"
+        }
+      ]
+    },
+    {
+      "name": "SETUP-FINANZ",
+      "items":
+      [
+        {
+          "text": "Währungstabelle",
+          "exec": "Currency()"
+        },
+        {
+          "text": "Skontotabelle - Auftragsbearbeitung",
+          "exec": "SKONTTAB(\"A\")"
+        },
+        {
+          "text": "Skontotabelle - Bestellwesen",
+          "exec": "SKONTTAB(\"B\")"
+        },
+        {
+          "text": "MWST-Sätze editieren",
+          "exec": "MWSTEDIT()"
+        },
+        {
+          "text": "Zahlungstexte eingeben",
+          "exec": "SKONTEXT()"
+        }
+      ]
+    },
+    {
+      "name": "SONSTIGES",
+      "items":
+      [
+        {
+          "text": "Kunden auf Google Maps",
+          "exec": "CustomersOnMap()"
+        },
+        {
+          "text": "Zahlungsterminfelder akt.",
+          "exec": "paychange()",
+          "status": 2
+        },
+        {
+          "text": "Correct Invoice",
+          "exec": "MBaseRun(\"d:\\trader30\\run\\definvoice\")"
+        },
+        {
+          "text": "Reindex",
+          "exec": "mbaseRun(tr_getini(16)+'\\run\\reindex')"
+        },
+        {
+          "text": "Kataloggruppen",
+          "exec": "Edit_CatGr()"
+        },
+        {
+          "text": "Kunden verschmelzen",
+          "exec": "MbaseRun(Trim(Tr_GetIni(1))+\"\\run\\changku\")"
+        },
+        {
+          "text": "Folgeartikel in Stüli wandeln",
+          "exec": "MbaseRun(Path(\"run\\change_folge\"))"
+        }
+      ]
+    },
+    {
+      "name": "STAMMDATEN",
+      "items":
+      [
+        {
+          "text": "Adressen",
+          "text_en": "Addresses",
+          "exec": "ENADDR(PROZ,0,VAR)",
+          "short": "AD",
+          "hint": "ADRESSEN ANZEIGEN UND EDITIEREN",
+          "key": "F9"
+        },
+        {
+          "text": "Artikel",
+          "exec": "ARTFO(PROZ,0,VAR)",
+          "short": "ART",
+          "key": "F8"
+        },
+        {
+          "text": "Varianten",
+          "exec": "MENU(\"VARIANTEN\")"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Hersteller",
+          "exec": "Manufacturer_Browse()"
+        },
+        {
+          "text": "Branchen",
+          "exec": "Branchen_Browse()"
+        },
+        {
+          "text": "Preisstaffeln",
+          "exec": "PREISE()"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Artikel von Folgeart. zu Stüli ändern",
+          "exec": "MBAseRun(Path(\"run\\change_folge\"))"
+        },
+        {
+          "text": "Person suchen",
+          "exec": "MBaseRun(Path(\"run\\reports\\find_person\"))"
+        },
+        {
+          "text": "Lieferzeiten für einen Hersteller anpassen",
+          "exec": "MBaseRun(Path(\"run/change_deltime\"))"
+        }
+      ]
+    },
+    {
+      "name": "STATISTIK",
+      "items":
+      [
+        {
+          "text": "Statistikdatei ergänzen",
+          "exec": "STATS()"
+        },
+        {
+          "text": "Statistik anzeigen",
+          "exec": "ShowStats()"
+        },
+        {
+          "text": "Bedarfszahlen ergänzen",
+          "exec": "ENUPDATE()"
+        },
+        {
+          "text": "Graphische Auswertung Billings",
+          "exec": "ShowStatsGraph(3)"
+        },
+        {
+          "text": "Graphische Auswertung Bookings",
+          "exec": "ShowStatsGraph(2)"
+        },
+        {
+          "text": "Graphische Auswertung Einkauf",
+          "exec": "ShowStatsGraph(1)"
+        },
+        {
+          "text": "Graphische Auswertung Umsatz kumulativ",
+          "exec": "ShowStatsGraph(4)"
+        },
+        {
+          "text": "Graphische Auswertung Bookings kumulativ",
+          "exec": "ShowStatsGraph(5)"
+        },
+        {
+          "text": "Rechnungsdatei reorganisieren",
+          "exec": "RECHKILL()"
+        },
+        {
+          "text": "Produktstatistik",
+          "exec": "Menu(\"PRODUKTSTATISTIK\")"
+        },
+        {
+          "text": "Graphische Auswerting Bookings 2",
+          "exec": "WAPI_ShellExecute(NIL,\"open\",\"y:\\trader30\\reports\\stats_booking.html\",\"\",\"\")"
+        },
+        {
+          "text": "Graphische Auswertung Billings 2",
+          "exec": "WAPI_ShellExecute(NIL,\"open\",\"Y:\\trader30\\reports\\stats_billings.html\",\"\",\"\")"
+        },
+        {
+          "text": "Statistik aktualisieren (nur aktueller Monat)",
+          "exec": "Stats(.T.)"
+        },
+        {
+          "text": "Margen pro Hersteller",
+          "exec": "MbaseRun(Path(\"run\\show_margin\"))"
+        }
+      ]
+    },
+    {
+      "name": "TEXTVERARBEITUNG",
+      "items":
+      [
+        {
+          "text": "Textverarbeitung",
+          "exec": "MOSTEXT(\"*.BRF\",\"BRF TXT DOC LTR FAX *\")",
+          "key": "ALT-T"
+        },
+        {
+          "text": "Serienbrief",
+          "exec": "SERIENBRIEF()",
+          "short": "SB"
+        }
+      ]
+    },
+    {
+      "name": "UTILITIES",
+      "items":
+      [
+        {
+          "text": "Textverarbeitung",
+          "exec": "Menu(\"Textverarbeitung\")"
+        },
+        {
+          "text": "Einstellungen - Lokal",
+          "exec": "mENU(\" EINSTELLUNGEN \")"
+        },
+        {
+          "text": "Setup",
+          "exec": "MENU(\" Setup \")",
+          "permission": "SYSTEM",
+          "permtype": "U"
+        },
+        {
+          "text": "Statistik",
+          "exec": "Menu(\"STATISTIK\")"
+        },
+        {
+          "text": "Interpreter",
+          "exec": "MBASE()",
+          "permission": "SYSTEM",
+          "permtype": "R"
+        },
+        {
+          "text": "Sonstiges",
+          "exec": "Menu('SONSTIGES')",
+          "permission": "SYSTEM",
+          "permtype": "U"
+        },
+        {
+          "text": "Kursrechner",
+          "exec": "CurrencyCalc()"
+        },
+        {
+          "text": "TASCHENRECHNER",
+          "exec": "RECHNER(Tr_GetIni(27))",
+          "short": "T",
+          "key": "F12"
+        },
+        {
+          "text": "Import/Export",
+          "exec": "Menu(\" EXPORT \")"
+        },
+        {
+          "text": "Berichte",
+          "exec": "Menu(\"BERICHTE\")",
+          "permission": "REP",
+          "permtype": "R"
+        },
+        {
+          "text": "Nummernkreise",
+          "exec": "Menu(\"NUMMERNKREISE\")"
+        },
+        {
+          "text": "Urlaubsplanung",
+          "exec": "WAPI_ShellExecute(,\"open\",'\"C:\\Program Files\\Google\\Chrome\\Application\\chrome_proxy.exe\"','--app=\"https://timebutler.de/login\"')"
+        },
+        {
+          "text": "Portalbenutzer",
+          "exec": "MBaseRun(Path(\"run\\list_portal_users\"))"
+        },
+        {
+          "text": "Checkstock",
+          "exec": "CheckStock()",
+          "permission": "SYSTEM",
+          "permtype": "R"
+        },
+        {
+          "text": "Obsolete",
+          "exec": "Menu(\"OBSOLETE\")",
+          "permission": "ADMIN",
+          "permtype": "R"
+        },
+        {
+          "text": "Über Trader",
+          "exec": "Alert(\"Trader v. \"+trVer+\";Copyright 1995-\"+Str(Year(Date()),4)+\" Amos Engelking.;All rights reserved.\")"
+        }
+      ]
+    },
+    {
+      "name": "VARIANTEN",
+      "items":
+      [
+        {
+          "text": "VARIANTEN ANLEGEN",
+          "exec": "OPTION()"
+        },
+        {
+          "text": "Variantentabelle drucken",
+          "exec": "MBaseRun(Path(\"\\run\\printopt.prg\"))"
+        },
+        {
+          "text": "Artikel in Varianten ändern",
+          "exec": "MBaseRun(PatH(\"run\\variantenmod\"))",
+          "permission": "ART",
+          "permtype": "U"
+        }
+      ]
+    },
+    {
+      "name": "VERSANDSVERWALTUNG",
+      "items":
+      [
+        {
+          "text": "Packzettel buchen",
+          "exec": "EINFUG()",
+          "short": "ABS",
+          "key": "ALT-P"
+        },
+        {
+          "text": "Packzettel-Positionen buchen",
+          "exec": "Einfug(0,0,.T.,.F.)"
+        },
+        {
+          "text": "Packzettel Buchliste",
+          "exec": "AListRech()",
+          "key": "ALT-X"
+        },
+        {
+          "text": "Packzettel Schnellbuchen",
+          "exec": "Einfug(0,0,.F.,.T.)",
+          "key": "ALT-S"
+        },
+        {
+          "text": "Pickliste erstellen/drucken",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\picklist\")"
+        },
+        {
+          "text": "Zonentabelle",
+          "exec": "_BROWSE()",
+          "short": "ZO"
+        },
+        {
+          "text": "Preistabelle",
+          "exec": "PREIS()",
+          "short": "PRT"
+        },
+        {
+          "text": "Versandarten verwalten",
+          "exec": "Versbrowse()"
+        },
+        {
+          "text": "Versandkosten Vergleich",
+          "exec": "MBaseRun(Trim(Tr_Getini(1))+\"\\run\\vers_rechner\")"
+        },
+        {
+          "text": "Sendung stornieren",
+          "exec": "MBaseRun(Path(\"run\\cancel_shipment\"))"
+        },
+        {
+          "text": "Lagerort Rechnung anpassen",
+          "exec": "MBaseRun(Path(\"run/edit_orte_rech\"))"
+        },
+        {
+          "text": "Einstellungen",
+          "exec": "Browse_Values(\"SHIP\")"
+        }
+      ]
+    },
+    {
+      "name": "VERTRIEB",
+      "items":
+      [
+        {
+          "text": "Aufträge",
+          "exec": "MENU(\" A U F T R A G S B E A R B E I T U N G \")",
+          "permission": "SALESORDER",
+          "permtype": "R"
+        },
+        {
+          "text": "Angebote",
+          "exec": "MENU(\" ANGEBOTSBEARBEITUNG \")",
+          "permission": "SALESQUOTE",
+          "permtype": "R"
+        },
+        {
+          "text": "Muster",
+          "exec": "Menu(\"MUSTER\")"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Kundenbezeichnungen editieren",
+          "exec": "ARTLIEFEDIT(.F.)",
+          "key": "F5"
+        },
+        {
+          "text": "RMA",
+          "exec": "RMA_Edit()"
+        },
+        {
+          "text": "RMA's Anzeigen",
+          "exec": "RMA_Browse()"
+        },
+        {
+          "text": "VARIANTEN ANZEIGEN",
+          "exec": "LISTOPT()",
+          "key": "ALT-V"
+        },
+        {
+          "text": "─",
+          "exec": ""
+        },
+        {
+          "text": "Einstellungen",
+          "exec": "Browse_Values(\"SALES\")",
+          "permission": "VALUES_SALES",
+          "permtype": "R"
+        },
+        {
+          "text": "nexusCRM Einstellungen",
+          "exec": "Browse_Values(\"NEXUSCRM\")"
+        },
+        {
+          "text": "Anhänge aus snapAddy in noCRM hochladen",
+          "exec": "MBaseRun(Path(\"run\\nocrm_upload_attachements\"))"
+        },
+        {
+          "text": "Berichte",
+          "exec": "Menu(\"VERTRIEB BERICHTE\")",
+          "permission": "SALES_REPORTS",
+          "permtype": "R"
+        },
+        {
+          "text": "Produktmailing",
+          "exec": "MBAseRun(Path(\"run\\mailing\"))"
+        },
+        {
+          "text": "Blacklist Mailing",
+          "exec": "MBaseRun(Path(\"run\\blacklist_manager\"))"
+        }
+      ]
+    },
+    {
+      "name": "VERTRIEBBERICHTE",
+      "items":
+      [
+        {
+          "text": "POS Daten",
+          "exec": "MBaseRun(Path(\"run\\pos_to_ods\"))"
+        },
+        {
+          "text": "Margen pro Lieferposition",
+          "exec": "MBaseRun(Path(\"run\\reports\\margins.prg\")"
+        }
+      ]
+    },
+    {
+      "name": "WARENAUSGANG",
+      "items":
+      [
+        {
+          "text": "Warenausgang",
+          "exec": "Lagaus()"
+        },
+        {
+          "text": "Lagerausgangsprotokoll gestalten",
+          "exec": "EditForm(\"WA-Protokoll\",.F.,\"WAFORM\",\"WATRANS\")"
+        }
+      ]
+    },
+    {
+      "name": "WARENEINGANG",
+      "items":
+      [
+        {
+          "text": "Wareneingang (Bestellungen)",
+          "exec": "ENGWE()",
+          "key": "ALT-W",
+          "status": 2
+        },
+        {
+          "text": "Werkstattauftrags-Wareneingang",
+          "exec": "WERKOUT()"
+        },
+        {
+          "text": "RMA Eingang",
+          "exec": "EditRMA(,.T.)"
+        },
+        {
+          "text": "Rücklieferung Fertigungsmaterial",
+          "exec": "WerkBack()"
+        }
+      ]
+    },
+    {
+      "name": "ZAHLUNGSVERKEHR",
+      "items":
+      [
+        {
+          "text": "Zahlungen verwalten",
+          "exec": "ENGPAY()"
+        },
+        {
+          "text": "Überweisungen drucken",
+          "exec": "ENGUEB()"
+        },
+        {
+          "text": "Schecks drucken",
+          "exec": "ENGCHECK()"
+        },
+        {
+          "text": "Zahlungen auf Datenträger",
+          "exec": "CASHUEB()"
+        },
+        {
+          "text": "Zahlungsliste",
+          "exec": "PAYLIST()"
+        },
+        {
+          "text": "Zahlungen suchen",
+          "exec": "PAYFIND()"
+        }
+      ]
+    },
+    {
+      "name": "ZUSATZFELDER",
+      "items":
+      [
+        {
+          "text": "Rechnung",
+          "exec": "MbaseRun(Path(\"run\\edit_extrafields\"),{\"reh\"})"
+        },
+        {
+          "text": "Angebot",
+          "exec": "MbaseRun(Path(\"run\\edit_extrafields\"),{\"ang\"})"
+        },
+        {
+          "text": "Bestellung",
+          "exec": "MbaseRun(Path(\"run\\edit_extrafields\"),{\"bes\"})"
+        },
+        {
+          "text": "Adressen",
+          "exec": "MbaseRun(Path(\"run\\edit_extrafields\"),{\"ku\"})"
+        },
+        {
+          "text": "Angebote - bearbeiten",
+          "exec": "MbaseRun(Path(\"run\\edit_extrafields\"),{\"ang\",.T.})"
+        }
+      ]
+    }
+  ]
+}

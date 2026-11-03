@@ -306,7 +306,8 @@ STATIC FUNCTION _BuildProductsJson(nLimit, lForcePrices, lNoStamp)
    NetUse("shopware", "shop")
    NetUse("ptcache", "ptc")
    NetUse("liefstock", "lsto")
-   NetUse("waldom","wald")
+   NetUse("manufact","manu")  //Hersteller-MOQ: Hersteller -> Lieferant
+   NetUse("artlief","ali")    //Hersteller-MOQ: ali->Min des Herstellers
    NetUse("buyprice", "bpr")
    NetUse("engkund","ku")  //ONPOW_PRICING uses this
    NetUse("stafprei","stpr")
@@ -520,16 +521,41 @@ STATIC PROCEDURE _ApplyProductStockData(hProduct, oArtikel, nCurWeek, cWaldom)
    IF lsto->(dbSeek(cWaldom + Str(oArtikel:Artikelnr,6))) .AND. lsto->Stock > 0 ;
       .AND. bpr->(dbSeek(Str(oArtikel:Artikelnr,6) + cWaldom))      
       nManufacturerStock := lsto->Stock
-      IF wald->(dbSeek(Pad(oArtikel:Matchcode,35)))
-         nManufacturerMOQ := wald->MOQ
-      ENDIF
    ENDIF
+
+   nManufacturerMOQ := _GetManufacturerMOQ(oArtikel)
 
    hProduct["stock"] := nOwnStock
    hProduct["manufacturer_stock"] := nManufacturerStock
    hProduct["manufacturer_moq"] := nManufacturerMOQ
    hProduct["delivery_time"] := nDeliveryTime
 RETURN
+
+*  ---------------------------------------------------------------------------
+*  Mindestbestellmenge des Herstellers: Hersteller des Artikels (manufact) ->
+*  dessen Adresse als Lieferant (engkund) -> Lieferantenartikel (artlief),
+*  dort ali->Min. Bei Engelking China (Hersteller 5) gilt der Lieferant mit
+*  Prioritaet 1 - wie in hooks\approve_auf_ang.prg. Ohne Eintrag bleibt es 1.
+*  ---------------------------------------------------------------------------
+STATIC FUNCTION _GetManufacturerMOQ(oArtikel)
+   LOCAL nMOQ := 1
+   LOCAL lFound := .F.
+
+   IF oArtikel:Manufactur == 5   //Engelking China - Lieferant mit Prio 1
+      ali->(dbSetOrder( 6 ))
+      lFound := ali->(dbSeek( Str(oArtikel:Artikelnr,6) + "1" ))
+   ELSEIF oArtikel:Manufactur != 0 .AND. manu->(dbSeek( Str(oArtikel:Manufactur,5) )) .AND. manu->Address != 0
+      ku->(dbSetOrder( 8 ))
+      IF ku->(dbSeek( Str(manu->Address,6) ))
+         ali->(dbSetOrder( 5 ))
+         lFound := ali->(dbSeek( Str(oArtikel:Artikelnr,6) + ku->Kunde ))
+      ENDIF
+   ENDIF
+
+   IF lFound .AND. ali->Min > 0
+      nMOQ := ali->Min
+   ENDIF
+RETURN nMOQ
 
 *  ---------------------------------------------------------------------------
 *  Zolltarifnummer (art->KnCode) und Ursprungsland (art->Ursprung, ISO-2) aus

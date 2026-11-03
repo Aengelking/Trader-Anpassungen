@@ -538,7 +538,7 @@ RETURN
 *  Prioritaet 1 - wie in hooks\approve_auf_ang.prg. Ohne Eintrag bleibt es 1.
 *  ---------------------------------------------------------------------------
 STATIC FUNCTION _GetManufacturerMOQ(oArtikel)
-   LOCAL nMOQ := 1
+   LOCAL nMOQ := 500
    LOCAL lFound := .F.
 
    IF oArtikel:Manufactur == 5   //Engelking China - Lieferant mit Prio 1

@@ -32,7 +32,7 @@
   {"id": "rahmen_lieferanten", "name": "Rahmenverträge - Lieferanten prüfen", "run": "check_frame_po", "cron": "0 10 * * 1", "enabled": false},
   {"id": "rahmen_ablauf", "name": "Rahmenvertrag - drohender Ablauf prüfen", "run": "check_blanket_so", "cron": "0 5 * * 1", "enabled": false},
   {"id": "rechnungsempfaenger_emails", "name": "Rechnungsempfänger Emails prüfen", "run": "remail_followup", "cron": "31 5 * * *", "enabled": false},
-  {"id": "rechnungsversand", "name": "Rechnungsversand", "run": "checkresend", "cron": ["45 13 * * *", "0 17 * * *"], "timeout_min": 60, "enabled": false},
+  {"id": "rechnungsversand", "name": "Rechnungsversand", "run": "checkresend", "firma": "alle", "cron": ["45 13 * * *", "0 17 * * *"], "timeout_min": 60, "enabled": false},
   {"id": "schenker_diesel", "name": "Schenker Dieselpreise", "run": "upd_diesel_schenker", "cron": "16 16 * * 4L", "enabled": false},
   {"id": "send_pos", "name": "Send POS Data", "run": "send_pos.prg", "cron": "0 8 1 * *", "enabled": false},
   {"id": "shopware_product_ids", "name": "Shopware Product IDs", "run": "shopware_products", "cron": "0 2 * * 1-5", "enabled": false},
@@ -54,10 +54,11 @@
   {"id": "wartelisten", "name": "Wartelisten prüfen", "run": "check_wait_list", "cron": "0 11 * * 1-5", "enabled": false},
   {"id": "website_update", "name": "Website Update (Stock+Prices)", "run": "supabase/website", "cron": "0 5-19 * * 1-5", "enabled": false},
   {"id": "wunschtermine_fp", "name": "Wunschtermine FP", "run": "fp_wunschtermin", "cron": "0 8 * * 1", "enabled": false},
-  {"id": "waehrungen", "name": "Währungen aktualisieren", "func": "UpdateCurrency()", "cron": "30 8 * * *", "enabled": false},
+  {"id": "waehrungen", "name": "Währungen aktualisieren", "func": "UpdateCurrency()", "firma": "alle", "cron": "30 8 * * *", "enabled": false},
   {"id": "crm_kundensync", "name": "CRM Kundensync", "func": "(MBaseRun(Path('run\\crm_company_sync')),MBaseRun(Path('run\\crm_figures_sync')),MBaseRun(Path('run\\crm_contact_sync')))", "cron": "7 4 * * 1-5", "enabled": false},
   {"id": "musterauftraege_pruefen", "name": "Musteraufträge prüfen", "func": "(MBaseRun(Path('run\\check_muster')),MBaseRun(Path('run\\check_muster_bestellungen')))", "cron": "0 9 * * 1", "enabled": false},
   {"id": "nocrm_abgleich", "name": "noCRM Abgleich Aufträge", "func": "(MBaseRun(Path('run\\angebote_won_nocrm')),MBaseRun(Path('run\\upd_nocrm_leadname')))", "cron": "0 12,18 * * 1-5", "enabled": false},
-  {"id": "statistik", "name": "Statistik aktualisieren", "func": "(stats(),GroupStatsUpdate())", "cron": "0 18 * * 1-5", "enabled": false},
+  {"id": "statistik", "name": "Statistik aktualisieren", "func": "stats()", "firma": "alle", "cron": "0 18 * * 1-5", "enabled": false},
+  {"id": "gruppenstatistik", "name": "Gruppenstatistik aktualisieren", "func": "GroupStatsUpdate()", "cron": "0 18 * * 1-5", "enabled": false},
   {"id": "zahlungseingaenge_pruefen", "name": "Zahlungseingänge prüfen", "func": "(MBaseRun(Path('run\\wd_run'),{{||checkpay()}}),SetConfigValue('printer',1),MBaseRun(Path('run\\wd_run'),{'checkpay'}))", "cron": "0 11 * * 1-5", "enabled": false}
 ]}

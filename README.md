@@ -34,4 +34,4 @@ Einmalig je Installation:
 3. In den Werten (`GetValue`) `SCHNEIDERE_URL` auf die angezeigte Adresse setzen (`https://runner.<domain>/v1/trader/`).
 4. `run/schneiderei_abholen.prg` einmal von Hand in das Run-Verzeichnis kopieren – danach hält es sich selbst aktuell.
 5. Erst einen Testlauf: `trader:-R&schneiderei_abholen&{"J"}` schreibt nichts, protokolliert aber jede Datei mit ihrem Ziel (`run\logs\schneiderei_abholen_*.log`). Dort prüfen, dass die Zielverzeichnisse stimmen.
-6. Dann regelmäßig aus der Aufgabenplanung: `trader:-R&schneiderei_abholen`.
+6. Dann regelmäßig starten: In den Werten `CRON_ABHOLEN` auf `.T.` setzen (Setup → Weitere Einstellungen → Cron). Der Cron-Verteiler startet die Abholung dann alle 10 Minuten; sie steht bewusst nicht in `config/cron.json`. Ohne Cron-Verteiler: aus der Aufgabenplanung `trader:-R&schneiderei_abholen`.

@@ -1565,6 +1565,12 @@
           "exec": "Keychain_Browse()"
         },
         {
+          "text": "Geplante Läufe",
+          "exec": "CronWebLoader()",
+          "permission": "SYSTEM",
+          "permtype": "U"
+        },
+        {
           "text": "Weitere Einstellungen",
           "exec": "Menu(\"SETUP - EINSTELLUNGEN\")"
         },
@@ -1640,6 +1646,10 @@
         {
           "text": "Website",
           "exec": "Browse_Values(\"WEBSITE\")"
+        },
+        {
+          "text": "Cron",
+          "exec": "Browse_Values(\"CRON\")"
         },
         {
           "text": "Sonstige",

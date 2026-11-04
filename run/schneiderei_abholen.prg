@@ -10,6 +10,7 @@
  *   run/<pfad>     ->  Path("run\")<pfad>       (x:\run\...)
  *   mask/<pfad>    ->  Path(,"MASK")<pfad>
  *   config/menu.json -> DATA\config\menu.json  (Menue und Tasten, menuconfig.prg)
+ *   config/cron.json -> DATA\config\cron.json  (zeitgesteuerte Laeufe, cron.prg)
  *   config/email/<datei>, config/email/<firma>/<datei>
  *                  ->  DATA\config\email\...   (E-Mail-Vorlagen, email_templates.prg)
  *
@@ -71,7 +72,7 @@
 
 #define SA_LOGDIR   "run\logs\"
 #define SA_KEYNAME  "SCHNEIDERE"                // Schluesselbund: hoechstens 10 Zeichen
-#define SA_CONFIG   {"menu.json"}               // erlaubte Dateien unter config/
+#define SA_CONFIG   {"menu.json", "cron.json"}  // erlaubte Dateien unter config/
 #define SA_EMAILEXT {".txt", ".html"}           // erlaubte Vorlagen unter config/email/
 
 

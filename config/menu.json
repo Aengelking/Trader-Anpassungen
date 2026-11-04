@@ -115,6 +115,12 @@
       "text": "",
       "exec": "Alert(Str(BesGetEKPRice()))",
       "short": "TESTEK"
+    },
+    {
+      "text": "Problem melden",
+      "exec": "ProblemMelden()",
+      "key": "CTRL-F12",
+      "hint": "Problem an die Entwicklung melden"
     }
   ],
   "menus":
@@ -994,6 +1000,11 @@
           "text": "Hilfsprogramme",
           "exec": "MENU(\" UTILITIES \")",
           "hint": "SETUP USW."
+        },
+        {
+          "text": "Problem melden",
+          "exec": "ProblemMelden()",
+          "hint": "PROBLEM AN DIE ENTWICKLUNG MELDEN"
         },
         {
           "text": "E N D E",

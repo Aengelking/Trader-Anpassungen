@@ -46,6 +46,11 @@
  * (abgelegt vom Fehler-Handler, tr_001.prg) an <SCHNEIDERE_URL>fehler und
  * loescht sie nach Annahme; ohne Annahme bleiben sie liegen.
  *
+ * Meldungen: Antworten der Entwicklung auf 'Problem melden' kommen als
+ * Chat-Nachricht zur Meldung (MELD/bericht_id) mit Benachrichtigung an den
+ * Melder; was Benutzer in diesen Chats antworten, geht an die AppSchneiderei
+ * zurueck. Absender im Chat: SCHNEIDERE_USER.
+ *
  * Danach meldet der Lauf der AppSchneiderei, welcher Stand eingespielt ist
  * (oder was schiefging) - das zeigt dort der Reiter "Abholung".
  *
@@ -111,6 +116,11 @@ PROCEDURE RUN_SCHNEIDEREI_ABHOLEN(cTestlauf)
    // 0. Fehlerberichte des Fehler-Handlers senden (nicht im Testlauf)
    IF ! lTest
       SA_FehlerSenden(cBase + "fehler", cLogFile)
+   ENDIF
+
+   // 0b. Antworten auf Meldungen zustellen, Antworten der Benutzer zurueckschicken (nicht im Testlauf)
+   IF ! lTest
+      SA_MeldungenAbgleichen(cBase, cLogFile)
    ENDIF
 
    // 1. freigegebener Stand mit Dateiliste
@@ -203,6 +213,7 @@ RETURN
 FUNCTION Schneiderei_Abholen_Setup()
    GetValue("SCHNEIDERE_URL", "", "Adresse der Abholung (Reiter Abholung der AppSchneiderei)")
    GetValue("SCHNEIDERE_LOGTAGE", 30, "Protokolle der Abholung nach so vielen Tagen loeschen (0 = nie)")
+   GetValue("SCHNEIDERE_USER", 0, "Benutzernummer, unter der Antworten der Entwicklung im Meldungs-Chat erscheinen (0 = ohne Namen)")
 RETURN NIL
 
 
@@ -464,6 +475,104 @@ STATIC FUNCTION SA_PostJson(cUrl, hBody)
       nStatus := -1
    END SEQUENCE
 RETURN nStatus
+
+
+// Gespraech zu den Meldungen der Benutzer ("Problem melden", problemmelden.prg im
+// Kern): Antworten der Entwicklung aus der AppSchneiderei als Chat-Nachricht zur
+// Meldung (REFTYPE MELD, REFKEY bericht_id) ablegen, den Melder benachrichtigen
+// und die Zustellung bestaetigen. Danach alles, was Benutzer in den noch offenen
+// Meldungs-Chats geschrieben haben (letzte 30 Tage), zurueckschicken - doppelte
+// erkennt die AppSchneiderei an der UUID der Chat-Nachricht.
+STATIC FUNCTION SA_MeldungenAbgleichen(cBase, cLogFile)
+   LOCAL cFehler := ""
+   LOCAL xAus, hN, hO, aIds := {}, nBot, cKey, cText, nUser, nStatus
+   LOCAL oChat, oNotif, hBody, nEin := 0
+
+   xAus := SA_Json(SA_Get(cBase + "meldungen/ausgang", @cFehler))
+   IF ValType(xAus) != "H"
+      IF ! "HTTP 404" $ cFehler
+         SA_Log(cLogFile, "WARNING", "Meldungen: Ausgang nicht abrufbar: " + cFehler)
+      ENDIF
+      RETURN NIL
+   ENDIF
+   nBot := GetValue("SCHNEIDERE_USER", 0)
+   IF ValType(nBot) != "N"
+      nBot := 0
+   ENDIF
+
+   FOR EACH hN IN SA_HDef(xAus, "nachrichten", {})
+      BEGIN SEQUENCE WITH {|e| Break(e)}
+         cKey  := Pad(SA_Str(SA_HDef(hN, "bericht_id", "")), 36)
+         cText := hb_utf8ToStr(SA_Str(SA_HDef(hN, "text", "")))
+         IF ! SA_ChatDa(cKey)                    // erste Nachricht: worum es ging
+            cText := "Zu Ihrer Meldung: " + Chr(34) + hb_utf8ToStr(SA_Str(SA_HDef(hN, "meldung", ""))) + Chr(34) + ;
+                     Chr(13) + Chr(10) + Chr(13) + Chr(10) + cText
+         ENDIF
+         oChat := Chat():New(.T.)
+         oChat:USER    := nBot
+         oChat:REFTYPE := "MELD"
+         oChat:REFKEY  := cKey
+         oChat:MESSAGE := cText
+         oChat:Save()
+         nUser := Val(SA_Str(SA_HDef(hN, "benutzer", "")))
+         IF nUser > 0
+            oNotif := Notification():New(.T.)
+            oNotif:USER    := nUser
+            oNotif:REFTYPE := "MELD"
+            oNotif:REFKEY  := cKey
+            oNotif:TITLE   := "Antwort der Entwicklung zu Ihrer Meldung"
+            oNotif:MESSAGE := Left(StrTran(StrTran(hb_utf8ToStr(SA_Str(SA_HDef(hN, "text", ""))), Chr(13), " "), Chr(10), " "), 200)
+            oNotif:SENDER  := nBot
+            oNotif:Save()
+         ENDIF
+         AAdd(aIds, SA_Str(SA_HDef(hN, "id", "")))
+      RECOVER
+         SA_Log(cLogFile, "ERROR", "Meldungen: Antwort zu " + AllTrim(SA_Str(SA_HDef(hN, "bericht_id", ""))) + " nicht zugestellt")
+      END SEQUENCE
+   NEXT
+   IF Len(aIds) > 0
+      nStatus := SA_PostJson(cBase + "meldungen/zugestellt", {"ids" => aIds})
+      IF nStatus >= 200 .AND. nStatus < 300
+         SA_Log(cLogFile, "INFO", "Meldungen: " + LTrim(Str(Len(aIds))) + " Antwort(en) zugestellt")
+      ELSE
+         SA_Log(cLogFile, "WARNING", "Meldungen: Zustellung nicht bestaetigt, HTTP " + LTrim(Str(nStatus)) + " - kommt beim naechsten Lauf doppelt")
+      ENDIF
+   ENDIF
+
+   // Antworten der Benutzer
+   FOR EACH hO IN SA_HDef(xAus, "offen", {})
+      cKey := Pad(SA_Str(SA_HDef(hO, "bericht_id", "")), 36)
+      IF ! SA_ChatDa(cKey)
+         LOOP
+      ENDIF
+      DO WHILE ! cmsg->(EOF()) .AND. cmsg->REFTYPE == "MELD" .AND. cmsg->REFKEY == cKey
+         IF cmsg->USER != nBot .AND. cmsg->DATE >= Date() - 30 .AND. ! Empty(cmsg->MESSAGE)
+            hBody := {=>}
+            hBody["bericht_id"] := AllTrim(cKey)
+            hBody["uuid"]       := AllTrim(cmsg->UUID)
+            hBody["benutzer"]   := LTrim(Str(cmsg->USER))
+            hBody["text"]       := hb_strToUtf8(AllTrim(cmsg->MESSAGE))
+            hBody["zeit"]       := Left(DToS(cmsg->DATE), 4) + "-" + SubStr(DToS(cmsg->DATE), 5, 2) + "-" + SubStr(DToS(cmsg->DATE), 7, 2) + "T" + Left(cmsg->TIME, 8)
+            hBody["utc_offset"] := hb_UTCOffset()
+            nStatus := SA_PostJson(cBase + "meldungen/eingang", hBody)
+            IF nStatus >= 200 .AND. nStatus < 300
+               nEin++
+            ELSEIF nStatus != 404
+               SA_Log(cLogFile, "WARNING", "Meldungen: Antwort aus Chat " + AllTrim(cKey) + " nicht gesendet, HTTP " + LTrim(Str(nStatus)))
+            ENDIF
+         ENDIF
+         cmsg->(dbSkip())
+      ENDDO
+   NEXT
+   HB_SYMBOL_UNUSED(nEin)
+RETURN NIL
+
+
+// Gibt es zur Meldung schon einen Chat? Steht danach auf seiner ersten Nachricht.
+STATIC FUNCTION SA_ChatDa(cKey)
+   NetUse("chatmsg", "cmsg")
+   cmsg->(dbSetOrder(2))
+RETURN cmsg->(dbSeek("MELD" + cKey))
 
 
 // Pfad fuer die URL: jedes Segment prozentkodiert, "/" bleibt

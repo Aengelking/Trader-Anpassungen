@@ -42,6 +42,10 @@
  * liegen (in den Verzeichnissen gibt es auch Dateien, die nie im Repository
  * waren). Zum Entfernen die Datei in Trader von Hand loeschen.
  *
+ * Fehlerberichte: Vor dem Abgleich schickt der Lauf die Berichte aus DATA\fehler\
+ * (abgelegt vom Fehler-Handler, tr_001.prg) an <SCHNEIDERE_URL>fehler und
+ * loescht sie nach Annahme; ohne Annahme bleiben sie liegen.
+ *
  * Danach meldet der Lauf der AppSchneiderei, welcher Stand eingespielt ist
  * (oder was schiefging) - das zeigt dort der Reiter "Abholung".
  *
@@ -74,6 +78,7 @@
 #define SA_KEYNAME  "SCHNEIDERE"                // Schluesselbund: hoechstens 10 Zeichen
 #define SA_CONFIG   {"menu.json", "cron.json"}  // erlaubte Dateien unter config/
 #define SA_EMAILEXT {".txt", ".html"}           // erlaubte Vorlagen unter config/email/
+#define SA_FEHLERMAX 100   // Fehlerberichte je Lauf
 
 
 PROCEDURE RUN_SCHNEIDEREI_ABHOLEN(cTestlauf)
@@ -101,6 +106,11 @@ PROCEDURE RUN_SCHNEIDEREI_ABHOLEN(cTestlauf)
    IF ! lBatch
       Head("AppSchneiderei - Trader-Anpassungen einspielen")
       ? "Freigegebener Stand wird abgefragt..."
+   ENDIF
+
+   // 0. Fehlerberichte des Fehler-Handlers senden (nicht im Testlauf)
+   IF ! lTest
+      SA_FehlerSenden(cBase + "fehler", cLogFile)
    ENDIF
 
    // 1. freigegebener Stand mit Dateiliste
@@ -383,6 +393,77 @@ STATIC FUNCTION SA_Melden(cUrl, cCommit, lOk, cText, cLogFile)
       SA_Log(cLogFile, "WARNING", "Rueckmeldung an die AppSchneiderei fehlgeschlagen, HTTP " + LTrim(Str(nStatus)))
    ENDIF
 RETURN NIL
+
+
+// Fehlerberichte, die der Fehler-Handler von Trader (tr_001.prg, _FehlerAblegen)
+// in DATA\fehler\ ablegt, an die AppSchneiderei schicken - aelteste zuerst,
+// hoechstens SA_FEHLERMAX je Lauf. Geloescht wird eine Datei, wenn die
+// AppSchneiderei sie angenommen (2xx) oder als unbrauchbar abgelehnt hat (400),
+// ebenso kaputtes JSON. Bei jedem anderen Ergebnis (Netz weg, 401, 404 bei
+// einer AppSchneiderei ohne Fehlerannahme, 5xx) bleibt sie liegen, der Lauf hoert
+// mit dem Senden auf und versucht es beim naechsten Mal wieder.
+// Zwischendateien (*.tmp), die aelter als ein Tag sind, werden geloescht.
+STATIC FUNCTION SA_FehlerSenden(cUrl, cLogFile)
+   LOCAL cDir := SA_Data() + "\fehler\"
+   LOCAL aDateien, aDatei, xBericht, nStatus
+   LOCAL nGesendet := 0, nVerworfen := 0
+
+   IF ! hb_DirExists(cDir)
+      RETURN NIL
+   ENDIF
+   FOR EACH aDatei IN Directory(cDir + "*.tmp")
+      IF aDatei[3] < Date() - 1
+         FErase(cDir + aDatei[1])
+      ENDIF
+   NEXT
+   aDateien := Directory(cDir + "*.json")
+   ASort(aDateien,,, {|a, b| a[1] < b[1] })
+   FOR EACH aDatei IN aDateien
+      IF aDatei:__enumIndex() > SA_FEHLERMAX
+         EXIT
+      ENDIF
+      xBericht := hb_jsonDecode(hb_MemoRead(cDir + aDatei[1]))
+      IF ValType(xBericht) != "H"
+         SA_Log(cLogFile, "WARNING", "Fehlerbericht " + aDatei[1] + " ist kein gueltiges JSON - verworfen")
+         FErase(cDir + aDatei[1])
+         nVerworfen++
+         LOOP
+      ENDIF
+      nStatus := SA_PostJson(cUrl, xBericht)
+      IF (nStatus >= 200 .AND. nStatus < 300) .OR. nStatus == 400
+         FErase(cDir + aDatei[1])
+         IF nStatus == 400
+            SA_Log(cLogFile, "WARNING", "Fehlerbericht " + aDatei[1] + " abgelehnt (unbrauchbar) - verworfen")
+            nVerworfen++
+         ELSE
+            nGesendet++
+         ENDIF
+      ELSE
+         SA_Log(cLogFile, "WARNING", "Fehlerberichte senden: HTTP " + LTrim(Str(nStatus)) + " - " + ;
+                LTrim(Str(Len(aDateien) - nGesendet - nVerworfen)) + " bleiben liegen")
+         EXIT
+      ENDIF
+   NEXT
+   IF nGesendet > 0
+      SA_Log(cLogFile, "INFO", "Fehlerberichte gesendet: " + LTrim(Str(nGesendet)))
+   ENDIF
+RETURN NIL
+
+
+// POST eines JSON-Objekts mit dem Abhol-Token; liefert den HTTP-Status (-1: Fehler im Aufruf)
+STATIC FUNCTION SA_PostJson(cUrl, hBody)
+   LOCAL oRest   := RestApi():New()
+   LOCAL aHeader := {"Authorization: Bearer $APIKEY$", "Content-Type: application/json"}
+   LOCAL nStatus := 0
+
+   oRest:cBaseUrl    := ""
+   oRest:cApiKeyName := SA_KEYNAME
+   BEGIN SEQUENCE WITH {|e| Break(e)}
+      oRest:Execute(cUrl, "POST", hBody, aHeader, .T., @nStatus)
+   RECOVER
+      nStatus := -1
+   END SEQUENCE
+RETURN nStatus
 
 
 // Pfad fuer die URL: jedes Segment prozentkodiert, "/" bleibt

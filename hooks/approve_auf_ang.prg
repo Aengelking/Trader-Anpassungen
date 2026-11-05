@@ -444,7 +444,7 @@ FOR EACH hProd IN aProducts
                nLevel := 1
             ENDIF
          ELSE
-           IF (nLevel >= 3 .OR. lStaffelDown) .AND. ((Left(hProd:Artikel:Gruppe,2) == "KO" .AND. hProd:Margin >= 0.20) .OR. hProd:Margin >= 25) //niedriger Marge 
+           IF (nLevel >= 3 .OR. lStaffelDown) .AND. ((Left(hProd:Artikel:Gruppe,2) == "KO" .AND. hProd:Margin >= 0.20) .OR. hProd:Margin >= 0.25) //niedriger Marge: ab 25% bzw. Konfektion ab 20% Stufe 3 
               nLevel := 3
            ELSEIF nLevel > 2 .OR. lStaffelDown
               nLevel := 2

@@ -16,6 +16,10 @@ LOCAL oABExtra,aReturn
 LOCAL bSendAppr
 LOCAL lCustApr := .F.
 LOCAL nZins := 0.1
+LOCAL hSerie := {=>} //Artikelnr => groesste berechnete Menge (Serie) im Auftrag
+LOCAL nMusterMax := 50 //Hoechstwert kostenfreier Muster in EUR (EK-Durchschnitt), wie beim Musterauftrag (approve_mus)
+LOCAL nMusterWert := 0
+LOCAL bIstMuster := {|oPos| oPos:VkPr == 0 .AND. ! Empty(oPos:Artikel:Zeichnung) .AND. HB_HHasKey(hSerie,oPos:Artikelnr) .AND. hSerie[oPos:Artikelnr] > oPos:VkQty }
 
 LOCAL hLaufZeit := { ; //Sonderlaufzeiten
    46872=>24,;
@@ -79,6 +83,25 @@ ENDIF*/
 
 SetPos(0,0)
 
+//Musterfall: kostenfreie Musterposition (Erstmuster) zur Serie im selben Auftrag
+//Serienmengen je Artikel ermitteln, siehe Ausnahme bei der Marge/Preispruefung
+oAuftrag:Positions:Each({|oPos|
+   IF oPos:VkPr > 0
+      IF ! HB_HHasKey(hSerie,oPos:Artikelnr)
+         hSerie[oPos:Artikelnr] := 0
+      ENDIF
+      hSerie[oPos:Artikelnr] := Max(hSerie[oPos:Artikelnr],Max(oPos:VkQty,oPos:ContrQty))
+   ENDIF
+   RETURN NIL
+})
+//Warenwert aller kostenfreien Muster im Auftrag
+oAuftrag:Positions:Each({|oPos|
+   IF Eval(bIstMuster,oPos)
+      nMusterWert += oPos:Artikel:GetAvgBuyPrice(Date())*oPos:VkQty
+   ENDIF
+   RETURN NIL
+})
+
 oAuftrag:Positions:Each({|oPos|
    IF oAuftrag:AbNr == 42989 .AND. oPos:IsRahmen  //Continental Automotive, Platziert nur ein Rahmen und erhöht den ständig
       nLastPrice := oPos:VkPr/oPos:Pe
@@ -123,7 +146,9 @@ oAuftrag:Positions:Each({|oPos|
       nLevel := 1
    ENDIF
    
-   IF ! Trim(oPos:Artikel:Matchcode) $ {"CoC","PORTO"} .AND. ! Left(oPos:Artikel:Matchcode,6) $ "13693/ 13694/"  .AND. oContract == NIL .AND. auf->VkQty != auf->GelQty .AND. oPos:Bestat < 7 .AND. oPos:Bestat >= 4 //ignore glands, call off positions, delivered positions, closed positions and already approved positions
+   IF ! Trim(oPos:Artikel:Matchcode) $ {"CoC","PORTO"} .AND. ! Left(oPos:Artikel:Matchcode,6) $ "13693/ 13694/"  .AND. oContract == NIL .AND. auf->VkQty != auf->GelQty .AND. oPos:Bestat < 7 .AND. oPos:Bestat >= 4 ;
+      .AND. ! (nMusterWert <= nMusterMax .AND. Eval(bIstMuster,oPos)) //kostenfreies Muster zur Serie bis nMusterMax: keine Marge/Preispruefung
+      //ignore glands, call off positions, delivered positions, closed positions and already approved positions
       //old: cannot ignore approved positions like that, then the user can change anything he likes afterwards
       nVk := oPos:VkPr/oPos:Pe
       nArtikelnr := oPos:Artikel:Artikelnr

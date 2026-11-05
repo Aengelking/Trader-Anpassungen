@@ -29,7 +29,7 @@ PROCEDURE RUN_Archive_Order_Logs(nDaysOld)
    // Check if logs directory exists
    IF !hb_DirExists(cLogsPath)
       ? "Error: Logs directory does not exist: " + cLogsPath
-      SendMail({{"amos.engelking@engelking.de"}},"Archive order logs failed","Directory not found: " + cLogsPath)
+      SendMail({{"amos.engelking@engelking.de","Amos"}},"Archive order logs failed","Directory not found: " + cLogsPath)
       RETURN
    ENDIF
 

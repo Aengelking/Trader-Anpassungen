@@ -2,13 +2,13 @@
   {"id": "preise_wettbewerb", "name": "Preise Wettbewerb einlesen", "run": "prices/capture_batch", "args": [40], "cron": "0 1 * * *", "timeout_min": 180, "enabled": false},
   {"id": "audit", "name": "Audit", "run": "audit", "cron": "0 22 * * 0", "enabled": false},
   {"id": "auftraege_termin_folgt", "name": "Aufträge mit Termin folgt", "run": "auf_set_deldate", "cron": "0 8 * * 1", "enabled": false},
-  {"id": "auftraege_pruefen", "name": "Aufträge prüfen", "func": "MBaseRun(Path('run\\wd_run'),{{||checkstock(,.F.)}})", "cron": ["30-59/10 7 * * 1-5", "*/10 8-14 * * 1-5", "0-30/10 15 * * 1-5"], "timeout_min": 60, "enabled": false},
+  {"id": "auftraege_pruefen", "name": "Aufträge prüfen", "func": "checkstock(,.F.)", "werktag": true, "cron": ["30-59/10 7 * * 1-5", "*/10 8-14 * * 1-5", "0-30/10 15 * * 1-5"], "timeout_min": 60, "enabled": false},
   {"id": "angebote_ausstehend", "name": "Ausstehende Angebote", "run": "check_angebot_noquote", "cron": "0 11 * * 1", "enabled": false},
   {"id": "aussendienst_info", "name": "Außendienst Information", "run": "rep_info", "cron": "0 8 * * 1", "enabled": false},
   {"id": "bedarfszahlen", "name": "Bedarfszahlen aktualisieren", "func": "enupdate()", "cron": "0 5 * * *", "enabled": false},
   {"id": "bestellungen_we_pruefen", "name": "Bestellungen (WE) prüfen", "func": "engmadr({},,.T.,{'LATE'})", "printer": 2, "cron": "10 9 * * 2", "enabled": false},
   {"id": "bestellungen_pruefen", "name": "Bestellungen prüfen", "func": "engmadr({'BSLASER','DIENERRA','HECK'},,.T.)", "printer": 2, "cron": "10 9 * * 2,5", "enabled": false},
-  {"id": "bestaende_pruefen", "name": "Bestände prüfen", "func": "MBaseRun(Path('run\\wd_run'),{{||checkstock(.F.,.T.)},.F.})", "cron": "0 6 * * 1-5", "enabled": false},
+  {"id": "bestaende_pruefen", "name": "Bestände prüfen", "func": "checkstock(.F.,.T.)", "werktag": true, "brueckentage": true, "cron": "0 6 * * 1-5", "enabled": false},
   {"id": "conrad_bestellungen", "name": "Conrad Bestellungen verarbeiten", "run": "conrad_orders", "cron": "*/15 * * * *", "timeout_min": 60, "enabled": false},
   {"id": "creditsafe", "name": "Creditsafe update", "run": "update_creditsafe", "cron": "0 8 * * 0,2,4", "enabled": false},
   {"id": "crm_abwesenheiten", "name": "CRM Abwesenheiten", "run": "crm_absence_sync", "cron": "33 10 * * *", "enabled": false},
@@ -47,7 +47,7 @@
   {"id": "kundencache", "name": "Update customer cache", "run": "upd_kustatcache", "cron": "0 9-17 * * 1-5", "enabled": false},
   {"id": "ups_diesel", "name": "UPS Dieselzuschlag", "run": "get_ups_fuelsurcharge", "cron": "0 3 * * 1", "enabled": false},
   {"id": "verfallsdaten", "name": "Verfallsdaten prüfen", "run": "Check_expired_article", "cron": "0 9 * * 1-5", "enabled": false},
-  {"id": "vergussmaschine", "name": "Vergussmaschine", "func": "MBaseRun(Path('run\\wd_run'),{{||MBaseRun(Path('run\\startverguss'))}})", "cron": "0 4 * * 1-5", "enabled": false},
+  {"id": "vergussmaschine", "name": "Vergussmaschine", "run": "startverguss", "werktag": true, "cron": "0 4 * * 1-5", "enabled": false},
   {"id": "waldom_bestaetigung", "name": "Waldom Bestellbestätigung prüfen", "func": "engmadr(,{'WALDOM'},.T.,,1)", "printer": 2, "cron": "0 11 * * 1-5", "enabled": false},
   {"id": "waldom_bestaende", "name": "Waldom Bestände abrufen", "run": "waldom", "cron": "0 6-18/2 * * *", "enabled": false},
   {"id": "waldom_asn", "name": "Waldom Versandbestätigungen buchen", "run": "waldom_asn", "cron": "0 16 * * *", "enabled": false},
@@ -60,5 +60,5 @@
   {"id": "nocrm_abgleich", "name": "noCRM Abgleich Aufträge", "func": "(MBaseRun(Path('run\\angebote_won_nocrm')),MBaseRun(Path('run\\upd_nocrm_leadname')))", "cron": "0 12,18 * * 1-5", "enabled": false},
   {"id": "statistik", "name": "Statistik aktualisieren", "func": "stats()", "firma": "alle", "cron": "0 18 * * 1-5", "enabled": false},
   {"id": "gruppenstatistik", "name": "Gruppenstatistik aktualisieren", "func": "GroupStatsUpdate()", "cron": "0 18 * * 1-5", "enabled": false},
-  {"id": "zahlungseingaenge_pruefen", "name": "Zahlungseingänge prüfen", "func": "(MBaseRun(Path('run\\wd_run'),{{||checkpay()}}),SetConfigValue('printer',1),MBaseRun(Path('run\\wd_run'),{'checkpay'}))", "cron": "0 11 * * 1-5", "enabled": false}
+  {"id": "zahlungseingaenge_pruefen", "name": "Zahlungseingänge prüfen", "func": "(checkpay(),SetConfigValue('printer',1),MBaseRun(Path('run\\checkpay')))", "werktag": true, "cron": "0 11 * * 1-5", "enabled": false}
 ]}

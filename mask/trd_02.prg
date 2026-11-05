@@ -225,6 +225,9 @@ DO WHILE ! lExit
    @ nTop+10, nLeft+2 SAY msb[9] + oAdresse:telefax
 
    @ nTop+35-19,nLeft+2 SAY Pad(SKONTVA(oAdresse:Skonto,"D",,,.F.),nRight-nLeft-2)
+   IF oAdresse:Group == "K" .AND. oExtra:Factoring //Factoring-Kunde: hinter den Zahlungsbedingungen hervorheben
+      @ nTop+35-19,nLeft+4+Len(Trim(SKONTVA(oAdresse:Skonto,"D",,,.F.))) SAY " FACTORING " COLOR cHiliteColor
+   ENDIF
 
    DevPos( nTop+1, 44 )
    DevOut( if(oAdresse:group = "L",msb[10] + oAdresse:kundennr,msb[11] + oAdresse:kundennr) )

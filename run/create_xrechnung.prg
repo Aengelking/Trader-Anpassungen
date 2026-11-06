@@ -336,20 +336,46 @@ PROC CreateXRechung(nRechnr,cFile)
       ENDIF      
     
 
-      //outputOptions
-      hData["format"] := "zugferd"
-      hData["decimalSeparator"] := ","
-      hData["thousandsSeparator"] := "."
-      hData["dateFormat"] := "dd.mm.yyyy"
-      hData["langCode"] := IF(cLang!="E","de","en")
-      hData["quantityUnitDisplayMode"] := "separated"
-      hData["taxCategoryDisplayMode"] := "shown"
-      hData["taxDisplayMode"] := "shown"
-      hData["taxExemptionReasonsDisplayMode"] := "shown"
-      
-
       re->(dbSkip())
    ENDDO
+
+   //Rechnung ohne Positionen (z.B. Porto-Gutschrift, nur Kopfsatz): eine
+   //X-Rechnung braucht mindestens eine Position, sonst erzeugt PDF24 auch
+   //keine Steueraufstellung. Das Porto wird dann als Position uebergeben.
+   //Der Nettopreis darf nicht negativ sein (BR-27), bei Gutschriften wird
+   //deshalb die Menge negativ.
+   IF Empty(hData["items"])
+      IF oRechnung:Porto == 0
+         oErr := ErrorNew()
+         oErr:SubSystem   := "TRADER"
+         oErr:Description := "Rechnung "+LTrim(Str(nRechnr))+" enthaelt weder Positionen noch Porto, X-Rechnung nicht erstellt: "+cFile
+         oErr:Args        := {nRechnr,cFile}
+         Throw(oErr)
+         RETURN
+      ENDIF
+      Aadd(hData["items"],{;
+         "id"=>"PORTO",;
+         "name"=>IF(cLang!="D","Freight","Porto und Verpackung"),;
+         "basisQuantity"=>1,;
+         "quantity"=>IF(oRechnung:Porto < 0,-1,1),;
+         "quantityUnit"=>"H87",;
+         "vatCode"=>cTaxCode,;
+         "vatRate"=>oRechnung:MwStRate,;
+         "netUnitPrice"=>Abs(oRechnung:Porto);
+      })
+      nNetto := oRechnung:Porto
+   ENDIF
+
+   //outputOptions
+   hData["format"] := "zugferd"
+   hData["decimalSeparator"] := ","
+   hData["thousandsSeparator"] := "."
+   hData["dateFormat"] := "dd.mm.yyyy"
+   hData["langCode"] := IF(cLang!="E","de","en")
+   hData["quantityUnitDisplayMode"] := "separated"
+   hData["taxCategoryDisplayMode"] := "shown"
+   hData["taxDisplayMode"] := "shown"
+   hData["taxExemptionReasonsDisplayMode"] := "shown"
    
    cDir := GetEnv("TEMP")
    cJsonFile := cDir+"\zugferd_"+LTrim(Str(nRechnr))+".json"

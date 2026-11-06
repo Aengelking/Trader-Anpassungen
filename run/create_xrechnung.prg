@@ -34,6 +34,7 @@ PROC CreateXRechung(nRechnr,cFile)
    LOCAL nProc,nErrOut,nErrBytes,cData,cStdErr
    LOCAL cAufNr,lOneAufnr := .T.,cProc
    LOCAL cKunde,cPosText,nBestPos
+   LOCAL nExit,cGrund
 
 
    NetUse("englsre","re")
@@ -379,7 +380,7 @@ PROC CreateXRechung(nRechnr,cFile)
       nErrBytes := Fread( nErrOut, @cData, 1000 ) //Len(cData) )
       cStdErr += HB_AnsiToOem( Left( cData, nErrBytes ) )
    ENDDO
-   HB_ProcessValue(nProc) //wait for PDF24 to end
+   nExit := HB_ProcessValue(nProc) //wait for PDF24 to end
 
    FErase(cJsonFile)
 
@@ -392,11 +393,17 @@ PROC CreateXRechung(nRechnr,cFile)
    ENDIF
 
    //BT-8 ergaenzen (Conrad: "Value added tax point date code")
-   IF ! SetDueDateTypeCode(cFile)
+   cGrund := SetDueDateTypeCode(cFile)
+   IF ! Empty(cGrund)
       oErr := ErrorNew()
       oErr:SubSystem   := "TRADER"
-      oErr:Description := "BT-8 (DueDateTypeCode) konnte nicht in die X-Rechnung eingefuegt werden: "+cFile
-      oErr:Args        := {nRechnr,cFile}
+      IF cGrund == "KEIN XML"
+         //PDF24 hat ohne Meldung auf StdErr keine X-Rechnung erzeugt
+         oErr:Description := "X-Rechnung wurde nicht erstellt, das PDF enthaelt kein X-Rechnungs-XML (PDF24 Exit-Code "+LTrim(Str(nExit))+"): "+cFile
+      ELSE
+         oErr:Description := "BT-8 (DueDateTypeCode) konnte nicht in die X-Rechnung eingefuegt werden ("+cGrund+"): "+cFile
+      ENDIF
+      oErr:Args        := {nRechnr,cFile,cGrund,nExit}
       Throw(oErr)
    ENDIF
 
@@ -411,6 +418,7 @@ PROC CreateXRechung(nRechnr,cFile)
    Pruefsumme. Damit Stream-/Length, /Params /Size und die xref-Offsets
    gueltig bleiben, wird die Laenge des XML exakt beibehalten: fuer die
    eingefuegten Bytes werden Einrueckungs-Tabs entfernt.
+   Rueckgabe: "" wenn erfolgreich, sonst der Grund (fuer die Fehlermeldung).
 */
 STATIC FUNC SetDueDateTypeCode(cFile)
    LOCAL cTag := "<ram:DueDateTypeCode>5</ram:DueDateTypeCode>"
@@ -420,30 +428,33 @@ STATIC FUNC SetDueDateTypeCode(cFile)
    LOCAL lFound := .F.,lRemoved
 
    cPdf := hb_MemoRead(cFile)
+   IF Empty(cPdf)
+      RETURN "PDF nicht lesbar"
+   ENDIF
    nStart := At("<rsm:CrossIndustryInvoice",cPdf)
    IF nStart == 0
-      RETURN .F.
+      RETURN "KEIN XML"
    ENDIF
    nEnd := hb_At(cEndTag,cPdf,nStart)
    IF nEnd == 0
-      RETURN .F.
+      RETURN "XML unvollstaendig"
    ENDIF
    nEnd += Len(cEndTag)-1
    cXml := SubStr(cPdf,nStart,nEnd-nStart+1)
    IF "DueDateTypeCode" $ cXml
-      RETURN .T. //schon vorhanden (z.B. kuenftige PDF24-Version)
+      RETURN "" //schon vorhanden (z.B. kuenftige PDF24-Version)
    ENDIF
 
    cNew := cXml
    nPos := At("<ram:ApplicableHeaderTradeSettlement>",cNew)
    IF nPos == 0
-      RETURN .F.
+      RETURN "kein ApplicableHeaderTradeSettlement"
    ENDIF
    //nach dem Kopf-Settlement kommen nur noch Kopf-Steuerbloecke (je Steuersatz einer)
    DO WHILE (nPos := hb_At("<ram:ApplicableTradeTax>",cNew,nPos)) > 0
       nEndTax := hb_At("</ram:ApplicableTradeTax>",cNew,nPos)
       IF nEndTax == 0
-         RETURN .F.
+         RETURN "ApplicableTradeTax nicht geschlossen"
       ENDIF
       nRate := hb_At("<ram:RateApplicablePercent>",cNew,nPos)
       IF nRate == 0 .OR. nRate > nEndTax
@@ -463,7 +474,7 @@ STATIC FUNC SetDueDateTypeCode(cFile)
       lFound := .T.
    ENDDO
    IF ! lFound
-      RETURN .F.
+      RETURN "kein ApplicableTradeTax"
    ENDIF
 
    //Laenge ausgleichen: fuehrende Tabs entfernen (Whitespace zwischen Elementen)
@@ -478,12 +489,15 @@ STATIC FUNC SetDueDateTypeCode(cFile)
          nPos++
       ENDDO
       IF ! lRemoved
-         RETURN .F.
+         RETURN "Laenge nicht ausgleichbar"
       ENDIF
    ENDDO
 
    cPdf := Left(cPdf,nStart-1)+cNew+SubStr(cPdf,nStart+Len(cXml))
-   RETURN hb_MemoWrit(cFile,cPdf)
+   IF ! hb_MemoWrit(cFile,cPdf)
+      RETURN "PDF nicht schreibbar"
+   ENDIF
+   RETURN ""
       
 
 

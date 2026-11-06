@@ -30,6 +30,7 @@ FUNCTION Before_Print_auftrag(oAuftrag,hEmailData,hSettings)
       })
       TxtClear()
       IF lSend
+         SetBewertung(oAuftrag,hEmailData)
          RETURN .T.
       ELSE
          IF lCheck
@@ -46,4 +47,20 @@ FUNCTION Before_Print_auftrag(oAuftrag,hEmailData,hSettings)
       ENDIF
       RETURN .F.*/
    ENDIF
+SetBewertung(oAuftrag,hEmailData)
 RETURN .T.
+
+// Kundenbewertung: Link vom CRM holen fuer %bewertung% in ab_*.html
+// (nur beim Mailversand, sonst leer). Ein Fehler darf den Versand nicht abbrechen.
+STATIC FUNCTION SetBewertung(oAuftrag,hEmailData)
+   IF ValType(hEmailData) != "H"
+      RETURN NIL
+   ENDIF
+   hEmailData["bewertung"] := ""
+   BEGIN SEQUENCE
+      LoadPrg(Path("run\crm_email.prg"))
+      hEmailData["bewertung"] := HB_ExecFromArray({"CRM_FeedbackHtml", "AB", LTrim(Str(oAuftrag:AbNr)), oAuftrag:Kundma, oAuftrag:Person})
+   RECOVER
+      //nicht fatal
+   END SEQUENCE
+RETURN NIL

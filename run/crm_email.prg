@@ -893,3 +893,121 @@ METHOD Report(cSampleNo, cUserEmail, cTitle, cDescription, cCarrier, aTracking, 
 	hData["tracking_numbers"] := aNr
 	hData["contact_name"]     := hb_strToUtf8(AllTrim(cContactName))
 RETURN ::Execute("POST", "report", hData)
+
+//===========================================================================
+// Kundenbewertungslink in Angebots-/AB-Mails (api-feedback-token)
+//
+// Aufruf aus den Hooks ueber LoadPrg(Path("run\crm_email.prg")) + HB_ExecFromArray:
+//   before_print_angebot -> CRM_FeedbackHtml("Angebot", cAngnr, cKundma)
+//   before_print_auftrag -> CRM_FeedbackHtml("AB", cAbNr, cKundma, nPerson)
+//
+// Liefert den HTML-Block mit den beiden Knoepfen (Daumen hoch/runter) fuer
+// den Platzhalter %bewertung% der Mailvorlagen, sonst "". Je Mail ein neuer
+// Token; er wird nicht gespeichert und nicht protokolliert, nur eingesetzt.
+// Nur beim Mailversand (nicht Papier, nicht Vorschau) und nur in der
+// Hauptfirma (automotive hat eigene Vorlagen ohne %bewertung%).
+// Best-effort: jeder Fehler (CRM nicht erreichbar, 4xx/5xx) liefert "",
+// die Mail geht dann ohne Bewertungslink raus.
+//===========================================================================
+FUNCTION CRM_FeedbackHtml(cBelegArt, cBelegNr, cKundma, nPerson)
+	LOCAL oPrinter, oApi
+	LOCAL aEnv
+	LOCAL hData := {=>}
+	LOCAL xResp
+	LOCAL bOld
+	LOCAL cErp := "", cLang := "D", cContactEmail := ""
+	LOCAL hContact
+	LOCAL lEnglish
+	LOCAL cBtn
+
+	Default(@nPerson,0)
+
+	IF GetConfigValue("FIRMPATH") != "."
+		RETURN ""
+	ENDIF
+
+	aEnv := SaveEnv()
+	bOld := ErrorBlock({|e| Break(e) })
+	BEGIN SEQUENCE
+		oPrinter := GetCurrentPrinterObject()
+		IF ValType(oPrinter) != "O" .OR. ! oPrinter:IsEmail .OR. oPrinter:lPreview
+			BREAK
+		ENDIF
+
+		// Kundennummer, Sprache und Mailadresse des Ansprechpartners
+		NetUse("engkund", "ku", .F., 0)
+		ku->(dbSetOrder(1))
+		IF ku->(dbSeek(cKundma + "K"))
+			cErp  := LTrim(Str(ku->Nummer))
+			cLang := ku->Language
+			IF nPerson > 0
+				hContact := GetContact(nPerson)
+				IF ValType(hContact) == "H" .AND. HHasKey(hContact,"email")
+					cContactEmail := AllTrim(hContact["email"])
+				ENDIF
+			ENDIF
+		ENDIF
+		// Angebot: Ansprechpartner steht auf dem Angebot (ang->person)
+		IF cBelegArt == "Angebot" .AND. Empty(cContactEmail)
+			CrmAngebotContact(Val(cBelegNr), "", @cContactEmail)
+		ENDIF
+
+		hData["vorgang_label"]        := hb_strToUtf8(Left(cBelegArt + " " + cBelegNr, 100))
+		hData["beleg_art"]            := cBelegArt
+		hData["beleg_nummer"]         := cBelegNr
+		hData["erp_company"]          := CrmFirmNo()
+		hData["erp_customer_number"]  := cErp
+		hData["contact_email"]        := cContactEmail
+		hData["sachbearbeiter_email"] := AllTrim(SystemUser():Email)
+		hData["gueltig_tage"]         := 90
+
+		oApi := CrmFeedbackApi():New()
+		xResp := oApi:Execute("POST", "", hData)
+	RECOVER
+		xResp := NIL
+	END SEQUENCE
+	ErrorBlock(bOld)
+	RestEnv(aEnv, .F.)
+
+	IF ValType(xResp) != "H" .OR. ! HHasKey(xResp,"link_up") .OR. ! HHasKey(xResp,"link_down") .OR. ;
+		ValType(xResp["link_up"]) != "C" .OR. ValType(xResp["link_down"]) != "C" .OR. ;
+		Empty(xResp["link_up"]) .OR. Empty(xResp["link_down"])
+		RETURN ""
+	ENDIF
+
+	lEnglish := (cLang != "D")
+	cBtn := "display:inline-block;padding:6px 14px;margin-right:8px;border-radius:4px;" + ;
+		"text-decoration:none;font-weight:bold;color:#ffffff;background-color:"
+
+RETURN '<div style="margin-top:16px;">' + ;
+	IF(lEnglish, "How satisfied are you with us?", "Wie zufrieden sind Sie mit uns?") + "<br /><br />" + ;
+	'<a href="' + StrTran(xResp["link_up"], "&", "&amp;") + '" style="' + cBtn + '#2e7d32;">&#128077; ' + ;
+		IF(lEnglish, "Satisfied", "Zufrieden") + "</a>" + ;
+	'<a href="' + StrTran(xResp["link_down"], "&", "&amp;") + '" style="' + cBtn + '#c62828;">&#128078; ' + ;
+		IF(lEnglish, "Not satisfied", "Nicht zufrieden") + "</a>" + ;
+	"</div>"
+
+// Nummer der Trader-Firma (erp_company), wie in crm_figures_sync.prg.
+// Leerstring, wenn FIRMNO nicht gesetzt ist.
+STATIC FUNCTION CrmFirmNo()
+	LOCAL xFirm := GetConfigValue("FIRMNO")
+	LOCAL nFirm := 0
+
+	IF ValType(xFirm) == "N"
+		nFirm := Int(xFirm)
+	ELSEIF ValType(xFirm) == "C"
+		nFirm := Int(Val(AllTrim(xFirm)))
+	ENDIF
+	IF nFirm < 1
+		RETURN ""
+	ENDIF
+RETURN LTrim(Str(nFirm))
+
+CLASS CrmFeedbackApi FROM CrmQuoteApi
+	METHOD New
+ENDCLASS
+
+METHOD New() CLASS CrmFeedbackApi
+	::Super:New()
+	::cBaseUrl := CrmEndpoint("api-feedback-token/")
+RETURN SELF

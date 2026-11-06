@@ -1,9 +1,0 @@
-Order confirmation %nr%
-%anrede%,
-
-Thank you for your purchase order! Please find attached the order confirmation.
-
-Please do not hesitate to contact us if you have any questions. We are at your disposal at any time.
-
-Best regards,
-%username%

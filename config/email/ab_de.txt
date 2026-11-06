@@ -1,9 +1,0 @@
-Auftragsbestätigung %nr%
-%anrede%,
-
-vielen Dank für Ihre Bestellung! Im Anhang finden Sie die zugehörige Auftragsbestätigung.
-
-Bitte zögern Sie nicht, sich bei eventuellen Rückfragen an uns zu wenden. Wir stehen Ihnen jederzeit gerne zur Verfügung.
-
-Mit freundlichen Grüßen
-%username%

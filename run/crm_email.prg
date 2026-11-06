@@ -899,7 +899,10 @@ RETURN ::Execute("POST", "report", hData)
 //
 // Aufruf aus den Hooks ueber LoadPrg(Path("run\crm_email.prg")) + HB_ExecFromArray:
 //   before_print_angebot -> CRM_FeedbackHtml("Angebot", cAngnr, cKundma)
-//   before_print_auftrag -> CRM_FeedbackHtml("AB", cAbNr, cKundma, nPerson)
+//   before_print_auftrag -> CRM_FeedbackHtml("AB", cAbNr, cKundma, nPerson, cAngebotNr)
+//
+// cAngebotNr (freiwillig, nur AB): Angebot, aus dem die AB entstanden ist.
+// Damit haengt das CRM die Bewertung auch an die passende Opportunity.
 //
 // Liefert den HTML-Block mit den beiden Knoepfen (Daumen hoch/runter) fuer
 // den Platzhalter %bewertung% der Mailvorlagen, sonst "". Je Mail ein neuer
@@ -909,7 +912,7 @@ RETURN ::Execute("POST", "report", hData)
 // Best-effort: jeder Fehler (CRM nicht erreichbar, 4xx/5xx) liefert "",
 // die Mail geht dann ohne Bewertungslink raus.
 //===========================================================================
-FUNCTION CRM_FeedbackHtml(cBelegArt, cBelegNr, cKundma, nPerson)
+FUNCTION CRM_FeedbackHtml(cBelegArt, cBelegNr, cKundma, nPerson, cAngebotNr)
 	LOCAL oPrinter, oApi
 	LOCAL aEnv
 	LOCAL hData := {=>}
@@ -921,6 +924,7 @@ FUNCTION CRM_FeedbackHtml(cBelegArt, cBelegNr, cKundma, nPerson)
 	LOCAL cBtn
 
 	Default(@nPerson,0)
+	Default(@cAngebotNr,"")
 
 	IF GetConfigValue("FIRMPATH") != "."
 		RETURN ""
@@ -960,6 +964,9 @@ FUNCTION CRM_FeedbackHtml(cBelegArt, cBelegNr, cKundma, nPerson)
 		hData["contact_email"]        := cContactEmail
 		hData["sachbearbeiter_email"] := AllTrim(SystemUser():Email)
 		hData["gueltig_tage"]         := 90
+		IF ! Empty(cAngebotNr)
+			hData["angebot_nummer"]    := cAngebotNr
+		ENDIF
 
 		oApi := CrmFeedbackApi():New()
 		xResp := oApi:Execute("POST", "", hData)

@@ -35,6 +35,7 @@ PROC CreateXRechung(nRechnr,cFile)
    LOCAL cAufNr,lOneAufnr := .T.,cProc
    LOCAL cKunde,cPosText,nBestPos
    LOCAL nExit,cGrund
+   LOCAL nNetto := 0
 
 
    NetUse("englsre","re")
@@ -273,6 +274,7 @@ PROC CreateXRechung(nRechnr,cFile)
             "vatRate"=>oRechnung:MwStRate,;
             "netUnitPrice"=>re->Preis;              
          })
+         nNetto += Round(re->aoqty*re->Preis/Max(re->Pe,1)*(1-re->Rabatt/100),2)
          cPosText := ""
          IF re->Textnr != 0
             cPosText := tx->(ReadText(re->Textnr))
@@ -382,9 +384,8 @@ PROC CreateXRechung(nRechnr,cFile)
    ENDDO
    nExit := HB_ProcessValue(nProc) //wait for PDF24 to end
 
-   FErase(cJsonFile)
-
    IF ! Empty(cStdErr)
+      FErase(cJsonFile)
       oErr := ErrorNew()
       oErr:SubSystem   := "TRADER"
       oErr:Description := "Fehler beim Erstellen der X-Rechnung: "+cStdErr
@@ -403,9 +404,20 @@ PROC CreateXRechung(nRechnr,cFile)
       ELSE
          oErr:Description := "BT-8 (DueDateTypeCode) konnte nicht in die X-Rechnung eingefuegt werden ("+cGrund+"): "+cFile
       ENDIF
+      IF cGrund == "kein ApplicableTradeTax"
+         //PDF24 hat keine Steueraufstellung erzeugt: Daten zur Analyse mitgeben,
+         //die JSON-Datei fuer PDF24 bleibt dafuer liegen
+         oErr:Description += " - keine Steueraufstellung im XML (Positionen: "+LTrim(Str(Len(hData["items"])))+;
+            ", Netto: "+LTrim(Str(nNetto,12,2))+", Porto: "+LTrim(Str(oRechnung:Porto,12,2))+;
+            ", Steuer: "+cTaxCode+" "+AllTrim(hb_ValToStr(oRechnung:MwStRate))+"%, ReArt: "+AllTrim(hb_ValToStr(oRechnung:ReArt))+;
+            ", JSON: "+cJsonFile+")"
+      ELSE
+         FErase(cJsonFile)
+      ENDIF
       oErr:Args        := {nRechnr,cFile,cGrund,nExit}
       Throw(oErr)
    ENDIF
+   FErase(cJsonFile)
 
    STATIC Func _DtoC(dDate)
    RETURN Str(Year(dDate),4)+"-"+StrZero(Month(dDate),2)+"-"+StrZero(Day(dDate),2)   

@@ -897,9 +897,9 @@ RETURN ::Execute("POST", "report", hData)
 //===========================================================================
 // Kundenbewertungslink in Angebots-/AB-Mails (api-feedback-token)
 //
-// Aufruf aus den Hooks ueber LoadPrg(Path("run\crm_email.prg")) + HB_ExecFromArray:
-//   before_print_angebot -> CRM_FeedbackHtml("Angebot", cAngnr, cKundma)
-//   before_print_auftrag -> CRM_FeedbackHtml("AB", cAbNr, cKundma, nPerson, cAngebotNr)
+// Aufruf aus dem Hook before_email_template ueber LoadPrg(Path("run\crm_email.prg")) + HB_ExecFromArray:
+//   Vorlage ang* -> CRM_FeedbackHtml("Angebot", cAngnr, cKundma)
+//   Vorlage ab   -> CRM_FeedbackHtml("AB", cAbNr, cKundma, nPerson, cAngebotNr)
 //
 // cAngebotNr (freiwillig, nur AB): Angebot, aus dem die AB entstanden ist.
 // Damit haengt das CRM die Bewertung auch an die passende Opportunity.

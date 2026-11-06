@@ -32,15 +32,4 @@ FUNCTION HOOK_before_print_angebot(nAngnr,hSettings,hData)
       END SEQUENCE
    ENDIF
 
-   // Kundenbewertung: Link vom CRM holen fuer %bewertung% in ang_*.html
-   // (nur beim Mailversand, sonst leer). Ein Fehler darf den Druck nicht abbrechen.
-   hData["bewertung"] := ""
-   IF lRet
-      BEGIN SEQUENCE
-         LoadPrg(Path("run\crm_email.prg"))
-         hData["bewertung"] := HB_ExecFromArray({"CRM_FeedbackHtml", "Angebot", LTrim(Str(nAngnr)), ku->Kunde})
-      RECOVER
-         //nicht fatal
-      END SEQUENCE
-   ENDIF
 RETURN lRet

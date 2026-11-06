@@ -1651,6 +1651,10 @@
           "exec": "Browse_Values(\"SCHNEIDERE\")"
         },
         {
+          "text": "Leitstand",
+          "exec": "EVAL({|| GetValue(\"LEITSTAND_URL\",\"\",\"Leitstand: base address of the functions, e.g. https://xxxx.supabase.co/functions/v1\"),Browse_Values(\"LEITSTAND\")})"
+        },
+        {
           "text": "Conrad",
           "exec": "Browse_Values(\"CONRAD\")"
         },

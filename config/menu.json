@@ -1667,6 +1667,16 @@
           "exec": "Browse_Values(\"CRON\")"
         },
         {
+          "text": "PostgreSQL",
+          "exec": "EVAL({|| PgEinstellungen(),Browse_Values(\"PG\")})"
+        },
+        {
+          "text": "PostgreSQL-Migrationen einspielen",
+          "exec": "PgMigrierenDialog()",
+          "permission": "SYSTEM",
+          "permtype": "U"
+        },
+        {
           "text": "Sonstige",
           "exec": "Browse_Values(\"\")"
         }
